@@ -571,6 +571,8 @@
       #story li { padding: 6px 0; border-top: 1px solid var(--line); }
       #story li .headline { margin-left: 6px; color: var(--muted); }
       #story li p { margin: 4px 0 0; }
+      #story li p[data-todo] { margin-top: 2px; color: var(--muted); }
+      #story li p[data-todo] span { color: var(--ink); }
       #story li[data-severity="error"] [data-show] { color: var(--error); }
       #story li[data-severity="warning"] [data-show] { color: var(--warning); }
       /* Each severity's shape before the slide's number, not its colour alone; its word is the button's name (lift-up 20261110 USE-1). */
@@ -1207,6 +1209,7 @@
           <label>Big idea <textarea id="prompting-big-idea" rows="2" aria-describedby="prompting-outline-title"></textarea></label>
           <ol id="prompting-beats" aria-label="The beats, in order"></ol>
           <p class="note" id="prompting-total" aria-live="polite"></p>
+          <p class="note" id="prompting-removed" hidden aria-live="polite"><span></span> <button type="button">Undo</button></p>
           <div class="row">
             <button type="button" id="prompting-add-beat">Add a beat</button>
             <label>Arc <select id="prompting-outline-arcs" aria-label="Another arc to outline on"></select></label>

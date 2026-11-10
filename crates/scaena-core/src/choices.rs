@@ -74,6 +74,32 @@ pub struct StateChoices {
     /// The slide's number and footer (ADR-0028): what the deck shows on its slides, and what
     /// this slide says of them.
     pub furniture: FurnitureChoice,
+    /// The plan of the beat that tells it, its intensity and tone (editor dogfood 3): none where
+    /// the deck has no spine, or the beat declares neither.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PlanChoice>,
+}
+
+/// What an inspector offers of the plan a beat declares for its slide (editor dogfood 3), as a
+/// made deck writes it in the beat's `media.narrato` and story health reads it: its intensity,
+/// 0 calm to 1 intense, and its tone (`valence`), -1 grave to 1 hopeful. Each is written by JSON
+/// Patch at `at`, `/intensity` or `/valence`, one patch; neither changes what a slide draws.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct PlanChoice {
+    /// The beat, by its id.
+    pub beat: String,
+    /// The JSON Pointer to the beat's `media.narrato`, where its plan is written.
+    pub at: String,
+    /// Its intensity as planned, where it declares one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intensity: Option<f64>,
+    /// Its tone as planned (`valence`), where it declares one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone: Option<f64>,
+    /// How each value reads, from the least each word says ([`crate::words::INTENSITIES`],
+    /// [`crate::words::TONES`]): what the inspector says a value in as its slider moves.
+    pub intensities: Vec<(f64, String)>,
+    pub tones: Vec<(f64, String)>,
 }
 
 /// What an inspector offers of a slide's number and footer (ADR-0028): the deck's, which
@@ -807,7 +833,9 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 let value = match (prop, key) {
                     (_, Some(key)) => transition.get(key).cloned(),
                     ("hold", _) => own.hold.map(Value::from),
-                    _ => own.notes.clone().map(Value::String),
+                    // The notes a presenter reads: its own, else its beat's (SPEC §2.6), which
+                    // `set_state` writes where they live (editor dogfood 3).
+                    _ => crate::spine::notes(deck, state).filter(|n| !n.is_empty()).map(|n| Value::String(n.into())),
                 };
                 let set = value.as_ref().map(|_| Where::State(state.to_string()));
                 (value, set)
@@ -817,7 +845,30 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
     });
     let fields = fields.collect();
     let furniture = furniture_choice(deck, theme, state, snapshots[i].layout.as_deref());
-    Ok(StateChoices { state: state.into(), fields, said: None, furniture })
+    Ok(StateChoices { state: state.into(), fields, said: None, furniture, plan: plan_choice(deck, state) })
+}
+
+/// The plan of the first beat, in spine order, that tells `state`, where it declares an
+/// intensity or a tone in its `media.narrato` (editor dogfood 3).
+fn plan_choice(deck: &Deck, state: &str) -> Option<PlanChoice> {
+    let sections = deck.spine.iter().flat_map(|s| s.sections.iter().enumerate());
+    let (s, b, beat) = sections
+        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+        .find(|(_, _, beat)| beat.states.iter().any(|id| id == state))?;
+    let narrato = beat.media.as_ref()?.get("narrato")?;
+    let (intensity, tone) =
+        (narrato.get("intensity").and_then(Value::as_f64), narrato.get("valence").and_then(Value::as_f64));
+    (intensity.is_some() || tone.is_some()).then(|| {
+        let ladder = |l: &[(f64, &str)]| l.iter().map(|(at, said)| (*at, said.to_string())).collect();
+        PlanChoice {
+            beat: beat.id.clone(),
+            at: format!("/spine/sections/{s}/beats/{b}/media/narrato"),
+            intensity,
+            tone,
+            intensities: ladder(crate::words::INTENSITIES),
+            tones: ladder(crate::words::TONES),
+        }
+    })
 }
 
 /// What the deck and the slide `state` is on say of the slide's number and footer.

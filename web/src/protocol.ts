@@ -398,6 +398,20 @@ export interface StateChoices {
   said?: string;
   /** The slide's number and footer (ADR-0028). */
   furniture: FurnitureChoice;
+  /** The plan of the beat that tells it, where it declares one (editor dogfood 3). */
+  plan?: PlanChoice;
+}
+
+/** What the inspector offers of the plan a beat declares for its slide (editor dogfood 3): its
+ * intensity, 0 calm to 1 intense, and its tone (`valence`), -1 grave to 1 hopeful, each written
+ * by JSON Patch at `at`; and each value's word, from the least it says. */
+export interface PlanChoice {
+  beat: string;
+  at: string;
+  intensity?: number;
+  tone?: number;
+  intensities: [number, string][];
+  tones: [number, string][];
 }
 
 /** What the inspector offers of a slide's number and footer (ADR-0028): the deck's, which

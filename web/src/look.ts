@@ -277,6 +277,19 @@ const told = (f: Field, v: unknown) =>
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
+/** The plan's controls (editor dogfood 3): each its key in `media.narrato`'s reading, its label,
+ * the least it takes, and its ends, said for a reader. */
+const PLANNED: [string, string, string, string][] = [
+  ["intensity", "Intensity", "0", "calm to intense"],
+  ["tone", "Tone", "-1", "grave to hopeful"],
+];
+
+/** A plan's value in the engine's words (`scaena_core::words::planned`): the last word whose
+ * least it reaches. */
+function plannedSaid(ladder: [number, string][], value: number): string {
+  return [...ladder].reverse().find(([least]) => value >= least)?.[1] ?? ladder[0]?.[1] ?? "";
+}
+
 export function looks(stage: Stage, into: HTMLElement, around: Around, animating: HTMLElement = document.createElement("div")) {
   /** Both panels, Format's and Animate's. */
   const panels = [into, animating];
@@ -599,6 +612,22 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
         <label for="look-furniture">This slide</label><span class="control"><select id="look-furniture" data-furnish="slide"><option value=""${furniture.slide === undefined ? " selected" : ""}>As its layout has them</option><option value="yes"${furniture.slide === true ? " selected" : ""}>Shows them</option><option value="no"${furniture.slide === false ? " selected" : ""}>Hides them</option></select></span><span class="lives">${furniture.shown ? "Shown" : "Hidden"}</span>
       </div>`
       : "";
+    // The plan of the beat that tells the slide (editor dogfood 3), where it declares one: its
+    // intensity and tone, which story health reads against the arc, each said in the engine's
+    // words.
+    const plan = !chars && !nodes.length && "plan" in offered ? offered.plan : undefined;
+    const planning = plan
+      ? `<h3 class="furniture-title">Plan</h3>
+      <div class="fields furniture plan">
+        ${PLANNED.map(([key, label, min, ends]) => {
+          const value = key === "intensity" ? plan.intensity : plan.tone;
+          // Undeclared, it stands in the middle of its range until it is planned.
+          const at = value ?? (key === "intensity" ? 0.5 : 0);
+          const word = plannedSaid(key === "intensity" ? plan.intensities : plan.tones, at);
+          return `<label for="look-plan-${key}">${label}</label><span class="control"><input id="look-plan-${key}" type="range" data-plan="${key === "intensity" ? "intensity" : "valence"}" min="${min}" max="1" step="0.05" value="${at}" aria-label="${label}, ${ends}" aria-valuetext="${html(word)}"></span><span class="lives">${html(word)}</span>`;
+        }).join("")}
+      </div>`
+      : "";
     // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
     const framed = !chars && nodes.length === 1 && "framed" in offered && offered.framed;
     const framing = framed ? `<p class="framed"><span class="arrange-kind">Frame</span> ${html(framed)}</p>` : "";
@@ -620,6 +649,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
       <div class="fields">${rows.join("")}</div>
       ${framing}
       ${furnishing}
+      ${planning}
       ${text ? "" : writing}
       ${reading}`;
     const swatches = into.querySelector<HTMLElement>(".backgrounds");
@@ -918,6 +948,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
 
   for (const panel of panels) listen(panel, "change", (e) => {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
+    // The beat's plan (editor dogfood 3): one JSON Patch where it lives.
+    const planned = target.dataset.plan;
+    if (planned && offered && "plan" in offered && offered.plan) {
+      const plan = offered.plan;
+      const value = Number(target.value);
+      const slide = around.shown() ? around.slide(around.shown()!.state) : "The slide";
+      const [, label] = PLANNED.find(([k]) => (k === "intensity" ? "intensity" : "valence") === planned)!;
+      const word = plannedSaid(planned === "intensity" ? plan.intensities : plan.tones, value);
+      furnish([{ op: "add", path: `${plan.at}/${planned}`, value }], `${slide}: ${label} ${word}`);
+      return;
+    }
     const furnishing = target.dataset.furnish;
     if (furnishing && offered && "furniture" in offered) {
       const f = offered.furniture;
@@ -989,6 +1030,15 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
   for (const panel of panels) listen(panel, "input", (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || target.type !== "range") return;
+    // A plan's slider says its word as it is held (editor dogfood 3); it draws nothing on the
+    // slide, so nothing is previewed there.
+    if (target.dataset.plan && offered && "plan" in offered && offered.plan) {
+      const word = plannedSaid(target.dataset.plan === "intensity" ? offered.plan.intensities : offered.plan.tones, Number(target.value));
+      target.setAttribute("aria-valuetext", word);
+      const readout = target.closest(".control")?.nextElementSibling;
+      if (readout?.classList.contains("lives")) readout.textContent = word;
+      return;
+    }
     const said = adjustment(Number(target.value));
     target.setAttribute("aria-valuetext", said);
     const readout = target.nextElementSibling;
