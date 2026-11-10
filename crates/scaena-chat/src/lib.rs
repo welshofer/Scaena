@@ -143,10 +143,22 @@ pub fn once(
     provider.turn(&Ask { model, key, base, system: instructions, tools: &[], messages: &messages, browser })
 }
 
-/// What a model said in answer to [`once`]: its words, or why it gave none.
+/// What a model said in answer to [`once`]: its words, or why it gave none. An answer cut off by
+/// its token limit, or declined, is no answer (lift-up 20261031 REL-5): a writing tool would
+/// otherwise offer a fragment, or nothing, as the words to take.
 pub fn answered(provider: Provider, status: u16, status_text: &str, body: &str) -> Result<String, ChatError> {
-    Ok(provider.read_turn(status, status_text, body)?.text)
+    let turn = provider.read_turn(status, status_text, body)?;
+    match turn.stop {
+        Stop::Length => Err(ChatError::Provider(LENGTH.into())),
+        Stop::Refused => {
+            Err(ChatError::Provider(format!("{} declined to write it: ask in other words", provider.name())))
+        }
+        _ => Ok(turn.text),
+    }
 }
+
+/// Why an answer cut off by its token limit is not taken.
+pub const LENGTH: &str = "the answer ran out of room: ask again, or pick a larger model";
 
 /// One conversation with a model, kept between questions until the client forgets it.
 #[derive(Debug, Clone)]

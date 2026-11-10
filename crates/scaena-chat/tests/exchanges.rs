@@ -104,6 +104,14 @@ fn each_adapter_asks_and_reads_as_the_browsers_does() {
         let status = failure["status"].as_u64().unwrap() as u16;
         let said = provider.read_turn(status, "", &body(&failure["body"])).unwrap_err().to_string();
         assert_eq!(json!(said), kept["failure"]["message"], "{id}: the failure said");
+
+        // Each answer a model declined or a provider blocked, read as a refusal, as the browser's
+        // adapter reads it (lift-up 20261025c REL-1).
+        let refused: Vec<Value> = (conversation["refusals"][&id].as_array().unwrap().iter())
+            .map(|answer| json!(provider.read_turn(200, "", &body(answer)).unwrap().stop))
+            .collect();
+        assert_eq!(json!(refused), kept["refusals"], "{id}: the refusals read");
+        assert!(refused.iter().all(|stop| stop == "refused"), "{id}: {refused:?}");
     }
 }
 
@@ -407,4 +415,30 @@ fn a_call_cut_off_by_the_token_limit_is_not_run_but_answered() {
         chat.answer(200, "OK", &words.to_string()).unwrap(),
         Next::Done { text: "So much".into(), stop: Stop::Length, usage: None }
     );
+}
+
+/// An answer cut off by its token limit, or declined by the model or its provider's safety system,
+/// stops as the browser's adapters read it (`tests/assistant/stops.json`), and a writing tool's
+/// [`scaena_chat::answered`] takes neither as words (lift-up 20261031 REL-5).
+#[test]
+fn an_answer_cut_off_or_declined_is_no_answer_to_take() {
+    let stops = read("stops.json");
+    for (i, case) in stops["cases"].as_array().unwrap().iter().enumerate() {
+        let provider: Provider = serde_json::from_value(case["provider"].clone()).unwrap();
+        let stop: Stop = serde_json::from_value(case["stop"].clone()).unwrap();
+        let said = body(&case["body"]);
+        let turn = provider.read_turn(200, "OK", &said).unwrap();
+        assert_eq!(turn.stop, stop, "answer {}", i + 1);
+        let written = scaena_chat::answered(provider, 200, "OK", &said);
+        match stop {
+            Stop::Length => {
+                assert_eq!(written.unwrap_err().to_string(), scaena_chat::LENGTH, "answer {}", i + 1);
+            }
+            Stop::Refused => {
+                let why = written.unwrap_err().to_string();
+                assert!(why.contains("declined to write it"), "answer {}: {why}", i + 1);
+            }
+            _ => assert!(written.is_ok(), "answer {}", i + 1),
+        }
+    }
 }

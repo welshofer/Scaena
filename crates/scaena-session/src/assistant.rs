@@ -340,6 +340,9 @@ struct IconFind {
     weight: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    #[cfg_attr(not(feature = "shipped"), allow(dead_code))]
+    #[serde(default)]
+    paths: bool,
 }
 
 #[derive(Deserialize)]
@@ -377,7 +380,9 @@ struct BackgroundSet {
 /// `slide_write`'s arguments, as the MCP tool takes them, less the bundle.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(not(feature = "generate"), allow(dead_code))]
+// Read by `slide_write`, which needs the icons that ship too: the editor's module, which makes a
+// deck (`generate`) and carries no icons, only checks the arguments.
+#[cfg_attr(not(all(feature = "generate", feature = "shipped")), allow(dead_code))]
 struct SlideWrite {
     slide: Map<String, Value>,
     #[serde(default)]
@@ -463,21 +468,22 @@ impl Session {
                     SeverityArg::Warning => Severity::Warning,
                     SeverityArg::Info => Severity::Info,
                 };
+                // Dates are judged at the moment asked, else at the call's (ADR-0030).
+                let now = match a.now.as_deref() {
+                    Some(now) => Some(
+                        scaena_core::fetched::moment(now)
+                            .ok_or_else(|| ops(format!("deck_lint: `now` `{now}` is not an instant or a day")))?,
+                    ),
+                    None => by.at,
+                };
+                let state = a.state.as_deref();
                 let (findings, fixed, laid, deck) = match a.fix {
                     true => {
-                        let (f, deck) = scaena_ops::lint::fixing(&b)?;
+                        let (f, deck) = scaena_ops::lint::fixing_at(&b, state, now)?;
                         (f.findings, Some(f.fixed), true, deck)
                     }
                     false => {
-                        // Dates are judged at the moment asked, else at the call's (ADR-0030).
-                        let now =
-                            match a.now.as_deref() {
-                                Some(now) => Some(scaena_core::fetched::moment(now).ok_or_else(|| {
-                                    ops(format!("deck_lint: `now` `{now}` is not an instant or a day"))
-                                })?),
-                                None => by.at,
-                            };
-                        let l = scaena_ops::lint::lint_at(&b, now)?;
+                        let l = scaena_ops::lint::lint_scoped_at(&b, state, now)?;
                         (l.findings, None, l.laid, None)
                     }
                 };
@@ -620,7 +626,11 @@ impl Session {
             #[cfg(feature = "shipped")]
             "icon_find" => {
                 let a: IconFind = args(name, a)?;
-                Called::of(scaena_ops::icons::find(&a.query, a.weight, a.limit.unwrap_or(20)))
+                // As the MCP server finds them: 50 at most, the paths only where asked for
+                // (lift-up 20261025c SEC-3).
+                let found =
+                    scaena_ops::icons::find(&a.query, a.weight, a.limit.unwrap_or(20).min(scaena_ops::icons::MOST));
+                Called::of(if a.paths { found } else { found.names_only() })
             }
             // Read as the MCP tool reads it, as `map_fetch` is, so a call is refused for what it
             // is, not for what it holds, in a library without the icons as in one with them.
@@ -731,8 +741,8 @@ impl Session {
     #[cfg(feature = "shipped")]
     pub fn slide_write(&mut self, a: Value, by: Caller) -> Result<Called, Error> {
         let a: SlideWrite = args("slide_write", a)?;
-        let slide: scaena_ops::narrative::Slide =
-            serde_json::from_value(Value::Object(a.slide)).map_err(|e| ops(format!("slide_write: the slide: {e}")))?;
+        let slide = scaena_ops::narrative::slide_from(&Value::Object(a.slide))
+            .map_err(|e| ops(format!("slide_write: the slide: {}", e.message)))?;
         let place = match (a.replace, a.after) {
             (Some(_), Some(_)) => return Err(ops("slide_write: give `after` or `replace`, not both")),
             (Some(state), None) => scaena_ops::narrative::Place::Replace(state),

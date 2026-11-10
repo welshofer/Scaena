@@ -12,6 +12,10 @@
 // [`scaena_chat_free`].
 typedef struct ScaenaChat ScaenaChat;
 
+// A cue laid out ahead on a [`ScaenaLaying`] ([`scaena_laying_cue`]), until the session takes it
+// ([`scaena_cue_laid`]).
+typedef struct ScaenaCue ScaenaCue;
+
 // A bundle's files, gathered to open it.
 typedef struct ScaenaFiles ScaenaFiles;
 
@@ -161,6 +165,35 @@ struct ScaenaPixels scaena_laying_pixels(struct ScaenaLaying *laying,
                                          const char *state,
                                          uint32_t width,
                                          char **error);
+
+// The cue into `state` in `format`, one of the deck's formats, or its own canvas where null, laid
+// out ahead from `laying`'s deck as `prepare` lays it out, on the thread that calls it, which
+// touches no session: a show's next cue laid out while the state shown rests, away from the
+// window, which [`scaena_cue_laid`] hands the session (lift-up 10-25b PERF-5). Null where it
+// cannot be laid out, `*error` then saying why. Free with [`scaena_cue_free`].
+//
+// # Safety
+// `laying` is a live handle from [`scaena_laying_new`], used by one thread at a time; `format`
+// null or a NUL-terminated string; `state` one; `error` null or writable.
+struct ScaenaCue *scaena_laying_cue(struct ScaenaLaying *laying,
+                                    const char *format,
+                                    const char *state,
+                                    char **error);
+
+// Hand `session` the cue `cue` holds, as the one its next frames into that state sample, laying
+// nothing out: false where the deck shown or its format changed after it was laid out from it,
+// that cue is kept already, or `cue` was handed over before. `cue` is still freed after.
+//
+// # Safety
+// `session` is a live handle, on the session's thread; `cue` a live one from
+// [`scaena_laying_cue`].
+bool scaena_cue_laid(struct ScaenaSession *session, struct ScaenaCue *cue);
+
+// Free a cue.
+//
+// # Safety
+// `cue` is a live handle from [`scaena_laying_cue`], or null.
+void scaena_cue_free(struct ScaenaCue *cue);
 
 // Whether `laying` was taken from the deck `session` holds as it stands: false once another
 // source compiled, a file was handed over, or the theme was edited, so what it draws is of an
@@ -477,6 +510,10 @@ char *scaena_adopt_since(struct ScaenaSession *session,
 // `saved` is a live handle from [`scaena_save`], or null.
 void scaena_saved_free(struct ScaenaSaved *saved);
 
+// Whether this library carries the web player a single-file export is made from (`scaena_export`'s
+// `html`): only one built after `just web` does, as only such a `scaena` exports `--format html`.
+bool scaena_carries_player(void);
+
 // Make the GPU every surface paints with, if it is not made yet: what the app calls as it starts,
 // off its main thread, so that the first deck it opens shows its first frame without waiting for
 // it (gate 3). A surface made meanwhile waits for it. False where none can be made, as on any
@@ -546,7 +583,10 @@ void scaena_surface_free(struct ScaenaSurface *surface);
 // painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 // every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
 // 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
-// 3.15). Null bytes where it cannot be made, `*error` then saying why.
+// 3.15); or `html`, `args` `{name, notes}`, the deck as one file that plays offline, named `name`,
+// as `export --format html` writes it, the presenter's notes kept only with `notes: true`, made
+// only by a library that carries the web player ([`scaena_carries_player`]). Null bytes where it
+// cannot be made, `*error` then saying why.
 //
 // # Safety
 // `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`

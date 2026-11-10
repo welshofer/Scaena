@@ -25,8 +25,16 @@ struct AssistantPanel: View {
     #endif
     /// Whether the provider has no key kept: the panel offers to add one.
     @State private var keyless = false
-    /// Bumped as the keys sheet closes, so that the models are listed again with the key kept.
+    /// Whether the conversation is scrolled to its end, where an answer is followed as it is
+    /// written (lift-up 10-25c ATTR-3).
+    @State private var following = true
+    /// Whether the conversation shows its end now.
+    @State private var atEnd = true
+    /// Bumped as the keys sheet closes, or as a key is kept anywhere, Settings on the Mac among
+    /// them, so that the models are listed again with the key kept (lift-up 20261031 FUNC-4).
     @State private var keysChanged = 0
+    /// The window's undo, whose step Undo This Answer takes back (lift-up 10-25 FUNC-4).
+    @Environment(\.undoManager) private var undoManager
 
     private let keychain = Keychain()
 
@@ -47,6 +55,9 @@ struct AssistantPanel: View {
             asking
         }
         .task(id: "\(provider.rawValue)\u{1f}\(keysChanged)") { await list() }
+        .onReceive(NotificationCenter.default.publisher(for: Keychain.changed)) { posted in
+            if posted.object as? String == keychain.service { keysChanged += 1 }
+        }
         .onChange(of: assistant.drafted, initial: true) { _, drafted in
             // A question drafted elsewhere, put in the box to send or change.
             guard let drafted else { return }
@@ -148,6 +159,18 @@ struct AssistantPanel: View {
                     ForEach(assistant.entries) { entry in
                         EntryRow(entry: entry, assistant: assistant).id(entry.id)
                     }
+                    // The answer's edits, one step: taken back here as the Edit menu's Undo
+                    // takes it, while it is still the last step (lift-up 10-25 FUNC-4).
+                    if assistant.answered, !assistant.working,
+                        undoManager?.undoActionName == ScaenaDocument.answerStep
+                    {
+                        Button("Undo This Answer") {
+                            // Read again as it is pressed: the view does not hear the undo's steps.
+                            if undoManager?.undoActionName == ScaenaDocument.answerStep { undoManager?.undo() }
+                            assistant.answerUndone()
+                        }
+                        .accessibilityIdentifier("undo-answer")
+                    }
                     // What it is doing while it works: the call running says so itself; a
                     // provider asked again, the wait (narrative REL-3).
                     if let waiting = assistant.waiting {
@@ -160,7 +183,22 @@ struct AssistantPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .onChange(of: assistant.entries.count) {
-                if let last = assistant.entries.last { scroll.scrollTo(last.id, anchor: .bottom) }
+                if following, let last = assistant.entries.last { scroll.scrollTo(last.id, anchor: .bottom) }
+            }
+            // The answer followed as it is written (lift-up 10-25c ATTR-3), as the browser's
+            // panel follows it, unless the person has scrolled up from the end to read.
+            .onChange(of: assistant.spoken) {
+                if following, let last = assistant.entries.last { scroll.scrollTo(last.id, anchor: .bottom) }
+            }
+            // Followed, or not, by where the person's own scrolling leaves it: an answer growing
+            // past the end, which is no scroll of theirs, leaves it followed.
+            .onScrollGeometryChange(for: Bool.self, of: { geometry in
+                geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 24
+            }) { _, end in
+                atEnd = end
+            }
+            .onScrollPhaseChange { _, phase in
+                if !phase.isScrolling { following = atEnd }
             }
         }
     }
@@ -208,6 +246,8 @@ struct AssistantPanel: View {
             keyless = true
             return
         }
+        // The person's own question comes into view, and what answers it is followed from there.
+        following = true
         assistant.ask(text, provider: provider, model: model.wrappedValue, key: key, seeing: seeing())
         question = ""
     }
@@ -354,7 +394,7 @@ private struct EntryRow: View {
                 }
             }
         case .done(let why):
-            if let said = stopped(why) {
+            if let said = Assistant.stopped(why) {
                 Text(said).font(.caption).foregroundStyle(.secondary)
             }
         case .failed(let why):
@@ -410,14 +450,4 @@ private struct EntryRow: View {
     }
 
     /// Why the answer stopped, where it is worth saying.
-    private func stopped(_ why: String) -> String? {
-        switch why {
-        case "end", "tools": nil
-        case "stopped": "Stopped."
-        case "steps": "Stopped after 32 rounds of calls: ask again to go on."
-        case "length": "The answer ran out of room."
-        // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
-        default: "The model stopped."
-        }
-    }
 }

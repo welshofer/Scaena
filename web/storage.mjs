@@ -30,7 +30,7 @@
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { axeInto, launch, serve } from "./serve.mjs";
+import { answering, axeInto, launch, serve, TAKEN } from "./serve.mjs";
 
 
 const server = await serve();
@@ -82,6 +82,9 @@ try {
     asked.push(d.message());
     void (declining ? d.dismiss() : d.accept());
   });
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3): taken,
+  // they are saved first; declined, the player plays the deck as last saved.
+  await answering(page, (a) => (asked.push(a.message), declining ? "discard" : TAKEN[a.for]));
   /** The editor once it has compiled and linted the bundle named `name`, if any. */
   const ready = async (name) => {
     await page.waitForFunction(
@@ -209,7 +212,7 @@ try {
   await type(tripled);
   check((await where()).dirty, "an edit not saved");
   const onEdited = await playing();
-  check(asked.length === 1 && asked[0].includes("Save it first?"), `Play on a deck with changes not saved asks to save it first: ${asked}`);
+  check(asked.length === 1 && asked[0].includes("Save them first?"), `Play on a deck with changes not saved asks to save it first: ${asked}`);
   check(!(await where()).dirty && (await listing(page, "bundles/revenue", "deck.json")).includes("Revenue tripled"), "saved, so the player plays the deck as the editor has it");
   check(onEdited.on, `on the slide shown: ${JSON.stringify(onEdited)}`);
   await type(reopened);
@@ -364,6 +367,45 @@ try {
   const still = await page.evaluate(() => Promise.race([window.scaena.save().then((d) => d?.where.name), new Promise((r) => setTimeout(() => r("no answer"), 20000))]));
   check(still === "plain", `and saves: ${still}`);
 
+  // Two folders of one name are two folders (the 20261031 plan's REL-2): each is kept under a key
+  // of its own, which the address names, and the same folder opened again by another handle keeps
+  // its key. (Chromium's page dies reading a handle to the origin-private file system back from
+  // IndexedDB, so the walk reloads none: a folder on disk, which a person opens, reads back.)
+  const keyOf = () => new URL(page.url()).searchParams.get("bundle");
+  const plainKey = keyOf();
+  // The stage's canvas is another once a deck opens: what tells this open's end from the last's.
+  const markStage = () => page.evaluate(() => (document.querySelector("#stage").marked = true));
+  const openedAnew = () => page.waitForFunction(() => !document.querySelector("#stage").marked, null, { timeout: 120000 });
+  await markStage();
+  await page.evaluate(async ([files]) => {
+    const root = await navigator.storage.getDirectory();
+    const dir = await (await root.getDirectoryHandle("elsewhere", { create: true })).getDirectoryHandle("plain", { create: true });
+    for (const [path, from] of files) {
+      const bytes = new Uint8Array(await (await fetch(`/docs/examples/${from}`)).arrayBuffer());
+      let at = dir;
+      const parts = path.split("/");
+      const name = parts.pop();
+      for (const part of parts) at = await at.getDirectoryHandle(part, { create: true });
+      const out = await (await at.getFileHandle(name, { create: true })).createWritable();
+      await out.write(bytes);
+      await out.close();
+    }
+    await window.scaena.open({ folder: dir });
+  }, [files]);
+  await openedAnew();
+  await ready("plain");
+  const otherKey = keyOf();
+  check(
+    plainKey?.startsWith("folder:") && otherKey?.startsWith("folder:") && plainKey !== otherKey && plainKey !== "folder:plain",
+    `two folders named alike are kept under keys of their own: ${plainKey}, ${otherKey}`,
+  );
+  check(!(await page.evaluate(() => window.scaena.source())).includes("Smile at the board."), "the other folder opens as its own");
+  await markStage();
+  await page.evaluate(async () => window.scaena.open({ folder: await (await navigator.storage.getDirectory()).getDirectoryHandle("plain") }));
+  await openedAnew();
+  await ready("plain");
+  check(keyOf() === plainKey, `the same folder by another handle keeps its key: ${keyOf()}`);
+
   // Kept in this browser…: each deck opened, renamed, or deleted from the list (PLAN 2.124).
   const keeps = () => page.evaluate(async () => {
     const names = [];
@@ -426,6 +468,25 @@ try {
   await page.keyboard.press("Escape");
   await type((await page.evaluate(() => window.scaena.source())).replace("Revenue more than doubled", "Revenue tripled"));
   check((await page.evaluate(() => window.scaena.save()))?.where.name === "Board" && (await listing(page, "bundles/Board", "deck.json")).includes("Revenue tripled"), "and a save writes there");
+  // A save writes again only what changed: the deck, and not a font whose bytes are as the folder
+  // holds them (the 20261031 plan's PERF-4).
+  const stamps = () =>
+    page.evaluate(async () => {
+      const at = await (await (await navigator.storage.getDirectory()).getDirectoryHandle("bundles")).getDirectoryHandle("Board");
+      const stamp = async (dir, name) => (await (await dir.getFileHandle(name)).getFile()).lastModified;
+      const fonts = await at.getDirectoryHandle("fonts");
+      const font = [];
+      for await (const [name, handle] of fonts.entries()) if (handle.kind === "file") font.push(name);
+      font.sort();
+      return { deck: await stamp(at, "deck.json"), font: font[0], fontAt: font[0] && (await stamp(fonts, font[0])) };
+    });
+  const stampedBefore = await stamps();
+  await page.waitForTimeout(50);
+  await type((await page.evaluate(() => window.scaena.source())).replace("Revenue tripled", "Revenue quadrupled"));
+  await page.evaluate(() => window.scaena.save());
+  const stampedAfter = await stamps();
+  check(Boolean(stampedBefore.font) && stampedAfter.deck > stampedBefore.deck, `a save writes the deck it changed: ${stampedBefore.deck} → ${stampedAfter.deck}`);
+  check(stampedAfter.font === stampedBefore.font && stampedAfter.fontAt === stampedBefore.fontAt, `and not the font it did not: ${stampedBefore.font} at ${stampedBefore.fontAt} → ${stampedAfter.font} at ${stampedAfter.fontAt}`);
 } catch (e) {
   failures.push(String(e));
 } finally {

@@ -67,6 +67,28 @@ fn a_workbook_reads_each_sheet_under_its_name() {
     assert_eq!(s.text, "## Sheet: Revenue\nQuarter\tRevenue\nQ1\t\t12.5\nQ2\tTRUE");
 }
 
+/// Sheets that all name one part read it once, so a workbook cannot read one dense part again
+/// for each sheet that names it (lift-up 20261110 SEC-2).
+#[test]
+fn a_part_named_by_many_sheets_is_read_once() {
+    let sheets: String = (1..=16).map(|i| format!(r#"<sheet name="S{i}" sheetId="{i}" r:id="rId1"/>"#)).collect();
+    let workbook = format!(r#"<workbook xmlns="m" xmlns:r="r"><sheets>{sheets}</sheets></workbook>"#);
+    let rels = r#"<Relationships xmlns="p">
+  <Relationship Id="rId1" Type="http://schemas/worksheet" Target="worksheets/sheet1.xml"/></Relationships>"#;
+    let sheet = r#"<worksheet xmlns="m"><sheetData>
+  <row r="1"><c r="A1" t="inlineStr"><is><t>Quarter</t></is></c></row>
+  <row r="2"><c r="A2" t="inlineStr"><is><t>Q1</t></is></c></row>
+</sheetData></worksheet>"#;
+    let xlsx = package(&[
+        ("xl/workbook.xml", workbook.as_str()),
+        ("xl/_rels/workbook.xml.rels", rels),
+        ("xl/worksheets/sheet1.xml", sheet),
+    ]);
+    let s = read("one.xlsx", &xlsx).unwrap();
+    assert_eq!(s.sheets.len(), 1, "{:?}", s.sheets.iter().map(|s| &s.name).collect::<Vec<_>>());
+    assert_eq!(s.sheets[0].name, "S1");
+}
+
 #[test]
 fn a_deck_reads_its_slides_notes_charts_and_sections() {
     let presentation = r#"<p:presentation xmlns:p="p" xmlns:r="r" xmlns:p14="p14">

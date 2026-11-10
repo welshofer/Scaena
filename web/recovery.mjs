@@ -17,7 +17,7 @@
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { launch, serve } from "./serve.mjs";
+import { answering, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -35,6 +35,9 @@ try {
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   // Leaving with changes not saved is confirmed, as is opening another deck over them.
   page.on("dialog", (d) => void d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   const ready = async (name) => {
     await page.waitForFunction(
       (name) => (window.scaena?.last() && (!name || window.scaena.where().name === name)) || document.querySelector("#status")?.textContent.startsWith("Error"),
@@ -169,9 +172,17 @@ try {
   await page.waitForFunction(() => window.scaena.last()?.valid === true, null, { timeout: 30000 }).catch(() => {});
   check((await source()) === withImage && (await page.evaluate(() => window.scaena.last().valid)), "Recover puts the picture back with the source: the deck validates");
   check((await status()).includes("with 1 file"), `and says the file came with it: ${await status()}`);
-  await page.evaluate(() => window.scaena.save());
+  // A copy being kept as the save is asked for, its picture still being read from the worker: the
+  // save's discard waits on it, so no copy of what was saved is left behind once both are done
+  // (the 20261031 plan's REL-3).
+  await page.evaluate(() => {
+    void window.scaena.keepCopy();
+    return window.scaena.save();
+  });
   await page.waitForFunction(() => !window.scaena.where().dirty, null, { timeout: 30000 });
   check(await uncopied(), "saved, the copy is gone");
+  await page.waitForTimeout(2000);
+  check(!(await copies()).some((c) => c.record), "and stays gone, though a copy was being kept as the save was asked for");
 
   // Discard leaves the deck as saved.
   const kept2 = await source();
@@ -231,10 +242,39 @@ try {
   await page.evaluate(() => window.scaena.keepCopy());
   const keptNew = (await copies()).find((c) => c.record?.name === "fresh");
   check(keptNew?.source?.includes("Fresh words"), `the new deck's changes are kept: ${JSON.stringify((await copies()).map((c) => c.record?.name))}`);
+  // Copies no deck will find again, kept before a copy said how to open its deck (a deck of files,
+  // a week old), go as the editor starts; a copy of a deck kept somewhere, or one a day old, stays.
+  const week = 8 * 24 * 60 * 60 * 1000;
+  await page.evaluate(async (week) => {
+    const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("recovery", { create: true });
+    const plant = async (dir, record) => {
+      const at = await all.getDirectoryHandle(dir, { create: true });
+      const writable = await (await at.getFileHandle("copy.json", { create: true })).createWritable();
+      await writable.write(JSON.stringify(record));
+      await writable.close();
+    };
+    await plant("stranded", { at: Date.now() - week, name: "old", files: [], removed: [] });
+    await plant("stranded-files", { at: Date.now() - week, name: "old", files: [], removed: [], key: "files:old" });
+    await plant("kept-somewhere", { at: Date.now() - week, name: "kept", files: [], removed: [], key: "opfs:kept" });
+    await plant("recent", { at: Date.now() - 24 * 60 * 60 * 1000, name: "recent", files: [], removed: [] });
+  }, week);
   // The page goes, as a crash or a tab closed takes it, and a deck of that title made again is
   // offered them.
   await page.reload();
   await ready();
+  // The editor opened again lists it among the decks not saved; not now, it stays kept.
+  await page.locator("#leftovers[open]").waitFor({ timeout: 30000 }).catch(() => {});
+  const leftovers = await page.locator("#leftovers li span").allTextContents();
+  check(leftovers.length === 1 && leftovers[0].startsWith("Fresh words, changed "), `the editor opened again lists the new deck not saved: ${leftovers.join(" | ")}`);
+  await page.click("#leftovers button[value=later]");
+  // The list is read after the sweep, so what it left is what stays.
+  const planted = await page.evaluate(async () => {
+    const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("recovery");
+    const names = [];
+    for await (const [name] of all.entries()) names.push(name);
+    return names.filter((n) => ["stranded", "stranded-files", "kept-somewhere", "recent"].includes(n)).sort();
+  });
+  check(planted.join() === "kept-somewhere,recent", `a week-old copy no deck will find goes, the rest stay: ${planted.join(", ")}`);
   await page.evaluate(() => window.scaena.open({ create: { theme: "Dusk", title: "Fresh" } }));
   await ready("fresh");
   await offered().waitFor({ timeout: 10000 }).catch(() => {});
