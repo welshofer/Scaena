@@ -20,6 +20,9 @@
 //   fix taken mends the slide (editor dogfood 4).
 // - A row names its slide by the headline the deck has now: retyped, the row says it, though
 //   health still names the slide by its beat's claim (editor dogfood 4).
+// - A figure no source backs, in a deck made from sources (W1's dogfood 5): its row's Cite a
+//   source… offers the deck's sources, the one chosen joins the slide's beat's evidence, one
+//   patch, the finding goes, the status says it, and ⌘Z takes it back.
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
 //   claim, is offered beside the status once the burst of typing ends ("Slide 1's story still says
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
@@ -31,7 +34,7 @@
 //   takes it back (editor dogfood 3).
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
@@ -488,6 +491,81 @@ try {
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the plan back");
+    await page.close();
+  })();
+
+  // A figure no source backs, in a deck made from sources (W1's dogfood 5): its row offers the
+  // deck's sources, and the one cited joins the slide's beat's evidence, one patch, the finding
+  // gone; ⌘Z takes it back.
+  await (async () => {
+    const bundle = "target/web-story/grant";
+    await rm(bundle, { recursive: true, force: true });
+    await mkdir("target/web-story", { recursive: true });
+    const slide = (title, layout, bullets, beat, name, src) => ({
+      slideTitle: title, subtitle: "", layoutSuggestion: layout, keyBullets: bullets, speakerNotes: "",
+      beatIndex: beat, beatName: name, purpose: "", intent: "", expectedIntensity: 0.5, expectedValence: 0.3,
+      ...(src ? { sourceRef: src } : {}),
+    });
+    const slides = {
+      executiveSummary: "The season came in under budget.",
+      slides: [
+        slide("High Country Trails", "Title", [], 0, "Opening"),
+        slide("We came in $6,600 under budget", "Statement", ["Every line but one came in under plan"], 1, "Cost", "trails-budget.csv"),
+        slide("Trail use rose 27% on rebuilt segments", "Big Number", ["27%", "more hikers on rebuilt segments"], 1, "Cost"),
+        slide("Crews rebuilt the Bear Creek saddle", "Statement", ["Eleven weekends of work after the storms"], 1, "Cost"),
+        slide("Renew the grant", "Closing", ["Thank you"], 2, "Ask"),
+      ],
+    };
+    await writeFile("target/web-story/grant.slides.json", JSON.stringify(slides));
+    execFileSync(
+      "cargo",
+      ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", bundle, "A grant renewal for a panel that checks every figure",
+        "--slides", "target/web-story/grant.slides.json", "--source", "docs/examples/data/trails-budget.csv",
+        "--no-look", "--pictures", "none", "--audience", "a grant review panel", "--goal", "Persuade", "--length", "5-10 slides"],
+      { stdio: "inherit" },
+    );
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/${bundle}/deck.json`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "source"), null, { timeout: 120000 }).catch(() => {});
+    const unsourced = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.kind === "source"));
+    check(unsourced?.figure === "27%", `the 27% no source backs is found: ${JSON.stringify(unsourced)}`);
+    const row = `#story [data-findings] li[data-slide="${unsourced?.slide}"]`;
+    // While the source does not compile, Cite a source… is held with the row's fixes (#944).
+    const sound = await page.evaluate(() => window.scaena.source());
+    await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), sound);
+    await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+    await tab(page, "inspector");
+    await tab(page, "story");
+    await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+    const held = await page.evaluate((r) => [...document.querySelectorAll(`${r} [data-cite], ${r} [data-citing] [data-source]`)].map((b) => b.disabled), row);
+    check(held.length === 2 && held.every(Boolean), `while the source does not compile, Cite a source… is held: ${JSON.stringify(held)}`);
+    await page.focus("#overlay");
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction((s) => window.scaena.source() === s, sound, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction((r) => document.querySelector(`${r} [data-cite]`)?.disabled === false, row, { timeout: 60000 }).catch(() => {});
+    check(await page.evaluate((r) => document.querySelector(`${r} [data-cite]`)?.disabled === false, row), "taken back, Cite a source… is offered again");
+    await page.click(`${row} [data-cite]`).catch((e) => failures.push(`no Cite a source…: ${e.message}`));
+    const offered = await page.evaluate((r) => [...document.querySelectorAll(`${r} [data-citing] [data-source]`)].map((b) => b.textContent), row);
+    check(offered.join() === "trails-budget.csv", `Cite a source… offers the deck's sources: ${JSON.stringify(offered)}`);
+    const was = await page.evaluate(() => window.scaena.source());
+    await page.click(`${row} [data-citing] [data-source="trails-budget.csv"]`).catch(() => {});
+    await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    await page
+      .waitForFunction(() => !window.scaena.story.health()?.findings.some((f) => f.kind === "source"), null, { timeout: 60000 })
+      .catch(() => {});
+    const cited = await page.evaluate(() => window.scaena.story.health()?.findings.filter((f) => f.kind === "source").map((f) => f.says));
+    check(cited?.length === 0, `cited, the figure is sourced: ${JSON.stringify(cited)}`);
+    check(/source:trails-budget\.csv/.test(await page.evaluate(() => window.scaena.source())), "the beat cites it as its evidence");
+    check(/cites trails-budget\.csv/.test(await page.textContent("#status")), `and the status says so: ${await page.textContent("#status")}`);
+    await page.locator(".cm-content").focus();
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
+    check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the citation back in one step");
     await page.close();
   })();
 } catch (e) {

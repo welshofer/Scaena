@@ -1510,6 +1510,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
     },
     fix: (f) => fix(f),
+    sources: async () => (await stage.listing(view.state.doc.toString())).grounded.map((g) => g.name),
+    cites: async (state) => (await stage.stateChoices(state)).cites,
     mark: async (f) => {
       board.showMark(f);
       if (f.state !== undefined) await showState(f.state);
