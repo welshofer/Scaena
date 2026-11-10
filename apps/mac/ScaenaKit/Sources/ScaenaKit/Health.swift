@@ -47,8 +47,9 @@ public struct Health: Decodable, Sendable {
         /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
         /// the settled outline its slides do not carry), `bigIdea` (a close that never lands it),
         /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from),
-        /// `pacing` (the first slide to cut where the deck runs past its brief), or `look` (a change
-        /// the model asked once it saw the slide, let go: lint found it worse).
+        /// `pacing` (the first slide to cut where the deck runs past its brief), `look` (a change
+        /// the model asked once it saw the slide, let go: lint found it worse), or `label` (a
+        /// content slide's headline that names its topic where it could state its point).
         public let kind: String
         public let says: String
         public let ask: String

@@ -595,6 +595,9 @@ try {
   // What to do first open, the rest folded (lift-up S1): a row for each slide in each, every
   // finding in one of them once.
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => li.querySelectorAll("p[data-kind]").length));
+  // Every kind of finding folded is said by a name a person reads (lift-up 10-25b FUNC-4).
+  const kinds = await page.evaluate(() => window.scaena.story.said(["look", "label", "look", "bigIdea"]));
+  check(kinds === "4 more: 2 change let go, 1 topic headline, 1 big idea", `the folded kinds named: ${kinds}`);
   const looked = await page.evaluate(() => window.scaena.story.health().findings.length);
   check(rows.reduce((a, b) => a + b, 0) === looked, `every finding has its row once: ${rows} of ${looked}`);
   // Opened, so a fix or a question folded with the rest can be reached.
@@ -642,6 +645,25 @@ try {
   await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
   state.slow = 0;
   await page.evaluate(() => (document.querySelector("#question").value = ""));
+  // With the source not compiling for a moment, the Story shows the read before, its fixes held:
+  // each was made against a deck that no longer compiles (lift-up 20261110 deferred).
+  const whole = await page.evaluate(() => window.scaena.source());
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), whole);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const held = await fixable.locator("[data-fix]").first().isDisabled();
+  const unready = await page.evaluate(() => window.scaena.source());
+  await page.evaluate(() => document.querySelector("#story [data-findings] [data-fix]")?.click());
+  check(held && (await page.evaluate(() => window.scaena.source())) === unready, `as last read, its fix is held, and pressed makes nothing: ${held}`);
+  // Taken back by ⌘Z, the walk's own break leaves the deck's history as it was.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((w) => window.scaena.source() === w, whole, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
   await fixable.locator("[data-fix]").first().click();
