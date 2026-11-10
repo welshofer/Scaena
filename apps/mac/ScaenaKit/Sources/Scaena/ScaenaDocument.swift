@@ -162,6 +162,9 @@ final class ScaenaDocument: ReferenceFileDocument {
         DispatchQueue.main.async {
             // A save not gone on from is one the next save makes again: nothing is lost.
             _ = try? taken.session.adopt(saved, since: taken.snapshot)
+            // A save is what adds a version: the Versions panel reads its list again on it, not
+            // on every edit (lift-up 20261110 PERF-3).
+            NotificationCenter.default.post(name: ScaenaDocument.saved, object: taken.session)
         }
         return wrapper
     }
@@ -177,6 +180,9 @@ final class ScaenaDocument: ReferenceFileDocument {
         try session.adopt(saved)
         return files
     }
+
+    /// Posted on the main thread once a save is gone on from, its object the session saved.
+    static let saved = Notification.Name("Scaena.saved")
 
     /// A bundle's files, by their paths in it, as the folder that holds them.
     static func wrapper(_ snapshot: [String: Data]) -> FileWrapper {
