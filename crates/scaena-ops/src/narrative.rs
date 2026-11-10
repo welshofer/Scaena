@@ -5476,6 +5476,12 @@ impl Builder {
                         node["fit"] = json!("grow");
                         node["maxSize"] = json!(most);
                     }
+                    // A short list a list's layout gives the whole of what the slide holds stands
+                    // in the middle of its place, not at its top with the rest of it empty under
+                    // it (dogfood pass 10).
+                    if name == "body" && short && (s.layout == "bullets" || s.layout == "numbered") {
+                        node["align"] = json!({ "y": "center" });
+                    }
                     // A list in a place of a set, each side's or each phase's, grows as the set's
                     // words do, held to one size with the rest of its set (G.12).
                     // A short one in a body's place grows as the slide's one short list does.
