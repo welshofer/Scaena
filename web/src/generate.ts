@@ -438,6 +438,9 @@ export async function generate(
         if (painted) making.painted(painted.made, JSON.stringify(painted.unmade));
         const name = WRITERS[job.provider];
         if (job.look !== false) await look(generation, making, job.key, name, theme, painted?.placed ?? "{}", hear);
+        // With no look, the slides are still drawn for the person as the deck comes together
+        // (lift-up 20261110 ATTR-1), small, since no model sees them.
+        else for (let i = 0; i < making.count; i++) hear({ kind: "drawn", slide: i, of: making.count, jpeg: (await jpeg(making.pixels(i, STRIP_WIDTH))).data });
         // Each change let go, and what lint found (lift-up USE-4).
         for (const r of (JSON.parse(making.report()) as Generated).refused ?? []) hear({ kind: "refused", ...r });
         await fit(generation, making, job.key, name, hear);
@@ -698,6 +701,9 @@ async function research(
   }
 }
 
+/** How wide each slide is drawn for the strip alone, where no model sees it (lift-up 20261110 ATTR-1). */
+const STRIP_WIDTH = 320;
+
 /** How wide each slide is drawn for the model to see, in pixels (`scaena_ops::narrative::LOOK_WIDTH`). */
 const LOOK_WIDTH = 1024;
 /** The most slides shown to the model in one look request (`scaena_ops::narrative::LOOK_BATCH`,
@@ -797,6 +803,8 @@ async function look(
     const looking = rounds.length > 0;
     for (const [i, { round, part }] of rounds.entries()) {
       const reply = await replies[i];
+      // Each round said as its answer is read, its slides marked in the strip (lift-up 20261110 ATTR-1).
+      hear({ kind: "lookedAt", round: i + 1, of: rounds.length, from: round[0].slide - 1, to: round[round.length - 1].slide - 1 });
       try {
         changes.push(...(JSON.parse(read(name, reply, () => generation.lookAnswer(reply.status, reply.statusText, reply.body, part))) as { slide: number }[]));
       } catch (e) {

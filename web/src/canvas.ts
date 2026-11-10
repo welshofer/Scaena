@@ -2943,6 +2943,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [x, y, w, h] = was.mark.rect;
     const middle: Point = was.mark.transform ? apply(was.mark.transform, [x + w / 2, y + h / 2]) : [x + w / 2, y + h / 2];
     const mark = await stage.markAt(shown.state, middle, editor.format()).catch(() => undefined);
+    // Escape, or another mark picked, while the mark was asked for again stands: the answer picks
+    // nothing back (annotate.mjs on a loaded runner).
+    if (picked !== was) return draw();
     picked = mark?.node === was.mark.node && mark.key === was.mark.key ? { state: shown.state, mark } : undefined;
     draw();
   }
