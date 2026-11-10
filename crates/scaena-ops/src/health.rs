@@ -992,8 +992,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
+    // A turn out of an agenda is the agenda's own to make (dogfood pass 10): it names the parts
+    // to come, and the slide after it opens the first, sharing few words with a list of them.
+    let agenda = |i: usize| {
+        (slides.get(i).and_then(|s| s.states.first()))
+            .and_then(|&k| deck.states.get(k)?.layout.as_deref())
+            .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
+    };
     for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
+        if i > 0 && agenda(i - 1) {
+            continue;
+        }
         let (k, before) = (i + 1, i);
         find(
             id,
@@ -1865,6 +1875,27 @@ mod tests {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
             assert!(found(&h), "a word both slides use carries nothing over");
         }
+    }
+
+    /// A turn out of an agenda is not found (dogfood pass 10): the agenda names the parts to
+    /// come, and the slide after it opens the first, sharing few words with a list of them. The
+    /// same turn out of any other slide is.
+    #[test]
+    fn a_turn_out_of_an_agenda_is_not_found() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
+        let d = Deck::from_value(&deck).unwrap();
+        let first = slides(&d)[turn.slide - 2].states[0];
+        let found = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state);
+        assert!(found(&before));
+        deck["states"][first]["layout"] = json!("agenda");
+        let h = of(&deck);
+        assert!(!found(&h), "{:#?}", h.findings);
+        deck["states"][first]["layout"] = json!("agenda-photo");
+        assert!(!found(&of(&deck)));
+        deck["states"][first]["layout"] = json!("bullets");
+        assert!(found(&of(&deck)), "a turn out of a slide that lists no parts to come");
     }
 
     /// One pattern, one finding (narrative dogfood H5): three or more neighbouring slides planned
