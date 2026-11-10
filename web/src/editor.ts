@@ -1794,7 +1794,7 @@ async function edit(source: Source, opened?: Stage) {
   /** Each theme the dialog offers: its value (`path:…` for one the deck holds, `ships:…` for one
    * that ships, none for the deck's own), what it is called, its section, and whether the deck
    * is in it now. */
-  let themeChoices: { value: string; label: string; family: string; current: boolean }[] = [];
+  let themeChoices: { value: string; label: string; family: string; current: boolean; thumbnail?: string }[] = [];
   let themesOffered = "";
   /** Whether the dialog's list is the themes offered now. */
   let themesListed = false;
@@ -1808,7 +1808,12 @@ async function edit(source: Source, opened?: Stage) {
     if (held.current === "(inline)") themeChoices.push({ value: "", label: "The deck’s own", family: "In this deck", current: true });
     // The themes that ship, by family, each family a section (PLAN T.0d), each with its title
     // slide drawn at build (PLAN T.0c).
-    for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
+    // One the deck holds a copy of is said apart from that copy (editor dogfood 1): taking it is
+    // taking the theme as it ships, any edit to the deck's copy left out, and two choices named
+    // alike in the dialog, or two "Re-theme in Dusk" in the palette, said nothing of which is which.
+    const inDeck = new Set(themeChoices.map((c) => c.label));
+    for (const [name, { family, thumbnail }] of Object.entries(themes))
+      themeChoices.push({ value: `ships:${name}`, label: inDeck.has(name) ? `${name} as it ships` : name, family, current: false, thumbnail });
     const current = themeChoices.find((c) => c.current);
     // The words under the toolbar's icon, which the toolbar keeps in its label.
     (themeButton.querySelector(".label") ?? themeButton).textContent = current ? `Theme: ${current.label}` : "Theme…";
@@ -1828,7 +1833,7 @@ async function edit(source: Source, opened?: Stage) {
           `<fieldset><legend>${html(family)}</legend>${themeChoices
             .filter((c) => c.family === family)
             .map((c) => {
-              const thumbnail = c.value.startsWith("ships:") ? themes[c.label]?.thumbnail : undefined;
+              const thumbnail = c.thumbnail;
               return `<label><input type="radio" name="theme" value="${html(c.value)}"${c.current ? " checked" : ""} />${
                 thumbnail ? `<img src="${html(thumbnail)}" alt="" width="96" height="54" />` : ""
               }<span>${html(c.label)}</span>${c.current ? '<span class="now">Now</span>' : ""}</label>`;
