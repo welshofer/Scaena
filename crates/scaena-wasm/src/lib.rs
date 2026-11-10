@@ -1661,6 +1661,50 @@ impl ToolResult {
     }
 }
 
+/// The deck compiled last, taken to be laid out on every state a step at a time while the
+/// worker goes on answering (lift-up 20261110 PERF-1): [`Player::laying`], then
+/// [`DeckLaying::step`] until it says it is laid out, then [`Player::lint_laid`].
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct DeckLaying(scaena_session::editor::Laying);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl DeckLaying {
+    /// Take its next step: a state laid out, or a state's contrast judged. Whether it is laid out.
+    pub fn step(&mut self) -> bool {
+        self.0.step()
+    }
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The deck compiled last, to lay out on every state a step at a time (lift-up 20261110
+    /// PERF-1): nothing where no source compiled to a deck that validates.
+    pub fn laying(&self) -> Option<DeckLaying> {
+        self.0.laying().map(DeckLaying)
+    }
+
+    /// Whether `laying` was taken from the deck as it stands: one that is not lays out an older
+    /// deck, and is dropped.
+    pub fn holds(&self, laying: &DeckLaying) -> bool {
+        self.0.holds(&laying.0)
+    }
+
+    /// Lint the deck compiled last on every state, as `lint` with no state does, with what
+    /// `laying` laid out, as JSON; nothing where the deck has changed since it was taken, or it is
+    /// not laid out yet. Dates are judged at `now`, as `lint` judges them.
+    #[wasm_bindgen(js_name = lintLaid)]
+    pub fn lint_laid(&mut self, laying: &DeckLaying, now: Option<f64>) -> Result<Option<String>, JsError> {
+        let now = now.map(|n| n as i64);
+        match self.0.lint_laid(&laying.0, now).map_err(js)? {
+            Some(linting) => serde_json::to_string(&linting).map(Some).map_err(js),
+            None => Ok(None),
+        }
+    }
+}
+
 /// One frame of a movie (lift-up 20261031 FUNC-2): its drawing's digest, and its pixels where
 /// it draws otherwise than the frame the page had.
 #[cfg(feature = "editor")]

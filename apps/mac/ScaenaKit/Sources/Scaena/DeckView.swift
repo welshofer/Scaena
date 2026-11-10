@@ -1336,6 +1336,9 @@ struct DeckView: View {
             ungroup: one && grouped ? { ungroup(in: shown) } : nil,
             order: some ? { how in order(how, in: shown) } : nil)
         made.sources = sources
+        // ⌘{, ⌘|, and ⌘}: the texts selected aligned, as the inspector's Alignment sets each
+        // (lift-up 20261031 USE-2).
+        if some { made.align = { way in align(way, in: shown) } }
         made.choosePicture = { choosingPicture = true }
         made.chooseIcon = { choosingIcon = true }
         made.makePicture = { makePicture(in: shown) }
@@ -1759,7 +1762,7 @@ struct DeckView: View {
         }
         let boxes = (try? editor.session.boxes(state: shown)) ?? []
         if let held = boxes.first(where: { nodes.contains($0.node) && $0.locked != nil }), let holder = held.locked {
-            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
+            said = holder == held.node ? "It is locked: ⌘L unlocks it" : "What holds it is locked: unlock that first"
             return
         }
         perform {
@@ -1787,14 +1790,30 @@ struct DeckView: View {
     }
 
     /// Lock the nodes selected by their own lock, or unlock them where each is so locked
-    /// (⇧⌘L, PLAN 2.95): the canvas passes over a node locked, in every state. One step to undo.
+    /// (⌘L, PLAN 2.95): the canvas passes over a node locked, in every state. One step to undo.
     private func lock() {
         let nodes = selection
         let (ops, locks) = ScaenaKit.locking(nodes, own: { ownLocks.contains($0) })
         guard !ops.isEmpty else { return }
         perform {
             try document.make(ops, undo: undo, named: locks ? "Lock" : "Unlock")
-            said = locks ? "Locked: a click passes over it · ⇧⌘L unlocks it" : "Unlocked"
+            said = locks ? "Locked: a click passes over it · ⌘L unlocks it" : "Unlocked"
+        }
+    }
+
+    /// ⌘{, ⌘|, or ⌘}: the lines of each text selected set `way`, `start`, `center`, or `end`, a
+    /// `choose` of `align/x` on each, one step to undo (lift-up 20261031 USE-2). What is no text
+    /// keeps its place.
+    private func align(_ way: String, in state: String) {
+        let texts = selection.filter { (try? editor.session.choices(state: state, node: $0))?.type == "text" }
+        guard !texts.isEmpty else {
+            said = "Only words align"
+            return
+        }
+        let named = ["start": "Align Left", "center": "Align Center", "end": "Align Right"][way] ?? "Align"
+        perform {
+            try document.make(choosing(texts, "align/x", .string(way), in: state), undo: undo, named: named)
+            said = named == "Align Left" ? "Aligned left" : named == "Align Center" ? "Centered" : "Aligned right"
         }
     }
 
@@ -1858,7 +1877,7 @@ struct DeckView: View {
         // The text goes, and nothing of a locked node is deleted (PLAN 2.95).
         let boxes = (try? editor.session.boxes(state: state)) ?? []
         if let held = boxes.first(where: { $0.node == text }), let holder = held.locked {
-            said = holder == held.node ? "It is locked: ⇧⌘L unlocks it" : "What holds it is locked: unlock that first"
+            said = holder == held.node ? "It is locked: ⌘L unlocks it" : "What holds it is locked: unlock that first"
             return
         }
         perform {

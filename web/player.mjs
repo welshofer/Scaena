@@ -37,7 +37,9 @@
 //   beside it (PLAN 2.121); after a press on Resume, Space goes on and presses it no more. P again
 //   brings it to the front as it is, its timer running. Its notes scroll, long or short, the next
 //   state's from their top, A+, A−, +, and - grow and shrink them, the size kept for the next view
-//   (lift-up USE-4), and its buttons and its timer's stay in its window. With no player
+//   (lift-up USE-4), and its buttons and its timer's stay in its window. The player keeps its
+//   timer, so the view reloaded goes on from the time the talk has run, paused or not, and a show
+//   ended and begun again from its first slide starts at 0:00 (lift-up 20261110 REL-5). With no player
 //   open, or once the player closes, even as the view opens, it says so, every word of it, and
 //   its buttons wait until one is.
 // - A link at rest shows a hand under the pointer.
@@ -505,6 +507,24 @@ try {
     return { shown: window.scaena.timer().now, now: read(Date.now()), before: read(Date.now() - 1000) };
   });
   check(day.shown === day.now || day.shown === day.before, `the time of day stands beside it: ${JSON.stringify(day)}`);
+  // The player keeps the timer (lift-up 20261110 REL-5): the presenter view reloaded mid-talk
+  // shows the time the talk has run, not 0:00, and one paused stays paused across a reload.
+  // A few seconds in, so a view that began again would show less than the talk has run.
+  await presenter.waitForTimeout(3500);
+  const ranFor = secondsOf((await timer()).shows);
+  const reloaded = async () => {
+    await presenter.reload();
+    await presenter.waitForFunction(() => window.scaena?.timer, null, { timeout: 60000 });
+    await presenter.waitForFunction(() => window.scaena.timer().shows !== "0:00", null, { timeout: 10000 }).catch(() => {});
+    return timer();
+  };
+  const again = await reloaded();
+  check(!again.paused && secondsOf(again.shows) >= ranFor, `reloaded, the presenter view’s timer goes on from where it stood: ${ranFor} s, then ${again.shows}`);
+  await presenter.click("#pause");
+  const held = (await timer()).shows;
+  const kept = await reloaded();
+  check(kept.paused && kept.shows === held && (await presenter.textContent("#pause")) === "Resume", `paused, it stays paused across a reload: ${held}, then ${JSON.stringify(kept)}`);
+  await presenter.click("#pause");
   await presenter.click("#on");
   at = await until(player, () => window.scaena.at().index === 2, "the presenter view goes on");
   check(at.index === 2, `its ▶ steers the player on to ${states[2]}`);
@@ -542,6 +562,12 @@ try {
   await presenter.keyboard.press("Home");
   at = await until(player, () => window.scaena.at().index === 0, "the presenter view's Home", null, 2000);
   check(at.index === 0, `and its Home to ${states[0]}`);
+  // A show that ended, begun again from its first slide, is a new one (lift-up 20261110 REL-5): its
+  // timer stands at 0:00, and waits there until the deck goes on.
+  await presenter.waitForFunction(() => window.scaena.timer().shows === "0:00", null, { timeout: 5000 }).catch(() => {});
+  const anew = (await timer()).shows;
+  await presenter.waitForTimeout(1200);
+  check(anew === "0:00" && (await timer()).shows === "0:00", `a show ended and begun again from its first slide starts at 0:00: ${anew}, then ${(await timer()).shows}`);
   const fromStart = await nextShown(0);
   check(fromStart.name === `Next: ${slots[1].said}` && fromStart.shown, `back at the first, it shows the next again: ${JSON.stringify(fromStart)}`);
   // The player turned to another format, the view paints the next state in it, as it paints the

@@ -28,6 +28,7 @@ fn an_older_copy_takes_the_library_and_draws_as_it_did() {
     assert_eq!(keys(&theme), keys(&shipped));
     assert_eq!(brought.theme, "Daybreak");
     assert_eq!(brought.added.len(), keys(&shipped).len() - keys(&older).len());
+    assert!(brought.added.iter().any(|k| k == "price-chart"), "an older copy takes the Price Chart (PLAN O.3e)");
     // Each layout it had, named, in the library's order.
     assert_eq!(brought.named, keys(&shipped).into_iter().filter(|k| keys(&older).contains(k)).collect::<Vec<_>>());
     for (key, layout) in theme["layouts"].as_object().unwrap() {

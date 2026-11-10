@@ -1165,6 +1165,7 @@ struct CanvasSelection: View {
         case .keyboardF: character = "f"
         case .keyboardCloseBracket: character = "]"
         case .keyboardOpenBracket: character = "["
+        case .keyboardBackslash: character = "\\"
         default: return false
         }
         guard let key = MenuKey.of(character, shift: shift, option: option) else { return false }
@@ -1183,8 +1184,12 @@ struct CanvasSelection: View {
         case .sendBackward: run = actions?.order.map { order in { order("backward") } }
         case .bringToFront: run = actions?.order.map { order in { order("front") } }
         case .sendToBack: run = actions?.order.map { order in { order("back") } }
-        // The Format menu's keys are the text typed in's own (`CanvasKeys`).
-        case .bold, .italic, .link: run = nil
+        case .alignLeft: run = actions?.align.map { align in { align("start") } }
+        case .alignCenter: run = actions?.align.map { align in { align("center") } }
+        case .alignRight: run = actions?.align.map { align in { align("end") } }
+        // The Format menu's keys are the text typed in's own (`CanvasKeys`), and the Slide menu's
+        // go on to the menu bar.
+        case .bold, .italic, .link, .duplicateSlide: run = nil
         }
         guard let run else { return false }
         run()
@@ -1334,7 +1339,7 @@ struct CanvasSelection: View {
             return true
         }
         if boxes.first(where: { $0.node == selected })?.locked != nil {
-            said = "It is locked: ⇧⌘L unlocks it"
+            said = "It is locked: ⌘L unlocks it"
             return true
         }
         let list = also.isEmpty ? handles(of: selected) : []
@@ -1427,7 +1432,7 @@ struct CanvasSelection: View {
     /// steps as the container places it.
     private func step(_ selected: String, _ dx: Int, _ dy: Int, grow: Bool, fork: Bool) {
         if let held = boxes.first(where: { selection.contains($0.node) && $0.locked != nil }) {
-            said = "It is locked: ⇧⌘L unlocks it"
+            said = "It is locked: ⌘L unlocks it"
             return
         }
         if !also.isEmpty && grow {
@@ -1479,7 +1484,7 @@ struct CanvasSelection: View {
     private func turn(by: Double) -> Bool {
         guard let selected = node, also.isEmpty else { return false }
         if boxes.first(where: { $0.node == selected })?.locked != nil {
-            said = "It is locked: ⇧⌘L unlocks it"
+            said = "It is locked: ⌘L unlocks it"
             return true
         }
         // A connector goes where what it joins goes (PLAN 2.109): it turns with neither, the keys
