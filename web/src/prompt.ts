@@ -66,6 +66,8 @@ export function said(event: GeneratingEvent): string {
       return `Slide ${event.slide + 1} of ${event.of} drawn`;
     case "looking":
       return `Showing the model the ${event.slides} slides as drawn…`;
+    case "lookedAt":
+      return event.of > 1 ? `Round ${event.round} of ${event.of} looked at` : "The model has looked at the slides";
     case "looked":
       return event.slides
         ? `${event.slides} ${event.slides === 1 ? "slide" : "slides"} changed by what the model saw`
@@ -81,6 +83,14 @@ export function said(event: GeneratingEvent): string {
     case "unfitted":
       return `Not rewritten to fit: ${event.why}`;
   }
+}
+
+/** `ms`, how long a step has taken, as a person says it: nothing under five seconds, then " · 42 s",
+ * then " · 1 min 20 s" (lift-up 20261110 ATTR-1). */
+export function took(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 5) return "";
+  return s < 60 ? ` \u00b7 ${s} s` : ` \u00b7 ${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
 /** What was made, in a line for the status bar. */
@@ -541,12 +551,30 @@ export function prompting(
     worker.postMessage({ type: "briefing", engine: engine.module } satisfies ToWorker);
   };
 
+  // The step under way shows how long it has taken, so a long wait reads as working, not stuck
+  // (lift-up 20261110 ATTR-1): ticking in a part the live region does not read again each second.
+  let ticking: { span: HTMLSpanElement; since: number; every: ReturnType<typeof setInterval> } | undefined;
+  const untick = () => {
+    if (!ticking) return;
+    clearInterval(ticking.every);
+    ticking.span.remove();
+    ticking = undefined;
+  };
   const step = (line: string, failed = false) => {
+    untick();
     const item = document.createElement("li");
     item.textContent = line;
     if (failed) item.className = "failed";
     progress.append(item);
     item.scrollIntoView({ block: "nearest" });
+    if (failed || !running) return;
+    const span = document.createElement("span");
+    span.className = "elapsed";
+    span.setAttribute("aria-hidden", "true");
+    item.append(span);
+    const since = performance.now();
+    const tick = () => (span.textContent = took(performance.now() - since));
+    ticking = { span, since, every: setInterval(tick, 1000) };
   };
 
   // Each slide as it is drawn for the model, in a strip under the progress, so the wait shows the
@@ -562,12 +590,20 @@ export function prompting(
     }
     const item = film.children[event.slide] as HTMLLIElement;
     item.querySelector("img")!.src = `data:image/jpeg;base64,${event.jpeg}`;
+    item.classList.remove("looked");
     item.classList.add("drawn");
     item.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
 
+  /** A look round's slides marked in the strip as looked at, and the round said. */
+  const lookedAt = (event: Extract<GeneratingEvent, { kind: "lookedAt" }>) => {
+    for (let i = event.from; i <= event.to; i++) film.children[i]?.classList.add("looked");
+    step(said(event));
+  };
+
   const busy = (on: boolean) => {
     running = on;
+    if (!on) untick();
     for (const field of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
       "input, select, textarea, #prompting-sources button, #prompting-add-link",
     ))
@@ -705,6 +741,7 @@ export function prompting(
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
         if (data.type === "generating" && data.event.kind === "claimed") claimedBeat(data.event);
+        else if (data.type === "generating" && data.event.kind === "lookedAt") lookedAt(data.event);
         else if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
