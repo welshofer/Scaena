@@ -487,7 +487,7 @@ fn an_older_theme_that_ships_opens_with_its_library() {
     let shipped = read("../../docs/examples/authorability/themes/daybreak.theme.json");
     assert_eq!(starters.len(), shipped["layouts"].as_object().unwrap().len() + 1, "every layout, and a blank slide");
     let sections: std::collections::BTreeSet<&str> = starters.iter().filter_map(|l| l["group"].as_str()).collect();
-    assert_eq!(sections.len(), 16, "{sections:?}");
+    assert_eq!(sections.len(), 17, "{sections:?}");
     unsafe { scaena_session_free(s) };
 }
 
