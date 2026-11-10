@@ -150,6 +150,13 @@ impl Asking {
                 self.chat.base = crate::base(args)?.map(str::to_string);
                 Value::Null
             }
+            // The question asked last taken back, where no answer to it joined the conversation:
+            // refused, unreachable, or stopped before the model said anything (lift-up 20261110
+            // STAB-3). Whether one was taken back.
+            "takeBack" => {
+                self.ran.clear();
+                json!(self.chat.take_back())
+            }
             "forget" => {
                 self.chat.forget();
                 self.ran.clear();

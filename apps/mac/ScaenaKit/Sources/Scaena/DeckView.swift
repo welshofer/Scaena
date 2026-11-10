@@ -38,6 +38,11 @@ struct DeckView: View {
     @State private var pointed: CGPoint?
     /// What the canvas says of an edit its keys or the Node menu made.
     @State private var said: String?
+    /// Whether the window's close waits on the person, the assistant at work on the deck, and
+    /// whether it closes once the assistant has stopped (lift-up 20261110 REL-3).
+    @State private var confirmingClose = false
+    @State private var closingOnceStopped = false
+    @State private var closeNow = false
     /// The edits made since the window opened, where the iPad's UI tests hold the deck after so
     /// many as the assistant holds it (`-assistantAtWorkAfter`, lift-up STAB-5).
     @State private var editsMade = 0
@@ -158,7 +163,7 @@ struct DeckView: View {
     var body: some View {
         // While the themes are offered, the window waits on them as it waited on a sheet: its
         // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
-        presented(watched(undoing(window.disabled(choosingTheme))))
+        closing(presented(watched(undoing(window.disabled(choosingTheme)))))
             .focusedSceneValue(\.deck, choosingTheme ? nil : actions)
             .focusedSceneValue(\.canvasActions, choosingTheme ? nil : canvasActions)
             .focusedSceneValue(\.panes, panes)
@@ -821,6 +826,39 @@ struct DeckView: View {
                 guard !Task.isCancelled, !editor.whole else { return }
                 await editor.lintEvery()
             }
+    }
+
+    /// `view`, the assistant stopped as the deck's window goes (lift-up 20261110 REL-3): no call
+    /// made on the person's key, and no edit made to a deck no one will save, past it. On the Mac,
+    /// the window's own close (its close button, File › Close, ⌘W) asks first while the assistant
+    /// works, as New from a Prompt's does while a deck is made, and closes once it has stopped.
+    private func closing(_ view: some View) -> some View {
+        view
+            .onDisappear { assistant?.stop() }
+            #if os(macOS)
+            .background(CloseGuard(asks: { assistant?.working == true }, ask: { confirmingClose = true }))
+            .confirmationDialog("Stop the assistant and close?", isPresented: $confirmingClose) {
+                Button("Stop and Close", role: .destructive) {
+                    // Done since the person was asked: nothing to wait on.
+                    guard assistant?.working == true else {
+                        closeNow = true
+                        return
+                    }
+                    closingOnceStopped = true
+                    assistant?.stop()
+                }
+                .accessibilityIdentifier("close-stop-assistant")
+                Button("Keep Working", role: .cancel) {}
+            } message: {
+                Text("The assistant is at work on this deck. What it has changed so far stays, one step to undo.")
+            }
+            .onChange(of: assistant?.working ?? false) { _, working in
+                guard closingOnceStopped, !working else { return }
+                closingOnceStopped = false
+                closeNow = true
+            }
+            .background(WindowCloser(close: closeNow))
+            #endif
     }
 
     /// `view`, what the canvas said of an edit taken away as a step is undone or made again: it
