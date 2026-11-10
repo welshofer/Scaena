@@ -7,6 +7,9 @@
 //   lowest. The rest, the infos among them, fold under one disclosure that counts them by kind
 //   ("20 more: 12 arc, …"), shut until it is opened, and opened it shows each of them, so every
 //   finding is there once.
+// - A turn's bridge written in the Format tab's Notes field, as its finding asks: the field shows
+//   the notes the presenter reads (the beat's, on this made deck), the presenter then reads the
+//   bridge before them, and the turn is answered (editor dogfood 3).
 // - A slide that lint finds broken leads: its support given more words than its place holds, the
 //   Story tab's first row is that slide's error, the disclosure left open as it was.
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
@@ -55,6 +58,33 @@ try {
   check(!(await first.isVisible()), "folded until it is opened");
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
+
+  // A turn's bridge, written in the Format tab's Notes field as its finding asks: the field shows
+  // the notes the presenter reads, the beat's on this made deck, and what is typed there is what
+  // the presenter reads and what health judges, so the turn is answered (editor dogfood 3).
+  const turn = findings.find((f) => f.kind === "turn");
+  check(!!turn, `a turn its words do not make: ${turn?.says}`);
+  const read = await page.evaluate((s) => window.scaena.notes(s), turn.state);
+  check(read.text.length > 0, `the presenter reads its beat's notes: ${read.text.slice(0, 40)}`);
+  const before = await page.evaluate((k) => window.scaena.story.health().slides[k - 2].title, turn.slide);
+  await page.click(`#story [data-findings] li[data-slide="${turn.slide}"] [data-show]`);
+  await page.waitForTimeout(1000);
+  await tab(page, "inspector");
+  const field = page.locator('textarea[data-prop="notes"]');
+  await field.waitFor({ timeout: 30000 });
+  check((await field.inputValue()) === read.text, `the Notes field shows what the presenter reads: ${JSON.stringify((await field.inputValue()).slice(0, 40))}`);
+  const bridge = `From ${before}, we turn.`;
+  await field.fill(`${bridge}\n${read.text}`);
+  await field.blur();
+  await page.waitForFunction((t) => window.scaena.notes(t.state).then((n) => n.text.startsWith(t.bridge)), { state: turn.state, bridge }, { timeout: 30000 }).catch(() => {});
+  const after = await page.evaluate((s) => window.scaena.notes(s), turn.state);
+  check(after.text === `${bridge}\n${read.text}`, `the presenter reads the bridge, then the beat's notes: ${after.text.slice(0, 60)}`);
+  await tab(page, "story");
+  await page
+    .waitForFunction((s) => !window.scaena.story.health()?.findings.some((f) => f.kind === "turn" && f.state === s), turn.state, { timeout: 60000 })
+    .catch(() => {});
+  const still = await page.evaluate((s) => window.scaena.story.health().findings.filter((f) => f.kind === "turn" && f.state === s), turn.state);
+  check(still.length === 0, `and the turn is answered: ${JSON.stringify(still.map((f) => f.says))}`);
 
   // A slide that lint finds broken leads.
   const source = await page.evaluate(() => window.scaena.source());

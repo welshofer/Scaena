@@ -7,8 +7,8 @@
 //!
 //! A slide is read as its spine tells it: its headline the beat's claim, its words what its last
 //! state shows (each item of a layout's set, or each item of a list, a point of its own), its
-//! notes the beat's and its states', and what the narrative declared of it the beat's
-//! `media.narrato`. Pure arithmetic over the deck: no layout, no call. What the words read is a
+//! notes as the presenter reads them (each state's own, else its beat's), and what the narrative
+//! declared of it the beat's `media.narrato`. Pure arithmetic over the deck: no layout, no call. What the words read is a
 //! designed prior, not a calibrated model, so each finding asks a person to look, and a gap
 //! between the words and the plan is the words' to close: the one fix offered is the beat a
 //! moved slide now serves.
@@ -325,9 +325,11 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
                 None => lines.push((item, if item.is_some() { format!("\u{2022} {said}") } else { said.to_string() })),
             }
         }
+        // Its notes as the presenter reads them, each state's own else its beat's (SPEC §2.6), so
+        // what health judges is what the editor's Notes field shows (editor dogfood 3).
         let mut notes: Vec<&str> = Vec::new();
-        let written = beat.and_then(|b| b.notes.as_deref()).into_iter();
-        for note in written.chain(slide.states.iter().filter_map(|k| deck.states[*k].notes.as_deref())) {
+        let read = slide.states.iter().filter_map(|k| scaena_core::spine::notes(deck, &deck.states[*k].id));
+        for note in read {
             let note = note.trim();
             if !note.is_empty() && !notes.contains(&note) {
                 notes.push(note);
@@ -524,11 +526,15 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
                     None if holds.iter().all(Option::is_some) => 0.0,
                     None => return None,
                 };
-                let noted = spoken(beat.notes.as_deref().unwrap_or_default())
-                    + (beat.states.iter())
-                        .filter_map(|s| state(s).and_then(|s| s.notes.as_deref()))
-                        .map(spoken)
-                        .sum::<f64>();
+                // Its notes as the presenter reads them, each once: each state's own, else the
+                // beat's (SPEC §2.6).
+                let mut read: Vec<&str> = Vec::new();
+                for note in beat.states.iter().filter_map(|s| scaena_core::spine::notes(deck, s)) {
+                    if !read.contains(&note) {
+                        read.push(note);
+                    }
+                }
+                let noted = read.into_iter().map(spoken).sum::<f64>();
                 let (own, by) = [(held, Timed::Held), (noted, Timed::Noted)]
                     .into_iter()
                     .fold((given, Timed::Given), |most, (t, by)| if t > most.0 { (t, by) } else { most });
@@ -1865,6 +1871,52 @@ mod tests {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
             assert!(found(&h), "a word both slides use carries nothing over");
         }
+    }
+
+    /// The notes health reads are those a presenter reads (editor dogfood 3): a made deck keeps
+    /// each slide's on its beat, which the editor's Notes field shows and `set_state` writes, so a
+    /// bridge typed into the field opens what the presenter reads and answers the turn; the state
+    /// keeps no notes of its own. A state's own notes are read in place of its beat's, as the
+    /// presenter reads them.
+    #[test]
+    fn a_bridge_written_in_the_notes_field_answers_the_turn() {
+        struct NoFiles;
+        impl scaena_core::validate::BundleFiles for NoFiles {
+            fn exists(&self, _: &str) -> bool {
+                true
+            }
+            fn read_text(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
+        let deck = climate();
+        let before = of(&deck);
+        let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
+        let k = turn.slide;
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+        let carried = words(&read[k - 2]).difference(&words(&read[k - 1])).next().cloned().expect("a word before");
+        // What the Notes field shows: the beat's, which the presenter reads.
+        let shown = scaena_core::spine::notes(&d, &turn.state).unwrap().to_string();
+        assert!(!shown.is_empty() && d.states.iter().find(|s| s.id == turn.state).unwrap().notes.is_none());
+        let bridged = format!("From {carried} we turn to what comes next.\n{shown}");
+        let op = json!({ "op": "set_state", "id": turn.state, "prop": "notes", "value": bridged });
+        let made = scaena_core::patch::compile(&deck, &[op], &NoFiles).unwrap().doc;
+        let m = Deck::from_value(&made).unwrap();
+        assert_eq!(scaena_core::spine::notes(&m, &turn.state), Some(bridged.as_str()), "the presenter reads it");
+        assert!(m.states.iter().find(|s| s.id == turn.state).unwrap().notes.is_none(), "written on the beat");
+        let h = of(&made);
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state), "{:#?}", h.findings);
+
+        // A state's own notes are read in place of its beat's, as the presenter reads them.
+        let mut own = deck.clone();
+        let at = own["states"].as_array().unwrap().iter().position(|s| s["id"] == turn.state.as_str()).unwrap();
+        own["states"][at]["notes"] = json!(format!("From {carried} onward."));
+        let beat = beat_of(&own, &turn.state);
+        own.pointer_mut(&beat).unwrap()["notes"] = json!("We turn to what comes next.");
+        let h = of(&own);
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state), "{:#?}", h.findings);
     }
 
     /// One pattern, one finding (narrative dogfood H5): three or more neighbouring slides planned
