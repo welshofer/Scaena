@@ -635,7 +635,10 @@ try {
   const unready = await page.evaluate(() => window.scaena.source());
   await page.evaluate(() => document.querySelector("#story [data-findings] [data-fix]")?.click());
   check(held && (await page.evaluate(() => window.scaena.source())) === unready, `as last read, its fix is held, and pressed makes nothing: ${held}`);
-  await page.evaluate((s) => window.scaena.type(s), whole);
+  // Taken back by ⌘Z, the walk's own break leaves the deck's history as it was.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((w) => window.scaena.source() === w, whole, { timeout: 30000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
