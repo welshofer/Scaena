@@ -1665,7 +1665,7 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
 /// A deck's slides as Narrato writes them share a third of their headlines at most, and a fifth of
 /// their words.
 fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
-    let (a, b) = (content_words(&was.title), content_words(&now.title));
+    let (a, b) = (said(&was.title), said(&now.title));
     if a.is_empty() || a == b {
         return None;
     }
@@ -1673,15 +1673,45 @@ fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
     // Headlines a writer set parallel on purpose ("The town built its own grid", then "… its own
     // market") each say a word of their own, and their slides go on to say different things: a
     // claim said twice says its new words over the same body. The bodies share half of the
-    // shorter's words, or the headlines are no repeat.
-    let (ba, bb) = (content_words(&was.body), content_words(&now.body));
+    // shorter's words, or the headlines are no repeat; headlines that share a figure say one
+    // claim, whatever their bodies (W1's dogfood 5: "52 miles, not 40", then "the 40-mile goal").
+    let (ba, bb) = (said(&was.body), said(&now.body));
     let own = !a.is_subset(&b) && !b.is_subset(&a);
-    let parallel = own && ba.intersection(&bb).count() * 2 < ba.len().min(bb.len()).max(1);
+    let figured = shared.iter().any(|w| w.chars().all(|c| c.is_ascii_digit()));
+    let parallel = own && !figured && ba.intersection(&bb).count() * 2 < ba.len().min(bb.len()).max(1);
     let headlines = shared.len() >= 2 && shared.len() * 2 >= a.len().min(b.len()) && !parallel;
-    let whole = |s: &SlideForHealth| content_words(&format!("{} {}", s.title, s.body));
+    let whole = |s: &SlideForHealth| said(&format!("{} {}", s.title, s.body));
     let (wa, wb) = (whole(was), whole(now));
     let words = wa.intersection(&wb).count() * 2 >= wa.union(&wb).count() && !shared.is_empty();
-    (headlines || words).then_some(shared)
+    // Each shared word as the headline writes it ("hours", not "hour").
+    let written: Vec<String> = (now.title.to_lowercase().split(|c: char| !(c.is_alphanumeric() || c == ',')))
+        .map(|w| w.trim_matches(',').to_string())
+        .collect();
+    let shown = |w: &String| {
+        (written.iter())
+            .find(|x| said(x).contains(w) && x.chars().any(char::is_alphanumeric))
+            .cloned()
+            .unwrap_or_else(|| w.clone())
+    };
+    (headlines || words).then(|| shared.iter().map(shown).collect())
+}
+
+/// The words `text` says, as a repeat is read (W1's dogfood 5): its content words, a hyphen
+/// splitting a word in two ("40-mile"), each plural folded into its singular ("miles" is
+/// "mile"), and its figures, ten and over and not a year, by their digits ("52", "184000").
+fn said(text: &str) -> std::collections::BTreeSet<String> {
+    let mut words: std::collections::BTreeSet<String> = content_words(text)
+        .into_iter()
+        .map(|w| if w.len() > 4 && w.ends_with('s') && !w.ends_with("ss") { w[..w.len() - 1].to_string() } else { w })
+        .collect();
+    for w in text.split(|c: char| !(c.is_ascii_digit() || c == ',' || c == '.')) {
+        let digits = w.trim_matches(|c| c == ',' || c == '.').replace(',', "");
+        let Ok(n) = digits.parse::<f64>() else { continue };
+        if n >= 10.0 && !(digits.len() == 4 && (1900.0..=2100.0).contains(&n)) {
+            words.insert(digits);
+        }
+    }
+    words
 }
 
 /// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
@@ -2441,6 +2471,14 @@ mod tests {
         for name in ["deepdive", "board-de", "appeal", "training", "pitch", "qbr", "lecture", "keynote", "launch"] {
             assert!(again(&of(&dogfood(name, "", |_| {}))).is_empty(), "{name}");
         }
+        // A claim said again in other words and the same figure (W1's dogfood 5): plurals fold
+        // and a hyphen splits, so "the 40-mile goal" says "52 miles, not 40" again.
+        let paraphrased = |slides: &mut Vec<answer::Slide>| {
+            slides[2].slide_title = "We rebuilt 52 miles, not 40".into();
+            slides[3].slide_title = "Crews beat the 40-mile goal by 12 miles".into();
+        };
+        let found = again(&of(&dogfood("fleet", "", paraphrased)));
+        assert!(found.iter().any(|f| f.slide == 4), "{found:?}");
         // Headlines set parallel, each a word of its own, over slides that say different things.
         let parallel = |slides: &mut Vec<answer::Slide>| {
             slides[5].slide_title = "The town built its own grid".into();
