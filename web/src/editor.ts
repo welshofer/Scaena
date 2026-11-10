@@ -51,6 +51,7 @@ import {
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
+  ViewPlugin,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
 import { themeGallery } from "./theme-gallery";
@@ -908,6 +909,20 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
    * takes back; and what the last undo took back: what Redo makes again. */
   let lastDone: string | undefined;
   let lastUndone: string | undefined;
+  /** Whether Shift is held with the key pressed in the source pane now, heard on the pane before
+   * its keymap is: ⌘Z's binding declines while it is, so ⇧⌘Z goes on to redo (editor dogfood 5). */
+  let shifted = false;
+  const shifting = ViewPlugin.fromClass(
+    class {
+      hear = (e: KeyboardEvent) => (shifted = e.shiftKey);
+      constructor(readonly v: EditorView) {
+        v.dom.addEventListener("keydown", this.hear, { capture: true });
+      }
+      destroy() {
+        this.v.dom.removeEventListener("keydown", this.hear, { capture: true });
+      }
+    },
+  );
   const view = new EditorView({
     parent: $("#code"),
     state: EditorState.create({
@@ -916,6 +931,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         lineNumbers(),
         highlightActiveLineGutter(),
         history(),
+        shifting,
         rewrites,
         takes,
         describes,
@@ -1143,9 +1159,6 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   };
   /** Undo the last step, or with `again` redo the last undone, the canvas showing it at once;
    * with none left, say so, never the step before again (editor dogfood 5). Whether it did. */
-  /** Whether Shift is held with the key pressed now: heard before the source pane's keymap. */
-  let shifted = false;
-  document.addEventListener("keydown", (e) => (shifted = e.shiftKey), { capture: true });
   const back = (again = false): boolean => {
     if ((again ? redo : undo)(view)) {
       forceLinting(view);
