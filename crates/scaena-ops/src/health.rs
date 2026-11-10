@@ -1413,6 +1413,31 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             unnoted.push(i);
         }
     }
+    // A slide that says again what the slide before it said, in other words than lint's W425
+    // reads as the same claim (W1's dogfood 4): their headlines share two content words or more,
+    // and half of the shorter's, or their words, headline and body, are half the same.
+    for i in 1..read.len() {
+        let (was, now) = (&read[i - 1], &read[i]);
+        let Some(shared) = repeated(was, now) else { continue };
+        let (k, j) = (i + 1, i);
+        let said: Vec<String> = shared.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
+        let said = match said.split_last() {
+            Some((last, [])) => last.clone(),
+            Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+            None => continue,
+        };
+        find(
+            &now.id,
+            Severity::Warning,
+            Kind::Story,
+            format!(
+                "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
+                unstopped(was.title.trim())
+            ),
+            format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on."),
+            None,
+        );
+    }
     // The slides with nothing for the presenter to say, as one finding at the first of them: a
     // deck written by hand has no notes on any, and a row for each would bury the rest.
     if let Some(&first) = unnoted.first() {
@@ -1631,6 +1656,24 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// The headline words `now` shares with the slide before it, `was`, where it says that slide's
+/// point again (W1's dogfood 4): two or more, half of the shorter headline's at least, or the two
+/// slides' words half the same; a headline the same word for word is lint's W425, and none here.
+/// A deck's slides as Narrato writes them share a third of their headlines at most, and a fifth of
+/// their words.
+fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
+    let (a, b) = (content_words(&was.title), content_words(&now.title));
+    if a.is_empty() || a == b {
+        return None;
+    }
+    let shared: Vec<String> = a.intersection(&b).cloned().collect();
+    let headlines = shared.len() >= 2 && shared.len() * 2 >= a.len().min(b.len());
+    let whole = |s: &SlideForHealth| content_words(&format!("{} {}", s.title, s.body));
+    let (wa, wb) = (whole(was), whole(now));
+    let words = wa.intersection(&wb).count() * 2 >= wa.union(&wb).count() && !shared.is_empty();
+    (headlines || words).then_some(shared)
 }
 
 /// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
@@ -2365,6 +2408,35 @@ mod tests {
         assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
         let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// A slide that says again what the slide before it said is asked to fold in or move on (W1's
+    /// dogfood 4): the fleet pitch's "Planning takes minutes instead of hours" after "Routes in
+    /// minutes, not hours". No other dogfood deck has one, and a headline the same word for word is
+    /// lint's W425, not found again.
+    #[test]
+    fn a_slide_that_says_the_one_before_again_is_found() {
+        let again = |h: &Health| -> Vec<Finding> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Story && f.says.contains("says again")).cloned().collect()
+        };
+        let found = again(&of(&dogfood("fleet", "", |_| {})));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].slide, 7);
+        assert_eq!(
+            found[0].says,
+            "Slide 7 says again what slide 6 said: its headline shares \u{201c}hours\u{201d} and \u{201c}minutes\u{201d} with \u{201c}Routes in minutes, not hours\u{201d}."
+        );
+        assert_eq!(
+            found[0].ask,
+            "Fold slide 7 into slide 6, or give slide 7 a point of its own that moves the talk on."
+        );
+        for name in ["deepdive", "board-de", "appeal", "training", "pitch", "qbr", "lecture", "keynote", "launch"] {
+            assert!(again(&of(&dogfood(name, "", |_| {}))).is_empty(), "{name}");
+        }
+        let moved = |slides: &mut Vec<answer::Slide>| {
+            slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
+        };
+        assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
