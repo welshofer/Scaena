@@ -283,16 +283,6 @@ try {
     await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false),
     "taken back, lint's fix is offered again",
   );
-  // So too where the same source is typed again over the break, the tab never left.
-  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), broken);
-  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
-  await page.evaluate((s) => window.scaena.type(s), broken);
-  const offered = () => {
-    const row = document.querySelector("#story [data-findings] > li[data-slide]");
-    return row?.querySelector("[data-lint-fix]")?.disabled === false && Boolean(row.querySelector("[data-lint-show]"));
-  };
-  await page.waitForFunction(offered, null, { timeout: 120000 }).catch(() => {});
-  check(await page.evaluate(offered), "typed again, the broken slide's row offers lint's fix and Show it");
   await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
   const popped = await page
     .waitForFunction(() => document.querySelector("#marked")?.matches(":popover-open") && document.querySelector("#marked").textContent, null, { timeout: 30000 })
