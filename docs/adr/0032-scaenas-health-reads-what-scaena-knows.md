@@ -115,6 +115,43 @@ It removes a contradiction with lint: balance marked a one-idea slide down while
 
 **Recommendation:** adopt it with a Japanese deck in the tests, the keynote translated, measured before and after.
 
+### 7. Leave the framing out of balance
+
+**Problem.** Balance averages the points a slide makes over every slide whose layout makes several. The cover, a divider, and a closing slide list none, yet each counts, so a deck's average sits lower than its content slides make it.
+
+On W1's dogfood-4 fleet pitch (`tests/fixtures/dogfood/fleet.slides.json`, 2026-11-10), the slides balance counts list 2.0 points on average, right at the floor. So health's own dense ask, "tighten slide 9 to five points", costs the deck 4 points of score: it takes the average to 1.8, under the floor of 2. A deck is marked down for following its health's advice. #935 names that cost in the ask, but cannot remove it.
+
+**Proposal:** leave the cover, every divider, and the deck's last run of closing slides out of the points made on average, as item 3 leaves out one-idea layouts. These are the cover (the deck's first slide in `title`, `title-center` or `title-split`), the dividers (`section`, `section-photo`, `section-number`), and the closing run (the closing run the calm close of item 6 reads). They are marked `one_idea`, so a deck without them reads as before.
+
+**Measured:** Scaena's score as `scaena_ops::health` gives it (brief pacing, Vzestup's balance, arc fidelity, no lint cap), on the dogfood decks built in Dusk as the health tests build them. "(c)" applies the floor per slide instead: each slide's points are scored by Vzestup's formula, then averaged.
+
+Fleet pitch, score / balance / points on average:
+
+| | Vzestup | (b) framing out | (c) floor per slide |
+|---|---|---|---|
+| as written | 90 / 87 / 2.0 | 90 / 87 / 4.0 | 84 / 71 / 2.0 |
+| slide 9 cut to five | 86 / 75 / 1.8 | 90 / 87 / 3.5 | 86 / 75 / 1.8 |
+
+(b) on the nine dogfood decks, score / balance:
+
+| deck | before | after | left out |
+|---|---|---|---|
+| deepdive | 93 / 100 | 93 / 100 | 1, 13 |
+| board-de | 90 / 93 | 90 / 93 | 1, 10–11 |
+| appeal | 93 / 91 | 93 / 91 | 1, 11 |
+| training | 93 / 100 | 93 / 100 | 1, 9, 12 |
+| pitch | 90 / 87 | 94 / 98 | 1, 7, 15 |
+| QBR | 95 / 97 | 95 / 97 | 1, 12–13 |
+| lecture | 94 / 100 | 94 / 100 | 1, 11, 15 |
+| keynote | 94 / 97 | 94 / 97 | 1, 13 |
+| launch | 91 / 91 | 91 / 91 | 1, 13–15 |
+
+Only the pitch moves. Its average sat under the floor (1.8) because of its framing, and rises to 2.4. The climate deck the tests generate moves from 84 to 89, its balance from 71 to 85.
+
+(c) lowers every one of the nine by 2–6 points, since each one-line slide is scored thin on its own.
+
+**Recommendation:** adopt (b). It makes following the dense ask cost nothing where the content holds its points, it moves no deck whose content slides already list enough, and it lifts the one deck its framing held under the floor. Leave (c) aside. #935's dense ask still names the cost where the content slides themselves are thin, at the floor.
+
 ## Decision
 
 Jay, 2026-10-25: "your recommendation". It is the recommendation above, with what dogfood pass 7 added (`wip/dogfood-decks` 93ce8d04, `dogfood7/findings.md`, item 8):
@@ -125,5 +162,6 @@ Jay, 2026-10-25: "your recommendation". It is the recommendation above, with wha
 - **4, adopted** (#609).
 - **5, adopted.** It is measured on the Japanese keynote (`keynote-ja.json`) before and after.
 - **6, added: a calm close is no bend.** In pass 7, all four decks got "planned cooler than its place in the talk" on their last two or three slides, the closing at 0.3 against a curve at 0.90–0.96. A calm "Questions?" or "Vielen Dank" is right. The bend finding is not raised on the deck's closing slides, its last run of slides in a closing layout. No figure moves.
+- **7, pending Jay.** Held in its own pull request until he decides; nothing lands before.
 
 `a_generated_talks_figures_are_vzestups` is re-pinned in the commit that moves the figures, naming this ADR.

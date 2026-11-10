@@ -256,6 +256,12 @@ fn declared(beat: &Beat) -> Option<NarrativeMeta> {
     })
 }
 
+/// The shipped themes' cover layouts: the deck's first slide in one is its cover.
+const COVERS: [&str; 3] = ["title", "title-center", "title-split"];
+
+/// The shipped themes' divider layouts, which open a part of the talk.
+const DIVIDERS: [&str; 3] = ["section", "section-photo", "section-number"];
+
 /// The shipped themes' layouts that make one point by design, whose slides are left out of the
 /// points a slide makes on average (ADR-0032 item 3, Jay's call, 2026-10-25).
 const ONE_IDEA: [&str; 9] = [
@@ -717,7 +723,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let asked =
         (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
     let slides = slides(deck);
-    let (read, most) = readings(deck, &slides)?;
+    let (mut read, most) = readings(deck, &slides)?;
+    // The deck's last run of closing slides, which the calm close and the big idea read too.
+    let closing = closing(deck, &slides, &read);
+    // The cover, the dividers, and the closing run frame the talk and make no points of their
+    // own: balance leaves them out of the points a slide makes on average, as it leaves out a
+    // one-idea layout's (ADR-0032 item 7). A deck without them reads as before.
+    for (i, s) in read.iter_mut().enumerate() {
+        let layout = slides.get(i).and_then(|sl| deck.states[sl.states[0]].layout.as_deref()).unwrap_or_default();
+        let cover = i == 0 && COVERS.contains(&layout);
+        if cover || DIVIDERS.contains(&layout) || closing.contains(&s.id) {
+            s.one_idea = true;
+        }
+    }
     let n = read.len();
     let m = health::metrics(&read, None);
     // The language the deck is written in, its brief's, else its own: the lexicons read English
@@ -758,7 +776,6 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // A calm close is no bend (ADR-0032 item 6, Jay's call, 2026-10-25): the deck's last slides,
     // a closing, a call to action, takeaways, a poster, or thanks or questions, come down from
     // the climax as a talk does, so a plan cooler than the curve there is not found.
-    let closing = closing(deck, &slides, &read);
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
@@ -2357,40 +2374,75 @@ mod tests {
     }
 
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
-    /// 4): on the fleet pitch, the slides balance counts list 2 points on average, at its floor, so
-    /// cutting slide 9's six bars to five lowers the score. The ask says so, and names slide 4 to
-    /// give a point more; following it, the cut and the point, keeps the score. Balance's floor
-    /// is Vzestup's, unchanged.
+    /// 4). On the fleet pitch as written, its cover and closing left out of balance (ADR-0032
+    /// item 7), the slides balance counts list 4 points on average, so cutting slide 9's six bars
+    /// to five costs nothing and the ask says only to tighten. On a thinner pitch, five of its
+    /// slides each listing one point, the average sits at the floor: the cut lowers the score,
+    /// the ask says so and names the slides to give a point more, and following it keeps the
+    /// score. Balance's floor is Vzestup's, unchanged.
     #[test]
     fn a_dense_ask_names_what_a_cut_costs_and_how_to_keep_it() {
-        let h = of(&dogfood("fleet", "", |_| {}));
-        let dense = h.findings.iter().find(|f| f.kind == Kind::Dense).expect("slide 9 makes six points");
-        assert_eq!(dense.slide, 9, "{dense:?}");
-        assert!(
-            dense
-                .ask
-                .starts_with("Tighten slide 9 to the 5 points that matter most, and keep what you cut in its notes"),
-            "{}",
-            dense.ask
-        );
-        assert!(
-            dense.ask.contains("Cutting alone lowers the deck's balance")
-                && dense.ask.ends_with("give slide 4 a point more as you tighten it."),
-            "{}",
-            dense.ask
-        );
-        // Cut alone, as the ask before said to: the score falls.
         let cut = |slides: &mut Vec<answer::Slide>| slides[8].key_bullets.truncate(5);
-        let tightened = of(&dogfood("fleet", "", cut));
+        let dense = |h: &Health| h.findings.iter().find(|f| f.kind == Kind::Dense).cloned();
+        let h = of(&dogfood("fleet", "", |_| {}));
+        let ask = dense(&h).expect("slide 9 makes six points").ask;
+        assert!(!ask.contains("Cutting alone lowers"), "{ask}");
+        assert_eq!(of(&dogfood("fleet", "", cut)).score, h.score, "the cut costs nothing");
+
+        // Five slides of one point each, in a layout that lists points: the average at the floor.
+        let thin = |slides: &mut Vec<answer::Slide>| {
+            for k in [2, 3, 4, 6] {
+                slides[k].layout_suggestion = "Bullets".into();
+                slides[k].key_bullets.truncate(1);
+            }
+            slides[4].key_bullets = vec!["Every route planned before the first truck leaves".into()];
+        };
+        let h = of(&dogfood("fleet", "", thin));
+        let found = dense(&h).expect("slide 9 makes six points");
+        assert_eq!(found.slide, 9, "{found:?}");
+        assert!(found.ask.contains("Cutting alone lowers the deck's balance"), "{}", found.ask);
+        let tightened = of(&dogfood("fleet", "", |s| {
+            thin(s);
+            cut(s);
+        }));
         assert!(tightened.score < h.score, "{} then {}", h.score, tightened.score);
-        // Cut, and a point more on slide 4, as the ask says now: the score holds.
+        // Cut, and a point more on each slide the ask names: the score holds.
+        let give = found.ask.rsplit("give ").next().unwrap_or_default();
+        let named: Vec<usize> =
+            (2..=8).filter(|k| give.split(|c: char| !c.is_ascii_digit()).any(|w| w == k.to_string())).collect();
+        assert!(!named.is_empty(), "{}", found.ask);
         let followed = |slides: &mut Vec<answer::Slide>| {
+            thin(slides);
             cut(slides);
-            slides[3].key_bullets.push("Dispatch software: priced for a hundred trucks".into());
+            for &k in &named {
+                slides[k - 1].key_bullets.push("Dispatch software: priced for a hundred trucks".into());
+            }
         };
         let kept = of(&dogfood("fleet", "", followed));
-        assert!(kept.score >= h.score, "{} then {}", h.score, kept.score);
+        assert!(kept.score >= h.score, "{} then {}: {}", h.score, kept.score, found.ask);
         assert!(!kept.findings.iter().any(|f| f.kind == Kind::Dense), "{:?}", kept.findings);
+    }
+
+    /// The cover, the dividers, and the closing run are left out of balance's average (ADR-0032
+    /// item 7, measured on W1's dogfood 4): of the nine dogfood decks, only the pitch, its average
+    /// under the floor for its framing slides, moves, 90 to 94; the rest score as they did.
+    #[test]
+    fn the_framing_is_left_out_of_balance() {
+        let scored = [
+            ("deepdive", 93),
+            ("board-de", 90),
+            ("appeal", 93),
+            ("training", 93),
+            ("pitch", 94),
+            ("qbr", 95),
+            ("lecture", 94),
+            ("keynote", 94),
+            ("launch", 91),
+            ("fleet", 90),
+        ];
+        for (name, score) in scored {
+            assert_eq!(of(&dogfood(name, "", |_| {})).score, score, "{name}");
+        }
     }
 
     /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
@@ -2856,7 +2908,7 @@ mod tests {
         assert_eq!(h.slides, plain.slides);
         // The score capped by the slides that stand: 23 of 25, less ten for each of the two that
         // do not (ADR-0032 item 1).
-        assert_eq!((plain.score, h.slides.len(), h.score), (84, 25, 72));
+        assert_eq!((plain.score, h.slides.len(), h.score), (89, 25, 72));
     }
 
     /// What a measure says of its slides agrees with how many it counts: "1 slide bends the
@@ -2897,8 +2949,8 @@ mod tests {
     }
 
     /// A slide that does not stand caps the score at the clean slides' share, less ten for each:
-    /// one in 25 leaves a cap over the score, two bring it down, a warning moves nothing, and a
-    /// deck no slide of which stands scores nothing (ADR-0032 item 1).
+    /// one in 25 brings it down to 86, two further, a warning moves nothing, and a deck no slide of
+    /// which stands scores nothing (ADR-0032 item 1).
     #[test]
     fn the_score_is_capped_by_the_slides_that_stand() {
         use scaena_core::lint::Finding as Linted;
@@ -2906,12 +2958,12 @@ mod tests {
         let d = Deck::from_value(&deck).unwrap();
         let id = |k: usize| deck["states"][k]["id"].as_str().unwrap().to_string();
         let one = [Linted::new("E100", Severity::Error, "text overflows").state(id(6))];
-        // 24 of 25 stand: a cap of 86, over the score's 84.
-        assert_eq!(health_in(&d, &one).unwrap().score, 84);
+        // 24 of 25 stand: a cap of 86, under the score's 89 (ADR-0032 item 7).
+        assert_eq!(health_in(&d, &one).unwrap().score, 86);
         let two = [one[0].clone(), Linted::new("E100", Severity::Error, "text overflows").state(id(9))];
         assert_eq!(health_in(&d, &two).unwrap().score, 72);
         let warned = [Linted::new("W210", Severity::Warning, "too many words").state(id(6))];
-        assert_eq!(health_in(&d, &warned).unwrap().score, 84);
+        assert_eq!(health_in(&d, &warned).unwrap().score, 89);
         let every: Vec<Linted> = (0..deck["states"].as_array().unwrap().len())
             .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
             .collect();
@@ -3076,7 +3128,9 @@ mod tests {
         let scores = [&h.pacing, &h.balance, &h.fidelity, &h.intensity, &h.tone].map(|m| m.score);
         // Balance leaves out the one-idea slides' points and counts a slide that draws a figure as
         // showing something (ADR-0032 items 1 and 3, Jay's call, 2026-10-25): 69 and 83 were Vzestup's.
-        assert_eq!((h.score, scores), (84, [Some(100), Some(71), Some(83), Some(83), Some(82)]));
+        // It leaves out the cover's, the dividers', and the closing run's too (item 7): 71 and 84
+        // before it.
+        assert_eq!((h.score, scores), (89, [Some(100), Some(85), Some(83), Some(83), Some(82)]));
     }
 
     #[test]
