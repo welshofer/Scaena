@@ -1160,10 +1160,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         },
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
+            // Each count said only where it has one, and a turn at a beat's edge as the finding
+            // says it, a new part beginning (the coordinator's read of B1 and fleet).
             _ => format!(
-                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
-                counted(hard, "slide"),
-                soft,
+                "Read by their words: {}{}.",
+                match (hard, soft) {
+                    (0, soft) => format!("{} where a new part of the talk begins", counted(soft, "slide")),
+                    (hard, 0) => format!("{} where the talk turns sharply", counted(hard, "slide")),
+                    (hard, soft) => format!(
+                        "{} where the talk turns sharply, {soft} where a new part of the talk begins",
+                        counted(hard, "slide")
+                    ),
+                },
                 match bridged.len() {
                     0 => String::new(),
                     n => format!("; the notes bridge {n} of them"),
@@ -3402,6 +3410,13 @@ mod tests {
             "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
         );
         assert_eq!(fleet.coherence.score, None, "no figure moves");
+        assert_eq!(
+            fleet.coherence.says,
+            "Read by their words: 1 slide where the talk turns sharply, 5 where a new part of the talk begins."
+        );
+        // A count of none is not said.
+        let keynote = of(&dogfood("keynote", "", |_| {}));
+        assert!(!keynote.coherence.says.contains("turns sharply"), "{}", keynote.coherence.says);
     }
 
     /// A headline that names a topic over the line that says its claim is a warning of its own
