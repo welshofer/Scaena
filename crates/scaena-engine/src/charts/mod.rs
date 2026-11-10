@@ -1033,6 +1033,16 @@ pub struct Ctx<'a> {
     pub lenient: bool,
 }
 
+impl Ctx<'_> {
+    /// The deck's language where it is Chinese, Japanese, or Korean, which a chart's and a
+    /// table's text are set in, so their figures and words take its script's face and its
+    /// breaks as a text's do (dogfood pass 11). Any other language shapes a chart as before.
+    pub(crate) fn script(&self) -> Option<String> {
+        let lang = self.deck.meta.as_ref().and_then(|m| m.lang.as_deref());
+        crate::text::cjk(lang).then(|| lang.map(String::from)).flatten()
+    }
+}
+
 mod compile;
 pub mod weather;
 pub(crate) use compile::datum_key;

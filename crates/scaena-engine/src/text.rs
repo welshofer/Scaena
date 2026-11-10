@@ -1525,7 +1525,7 @@ fn in_phrase(before: char, after: char) -> bool {
 }
 
 /// Whether `lang` is Chinese, Japanese, or Korean.
-fn cjk(lang: Option<&str>) -> bool {
+pub(crate) fn cjk(lang: Option<&str>) -> bool {
     lang.and_then(|l| Language::parse(l).ok()).is_some_and(|l| matches!(l.language(), "ja" | "zh" | "ko"))
 }
 

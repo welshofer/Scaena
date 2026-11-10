@@ -797,3 +797,30 @@ fn a_japanese_text_with_no_latin_letter_is_set_in_the_scripts_face_whole() {
     assert_eq!(faces("8%", None), std::slice::from_ref(&fraunces));
     assert_eq!(faces("8%", Some("en")), [fraunces]);
 }
+
+#[test]
+fn a_japanese_tables_figures_keep_their_columns_in_the_scripts_face() {
+    // Dogfood pass 11: a chart's and a table's text in a Japanese deck take its language, so
+    // their figures are set in Noto Sans JP. A column of figures still lines up there: Noto
+    // sets every figure at one width, tabular or not, so each figure's right edge falls where
+    // its digits say.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let mut width = |text: &str, lang: Option<&str>| {
+        let spec = TextSpec {
+            numeric: Some(scaena_engine::theme::Numeric::TabularLining),
+            lang: lang.map(String::from),
+            ..TextSpec::plain(theme.text_role("body").unwrap(), text)
+        };
+        let layout = engine.layout(&mut fonts, &theme, &spec, 10_000.0).unwrap();
+        layout.width
+    };
+    let one = width("1", Some("ja"));
+    for (figures, digits) in [("11", 2.0), ("111", 3.0), ("120", 3.0), ("888", 3.0)] {
+        let w = width(figures, Some("ja"));
+        assert!((w - one * digits).abs() < 0.01, "{figures}: {w} against {one} a figure");
+    }
+    // "8.5" and "12.5" share their point's column, as Inter's tabular figures do.
+    let point = width("8.5", Some("ja")) - 2.0 * one;
+    assert!((width("12.5", Some("ja")) - (3.0 * one + point)).abs() < 0.01);
+}
