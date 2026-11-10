@@ -46,6 +46,14 @@ enum CanvasOffer {
         if let notCode = deck.notCode {
             offers.append(.action("Not Code", symbol: "textformat", run: notCode))
         }
+        // One slide written by the assistant's model (lift-up FUNC-1), early, where the long
+        // press's list keeps them on the screen.
+        if let again = deck.writeSlideAgain {
+            offers.append(.action("Write This Slide Again…", symbol: "arrow.trianglehead.2.clockwise", run: again))
+        }
+        if let about = deck.addSlideAbout {
+            offers.append(.action("Add a Slide About…", symbol: "plus.rectangle.on.rectangle", run: about))
+        }
         offers.append(.divider)
         if let duplicate = deck.duplicate {
             offers.append(.action("Duplicate", symbol: "plus.square.on.square", run: duplicate))
@@ -102,40 +110,32 @@ enum CanvasOffer {
         if let placeAnew = deck.placeAnew {
             offers.append(.action("Lay Out on Its Own in This Size", symbol: "rectangle.badge.plus", run: placeAnew))
         }
-        // A picture made by the user's image model (PLAN 2.107), in place of the image selected,
-        // in the slide's empty place for one, or where the menu was asked for.
+        // What lands where the menu was asked for, in one submenu, so the menu's list stays on the
+        // screen (lift-up FUNC-1): a picture made by the user's image model (PLAN 2.107), in place
+        // of the image selected or in the slide's empty place for one; a map of a place (PLAN
+        // O.1d), there as a picture made goes; then what the theme and the bundle offer, by kind.
+        var inserting: [CanvasOffer] = []
         if let makePicture = deck.makePicture {
-            offers.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
+            inserting.append(.action("Make a Picture…", symbol: "wand.and.stars", run: makePicture))
         }
-        // One slide written by the assistant's model (lift-up FUNC-1).
-        if let again = deck.writeSlideAgain {
-            offers.append(.action("Write This Slide Again…", symbol: "arrow.trianglehead.2.clockwise", run: again))
-        }
-        if let about = deck.addSlideAbout {
-            offers.append(.action("Add a Slide About…", symbol: "plus.rectangle.on.rectangle", run: about))
-        }
-        // A map of a place (PLAN O.1d), there as a picture made goes.
         if let insertMap = deck.insertMap {
-            offers.append(.action("Map…", symbol: "map", run: insertMap))
+            inserting.append(.action("Map…", symbol: "map", run: insertMap))
         }
-        // What the theme and the bundle offer, by kind, landing where the menu was asked for.
         var kinds: [String] = []
         for insert in deck.inserts where !kinds.contains(insert.kind) { kinds.append(insert.kind) }
-        if !kinds.isEmpty {
-            let offered = deck.inserts.enumerated().map { (id: $0.offset, insert: $0.element) }
+        let offered = deck.inserts.enumerated().map { (id: $0.offset, insert: $0.element) }
+        inserting += kinds.map { kind in
+            .menu(
+                NodeCommands.kind(kind), symbol: nil,
+                offered.filter { $0.insert.kind == kind }.map { o in
+                    .action(
+                        Words.insertion(o.insert, among: deck.inserts, sources: deck.sources), symbol: nil,
+                        run: { deck.insert(o.id) })
+                })
+        }
+        if !inserting.isEmpty {
             offers.append(.divider)
-            offers.append(
-                .menu(
-                    "Insert", symbol: "plus",
-                    kinds.map { kind in
-                        .menu(
-                            NodeCommands.kind(kind), symbol: nil,
-                            offered.filter { $0.insert.kind == kind }.map { o in
-                                .action(
-                                    Words.insertion(o.insert, among: deck.inserts, sources: deck.sources), symbol: nil,
-                                    run: { deck.insert(o.id) })
-                            })
-                    }))
+            offers.append(.menu("Insert", symbol: "plus", inserting))
         }
         return offers
     }

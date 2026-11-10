@@ -212,6 +212,16 @@ final class OpeningTests: XCTestCase {
             keep(app, as: "no-write-again")
             throw Unseen(description: "the long press offers no Write This Slide Again…: \(app.debugDescription)")
         }
+        // The menu's last item on the screen too, in the list beside it, so nothing it lists runs
+        // past its foot.
+        let insert = app.descendants(matching: .any).matching(
+            NSPredicate(
+                format: "label == 'Insert' AND (elementType == %lu OR elementType == %lu)",
+                XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue))
+        guard wait(5, { insert.allElementsBoundByIndex.contains { $0.isHittable } }) else {
+            keep(app, as: "no-insert")
+            throw Unseen(description: "the long press's Insert is off the screen: \(app.debugDescription)")
+        }
         again.tap()
         let key = app.buttons.matching(identifier: "slide-ask-key").firstMatch
         guard key.waitForExistence(timeout: 10) else {
