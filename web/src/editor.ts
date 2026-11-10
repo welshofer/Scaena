@@ -2250,7 +2250,16 @@ async function edit(source: Source, opened?: Stage) {
     }
     savedSource = renamedIn(sent, done.renamed);
     filedSaved = files;
-    void Promise.all([discard(was), discard(copyKey())]).catch(() => {});
+    // After any copy being kept as the save was asked for, which would else write what was saved
+    // as not saved once this discard ran (lift-up 20261031 REL-3).
+    const now = copyKey();
+    copying = copying
+      .then(() => {
+        copied = new Map();
+        return Promise.all([discard(was), discard(now)]);
+      })
+      .then(() => {})
+      .catch(() => {});
     address(where);
     tell();
     void listKept();
