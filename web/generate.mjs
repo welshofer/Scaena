@@ -641,6 +641,9 @@ try {
   // each was made against a deck that no longer compiles (lift-up 20261110 deferred).
   const whole = await page.evaluate(() => window.scaena.source());
   await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), whole);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
   await tab(page, "inspector");
   await tab(page, "story");
   await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});

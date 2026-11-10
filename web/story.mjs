@@ -112,6 +112,9 @@ try {
   const moved = compiled;
   const shown = await page.locator("#story [data-findings] li[data-slide]").count();
   await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), moved);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
   // Shown again, the Story reads the source at once, as it does a pause after a burst of typing
   // that ends mid-word.
   await tab(page, "inspector");
@@ -226,6 +229,9 @@ try {
   check(offers.fixes.length > 0 && offers.show, `the broken slide's row offers lint's fix and Show it: ${JSON.stringify(offers)}`);
   // A source that stops compiling holds lint's fix with the rest, the story kept as last read.
   await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), broken);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
   await tab(page, "inspector");
   await tab(page, "story");
   await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
