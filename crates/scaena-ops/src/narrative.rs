@@ -9998,6 +9998,7 @@ mod tests {
             &[],
             None,
             Looking::No,
+            Noting::No,
             Path::new("dusk.theme.json"),
             dusk(),
             &font,
