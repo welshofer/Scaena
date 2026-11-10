@@ -82,6 +82,7 @@ import type {
   Writing,
   WritingAsk,
   WritingCall,
+  WritingStop,
   Written,
   SlidePlace,
   SlideWritten,
@@ -181,6 +182,8 @@ type Reply = Extract<
       | "coding"
       | "uncoding"
       | "tidying"
+      | "focusing"
+      | "walking"
       | "italicizing"
       | "themes"
       | "rethemed"
@@ -940,6 +943,21 @@ export class Stage {
     return this.request<"tidying">(asked).then(({ patch }) => patch);
   }
 
+  /** The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+   * gutter's numbers, "2–4, 7"; nothing said clears it (PLAN 2.140): Focus on These Lines, Lines in
+   * Focus, and Clear Focus. The states after it stay as they were; `[]` where it shows them so. */
+  focusing(source: string, state: string, node: string, said: string): Promise<unknown[]> {
+    const asked = { type: "focusing" as const, id: ++this.asked, source, state, node, said };
+    return this.request<"focusing">(asked).then(({ patch }) => patch);
+  }
+
+  /** Walk Through Lines…'s patch of code text `node` from `state` (PLAN 2.140): `state` shows the
+   * lines the first of `steps` names, and a step after it each of the rest's. */
+  walking(source: string, state: string, node: string, steps: string[]): Promise<unknown[]> {
+    const asked = { type: "walking" as const, id: ++this.asked, source, state, node, steps };
+    return this.request<"walking">(asked).then(({ patch }) => patch);
+  }
+
   /** `text` tidied as code in `language` is when it is pasted (PLAN 2.133, `code::tidy`). */
   tidied(text: string, language: string): Promise<string> {
     return this.request<"tidied">({ type: "tidied", id: ++this.asked, text, language }).then(({ text }) => text);
@@ -1024,12 +1042,12 @@ export class Stage {
 
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. `signal`,
    * aborted, stops the request in the worker (lift-up PERF-4). */
-  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
+  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; stop: WritingStop; usage?: { input: number; output: number } }> {
     const id = ++this.asked;
     const stop = () => this.send({ type: "stopWrite", id });
     signal?.addEventListener("abort", stop, { once: true });
     return this.request<"wrote">({ type: "write", id, call })
-      .then(({ text, usage }) => ({ text, usage }))
+      .then(({ text, stop, usage }) => ({ text, stop, usage }))
       .finally(() => signal?.removeEventListener("abort", stop));
   }
 
@@ -1527,6 +1545,8 @@ export class Stage {
       case "coding":
       case "uncoding":
       case "tidying":
+      case "focusing":
+      case "walking":
       case "italicizing":
       case "themes":
       case "rethemed":

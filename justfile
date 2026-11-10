@@ -79,11 +79,13 @@ ipad-gate UDID="":
     apps/ipad/gate.sh {{UDID}}
 
 # The engine, both painters, and the WASM bindings must keep compiling for the browser (PLAN 0.1, 0.8):
-# with every feature, and as the player's engine alone, without the hyphenation patterns and the
-# code scanners' word tables the editor's module leaves out (ADR-0015, PLAN 2.132).
+# with every feature; as the player's engine alone, without the hyphenation patterns and the
+# code scanners' word tables the editor's module leaves out (ADR-0015, PLAN 2.132); and as
+# `just wasm` builds the editor's module, by its default features.
 wasm-check:
     cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
     cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
+    cargo clippy -p scaena-wasm --target wasm32-unknown-unknown --locked -- -D warnings
 
 # Validate examples and fixture bundles against docs/schema, and check torture-deck font coverage
 # (needs python3; `pip install jsonschema fonttools==4.66.1`).
@@ -106,13 +108,15 @@ schema:
 # the exchanges scaena-chat's tests hold the Mac's to (ADR-0022); the assistant's markdown split
 # into the blocks the Mac's `MarkdownBlocks` makes (narrative ATTR-4); and a source's body read no
 # further than its plan's `most` (the 20261024 plan's SEC-2); and every call the model makes
-# answered, an error included (the 20261025b plan's STAB-3).
+# answered, an error included (the 20261025b plan's STAB-3); and the web loader fetching only the
+# bundle's own files (the 20261031 plan's SEC-1).
 scripts:
     python3 -m unittest discover -s scripts -p 'test_*.py'
     node --experimental-strip-types web/exchanges.mjs
     node --experimental-strip-types web/markdown.mjs
     node --experimental-strip-types web/most.mjs
     node --experimental-strip-types web/answered.mjs
+    node --experimental-strip-types web/within.mjs
 
 # CI runs these on each runner, and fails a pull request on a bench slower than its base, timed
 # beside it on the same machine, by more than the run's floor every time: 10%, or 2.5 times the

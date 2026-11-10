@@ -1018,7 +1018,24 @@ impl Engine {
         id: &str,
         cell: Rect,
     ) -> Result<PlacedText, EngineError> {
-        let props = &snap.nodes[id];
+        self.layout_text_as(deck, theme, lines, snap, id, cell, &snap.nodes[id], true)
+    }
+
+    /// [`Engine::layout_text_node`] with the node's properties `props`: as the state resolves them,
+    /// or with another of the texts the deck gives it, to find the size that one is set at
+    /// (`steps`: whether code that shrinks is held to one size across them, PLAN 2.141).
+    #[allow(clippy::too_many_arguments)]
+    fn layout_text_as(
+        &mut self,
+        deck: &Deck,
+        theme: &Theme,
+        lines: Option<BaselineGrid>,
+        snap: &Snapshot,
+        id: &str,
+        cell: Rect,
+        props: &Props,
+        steps: bool,
+    ) -> Result<PlacedText, EngineError> {
         let template = snap.layout.as_deref();
         let at = props.get("at");
         let mut spec = text_spec(deck, theme, props, Grid::slot_role(theme, template, at).as_deref())
@@ -1156,6 +1173,29 @@ impl Engine {
         };
         // Code and verse, worked out from one layout, held under the cap the same way.
         let (scale, text) = if scale > cap { (cap, lay(cap)?) } else { (scale, text) };
+        // Code that shrinks keeps one size across its states (PLAN 2.141, ADR-0029 item 7): in this
+        // box, the size at which every text the deck gives it fits, so a step that adds a line
+        // rescales no token of the rest.
+        let (scale, text) = match code && steps && fit == TextFit::Shrink {
+            true => {
+                let mut least = scale;
+                let now = props.get("text").and_then(Value::as_str);
+                for other in code_texts(deck, id).into_iter().filter(|t| Some(t.as_str()) != now) {
+                    let mut props = props.clone();
+                    props.insert("text".into(), Value::String(other));
+                    let placed = self.layout_text_as(deck, theme, lines, snap, id, cell, &props, false)?;
+                    least = least.min(placed.scale);
+                }
+                match least < scale {
+                    true => {
+                        let laid = self.text.layout(&mut self.fonts, theme, &spec.scaled(least), cell[2]);
+                        (least, laid.map_err(|e| in_node(id, e))?)
+                    }
+                    false => (scale, text),
+                }
+            }
+            false => (scale, text),
+        };
         let overflow = !fits_box(&text);
         let clip = (fit == TextFit::Clip).then_some(cell);
         let top = text_top(cell, align_y, &text, trim);
@@ -1312,6 +1352,20 @@ fn worked_out(
         laid = lay(scale)?;
     }
     Ok((scale, laid))
+}
+
+/// Every text the deck gives the node `id`, each once, in the order it is written: its own, then
+/// each state's that sets one (PLAN 2.141). What code that shrinks is held to one size across.
+fn code_texts(deck: &Deck, id: &str) -> Vec<String> {
+    let own = deck.nodes.get(id).and_then(|n| n.props.get("text"));
+    let set = deck.states.iter().filter_map(|s| s.props.get(id).and_then(|d| d.get("text")));
+    let mut out: Vec<String> = Vec::new();
+    for text in own.into_iter().chain(set).filter_map(Value::as_str) {
+        if !out.iter().any(|t| t == text) {
+            out.push(text.to_string());
+        }
+    }
+    out
 }
 
 /// How many lines a code text writes: its lines as broken where it breaks them, a CRLF once.
