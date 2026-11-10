@@ -1,0 +1,31 @@
+{
+ "arc": "Problem\u2013Solution",
+ "bigIdea": "Every grant dollar rebuilt trail this season, under budget, so renewing it puts 60 miles in reach.",
+ "beats": [
+  {
+   "name": "Problem",
+   "claim": "Spring storms closed 40 miles of trail.",
+   "slides": 2
+  },
+  {
+   "name": "Solution",
+   "claim": "Volunteers rebuilt 52 miles, more than the goal.",
+   "slides": 3
+  },
+  {
+   "name": "Proof",
+   "claim": "Rebuilt trail brings hikers back.",
+   "slides": 1
+  },
+  {
+   "name": "Cost",
+   "claim": "The season came in $6,600 under budget.",
+   "slides": 2
+  },
+  {
+   "name": "Ask",
+   "claim": "Renew the grant at $184,000 so crews reach 60 miles in 2027.",
+   "slides": 1
+  }
+ ]
+}
