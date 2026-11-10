@@ -359,6 +359,11 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     // What to do first, open; the rest folded under one "N more", open again as it was left.
     const { open, more } = triage(h);
     const unfolded = list.querySelector<HTMLDetailsElement>("[data-more] details")?.open ?? false;
+    // A slide's sources to cite, open, stay open as they were left, the focus where it was: a read
+    // again after every state is linted draws the rows again (lift-up 20261110 deferred).
+    const choosing = list.querySelector<HTMLElement>("[data-citing]:not([hidden])");
+    const citing = choosing?.closest<HTMLElement>("li[data-slide]")?.dataset.slide;
+    const picked = choosing?.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.source : undefined;
     list.replaceChildren(...bySlide(open).map((run) => row(run, h)));
     if (more.length) {
       const li = document.createElement("li");
@@ -372,6 +377,15 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       details.append(summary, rest);
       li.append(details);
       list.append(li);
+    }
+    if (citing) {
+      const cite = list.querySelector<HTMLButtonElement>(`li[data-slide="${citing}"] [data-cite]`);
+      const offered = cite?.nextElementSibling as HTMLElement | null;
+      if (cite && offered) {
+        offered.hidden = false;
+        cite.ariaExpanded = "true";
+        if (picked) [...offered.querySelectorAll<HTMLButtonElement>("[data-source]")].find((b) => b.dataset.source === picked)?.focus();
+      }
     }
     if (!h.findings.length) {
       const none = document.createElement("li");
