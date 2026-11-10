@@ -96,6 +96,11 @@
          are a scroll away, and never move the slide while a person types or drags. */
       #column { flex: none; height: 100%; display: flex; flex-direction: column; min-height: 0; }
       #desk { flex: 1 1 0; min-height: 160px; display: grid; place-items: center; container-type: size; padding: 12px; }
+      /* What the canvas's overlay draws past the slide, a caret or a selection in text run past its
+         foot, a handle beside its edge, shows on the desk around it, as a presentation app's does,
+         and never over the panes and bars beside it (editor dogfood 2). The desk is what zooms and
+         pans, so the clip follows both. */
+      #desk { overflow: clip; }
       #preview { position: relative; width: min(100cqw, calc(100cqh * var(--aspect, 1.7778))); aspect-ratio: var(--aspect, 1.7778); box-shadow: 0 0 0 1px var(--line), 0 8px 28px rgb(0 0 0 / 0.5); }
       #stage { display: block; width: 100%; height: 100%; background: #000; }
       #overlay { position: absolute; inset: 0; outline: none; touch-action: none; }
@@ -296,14 +301,21 @@
       .notes th { font-weight: 600; }
       .notes code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
       .notes > :last-child { margin-bottom: 0; }
-      #rehearsed { width: min(34em, 92vw); }
+      #rehearsed { width: min(44em, 92vw); }
       #writing { width: min(34em, 92vw); }
       #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
       #writing-was, #writing-said { white-space: pre-wrap; }
+      /* Add a slide about… and Write this slide again…: the words typed in the page's face, as every other field's, never the browser's monospace, and no gap where nothing is said yet (editor dogfood 1). */
+      #slide-ask { width: min(34em, 92vw); }
+      #slide-ask textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
+      #slide-ask-thinking:empty { display: none; }
       #writing-was { max-height: 8em; overflow: auto; }
       #rehearsed table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
       #rehearsed th, #rehearsed td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
       #rehearsed thead th { color: var(--muted); font-weight: 500; }
+      /* The three slides that ran furthest over their plan (lift-up 20261110 FUNC-1): said in their row, and set in the warning's color too. */
+      #rehearsed tr[data-over] td:nth-child(4) { color: var(--warning); }
+      #rehearsed thead th[hidden] { display: none; }
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
       #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
@@ -538,6 +550,9 @@
       #story .read { fill: none; stroke: var(--ink); }
       #story .hit { fill: transparent; cursor: pointer; }
       #story [data-legend] { margin: 4px 0 0; color: var(--muted); }
+      /* Each key with its words stays on one line: a narrow column wraps between keys, never
+         between a mark and what it means (editor dogfood 2). */
+      #story [data-legend] > span { white-space: nowrap; margin-right: 6px; }
       #story [data-legend] i { display: inline-block; vertical-align: middle; margin: 0 4px 0 6px; }
       #story [data-legend] i:first-child { margin-left: 0; }
       #story [data-legend] .declared { width: 14px; border-top: 1.5px solid var(--info); }
@@ -558,6 +573,11 @@
       #story li p { margin: 4px 0 0; }
       #story li[data-severity="error"] [data-show] { color: var(--error); }
       #story li[data-severity="warning"] [data-show] { color: var(--warning); }
+      /* Each severity's shape before the slide's number, not its colour alone; its word is the button's name (lift-up 20261110 USE-1). */
+      #story li [data-show]::before { display: inline-block; width: 1.1em; margin-right: 4px; text-align: center; font-size: 0.85em; }
+      #story li[data-severity="error"] [data-show]::before { content: "\2715" / ""; }
+      #story li[data-severity="warning"] [data-show]::before { content: "\25B2" / ""; }
+      #story li[data-severity="info"] [data-show]::before { content: "\25CF" / ""; }
       #story li .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
       #story li[data-more] summary { cursor: pointer; color: var(--muted); }
       #story li[data-more] ol { margin-top: 4px; }
@@ -631,6 +651,11 @@
       #who #model { max-width: 16em; }
       #who #base { width: 100%; }
       .note { color: var(--muted); font-size: 12px; margin: 0; }
+      /* Ways to begin, under an empty conversation (lift-up 20261110 ATTR-2): asks built from the deck's own story. */
+      #starters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+      #starters[hidden] { display: none; }
+      #starters button { font: inherit; font-size: 13px; text-align: left; padding: 5px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); cursor: pointer; }
+      #starters button:hover { border-color: var(--info); }
       #transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
       #transcript li { white-space: pre-wrap; overflow-wrap: anywhere; }
       #transcript .user { align-self: flex-end; background: var(--line); border-radius: 6px; padding: 4px 8px; max-width: 90%; }
@@ -640,6 +665,9 @@
       #transcript .call pre { white-space: pre-wrap; max-height: 12em; overflow: auto; background: var(--panel); padding: 4px 6px; margin: 4px 0; }
       #transcript img { display: block; max-width: 100%; margin-top: 4px; border: 1px solid var(--line); }
       #transcript .failed { color: var(--error); }
+      /* The conversation kept for this deck, offered as it opens again (lift-up 20261110 FUNC-4). */
+      #transcript .resume { color: var(--muted); font-size: 13px; }
+      #transcript .resume button { font: inherit; margin-top: 4px; }
       /* An answer as it reads (narrative ATTR-4): its blocks laid out, the words wrapping as prose. */
       #transcript .said { white-space: normal; }
       #transcript .said p, #transcript .said ul, #transcript .said ol, #transcript .said h4, #transcript .said h5, #transcript .said h6 { margin: 0 0 6px; }
@@ -680,6 +708,8 @@
       #retheming .themes input { margin: 0; }
       #retheming .themes img { width: 96px; height: 54px; border-radius: 3px; background: #000; object-fit: cover; }
       #retheming .themes .now { margin-left: auto; color: var(--muted); font-size: 12px; }
+      /* On the row chosen, "Now" in the ink: muted, it reads under 4.5:1 on the row's tint (editor dogfood 1). */
+      #retheming .themes label:has(input:checked) .now { color: var(--ink); }
       /* Add Slide's gallery (PLAN 3.30): the theme's layouts, each a slide started in it, by section. */
       #starting { width: min(1000px, 96vw); }
       #starting .picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -722,6 +752,8 @@
       #exporting-rate { flex-direction: row; align-items: center; gap: 6px; }
       #exporting-rate[hidden] { display: none; }
       #exporting-width { width: 7em; }
+      /* An animation's times stay on one line, never its "s" alone under them (editor dogfood 2). */
+      #listing td.when { white-space: nowrap; }
       dialog input, dialog select { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
       /* The themes that ship, chosen by their title slides, each family a section, the sections
          side by side as they fit (lift-up 10-25b ATTR-1): one radio group, its radio drawn as the
@@ -744,6 +776,9 @@
       #keeping li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
       #keeping li [data-open], #keeping li input { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #keeping li .here { color: var(--muted); font-size: 12px; }
+      #leftovers ul { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+      #leftovers li { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+      #leftovers li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       /* Make a picture (PLAN 2.107): what it shows, its look, and who makes it. */
       #picturing { width: min(34em, 92vw); }
       #picturing textarea { font: inherit; font-size: 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
@@ -767,6 +802,7 @@
       #prompting-progress { margin: 0; padding-left: 2.2em; max-height: 9em; overflow: auto; font-size: 13px; }
       #prompting-progress:empty { display: none; }
       #prompting-progress .failed { color: var(--error); }
+      #prompting-total.over { color: var(--error); }
       #prompting-film { margin: 0; padding: 0 0 4px; list-style: none; display: flex; gap: 6px; overflow-x: auto; }
       #prompting-film:empty { display: none; }
       #prompting-film li { flex: none; height: 72px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--line); overflow: hidden; }
@@ -1045,7 +1081,7 @@
             <dl data-measures></dl>
             <p data-big-idea hidden></p>
             <div data-arc></div>
-            <p data-legend><i class="declared"></i>intensity as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it <i class="drifted"></i>out of its beat; higher is more intense. <i class="tone"></i>tone as written <i class="tone-read"></i>as its words read; higher is more hopeful</p>
+            <p data-legend><span><i class="declared"></i>intensity as written</span> <span><i class="read"></i>as its words read</span> <span><i class="curve"></i>the arc's curve</span> <span><i class="bends"></i>off it</span> <span><i class="drifted"></i>out of its beat</span> <span>(higher is more intense)</span><br><span><i class="tone"></i>tone as written</span> <span><i class="tone-read"></i>as its words read</span> <span>(higher is more hopeful)</span></p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
           </section>
         </div>
@@ -1070,6 +1106,7 @@
             <p id="keystatus" class="keystatus" role="status" aria-live="polite" data-state="none"></p>
           </div>
           <p class="note" id="keynote"></p>
+          <div id="starters" role="group" aria-label="Ways to begin" hidden></div>
           <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
           <p id="thinking" hidden>Working…</p>
           <form id="asking">
@@ -1161,13 +1198,16 @@
           <label class="check"><input id="prompting-key-keep" type="checkbox" /> Keep it on this device, encrypted, rather than for this tab alone</label>
           <p class="note" id="prompting-key-said" aria-live="polite"></p>
         </fieldset>
-        <ol id="prompting-progress" aria-live="polite" aria-label="How far it has come"></ol>
+        <ol id="prompting-progress" tabindex="0" aria-live="polite" aria-label="How far it has come"></ol>
         <ol id="prompting-film" aria-label="The slides as drawn"></ol>
+        <p class="note" id="prompting-kept" hidden aria-live="polite"></p>
         <section id="prompting-outline" hidden aria-labelledby="prompting-outline-title">
           <h3 id="prompting-outline-title">The outline</h3>
           <p class="note" id="prompting-outline-arc"></p>
           <label>Big idea <textarea id="prompting-big-idea" rows="2" aria-describedby="prompting-outline-title"></textarea></label>
           <ol id="prompting-beats" aria-label="The beats, in order"></ol>
+          <p class="note" id="prompting-total" aria-live="polite"></p>
+          <p class="note" id="prompting-removed" hidden aria-live="polite"><span></span> <button type="button">Undo</button></p>
           <div class="row">
             <button type="button" id="prompting-add-beat">Add a beat</button>
             <label>Arc <select id="prompting-outline-arcs" aria-label="Another arc to outline on"></select></label>
@@ -1187,6 +1227,8 @@
         </section>
         <menu>
           <button type="button" id="prompting-cancel">Cancel</button>
+          <button type="button" id="prompting-download" hidden>Download the deck</button>
+          <button value="goOn" id="prompting-go-on" hidden>Go on from what was made</button>
           <button value="generate" id="prompting-go">Generate</button>
         </menu>
       </form>
@@ -1255,6 +1297,16 @@
         </menu>
       </form>
     </dialog>
+    <dialog id="leftovers" aria-labelledby="leftovers-title">
+      <form method="dialog">
+        <h2 id="leftovers-title">Decks not saved</h2>
+        <p class="note">These decks were not kept anywhere when this page last closed. The editor kept a copy of each in this browser.</p>
+        <ul class="leftovers"></ul>
+        <menu>
+          <button value="later">Not now</button>
+        </menu>
+      </form>
+    </dialog>
     <dialog id="keeping" aria-labelledby="keeping-title">
       <form method="dialog">
         <h2 id="keeping-title">Kept in this browser</h2>
@@ -1311,16 +1363,17 @@
     <dialog id="rehearsed" aria-labelledby="rehearsed-title">
       <form method="dialog">
         <h2 id="rehearsed-title">Rehearsed in <span data-total></span></h2>
+        <p data-plan></p>
         <table>
           <thead>
-            <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>
+            <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col" data-planning>Planned</th><th scope="col" data-planning>Against plan</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>
           </thead>
           <tbody></tbody>
         </table>
         <p class="note">A slide's animation plays, then it waits, then the next slide comes: the wait it keeps is its time less its animation. Kept, the deck plays at the pace you rehearsed.</p>
         <menu>
           <button value="cancel">Discard</button>
-          <button value="keep" id="rehearsed-keep">Keep these timings</button>
+          <button value="keep" id="rehearsed-keep" autofocus>Keep these timings</button>
         </menu>
       </form>
     </dialog>

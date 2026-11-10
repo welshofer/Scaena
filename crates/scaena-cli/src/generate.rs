@@ -341,6 +341,10 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Continuing { written, slides } => {
+            format!("the answer was cut short after {written} slides: asking for the rest of {slides}…")
+        }
+        Progress::Unrested { why } => format!("the rest of the slides did not come back: {why}"),
         Progress::Retrying { wait, tried } => format!(
             "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
             tried + 1,
@@ -358,6 +362,12 @@ fn said(p: &Progress) -> String {
             format!("{pictures} pictures made; not made:\n  {}", unmade.join("\n  "))
         }
     }
+}
+
+/// What a research that failed says, the deck going on without it (lift-up 10-25b REL-4).
+fn stopped(why: &str) -> String {
+    let why = why.strip_prefix("deep research: ").unwrap_or(why).trim_end_matches('.');
+    format!("Research stopped: {why}. The deck is grounded in what you gave.")
 }
 
 /// The deep research the brief asks for (PLAN G.8), as a source: the report and its sources,
@@ -750,12 +760,26 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // What the costliest answers give is kept as it arrives, so a run that fails after them goes
     // on from it (narrative REL-2).
     let mut kept = Kept::new(dir, json);
+    let mut unresearched: Option<String> = None;
     if a.research {
         let key = key.as_deref().context("deep research asks a model: --slides makes no call")?;
-        let report = research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?;
-        kept.research(&report.text);
-        // Asked for last and the costliest, the report is packed first, so it is the last cut.
-        read.insert(0, report);
+        match research(&brief, provider, &model, a.base.as_deref(), key, &agent, json) {
+            Ok(report) => {
+                kept.research(&report.text);
+                // Asked for last and the costliest, the report is packed first, so it is the last cut.
+                read.insert(0, report);
+            }
+            // A research that fails goes on from the sources given, where they hold anything
+            // (lift-up 10-25b REL-4); with none, the deck would be grounded in nothing.
+            Err(e) if read.iter().any(|s| !s.text.trim().is_empty() || s.pdf.is_some()) => {
+                let why = stopped(&e.to_string());
+                if !json {
+                    eprintln!("{why}");
+                }
+                unresearched = Some(why);
+            }
+            Err(e) => return Err(e),
+        }
     }
     let grounding = scaena_ops::narrative::grounding(&read, provider)?;
     brief.source_content = grounding.content.clone();
@@ -979,6 +1003,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         let mut out = serde_json::to_value(&made)?;
         out["sources"] = serde_json::to_value(&grounding.given)?;
         out["data"] = serde_json::to_value(&sheets)?;
+        if let Some(why) = &unresearched {
+            out["unresearched"] = serde_json::Value::String(why.clone());
+        }
         if let Some(command) = &resume {
             out["resume"] = serde_json::Value::String(command.clone());
         }
@@ -1022,6 +1049,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         for why in &made.unpictured {
             println!("  picture not made: {why}");
+        }
+        if let Some(why) = &unresearched {
+            println!("  {why}");
         }
         for g in &grounding.given {
             println!("  {}", given(g));

@@ -6,9 +6,10 @@
 // carries neither.
 import initResources, { list, text } from "@scaena/resources";
 import { findIcons, iconSet } from "../icon-set";
+import { iconsFound } from "./icon-find";
 import type { MapAsk, MapRefresh, MapTarget, Mapped, Rewritten, Seeing } from "../protocol";
-import { converse, type Event } from "./converse";
-import { type Call, type Message, type ProviderId, providers, type Result } from "./providers";
+import { converse, type Event, recent, turn } from "./converse";
+import { type Call, type Message, type ProviderId, providers, type Result, type Turn } from "./providers";
 import { type Brief, type Deck, type Listed, seen, system } from "./prompt";
 import { made, summary, tools } from "./tools";
 
@@ -73,6 +74,17 @@ export function forget() {
   conversation = [];
 }
 
+/** The conversation as it may be kept (lift-up 20261110 FUNC-4): as the model is next sent it,
+ * every picture left out, the older tools' results named in their place. */
+export function kept(): Message[] {
+  return recent(conversation, 0).map((m): Message => (m.role === "user" ? { role: "user", text: m.text } : m));
+}
+
+/** Go on from a conversation kept: the next question follows it. */
+export function resume(messages: Message[]) {
+  conversation = messages;
+}
+
 /** Ask `asking.text` of the model, which works on `session` with the tools `names` until it
  * answers, `signal` stops it, or it has called tools as many rounds as one question allows.
  * `edited` hears the deck's source after each call that changes it or a file beside it (the
@@ -120,19 +132,27 @@ export interface Writing {
 }
 
 /** Ask a model `writing.prompt` once, told `writing.instructions`, with nothing to call: what a
- * writing tool asks (PLAN 2.101). Its words, and the tokens it took; the conversation does not
- * keep it. */
-export async function write(writing: Writing, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
-  const turn = await providers[writing.provider].turn({
-    model: writing.model,
-    key: writing.key,
-    base: writing.base,
-    system: writing.instructions,
-    tools: [],
-    messages: [{ role: "user", text: writing.prompt, ...(writing.picture && { png: writing.picture }) }],
-    signal,
-  });
-  return { text: turn.text, usage: turn.usage };
+ * writing tool asks (PLAN 2.101). Its words, why it stopped, and the tokens it took; the
+ * conversation does not keep it. A busy, down, or silent provider is asked again as a question
+ * is (lift-up 20261031 REL-5), and `stop` says an answer cut off (`length`) or declined
+ * (`refused`), which is no answer to take. */
+export async function write(writing: Writing, signal?: AbortSignal): Promise<{ text: string; stop: Turn["stop"]; usage?: { input: number; output: number } }> {
+  const answered = await turn(
+    {
+      provider: providers[writing.provider],
+      model: writing.model,
+      key: writing.key,
+      base: writing.base,
+      system: writing.instructions,
+      tools: [],
+      conversation: [],
+      call: () => Promise.reject(new Error("a writing tool calls nothing")),
+      emit: () => {},
+      signal: signal ?? new AbortController().signal,
+    },
+    [{ role: "user", text: writing.prompt, ...(writing.picture && { png: writing.picture }) }],
+  );
+  return { text: answered.text, stop: answered.stop, usage: answered.usage };
 }
 
 /** The open deck, in a few facts: its title, states, formats, and theme; and its story, where
@@ -424,26 +444,11 @@ async function deckHealth(session: Session, args: unknown): Promise<[string, boo
 }
 
 /** `icon_find`: the icons that ship (PLAN 2.104), found in the set the page carries beside it, by
- * the rule the MCP server finds them by, and returned as it returns them: the editor's module
- * carries none. Or why there are none. */
+ * the rule the MCP server finds them by, and returned as it returns them (`iconsFound`): the
+ * editor's module carries none. Or why there are none. */
 async function iconFind(args: unknown): Promise<[string, boolean]> {
-  const a = (args ?? {}) as { query?: unknown; weight?: unknown; limit?: unknown };
-  const known = Object.keys(a).every((k) => k === "query" || k === "weight" || k === "limit");
-  const { query = "", weight = "regular", limit } = a;
-  const whole = limit === undefined || limit === null || (typeof limit === "number" && Number.isInteger(limit) && limit >= 0);
-  if (!known || typeof query !== "string" || (weight !== "regular" && weight !== "fill") || !whole) {
-    return [JSON.stringify({ message: "icon_find takes `query`, words; `weight`, `regular` or `fill`; and `limit`, a whole number" }), true];
-  }
   try {
-    const set = await iconSet();
-    const found = findIcons(set, query);
-    const icons = found.slice(0, typeof limit === "number" ? limit : 20).map((e) => ({
-      name: e.name,
-      tags: e.tags,
-      categories: e.categories,
-      icon: { name: e.name, path: weight === "fill" ? e.fill : e.regular, view: set.view },
-    }));
-    return [JSON.stringify({ icons, found: found.length }), false];
+    return iconsFound(await iconSet(), args);
   } catch (e) {
     return [JSON.stringify({ message: e instanceof Error ? e.message : String(e) }), true];
   }

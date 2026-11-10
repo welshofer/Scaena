@@ -161,24 +161,177 @@ fn lint_in(
     only: Option<&[&str]>,
     quotes: bool,
 ) -> Result<Vec<Finding>, EngineError> {
-    engine.lenient = true;
-    // What a font's license allows is the same in every format: judged once.
-    let mut out = fonts::W230FontLicense::check(deck, engine.fonts());
-    let mut formats: Vec<Option<&str>> = vec![None];
-    formats.extend(deck.formats.iter().map(|f| Some(f.as_str())));
-    // Each format's timeline, as laid out: where a shader's clock puts each state.
-    let mut timelines: Vec<(Option<&str>, Timeline)> = Vec::new();
-    // Each run of a node's own text that read too faintly, in any format: what a color that
-    // fixes the node must read over (PLAN 2.82).
-    let mut faint = std::collections::BTreeMap::new();
-    let result = (|| {
-        for format in formats {
-            let (d, t) = project(deck, theme, format)?;
+    let mut linting = Linting::new(deck, only, quotes);
+    while !linting.step(engine, deck, theme, data, backdrop.as_deref_mut())? {}
+    Ok(linting.found())
+}
+
+/// The layout rules on a deck, as [`lint`] runs them, a step at a time (lift-up 20261110
+/// PERF-1): each state laid out, and each state's contrast judged, in a step of its own, so a
+/// client with one thread lays a large deck out between the other work it answers, and drops
+/// it for a newer deck. [`Linting::step`] each time with the same deck, theme, data, and
+/// backdrop, until it says it is done; what it found is then [`Linting::found`], what [`lint`]
+/// finds, in the same order.
+pub struct Linting {
+    /// The states asked for, by id; every state where none are.
+    only: Option<Vec<String>>,
+    quotes: bool,
+    /// The deck's own format first, then each it lists.
+    formats: Vec<Option<String>>,
+    /// The format being laid out, by its place in `formats`.
+    format: usize,
+    phase: Phase,
+    out: Vec<Finding>,
+    /// Each format's timeline, as laid out, by its place in `formats`: where a shader's clock
+    /// puts each state.
+    timelines: Vec<(usize, Timeline)>,
+    /// Each run of a node's own text that read too faintly, in any format: what a color that
+    /// fixes the node must read over (PLAN 2.82).
+    faint: std::collections::BTreeMap<String, Vec<contrast::Faint>>,
+}
+
+enum Phase {
+    /// Nothing done yet.
+    Begin,
+    /// A format being laid out and judged.
+    Format(Box<Pass>),
+    /// Every format done: each fix checked by laying its state out again.
+    Verify,
+    /// Text too faint given the color that reads, and the quoted figures.
+    Close,
+    Done,
+}
+
+/// One format, as far as it has been laid out and judged.
+struct Pass {
+    /// The deck and theme as projected into the format, where that is not the deck's own.
+    deck: Option<Deck>,
+    theme: Option<Theme>,
+    snapshots: Vec<Snapshot>,
+    timeline: Option<Timeline>,
+    /// The states to lay out, by index, and how many are laid out.
+    every: Vec<usize>,
+    laid: Vec<Laid>,
+    /// Whether the rules have judged the states laid out, and, as contrast is judged state by
+    /// state after, what it has found.
+    ruled: bool,
+    contrast: Option<(contrast::Pass, usize)>,
+}
+
+impl Linting {
+    /// The layout rules on `deck`, on every state or on `only`, the figures its texts quote
+    /// judged too where `quotes` (or every state is), not yet begun.
+    pub fn new(deck: &Deck, only: Option<&[&str]>, quotes: bool) -> Self {
+        let mut formats: Vec<Option<String>> = vec![None];
+        formats.extend(deck.formats.iter().map(|f| Some(f.clone())));
+        Self {
+            only: only.map(|ids| ids.iter().map(|id| (*id).to_string()).collect()),
+            quotes,
+            formats,
+            format: 0,
+            phase: Phase::Begin,
+            out: Vec::new(),
+            timelines: Vec::new(),
+            faint: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Whether every step is done.
+    pub fn done(&self) -> bool {
+        matches!(self.phase, Phase::Done)
+    }
+
+    /// What the rules found, once done.
+    pub fn found(self) -> Vec<Finding> {
+        self.out
+    }
+
+    /// Take the next step on `deck` as `engine` lays it out, with `backdrop` painting what is
+    /// behind its text: whether it is done. An error ends it; nothing found stands.
+    pub fn step(
+        &mut self,
+        engine: &mut Engine,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        backdrop: Option<&mut (dyn Backdrop + '_)>,
+    ) -> Result<bool, EngineError> {
+        engine.lenient = true;
+        let stepped = self.stepping(engine, deck, theme, data, backdrop);
+        engine.lenient = false;
+        if stepped.is_err() {
+            self.phase = Phase::Done;
+            self.out.clear();
+        }
+        stepped.map(|()| self.done())
+    }
+
+    fn stepping(
+        &mut self,
+        engine: &mut Engine,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        backdrop: Option<&mut (dyn Backdrop + '_)>,
+    ) -> Result<(), EngineError> {
+        match std::mem::replace(&mut self.phase, Phase::Done) {
+            Phase::Begin => {
+                // What a font's license allows is the same in every format: judged once.
+                self.out = fonts::W230FontLicense::check(deck, engine.fonts());
+                self.phase = self.begin(engine, deck, theme, data)?;
+            }
+            Phase::Format(mut pass) => {
+                if self.advance(&mut pass, engine, deck, theme, data, backdrop)? {
+                    self.format += 1;
+                    self.phase = self.begin(engine, deck, theme, data)?;
+                } else {
+                    self.phase = Phase::Format(pass);
+                }
+            }
+            Phase::Verify => {
+                verify(engine, deck, theme, data, &mut self.out)?;
+                self.phase = Phase::Close;
+            }
+            Phase::Close => {
+                // Text that reads too faintly, with the color that reads (PLAN 2.82): judged
+                // once lint has found it in every format.
+                if let Some(b) = backdrop {
+                    let formats = &self.formats;
+                    let timelines: Vec<(Option<&str>, Timeline)> = std::mem::take(&mut self.timelines)
+                        .into_iter()
+                        .map(|(at, timeline)| (formats[at].as_deref(), timeline))
+                        .collect();
+                    contrast::recolor(engine, (deck, theme, data), &timelines, &self.faint, b, &mut self.out)?;
+                }
+                // Quoted figures are the same in every format: judged once, and each fix is the
+                // figure.
+                if self.only.is_none() || self.quotes {
+                    self.out.extend(w427(deck, data));
+                }
+                self.phase = Phase::Done;
+            }
+            Phase::Done => {}
+        }
+        Ok(())
+    }
+
+    /// The pass over the first format from `self.format` on that lays out anew, `self.format`
+    /// set to it, else [`Phase::Verify`] once there is none.
+    fn begin(
+        &mut self,
+        engine: &mut Engine,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+    ) -> Result<Phase, EngineError> {
+        while let Some(format) = self.formats.get(self.format) {
+            let (d, t) = project(deck, theme, format.as_deref())?;
             // A listed format of the deck's own shape lays out the same.
             if format.is_some() && matches!(d, Cow::Borrowed(_)) {
+                self.format += 1;
                 continue;
             }
-            let only = match only {
+            let every = match &self.only {
                 Some(ids) => {
                     let mut at = Vec::with_capacity(ids.len());
                     for id in ids {
@@ -189,44 +342,88 @@ fn lint_in(
                     }
                     at.sort_unstable();
                     at.dedup();
-                    Some(at)
+                    at
                 }
-                None => None,
+                None => (0..d.states.len()).collect(),
             };
-            let (states, timeline) = lay_out(engine, &d, &t, data, only.as_deref())?;
-            timelines.push((format, timeline));
-            let cx = Cx { deck: &d, theme: &t, format, states: &states };
+            let snapshots = scaena_core::resolve_states(&d)?;
+            let timeline = engine.timeline(&d, &t, data)?;
+            let laid = Vec::with_capacity(every.len());
+            let owned = |d: Cow<'_, Deck>| match d {
+                Cow::Borrowed(_) => None,
+                Cow::Owned(d) => Some(d),
+            };
+            let theme = match t {
+                Cow::Borrowed(_) => None,
+                Cow::Owned(t) => Some(t),
+            };
+            return Ok(Phase::Format(Box::new(Pass {
+                deck: owned(d),
+                theme,
+                snapshots,
+                timeline: Some(timeline),
+                every,
+                laid,
+                ruled: false,
+                contrast: None,
+            })));
+        }
+        Ok(Phase::Verify)
+    }
+
+    /// One step of `pass`: a state laid out, the rules on them all, or a state's contrast
+    /// judged. Whether the format is done.
+    fn advance(
+        &mut self,
+        pass: &mut Pass,
+        engine: &mut Engine,
+        deck: &Deck,
+        theme: &Theme,
+        data: &DataFiles,
+        backdrop: Option<&mut (dyn Backdrop + '_)>,
+    ) -> Result<bool, EngineError> {
+        let format = self.formats[self.format].as_deref();
+        let Pass { deck: projected, theme: themed, snapshots, timeline, every, laid, ruled, contrast } = pass;
+        let d = projected.as_ref().unwrap_or(deck);
+        let t = themed.as_ref().unwrap_or(theme);
+        if laid.len() < every.len() {
+            let slots = &timeline.as_ref().expect("kept until every state is laid out").slots;
+            laid.push(lay_one(engine, d, t, data, snapshots, slots, every[laid.len()], laid.last())?);
+            return Ok(false);
+        }
+        let cx = Cx { deck: d, theme: t, format, states: laid };
+        if !*ruled {
+            if let Some(timeline) = timeline.take() {
+                self.timelines.push((self.format, timeline));
+            }
             for rule in rules() {
                 // Motion is the same in every format but for what layout counts, and so is
                 // the timeline; they are judged once, in the deck's own.
                 if format.is_some() && matches!(rule.code(), "W320" | "W321" | "W323") {
                     continue;
                 }
-                out.extend(rule.check(&cx));
+                self.out.extend(rule.check(&cx));
             }
-            if let Some(b) = backdrop.as_deref_mut() {
-                // A picture is the same file in every format: drawn once, in the deck's own (E107).
-                if format.is_none() {
-                    out.extend(pictures::e107(&cx, &pictures::undrawable(&states, b)));
-                }
-                out.extend(contrast::check(&cx, b, &mut faint)?);
+            *ruled = true;
+            let Some(b) = backdrop else { return Ok(true) };
+            // A picture is the same file in every format: drawn once, in the deck's own (E107).
+            if format.is_none() {
+                self.out.extend(pictures::e107(&cx, &pictures::undrawable(laid, b)));
             }
+            *contrast = Some((contrast::Pass::new(&cx), 0));
+            return Ok(false);
         }
-        Ok(())
-    })();
-    let result = result.and_then(|()| verify(engine, deck, theme, data, &mut out));
-    // Text that reads too faintly, with the color that reads (PLAN 2.82): judged once lint
-    // has found it in every format.
-    let result = result.and_then(|()| match backdrop {
-        Some(b) => contrast::recolor(engine, (deck, theme, data), &timelines, &faint, b, &mut out),
-        None => Ok(()),
-    });
-    // Quoted figures are the same in every format: judged once, and each fix is the figure.
-    if result.is_ok() && (only.is_none() || quotes) {
-        out.extend(w427(deck, data));
+        let Some(b) = backdrop else { return Ok(true) };
+        let Some((judging, next)) = contrast.as_mut() else { return Ok(true) };
+        if *next < laid.len() {
+            judging.state(&cx, b, &mut self.faint, &laid[*next])?;
+            *next += 1;
+            return Ok(false);
+        }
+        let (judging, _) = contrast.take().expect("judged above");
+        self.out.extend(judging.finish(&cx));
+        Ok(true)
     }
-    engine.lenient = false;
-    result.map(|()| out)
 }
 
 /// W427 (ADR-0019): each figure a run quotes that its data no longer gives, a file changed
@@ -329,43 +526,31 @@ fn works(engine: &mut Engine, json: &serde_json::Value, theme: &Theme, data: &Da
     Some(rules.iter().flat_map(|r| r.check(&cx)).all(|g| g.node != f.node))
 }
 
-/// Every state of the (projected) deck, or only the states at `only`, in order, laid out, with
-/// its slot and its cue; and the deck's timeline.
-fn lay_out(
+/// State `i` of `deck` laid out, its cue from the state before it: `last`, where that is the
+/// state laid out before it, else laid out for the cue.
+#[allow(clippy::too_many_arguments)]
+fn lay_one(
     engine: &mut Engine,
     deck: &Deck,
     theme: &Theme,
     data: &DataFiles,
-    only: Option<&[usize]>,
-) -> Result<(Vec<Laid>, Timeline), EngineError> {
-    let snapshots = scaena_core::resolve_states(deck)?;
-    let timeline = engine.timeline(deck, theme, data)?;
-    let every: Vec<usize> = match only {
-        Some(at) => at.to_vec(),
-        None => (0..snapshots.len()).collect(),
+    snapshots: &[Snapshot],
+    slots: &[Slot],
+    i: usize,
+    last: Option<&Laid>,
+) -> Result<Laid, EngineError> {
+    let snap = &snapshots[i];
+    let scene = engine.scene(deck, theme, data, snap)?;
+    let state = &deck.states[i];
+    let timing = Timing::parse(theme, state.transition.as_ref())?;
+    let before = i.checked_sub(1).map(|p| &snapshots[p]);
+    let items = cues::items(deck, theme, state, before, snap, timing.matched, timing.slide.is_some())?;
+    // The state before, as laid out already, or laid out for the cue into this one.
+    let from = match (i.checked_sub(1), last) {
+        (Some(p), Some(laid)) if laid.index == p => Some(laid.scene.clone()),
+        (Some(p), _) => Some(engine.scene(deck, theme, data, &snapshots[p])?),
+        (None, _) => None,
     };
-    let mut out: Vec<Laid> = Vec::with_capacity(every.len());
-    for i in every {
-        let snap = &snapshots[i];
-        let scene = engine.scene(deck, theme, data, snap)?;
-        let state = &deck.states[i];
-        let timing = Timing::parse(theme, state.transition.as_ref())?;
-        let before = i.checked_sub(1).map(|p| &snapshots[p]);
-        let items = cues::items(deck, theme, state, before, snap, timing.matched, timing.slide.is_some())?;
-        // The state before, as laid out already, or laid out for the cue into this one.
-        let from = match (i.checked_sub(1), out.last()) {
-            (Some(p), Some(laid)) if laid.index == p => Some(laid.scene.clone()),
-            (Some(p), _) => Some(engine.scene(deck, theme, data, &snapshots[p])?),
-            (None, _) => None,
-        };
-        let schedule = Transition::new(from, scene.clone(), timing, &items, 0.0)?.schedule().clone();
-        out.push(Laid {
-            index: i,
-            snapshot: cascade::with_overrides(deck, snap),
-            scene,
-            slot: timeline.slots[i].clone(),
-            schedule,
-        });
-    }
-    Ok((out, timeline))
+    let schedule = Transition::new(from, scene.clone(), timing, &items, 0.0)?.schedule().clone();
+    Ok(Laid { index: i, snapshot: cascade::with_overrides(deck, snap), scene, slot: slots[i].clone(), schedule })
 }

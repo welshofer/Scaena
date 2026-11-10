@@ -28,11 +28,11 @@ private final class Away: @unchecked Sendable {
     var steps: [(step: String, main: Bool, stack: Int)] { lock.withLock { taken } }
 }
 
-/// An Anthropic answer whose text is `text`.
-private func anthropic(_ text: String) -> Data {
+/// An Anthropic answer whose text is `text`, stopped where `cut` says it ran out of room.
+private func anthropic(_ text: String, cut: Bool = false) -> Data {
     let answer: JSONValue = .object([
         "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
-        "stop_reason": .string("end_turn"),
+        "stop_reason": .string(cut ? "max_tokens" : "end_turn"),
     ])
     return (try? JSONEncoder().encode(answer)) ?? Data()
 }
@@ -77,7 +77,7 @@ private func anthropic(_ text: String) -> Data {
         Three lanes ran carbon-negative for a quarter. Fuel cost rose 4%, and every shipper renewed its \
         contract for the next season.
         """
-    let read = try generator.add(name: "notes.md", data: Data(notes.utf8))
+    let read = try await generator.add(name: "notes.md", data: Data(notes.utf8))
     #expect(read == .read(name: "notes.md", kind: "markdown"))
 
     // The deck built and every slide drawn away from the main actor (lift-up narrative PERF-3).
@@ -285,6 +285,41 @@ private func anthropic(_ text: String) -> Data {
         ) { _ in }
     }
     #expect(refused?.message == "Anthropic didn't accept your key. Check it, or replace it.", "\(String(describing: refused))")
+}
+
+/// Slides cut short of the length asked are asked for the rest, written on from them (lift-up
+/// REL-2), as the CLI and the browser ask: the deck is the two answers as one, and the rest is heard.
+@MainActor
+@Test func slidesCutShortAreAskedForTheRest() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slide = { (n: Int) in
+        #"{"slideTitle": "Slide \#(n)", "layoutSuggestion": "Bullet List", "keyBullets": ["Point \#(n)"], "beatName": "Problem"}"#
+    }
+    let first = #"{"executiveSummary": "Cargo pays for its carbon.", "slides": ["# + (1...5).map(slide).joined(separator: ", ")
+        + #", {"slideTitle": "Cut"#
+    let rest = #"{"executiveSummary": "", "slides": ["# + (6...8).map(slide).joined(separator: ", ") + "]}"
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        if body.contains("CONTINUATION") { return GeneratorReply(status: 200, body: anthropic(rest)) }
+        return GeneratorReply(status: 200, body: anthropic(first, cut: true))
+    }
+    var heard: [GeneratingStep] = []
+    let (session, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false
+    ) { heard.append($0) }
+    #expect(made.created.created)
+    #expect(try session.states().count == 8)
+    let continued = heard.contains { if case .continuing(5, _) = $0 { true } else { false } }
+    #expect(continued, "\(heard)")
+    let wrote = heard.contains { if case .wrote(8, false) = $0 { true } else { false } }
+    #expect(wrote, "\(heard)")
+    let requests = await asked.requests
+    #expect(requests.contains { ($0.body ?? "").contains("cut off after slide 5 of") })
 }
 
 /// A pictures key whose image models cannot be listed loses the pictures, not the deck
@@ -620,4 +655,21 @@ private actor Once {
     #expect(looks.filter { $0.contains("Slide 13 of") }.count == 2, "the busy round, asked again")
     #expect(heard.contains(.retrying(seconds: 1, tried: 1)), "\(heard)")
     #expect(heard.contains(.looked(slides: 0)), "\(heard)")
+}
+
+/// A file handed to New from a Prompt is read and parsed away from the main actor, so the brief's
+/// window, Cancel among it, goes on answering while a large one is read (lift-up 20261025b
+/// PERF-4).
+@MainActor
+@Test func aSourceFileIsReadAwayFromTheMainActor() async throws {
+    let generator = Generator()
+    let away = Away()
+    generator.away = { away.add($0, main: Thread.isMainThread, stack: Thread.current.stackSize) }
+    let file = FileManager.default.temporaryDirectory.appending(path: "away-\(UUID().uuidString).md")
+    try Data("# Pilots\n\nThree lanes ran carbon-negative for a quarter.\n".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let read = try await generator.add(contentsOf: file)
+    #expect(read == .read(name: file.lastPathComponent, kind: "markdown"))
+    #expect(away.steps.map(\.step) == ["add"], "the file parsed off the main actor: \(away.steps)")
+    #expect(away.steps.allSatisfy { !$0.main }, "parsed on the main thread: \(away.steps)")
 }

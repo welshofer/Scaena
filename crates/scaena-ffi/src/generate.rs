@@ -344,7 +344,13 @@ impl Generating {
                 let w = self.written()?;
                 let step = w.generation.step();
                 match w.generation.request(arg("key")?, &w.documents) {
-                    Some(r) => json!({ "step": step, "slides": w.generation.target(), "request": request(r) }),
+                    // The slides written so far, where the rest is asked for (lift-up 10-25 REL-2).
+                    Some(r) => json!({
+                        "step": step,
+                        "slides": w.generation.slides_asked(),
+                        "partial": w.generation.partial(),
+                        "request": request(r),
+                    }),
                     None => json!({ "step": step }),
                 }
             }
@@ -840,21 +846,25 @@ fn researched(topic: &str, report: &Report) -> Source {
 }
 
 /// Where a generation stands: `{step, slides, arc?, reasoning?, fallback?, written?, truncated?,
-/// outline?, unread?, plan?, wait?}`, the outline once written or settled (narrative FUNC-1), why
-/// it did not read once asked twice (lift-up REL-3), the beats the slides are spread over once the
-/// arc is chosen, and `wait` the seconds to wait before the same step is asked again, where its
-/// last answer was for now (narrative REL-1).
+/// partial?, unrested?, outline?, unread?, plan?, wait?}`, `partial` the slides written so far
+/// where the rest is asked for and `unrested` why it did not come back (lift-up REL-2), the
+/// outline once written or settled (narrative FUNC-1), why it did not read once asked twice
+/// (lift-up REL-3), the beats the slides are spread over once the arc is chosen, and `wait` the
+/// seconds to wait before the same step is asked again, where its last answer was for now
+/// (narrative REL-1).
 fn where_it_stands(g: &Generation) -> Value {
     let narrative = g.narrative();
     let step: Step = g.step();
     json!({
         "step": step,
-        "slides": g.target(),
+        "slides": g.slides_asked(),
         "arc": g.arc().map(|a| a.selection.clone()),
         "reasoning": g.arc().map(|a| a.reasoning.clone()),
         "fallback": g.fallback(),
         "written": narrative.map(|n| n.slides.len()),
         "truncated": narrative.map(|n| n.truncated),
+        "partial": g.partial(),
+        "unrested": g.unrested(),
         "outline": g.outline(),
         "unread": g.unread(),
         "plan": g.plan(),

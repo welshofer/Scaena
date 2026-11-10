@@ -110,6 +110,7 @@ pub const ALSO_CALLED: &[(&str, &[&str])] = &[
     ("closing", &["Thank You"]),
     ("chyron", &["Lower Third Lyrics"]),
     ("fine-print", &["Disclosures"]),
+    ("price-chart", &["Stock", "Ticker"]),
 ];
 
 /// The other names a layout is searched for by, as [`ALSO_CALLED`] gives them: none for most.
@@ -181,6 +182,7 @@ pub fn starting_as(
             }
             continue;
         };
+        coded(&mut node, s, theme);
         told(slot, s, layout.unwrap_or_default(), theme, &mut node, &mut claimed);
         let node_id = named(deck, &format!("{id}-{}", slug(slot, "slot")), &ids);
         filled.push(SlotFilled { slot: slot.clone(), node: node_id.clone() });
@@ -326,7 +328,8 @@ pub fn titled(deck: &Deck, theme: &Theme, shown: &str) -> Result<AddedState, Ops
 /// [`starting`] makes, and in each slot that waits with an `example`, what it says: a picture
 /// drawn by the theme's shader preset, under the cards and the words over it, each picture on the
 /// slide with a seed of its own; a map's place, that picture with a pin and a label over it (PLAN
-/// O.1e); or a chart or a table of a few rows made up for it, written inline. An editor draws it, so a
+/// O.1e); a chart or a table of a few rows made up for it, written inline; or code, set in the text
+/// the slot starts with (theme format 0.29). An editor draws it, so a
 /// layout's picture shows what each slot is for, and never saves it.
 pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<AddedState, OpsError> {
     let mut started = starting(deck, theme, shown, Some(layout))?;
@@ -377,6 +380,23 @@ pub fn example(deck: &Deck, theme: &Theme, shown: &str, layout: &str) -> Result<
                 started.patch.push(json!({ "op": "add_node", "id": label, "node": labeled, "state": started.id }));
                 ids.push(label);
                 json!({ "type": "shader", "kind": p.kind, "preset": preset, "seed": seed, "at": { "in": slot }, "z": -2 })
+            }
+            Example::Code(code) => {
+                // The text the slot starts with, set to the code: a code slot's is its prompt's
+                // words as Plain Text (`coded`).
+                let started_in = started
+                    .patch
+                    .iter_mut()
+                    .find(|op| op["op"] == "add_node" && op["node"]["at"]["in"] == slot.as_str());
+                let node = json!({ "type": "text", "text": code.text, "code": { "language": code.language }, "at": { "in": slot } });
+                match started_in {
+                    Some(op) => {
+                        op["node"]["text"] = json!(code.text);
+                        op["node"]["code"] = json!({ "language": code.language });
+                        continue;
+                    }
+                    None => node,
+                }
             }
             Example::Table(columns) => {
                 let rows = example_table(*columns);
@@ -612,6 +632,14 @@ fn slot_node(slot: &str, s: &Slot, mirrored: bool) -> Option<Value> {
     }
 }
 
+/// A text a slot set in the theme's code role starts (PLAN 2.138, ADR-0029): a Plain Text code
+/// block, its prompt's words its code, which a paste or the language chip then names.
+fn coded(node: &mut Value, s: &Slot, theme: &Theme) {
+    if node["type"] == "text" && s.role.is_some() && s.role.as_deref() == theme.code_role() {
+        node["code"] = json!({ "language": "plain" });
+    }
+}
+
 /// The first of `base`, `base-2`, `base-3`, … that names no node of `deck` nor any of `ids`.
 fn named(deck: &Deck, base: &str, ids: &[String]) -> String {
     let taken = |n: &str| deck.nodes.contains_key(n) || ids.iter().any(|i| i == n);
@@ -643,9 +671,11 @@ pub fn filling(deck: &Deck, theme: &Theme, state: &str, slot: &str) -> Result<Fi
         .get(layout)
         .and_then(|l| l.slots.get(slot))
         .ok_or_else(|| OpsError::new(format!("the layout `{layout}` has no slot `{slot}`")))?;
-    let node = slot_node(slot, s, scaena_core::direction::mirrored(deck)).filter(|n| n["type"] == "text").ok_or_else(
-        || OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there")),
-    )?;
+    let mut node =
+        slot_node(slot, s, scaena_core::direction::mirrored(deck)).filter(|n| n["type"] == "text").ok_or_else(
+            || OpsError::new(format!("the slot `{slot}` waits for no words: a picture or a figure goes there")),
+        )?;
+    coded(&mut node, s, theme);
     let i = deck.state_index(state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let slide = deck.slide_of(&deck.states[i]);
     let id = named(deck, &format!("{slide}-{}", slug(slot, "slot")), &[]);

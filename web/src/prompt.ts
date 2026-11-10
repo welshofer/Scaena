@@ -5,7 +5,7 @@
 // runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
 import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
-import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
+import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Paid, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -28,6 +28,8 @@ export function said(event: GeneratingEvent): string {
       return event.doing;
     case "researched":
       return `Researched: ${event.sources} sources${event.cut ? ", cut short" : ""}`;
+    case "unresearched":
+      return `Research stopped: ${event.why.replace(/\.$/, "")}. The deck is grounded in what you gave.`;
     case "choosing":
       return "Choosing the arc…";
     case "chose":
@@ -38,10 +40,16 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "claimed":
+      return event.claim ? `Beat ${event.beat + 1} asked again` : `Beat ${event.beat + 1} was not asked again: ${event.why ?? "no claim came back"}`;
     case "unoutlined":
       return "Writing the slides without an outline";
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
+    case "continuing":
+      return `The answer was cut short after ${event.written} slides: asking for the rest of ${event.slides}…`;
+    case "unrested":
+      return `The rest of the slides did not come back: ${event.why}`;
     case "retrying":
       return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
@@ -96,6 +104,20 @@ export function made(m: Generated): string {
   return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}${linked(m)}`;
 }
 
+/** What a run that failed had paid for, in words, to go on from (lift-up 20261110 REL-1); none
+ * where it paid for nothing worth keeping. */
+export function kept(paid: Paid): string | undefined {
+  const parts = [
+    paid.researched && "the research",
+    paid.settled && "the outline as you settled it",
+    paid.slides && "the slides as written",
+  ].filter(Boolean);
+  if (!parts.length) return undefined;
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  const arc = paid.arc ? `, on the ${paid.arc} arc` : "";
+  return `Kept from this run: ${list}${arc}. Go on from what was made to pay for none of it again, or Generate to start afresh.`;
+}
+
 /** A source given: a file, or a link. */
 type Given = { file: File } | { link: string };
 
@@ -143,6 +165,10 @@ export function prompting(
   const progress = $<HTMLOListElement>("#prompting-progress");
   const film = $<HTMLOListElement>("#prompting-film");
   const go = $<HTMLButtonElement>("#prompting-go");
+  // What a run paid for, kept to go on from should a later step fail (lift-up 20261110 REL-1).
+  const goOn = $<HTMLButtonElement>("#prompting-go-on");
+  const keptSaid = $<HTMLParagraphElement>("#prompting-kept");
+  const download = $<HTMLButtonElement>("#prompting-download");
   const keying = $<HTMLFieldSetElement>("#prompting-key");
   const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
   const keyValue = $<HTMLInputElement>("#prompting-key-value");
@@ -157,6 +183,9 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
+  // The slides the beats take in all, against the length asked (lift-up 20261110 USE-3).
+  const total = $<HTMLParagraphElement>("#prompting-total");
+  let range: [number, number | null] | undefined;
   // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
   const unreadPane = $<HTMLElement>("#prompting-unread");
   const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
@@ -185,22 +214,89 @@ export function prompting(
     claim.value = beat.claim;
     claim.placeholder = "What its slides leave the audience believing";
     claim.setAttribute("aria-label", "The beat's claim");
+    // A claim the person typed is theirs: Outline again keeps it (lift-up 20261110 FUNC-2).
+    claim.oninput = () => (li.dataset.typed = "1");
     const acts = document.createElement("div");
     acts.className = "acts";
-    const act = (label: string, aria: string, on: () => void) => {
+    // Each button labelled by its beat's place, as `relabel` sets it (lift-up 20261110 USE-4).
+    const act = (label: string, kind: string, on: () => void) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
-      button.setAttribute("aria-label", aria);
+      button.dataset.act = kind;
       button.onclick = on;
       acts.append(button);
     };
-    act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
-    act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
-    act("Remove", "Remove the beat", () => li.remove());
+    act("↑", "up", () => moved(li, li.previousElementSibling, "before"));
+    act("↓", "down", () => moved(li, li.nextElementSibling, "after"));
+    act("Remove", "remove", () => removeBeat(li));
+    // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
+    act("Ask again", "again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
     return li;
   };
+
+  /** Each beat's fields and buttons labelled by its place, "Beat 3 of 6: claim", so a screen
+   * reader hears which beat each is; set again after a beat is added, moved, removed, or put back
+   * (lift-up 20261110 USE-4). */
+  const relabel = () => {
+    const rows = [...beats.querySelectorAll("li")];
+    rows.forEach((li, i) => {
+      const at = `Beat ${i + 1} of ${rows.length}`;
+      const label = (selector: string, words: string) => li.querySelector(selector)?.setAttribute("aria-label", `${at}: ${words}`);
+      label(".name", "name");
+      label(".slides", "the slides it takes");
+      label(".claim", "claim");
+      label("[data-act=up]", "move up");
+      label("[data-act=down]", "move down");
+      label("[data-act=remove]", "remove");
+      label("[data-act=again]", "ask for its claim again");
+    });
+  };
+
+  /** `li` moved before or after `beside`, its place said, and the focus kept on its button. */
+  const moved = (li: HTMLLIElement, beside: Element | null, where: "before" | "after") => {
+    if (!beside) return;
+    beside[where](li);
+    relabel();
+    const rows = [...beats.querySelectorAll("li")];
+    step(`Moved to ${rows.indexOf(li) + 1} of ${rows.length}`);
+    li.querySelector<HTMLButtonElement>(`[data-act=${where === "before" ? "up" : "down"}]`)?.focus();
+  };
+
+  // A beat removed, kept for ten seconds to put back where it stood (lift-up 20261110 USE-4).
+  const removedNote = $<HTMLParagraphElement>("#prompting-removed");
+  let removed: { li: HTMLLIElement; at: number; until: ReturnType<typeof setTimeout> } | undefined;
+  const forget = () => {
+    if (removed) clearTimeout(removed.until);
+    removed = undefined;
+    removedNote.hidden = true;
+  };
+  const removeBeat = (li: HTMLLIElement) => {
+    forget();
+    const at = [...beats.querySelectorAll("li")].indexOf(li);
+    li.remove();
+    removed = { li, at, until: setTimeout(forget, 10_000) };
+    removedNote.querySelector("span")!.textContent = `Beat ${at + 1} removed`;
+    removedNote.hidden = false;
+    relabel();
+    totalled();
+    removedNote.querySelector("button")!.focus();
+  };
+  removedNote.querySelector("button")!.onclick = () => {
+    if (!removed) return;
+    const { li, at } = removed;
+    forget();
+    const rows = beats.querySelectorAll("li");
+    if (at < rows.length) rows[at].before(li);
+    else beats.append(li);
+    relabel();
+    totalled();
+    li.querySelector<HTMLTextAreaElement>(".claim")?.focus();
+  };
+
+  /** Asks for one beat's claim again, while the deck is being made and its outline shown. */
+  let askAgain: ((li: HTMLLIElement) => void) | undefined;
 
   /** The outline as the pane holds it now, as the person settled it. */
   const settledOutline = (): StoryOutline => ({
@@ -212,9 +308,30 @@ export function prompting(
     })),
   });
 
+  /** The slides the beats take in all, said against the length asked, and flagged where outside
+   * it, since a sum outside it is scaled to its nearer end (lift-up 20261110 USE-3). */
+  const totalled = () => {
+    const sum = settledOutline().beats.reduce((n, b) => n + Math.max(1, b.slides), 0);
+    const all = `${sum} ${sum === 1 ? "slide" : "slides"} in all`;
+    if (!range) return void (total.textContent = all);
+    const [least, most] = range;
+    const asked = most == null ? `${least} or more` : least === most ? `${least}` : `${least}\u2013${most}`;
+    const end = sum < least ? least : most != null && sum > most ? most : undefined;
+    total.textContent = `${all} \u00b7 the length asked: ${asked}${end == null ? "" : `. They will be scaled to ${end}.`}`;
+    total.classList.toggle("over", end != null);
+  };
+  beats.addEventListener("input", totalled);
+
   /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
    * not read, why, to write without one or stop. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+  const showOutlined = (outlined: {
+    outline: StoryOutline;
+    arc: string;
+    reasoning: string;
+    fallback?: string;
+    unread?: string;
+    range?: [number, number | null];
+  }) => {
     if (outlined.unread) {
       // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
       const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
@@ -229,6 +346,10 @@ export function prompting(
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
     bigIdea.value = outlined.outline.bigIdea;
     beats.replaceChildren(...outlined.outline.beats.map(beatRow));
+    forget();
+    relabel();
+    range = outlined.range;
+    totalled();
     outlineArcs.replaceChildren(
       ...[...arc.options].map((o) => new Option(o.textContent ?? "", o.value, false, o.value === outlined.arc)),
     );
@@ -237,13 +358,44 @@ export function prompting(
     bigIdea.focus();
   };
 
+  /** A beat's claim asked again, come back: set in its row, which is the model's again. */
+  const claimedBeat = (event: Extract<GeneratingEvent, { kind: "claimed" }>) => {
+    const li = beats.querySelectorAll("li")[event.beat];
+    if (li) {
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      const claim = li.querySelector<HTMLTextAreaElement>(".claim")!;
+      claim.removeAttribute("aria-busy");
+      if (event.claim) {
+        claim.value = event.claim;
+        delete li.dataset.typed;
+        claim.focus();
+      }
+    }
+    step(said(event), !event.claim);
+  };
+
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
     const li = beatRow({ name: "", claim: "", slides: 0 });
     beats.append(li);
+    relabel();
+    totalled();
     li.querySelector<HTMLInputElement>(".name")!.focus();
   };
 
   let given: Given[] = [];
+  /** What this dialog's runs have paid for, kept while it is open (lift-up 20261110 REL-1). */
+  let paid: Paid = {};
+  /** A deck made that would not open, kept to download. */
+  let unopened: { files: Record<string, ArrayBuffer>; name: string } | undefined;
+  /** Go on from what was made, offered where a run that failed paid for something. */
+  const offered = () => {
+    const line = running ? undefined : kept(paid);
+    keptSaid.textContent = line ?? "";
+    keptSaid.hidden = !line;
+    goOn.hidden = !line;
+    goOn.disabled = running || !asking?.key || !asking.model;
+    download.hidden = running || !unopened;
+  };
   /** The worker the deck is made in, from the dialog's opening until it closes. */
   let worker: Worker | undefined;
   let running = false;
@@ -433,11 +585,15 @@ export function prompting(
       if (!outlining(field)) field.disabled = on;
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
+    offered();
     if (!on) outlinePane.hidden = true;
     if (!on) unreadPane.hidden = true;
   };
 
   opener.onclick = () => {
+    paid = {};
+    unopened = undefined;
+    offered();
     progress.replaceChildren();
     film.replaceChildren();
     outlinePane.hidden = true;
@@ -502,9 +658,13 @@ export function prompting(
 
   form.onsubmit = async (e) => {
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
-    if (submitter?.value !== "generate") return;
+    if (submitter?.value !== "generate" && submitter?.value !== "goOn") return;
     e.preventDefault();
     if (running || !worker) return;
+    // Generate starts afresh; Go on goes on from what the last run paid for.
+    const goingOn = submitter.value === "goOn";
+    if (!goingOn) paid = {};
+    unopened = undefined;
     await whoWrites();
     if (!asking?.key || !asking.model) return;
     if (unsaved() && !confirm("The deck open is not saved. Make a new deck, and lose what is not saved when it opens?")) return;
@@ -547,6 +707,7 @@ export function prompting(
             }
           : undefined;
       })(),
+      paid: goingOn ? paid : undefined,
     };
     progress.replaceChildren();
     film.replaceChildren();
@@ -554,9 +715,11 @@ export function prompting(
     const making = worker;
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
-        if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
+        if (data.type === "generating" && data.event.kind === "claimed") claimedBeat(data.event);
+        else if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
+        else if (data.type === "paid") paid = { ...paid, ...data.paid };
         else if (data.type === "error") reject(new Error(data.message));
       };
       making.onerror = (e) => reject(new Error(e.message || "the generator stopped"));
@@ -568,9 +731,20 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "storySettled", outline: settled } satisfies ToWorker);
     };
+    // Outlined again, the claims the person typed kept, each in the beat of its name (lift-up
+    // 20261110 FUNC-2).
     $<HTMLButtonElement>("#prompting-outline-again").onclick = () => {
+      const now = settledOutline();
+      const kept = [...beats.querySelectorAll("li")].flatMap((li, i) => (li.dataset.typed && now.beats[i].claim.trim() ? [now.beats[i]] : []));
       outlinePane.hidden = true;
-      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
+      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined, kept } satisfies ToWorker);
+    };
+    askAgain = (li) => {
+      const at = [...beats.querySelectorAll("li")].indexOf(li);
+      if (at < 0) return;
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      li.querySelector<HTMLTextAreaElement>(".claim")!.setAttribute("aria-busy", "true");
+      making.postMessage({ type: "claimAgain", beat: at, outline: settledOutline() } satisfies ToWorker);
     };
     // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
     $<HTMLButtonElement>("#prompting-without").onclick = () => {
@@ -584,8 +758,20 @@ export function prompting(
     );
     try {
       const deck = await done;
+      // Opened before the dialog closes: a deck that would not open is kept to download, not lost
+      // with the dialog (lift-up 20261110 REL-1).
+      try {
+        await open({ files: deck.files, name: deck.name });
+      } catch (err) {
+        if (worker !== making) return;
+        unopened = { files: deck.files, name: deck.name };
+        step(`The deck was made but would not open: ${err instanceof Error ? err.message : String(err)}. Download it to keep it.`, true);
+        busy(false);
+        download.focus();
+        return;
+      }
+      paid = {};
       dialog.close("generated");
-      await open({ files: deck.files, name: deck.name });
       // What was made is said at once; the deck lands on its story (narrative USE-2): the arc's
       // curve, the pacing against the brief, and each slide's fix, where Gamma lands on its
       // outline, its score in the line as soon as the story is read.
@@ -599,7 +785,31 @@ export function prompting(
       busy(false);
       // A worker that failed starts afresh.
       start();
+      if (!goOn.hidden) goOn.focus();
     }
+  };
+  // A deck made that would not open, zipped as it stands by the worker, downloaded.
+  let zipping = 0;
+  download.onclick = () => {
+    const deck = unopened;
+    if (!deck || !worker) return;
+    const id = ++zipping;
+    const zipper = worker;
+    const was = zipper.onmessage;
+    zipper.onmessage = (event: MessageEvent<FromWorker>) => {
+      const data = event.data;
+      if (data.type !== "filesZipped" || data.id !== id) return was?.call(zipper, event);
+      zipper.onmessage = was;
+      const url = URL.createObjectURL(new Blob([data.bytes], { type: "application/zip" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${deck.name}.scaena`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      step(`Downloaded ${deck.name}.scaena`);
+    };
+    // Copied, not handed over: the deck stays here to download again.
+    zipper.postMessage({ type: "zipFiles", id, files: deck.files } satisfies ToWorker);
   };
   return { running: () => running };
 }
