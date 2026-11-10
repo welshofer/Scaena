@@ -372,7 +372,12 @@ try {
     });
   check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
-  await page.click("#prompting-go");
+  // ⌘Enter (Ctrl+Enter) in a field generates, as Generate does (lift-up 20261110 deferred).
+  await page.locator("#prompting-topic").press("Control+Enter");
+  const began = await page
+    .waitForFunction(() => document.querySelector("#prompting-go").textContent === "Generating…", null, { timeout: 10000 })
+    .then(() => true, () => false);
+  check(began, "Ctrl+Enter in the brief generates");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
   // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer

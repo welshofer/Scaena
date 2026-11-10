@@ -62,7 +62,7 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
-import { slideAsker } from "./slide-ask";
+import { slideAsker, slideAskKeys } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
@@ -101,7 +101,7 @@ import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
 import { counted } from "./marks";
 import { counted as many, findings as why, inserting, moving, named, numbered, object, seconds, sentence, sourced } from "./words";
-import { prompting } from "./prompt";
+import { prompting, promptKeys } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, serving, status as onDisk, token } from "./served";
@@ -3127,6 +3127,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     ...findKeys(),
     ...dataKeys(),
     ...rehearsalKeys(),
+    ...promptKeys(),
+    ...slideAskKeys(),
     ...sourceKeys(),
     ...editorKeys(),
   ]);
