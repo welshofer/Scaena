@@ -1471,6 +1471,15 @@ fn health(bundle: &Path, verbose: bool, json: bool) -> Result<ExitCode> {
         Some(arc) => println!("narrative health {}/100, written to {arc}", h.score),
         None => println!("narrative health {}/100", h.score),
     }
+    if let Some(c) = &h.capped {
+        let slides: Vec<String> = c.slides.iter().map(|k| k.to_string()).collect();
+        let (named, have) = match slides.split_last() {
+            Some((last, [])) => (format!("slide {last}"), "has"),
+            Some((last, rest)) => (format!("slides {} and {last}", rest.join(", ")), "have"),
+            None => (String::new(), "has"),
+        };
+        println!("  capped at {} while {named} {have} an error; {} without", c.cap, c.score);
+    }
     let measures = [
         ("pacing", &h.pacing),
         ("balance", &h.balance),

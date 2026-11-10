@@ -698,19 +698,20 @@ impl Generation {
     }
 
     /// The notes the response to [`Generation::notes_request`] gives, each a slide of `spoken`'s
-    /// and its words.
+    /// and its words, and each slide of `spoken` whose notes were not taken, with why
+    /// ([`notes::read_all`], W1's dogfood 6).
     pub fn notes_answer(
         &self,
         status: u16,
         status_text: &str,
         body: &str,
         spoken: &[notes::Spoken],
-    ) -> Result<Vec<(usize, String)>, NarratoError> {
+    ) -> Result<notes::Read, NarratoError> {
         if status == 0 {
             return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
         }
         let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
-        notes::read(&read.text, spoken).map_err(NarratoError::Answer)
+        notes::read_all(&read.text, spoken).map_err(NarratoError::Answer)
     }
 
     /// The changes the response to [`Generation::look_request`] asks for, each one `slides`

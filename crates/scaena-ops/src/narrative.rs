@@ -991,10 +991,14 @@ fn speak(
         }
     };
     let mut written = Vec::new();
+    let mut dropped = Vec::new();
     let mut unanswered: Option<String> = None;
     match (noting, key) {
-        (Noting::Answered(text), _) => match scaena_narrato::notes::read(text, &spoken) {
-            Ok(notes) => written = notes,
+        (Noting::Answered(text), _) => match scaena_narrato::notes::read_all(text, &spoken) {
+            Ok(read) => {
+                written = read.notes;
+                dropped = read.dropped;
+            }
             Err(why) => unanswered = Some(why),
         },
         (Noting::Asked, Some(key)) => {
@@ -1009,7 +1013,10 @@ fn speak(
             let replies = asked_again(&requests, transport, say);
             for ((round, _), reply) in asked.into_iter().zip(replies) {
                 match generation.notes_answer(reply.status, &reply.status_text, &reply.body, &spoken[round.clone()]) {
-                    Ok(notes) => written.extend(notes),
+                    Ok(read) => {
+                        written.extend(read.notes);
+                        dropped.extend(read.dropped);
+                    }
                     Err(why) => {
                         let (first, last) = (spoken[round.start].slide, spoken[round.end - 1].slide);
                         let why = match round.len() {
@@ -1028,7 +1035,13 @@ fn speak(
     if noting == Noting::Asked {
         say(Progress::Noted { slides: taken });
     }
-    made.unnoted = unanswered;
+    // Each slide whose notes were not taken, and why, after the rounds not answered (W1's
+    // dogfood 6).
+    let why = scaena_narrato::notes::said(&dropped, &spoken);
+    made.unnoted = match (unanswered, why) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    };
     Ok(write)
 }
 
@@ -7759,6 +7772,14 @@ mod tests {
         let invented = answered.replacen("1,900", "2,400", 1);
         let (made, _) = make(Noting::Answered(&invented));
         assert_eq!(made.noted.len(), 12, "{:?}", made.noted);
+        // And say so, by its slide, and what it keeps (W1's dogfood 6).
+        let left = (1..=13).find(|k| !made.noted.contains(k)).unwrap();
+        assert_eq!(
+            made.unnoted.as_deref(),
+            Some(
+                format!("Slide {left}'s notes with a figure the slide does not write, Narrato's drafts kept").as_str()
+            )
+        );
     }
 
     #[test]
