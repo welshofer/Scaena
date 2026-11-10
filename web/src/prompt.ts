@@ -7,8 +7,14 @@ import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Paid, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
+import { type Key, MOD } from "./commands";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+
+/** What the dialog answers (lift-up 20261110 deferred), as the keys sheet lists it. */
+export const promptKeys = (): Key[] => [
+  { keys: `${MOD}Enter`, label: "In From a prompt…: generate the deck, from any field", group: "The editor" },
+];
 
 /** How far the deck has come, in words, as `scaena generate` says it. */
 export function said(event: GeneratingEvent): string {
@@ -76,6 +82,12 @@ export function said(event: GeneratingEvent): string {
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "noting":
+      return `Writing the ${event.slides} slides' notes for the talk…`;
+    case "noted":
+      return `${event.slides} ${event.slides === 1 ? "slide's" : "slides'"} notes written for the talk`;
+    case "unnoted":
+      return `Notes not written for the talk: ${event.why}`;
     case "refused":
       return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
     case "fitting":
@@ -161,6 +173,7 @@ export function prompting(
   const voice = $<HTMLInputElement>("#prompting-voice");
   const persona = $<HTMLSelectElement>("#prompting-persona");
   const see = $<HTMLInputElement>("#prompting-see");
+  const speak = $<HTMLInputElement>("#prompting-notes");
   const quality = $<HTMLSelectElement>("#prompting-quality");
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
@@ -692,6 +705,14 @@ export function prompting(
     busy(false);
   };
 
+  // ⌘Enter (Ctrl+Enter) generates from any field, a brief's line breaks kept for Enter, while
+  // Generate may be pressed; while a deck is being made it does nothing (lift-up 20261110 deferred).
+  form.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
+    e.preventDefault();
+    if (!running && !go.disabled && !go.hidden) go.click();
+  });
+
   form.onsubmit = async (e) => {
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
     if (submitter?.value !== "generate" && submitter?.value !== "goOn") return;
@@ -730,6 +751,8 @@ export function prompting(
       research: research.checked,
       outline: showOutline.checked,
       look: see.checked,
+      // The speaker's notes written for the talk, or Narrato's drafts kept (lift-up 10-25 ATTR-2).
+      notes: speak.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;

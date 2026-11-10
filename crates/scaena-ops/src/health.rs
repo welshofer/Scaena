@@ -354,6 +354,22 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
     Ok((out, most))
 }
 
+/// A slide of a deck as its talk speaks it (lift-up 10-25 ATTR-2): its headline, the words it
+/// shows, and its notes, as health reads them; and the beat that tells it, by its place in the
+/// spine (section, beat), where one does.
+pub(crate) struct Told<'d> {
+    pub slide: SlideForHealth,
+    pub beat: Option<(usize, usize, &'d Beat)>,
+}
+
+/// Each slide of `deck` as its talk speaks it.
+pub(crate) fn told(deck: &Deck) -> Result<Vec<Told<'_>>, OpsError> {
+    let slides = slides(deck);
+    let (read, _) = readings(deck, &slides)?;
+    let told = slides.iter().filter(|s| !s.states.is_empty()).map(|s| s.beat);
+    Ok(read.into_iter().zip(told).map(|(slide, beat)| Told { slide, beat }).collect())
+}
+
 /// The slides whose beat breaks the order the deck's beats run in: each outside the longest run
 /// of slides, in the deck's order, whose beats never go back, with the beat it was written for and
 /// the beat it now stands in, the run's slide before it, else after it. A deck as Narrato writes
@@ -1293,13 +1309,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     if let Some(idea) = &big_idea {
         // The close is the deck's last run of closing slides, as the calm close reads it, with the
-        // slide just before it, where a talk lands its idea before the thanks (its thesis, its ask,
-        // its steps); else its last slide. A beat that ends the deck may begin well before its
-        // close, and a word or two of the idea a slide says in passing lands nothing (W1's dogfood 3).
+        // slide just before it where that slide is in the run's beat, where a talk lands its idea
+        // before the thanks (its thesis, its ask, its steps); else its last slide. A beat that ends
+        // the deck may begin well before its close, and a word or two of the idea a slide says in
+        // passing lands nothing (W1's dogfood 3); a slide of an earlier beat is that beat's, not
+        // the close's (dogfood 4).
         let last = read.len().checked_sub(1);
+        let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index);
         let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
         if let Some(&first) = run.first()
             && first > 0
+            && beat(first - 1) == beat(first)
         {
             run.insert(0, first - 1);
         }
@@ -1391,12 +1411,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let points = most.get(i).copied().unwrap_or(0);
         let words = s.body.split_whitespace().count();
         if points > DENSE_POINTS {
+            // Where tightening this slide would take the points the deck's slides make on
+            // average under balance's floor, the ask says the trade and how to keep it: balance
+            // and its floor are Vzestup's (ADR-0032), so the ask, not the score, is Scaena's to
+            // set (W1's dogfood 4).
+            let ask = match thin_after_cut(&read, i, &closing) {
+                Some(thin) => format!(
+                    "Tighten slide {k} to the {DENSE_POINTS} points that matter most, and keep what you cut in its notes to say aloud. Cutting alone lowers the deck's balance, since the deck's other slides that list points list few: give {} a point more as you tighten it.",
+                    slide_list(&thin),
+                ),
+                None => format!("Tighten slide {k} to the {DENSE_POINTS} points that matter most, or split it in two."),
+            };
             find(
                 &s.id,
                 Severity::Warning,
                 Kind::Dense,
                 format!("Slide {k} makes {points} points in one place, more than a room takes in."),
-                format!("Tighten slide {k} to the {DENSE_POINTS} points that matter most, or split it in two."),
+                ask,
                 None,
             );
         } else if words > DENSE_WORDS {
@@ -1692,6 +1723,46 @@ fn spaceless(language: Option<&str>) -> bool {
     let name = name.to_lowercase();
     let head = name.split(['-', '_', ' ']).next().unwrap_or_default();
     matches!(head, "ja" | "jpn" | "japanese" | "zh" | "zho" | "chi" | "chinese" | "ko" | "kor" | "korean")
+}
+
+/// The fewest points the slides that make several make on average before balance marks a deck
+/// down: Vzestup's floor, `metrics`' "Add more bullets to thin slides" (ADR-0032).
+const FLOOR_POINTS: f64 = 2.0;
+
+/// The bullet lines balance counts on a slide: those its body sets as a list's items.
+fn bullets(s: &SlideForHealth) -> usize {
+    s.body.split('\n').map(str::trim).filter(|l| l.starts_with('\u{2022}') || l.starts_with('-')).count()
+}
+
+/// Where cutting slide `i` to [`DENSE_POINTS`] would take the points the deck's slides make on
+/// average from the floor or above to under it, as balance counts them (the slides read that are
+/// not one idea by design), the other such slides a point more on keeps it, by place: the content
+/// slides among them, never the cover or the close, which make no points by design, though
+/// balance counts them. None where the cut keeps the average, it was under already, or no
+/// content slide but `i` counts.
+fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Option<Vec<usize>> {
+    let counted: Vec<usize> = (0..read.len()).filter(|&j| read[j].eligible() && !read[j].one_idea).collect();
+    if !counted.contains(&i) {
+        return None;
+    }
+    let total: usize = counted.iter().map(|&j| bullets(&read[j])).sum();
+    let cut = bullets(&read[i]).saturating_sub(DENSE_POINTS);
+    let average = |total: usize| total as f64 / counted.len() as f64;
+    if cut == 0 || average(total) < FLOOR_POINTS || average(total - cut) >= FLOOR_POINTS {
+        return None;
+    }
+    let thin: Vec<usize> = counted.into_iter().filter(|&j| j != i && j > 0 && !closing.contains(&read[j].id)).collect();
+    (!thin.is_empty()).then_some(thin)
+}
+
+/// Slides by place as a sentence names them: "slide 4", "slides 1 and 10", "slides 1, 4 and 10".
+fn slide_list(at: &[usize]) -> String {
+    let named: Vec<String> = at.iter().map(|i| (i + 1).to_string()).collect();
+    match named.as_slice() {
+        [one] => format!("slide {one}"),
+        [rest @ .., last] => format!("slides {} and {last}", rest.join(", ")),
+        [] => String::new(),
+    }
 }
 
 /// The share of the big idea's telling words a close must say to land it, as a fraction: half,
@@ -2305,6 +2376,43 @@ mod tests {
         deck
     }
 
+    /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
+    /// 4): on the fleet pitch, the slides balance counts list 2 points on average, at its floor, so
+    /// cutting slide 9's six bars to five lowers the score. The ask says so, and names slide 4 to
+    /// give a point more; following it, the cut and the point, keeps the score. Balance's floor
+    /// is Vzestup's, unchanged.
+    #[test]
+    fn a_dense_ask_names_what_a_cut_costs_and_how_to_keep_it() {
+        let h = of(&dogfood("fleet", "", |_| {}));
+        let dense = h.findings.iter().find(|f| f.kind == Kind::Dense).expect("slide 9 makes six points");
+        assert_eq!(dense.slide, 9, "{dense:?}");
+        assert!(
+            dense
+                .ask
+                .starts_with("Tighten slide 9 to the 5 points that matter most, and keep what you cut in its notes"),
+            "{}",
+            dense.ask
+        );
+        assert!(
+            dense.ask.contains("Cutting alone lowers the deck's balance")
+                && dense.ask.ends_with("give slide 4 a point more as you tighten it."),
+            "{}",
+            dense.ask
+        );
+        // Cut alone, as the ask before said to: the score falls.
+        let cut = |slides: &mut Vec<answer::Slide>| slides[8].key_bullets.truncate(5);
+        let tightened = of(&dogfood("fleet", "", cut));
+        assert!(tightened.score < h.score, "{} then {}", h.score, tightened.score);
+        // Cut, and a point more on slide 4, as the ask says now: the score holds.
+        let followed = |slides: &mut Vec<answer::Slide>| {
+            cut(slides);
+            slides[3].key_bullets.push("Dispatch software: priced for a hundred trucks".into());
+        };
+        let kept = of(&dogfood("fleet", "", followed));
+        assert!(kept.score >= h.score, "{} then {}", h.score, kept.score);
+        assert!(!kept.findings.iter().any(|f| f.kind == Kind::Dense), "{:?}", kept.findings);
+    }
+
     /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
     /// slide, hopeful by plan, reads graver for its outages; its headline warmed with "love" and
     /// "missed" reads graver still, since the lexicon reads "missed" as grave and not "love".
@@ -2354,17 +2462,42 @@ mod tests {
         let steps = &weak.slides[n - 2];
         assert!(!content_words(&steps.title).is_disjoint(&content_words(idea)), "{}", steps.title);
 
-        // The thesis that stands just before the close lands it, the steps between them taken out.
+        // The thesis that stands just before the close, in its beat, lands it, the steps between
+        // them taken out; left in the beat before, it is that beat's (dogfood 4).
         let fine = "Resilience is built by neighbors, not delivered to them";
         let found = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::BigIdea).count();
         let stepless = |slides: &mut Vec<answer::Slide>| {
             let at = slides.len() - 2;
             slides.remove(at);
         };
-        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 0, "the thesis before the close lands it");
+        let closed = |slides: &mut Vec<answer::Slide>| {
+            stepless(slides);
+            let at = slides.len() - 2;
+            slides[at].beat_index = slides[at + 1].beat_index;
+            slides[at].beat_name = slides[at + 1].beat_name.clone();
+        };
+        assert_eq!(found(&of(&dogfood("keynote", fine, closed))), 0, "the thesis before the close lands it");
+        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 1, "a thesis of the beat before is not the close");
         assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
         let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// The close takes the slide before its run only where that slide is in the run's beat
+    /// (W1's dogfood 4): the fleet pitch's proof chart, beat 4, stands before its closing, beat 5,
+    /// and is not read as the close; moved into the closing beat, it is.
+    #[test]
+    fn the_close_takes_the_slide_before_it_only_in_its_beat() {
+        let idea = "Ridgefleet pays for itself in a quarter by planning Northline's routes overnight.";
+        let says = |h: &Health| h.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("a bare close").says.clone();
+        let alone = says(&of(&dogfood("fleet", idea, |_| {})));
+        assert!(alone.starts_with("The close, slide 10, never lands"), "{alone}");
+        let joined = |slides: &mut Vec<answer::Slide>| {
+            slides[8].beat_index = slides[9].beat_index;
+            slides[8].beat_name = slides[9].beat_name.clone();
+        };
+        let both = says(&of(&dogfood("fleet", idea, joined)));
+        assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's

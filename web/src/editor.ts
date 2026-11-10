@@ -62,7 +62,7 @@ import { picturer } from "./picturing";
 import { sourceOf } from "./bundle";
 import { canvas, canvasKeys, placed } from "./canvas";
 import { markName, noteName } from "./notes";
-import { slideAsker } from "./slide-ask";
+import { slideAsker, slideAskKeys } from "./slide-ask";
 import { type Command, type Group, type Key, keyOf, MOD, MOD_ALT, menu, opens, palette, SHIFT, sheet } from "./commands";
 import { cue, cueKeys } from "./cue";
 import { dataKeys, sheets } from "./data";
@@ -101,7 +101,7 @@ import { fitting } from "./pictures";
 import { PICTURE } from "./protocol";
 import { counted } from "./marks";
 import { counted as many, findings as why, inserting, moving, named, numbered, object, seconds, sentence, sourced } from "./words";
-import { prompting } from "./prompt";
+import { prompting, promptKeys } from "./prompt";
 import { rehearsal, rehearsalKeys } from "./rehearse";
 import { scn, scnHighlight } from "./scn";
 import { client, listen, served, serving, status as onDisk, token } from "./served";
@@ -1493,20 +1493,32 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   });
   /** The deck's story (PLAN G.9): its narrative health, read by the generator's module, each finding
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
+  /** Show the state `state`, the cursor on where the source writes it. */
+  async function showState(state: string) {
+    const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+    const start = last?.states[index]?.[1];
+    if (start === undefined) return;
+    view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+    await show(index);
+  }
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
+    issues: (slide) => {
+      const slots = (taken?.edited ?? last)?.slots ?? [];
+      const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
+      return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
+    },
+    fix: (f) => fix(f),
+    mark: async (f) => {
+      board.showMark(f);
+      if (f.state !== undefined) await showState(f.state);
+    },
     words: () => lexicon,
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });
     },
-    show: async (state) => {
-      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
-      const start = last?.states[index]?.[1];
-      if (start === undefined) return;
-      view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
-      await show(index);
-    },
+    show: showState,
     make: async (ops, done) => {
       // Held while the assistant has the deck, saying why, as the Mac's Story says it (lift-up
       // 20261110 deferred): the fix is not lost, only not made yet.
@@ -3115,6 +3127,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     ...findKeys(),
     ...dataKeys(),
     ...rehearsalKeys(),
+    ...promptKeys(),
+    ...slideAskKeys(),
     ...sourceKeys(),
     ...editorKeys(),
   ]);
