@@ -44,10 +44,16 @@ struct PictureSheet: View {
         _subject = State(initialValue: target.shows ?? "")
     }
 
-    /// The image providers whose key is kept.
-    private var kept: [Provider] {
-        _ = keysChanged
-        return [.openai, .gemini].filter { keychain.key(for: $0) != nil }
+    /// The image providers whose key is kept: read from the Keychain as the sheet opens and as
+    /// `keysChanged` is bumped, never as `body` is drawn again, so a key typed in the subject asks
+    /// the Keychain nothing (lift-up 20261110 PERF-5).
+    @State private var kept: [Provider] = []
+
+    /// The image providers whose key the Keychain keeps; as the sheet opens, the first of them
+    /// chosen where the one chosen has none.
+    private func readKeys(opening: Bool) {
+        kept = [.openai, .gemini].filter { keychain.key(for: $0) != nil }
+        if opening, !kept.contains(provider), let first = kept.first { provider = first }
     }
 
     var body: some View {
@@ -98,9 +104,8 @@ struct PictureSheet: View {
         }
         .padding(20)
         .frame(minWidth: 420)
-        .onAppear {
-            if !kept.contains(provider), let first = kept.first { provider = first }
-        }
+        .onAppear { readKeys(opening: true) }
+        .onChange(of: keysChanged) { readKeys(opening: false) }
         // Put away while a picture is coming: it is dropped, and nothing is put anywhere.
         .onDisappear { making?.cancel() }
         #if os(macOS)
