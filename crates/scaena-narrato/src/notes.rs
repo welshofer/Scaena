@@ -200,28 +200,127 @@ fn figures_given(given: &str, now: &str) -> bool {
 /// figure that slide, its draft, or the slides either side do not; the first for a slide, where
 /// an answer gives it twice.
 pub fn read(text: &str, spoken: &[Spoken]) -> Result<Vec<(usize, String)>, String> {
+    read_all(text, spoken).map(|read| read.notes)
+}
+
+/// Why the notes an answer gives for a slide asked about were not taken (W1's dogfood 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Dropped {
+    /// Under half the words asked for: too short for its share of the talk.
+    Short,
+    /// Past twice the words asked for.
+    Long,
+    /// A figure the slide, its draft, and the slides either side do not write.
+    Figure,
+    /// None given for it.
+    Missing,
+}
+
+/// What an answer's notes come to: those kept, as [`read`] keeps them, and each slide asked about
+/// whose notes were not, with why.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Read {
+    pub notes: Vec<(usize, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dropped: Vec<(usize, Dropped)>,
+}
+
+/// [`read`], with each slide of `spoken` whose notes were not taken, and why.
+pub fn read_all(text: &str, spoken: &[Spoken]) -> Result<Read, String> {
     let start = text.find('{').ok_or("the answer holds no JSON object")?;
     let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
     let value: Value =
         serde_json::from_str(&text[start..=end]).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
     let notes = value.get("notes").and_then(Value::as_array).ok_or("the answer has no `notes`")?;
-    let mut kept: Vec<(usize, String)> = Vec::new();
+    let mut read = Read::default();
+    let mut why: Vec<(usize, Dropped)> = Vec::new();
     for (slide, said) in notes
         .iter()
         .filter_map(|n| Some((n.get("slide")?.as_u64()? as usize, n.get("notes")?.as_str()?.trim().to_string())))
     {
         let Some(s) = spoken.iter().find(|s| s.slide == slide) else { continue };
+        if read.notes.iter().any(|(k, _)| *k == slide) {
+            continue;
+        }
         let n = counted(&said);
         let given = [s.title.as_str(), &s.words.join("\n"), &s.claim, &s.draft, &s.before, &s.after].join("\n");
-        if n * 2 >= s.budget
-            && n <= s.budget * 2
-            && figures_given(&given, &said)
-            && !kept.iter().any(|(k, _)| *k == slide)
-        {
-            kept.push((slide, said));
+        let dropped = if n * 2 < s.budget {
+            Some(Dropped::Short)
+        } else if n > s.budget * 2 {
+            Some(Dropped::Long)
+        } else if !figures_given(&given, &said) {
+            Some(Dropped::Figure)
+        } else {
+            None
+        };
+        match dropped {
+            None => read.notes.push((slide, said)),
+            Some(d) if !why.iter().any(|(k, _)| *k == slide) => why.push((slide, d)),
+            Some(_) => {}
         }
     }
-    Ok(kept)
+    // Each slide asked about whose notes were not kept, by its first reason; one given none.
+    for s in spoken {
+        if read.notes.iter().any(|(k, _)| *k == s.slide) {
+            continue;
+        }
+        let d = why.iter().find(|(k, _)| *k == s.slide).map_or(Dropped::Missing, |(_, d)| *d);
+        read.dropped.push((s.slide, d));
+    }
+    Ok(read)
+}
+
+/// `slides`, from 1, as a sentence names them: slide 3, slides 3–5, or slides 2, 4 and 6.
+fn slides_said(slides: &[usize]) -> String {
+    match slides {
+        [one] => format!("slide {one}"),
+        _ if slides.windows(2).all(|w| w[1] == w[0] + 1) => {
+            format!("slides {}\u{2013}{}", slides[0], slides[slides.len() - 1])
+        }
+        [rest @ .., last] => {
+            format!("slides {} and {last}", rest.iter().map(usize::to_string).collect::<Vec<_>>().join(", "))
+        }
+        [] => String::new(),
+    }
+}
+
+/// The slides whose notes `dropped` says were not taken, in a sentence a person reads (W1's
+/// dogfood 6): each reason with its slides, and what each slide keeps, the notes Narrato drafted
+/// for it where `spoken` gives one, else none. None where every slide's notes were taken.
+pub fn said(dropped: &[(usize, Dropped)], spoken: &[Spoken]) -> Option<String> {
+    let mut parts = Vec::new();
+    for (reason, plural) in [
+        (Dropped::Short, "too short for their share of the talk"),
+        (Dropped::Long, "past twice their share of the talk"),
+        (Dropped::Figure, "with a figure the slides do not write"),
+        (Dropped::Missing, "not written by the model"),
+    ] {
+        let mut slides: Vec<usize> = dropped.iter().filter(|(_, d)| *d == reason).map(|(k, _)| *k).collect();
+        if slides.is_empty() {
+            continue;
+        }
+        slides.sort_unstable();
+        let one = slides.len() == 1;
+        let why = if one {
+            plural.replace("their share", "its share").replace("the slides do not", "the slide does not")
+        } else {
+            plural.to_string()
+        };
+        let drafted = |k: &usize| spoken.iter().any(|s| s.slide == *k && !s.draft.trim().is_empty());
+        let (kept, none): (Vec<usize>, Vec<usize>) = slides.iter().partition(|k| drafted(k));
+        let keeps = match (kept.is_empty(), none.is_empty()) {
+            (false, true) => "Narrato's drafts kept".to_string(),
+            (true, false) => format!("{} without notes", if one { "left" } else { "each left" }),
+            _ => format!("Narrato's drafts kept on {}, {} without notes", slides_said(&kept), slides_said(&none)),
+        };
+        parts.push(format!("{}'s notes {why}, {keeps}", slides_said(&slides)));
+    }
+    let mut said = parts.join("; ");
+    if let Some(first) = said.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    (!parts.is_empty()).then_some(said)
 }
 
 #[cfg(test)]
@@ -347,5 +446,39 @@ mod tests {
         assert!(super::read(&answer(&[(2, words(400, ""))]), &s).unwrap().is_empty());
         assert!(super::read(&answer(&[(2, words(170, "It is 1.5°C."))]), &s).unwrap().is_empty());
         assert!(super::read("no json", &s).is_err());
+    }
+
+    /// Each slide whose notes were not taken says why, and what it keeps (W1's dogfood 6).
+    #[test]
+    fn notes_not_taken_say_why_and_what_each_slide_keeps() {
+        let mut s = spoken();
+        let words = |n: usize, extra: &str| format!("{} {extra}", vec!["word"; n].join(" "));
+        let answer = |notes: &[(usize, String)]| {
+            json!({ "notes": notes.iter().map(|(k, n)| json!({ "slide": k, "notes": n })).collect::<Vec<_>>() })
+                .to_string()
+        };
+        let all: Vec<usize> = s.iter().map(|x| x.slide).collect();
+        // One line for each slide: under half its share, each.
+        let short: Vec<(usize, String)> = all.iter().map(|&k| (k, "Thank you.".to_string())).collect();
+        let read = read_all(&answer(&short), &s).unwrap();
+        assert!(read.notes.is_empty());
+        assert_eq!(read.dropped, all.iter().map(|&k| (k, Dropped::Short)).collect::<Vec<_>>());
+        for x in &mut s {
+            x.draft.clear();
+        }
+        let n = all.len();
+        assert_eq!(
+            said(&read.dropped, &s).unwrap(),
+            format!("Slides 1\u{2013}{n}'s notes too short for their share of the talk, each left without notes")
+        );
+        // Each its own reason, one kept, and the drafts said only where there are some.
+        s[0].draft = "Open on the record year.".into();
+        let read = read_all(&answer(&[(1, words(5, "")), (2, words(170, "It is 1.5°C."))]), &s).unwrap();
+        assert_eq!(read.dropped[..2], [(1, Dropped::Short), (2, Dropped::Figure)]);
+        let told = said(&read.dropped, &s).unwrap();
+        assert!(told.starts_with("Slide 1's notes too short for its share of the talk, Narrato's drafts kept; slide 2's notes with a figure the slide does not write, left without notes"), "{told}");
+        // Every slide's taken: nothing to say.
+        assert_eq!(said(&[], &s), None);
+        assert_eq!(slides_said(&[2, 4, 6]), "slides 2, 4 and 6");
     }
 }

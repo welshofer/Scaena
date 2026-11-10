@@ -1377,10 +1377,11 @@ public final class Generator {
             }
             noting = noted.notes
             if noting != nil { continue }
+            // How many were written, then why the rest were not, as the browser says them (W1's
+            // dogfood 6): a slide whose notes the model gave were not taken says why.
+            hear(.noted(slides: noted.noted ?? 0))
             if let why = noted.unnoted {
                 hear(.unnoted(unanswered(why, provider, reply)))
-            } else {
-                hear(.noted(slides: noted.noted ?? 0))
             }
             fit = noted.fit
         }

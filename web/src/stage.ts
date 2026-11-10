@@ -61,6 +61,7 @@ import type {
   Rewritten,
   ToWorker,
   Carets,
+  Unquoted,
   Choices,
   StateChoices,
   Lexicon,
@@ -1139,7 +1140,7 @@ export class Stage {
 
   /** The patch that inserts what `inserts` offers `n`th, entering in `state` about `at` (canvas
    * units), snapped to the theme's grid as a drop snaps, on the deck `source` compiles to. */
-  inserting(source: string, state: string, n: number, at: [number, number], format?: string, named?: string, with_?: Record<string, unknown>): Promise<Added> {
+  inserting(source: string, state: string, n: number, at: [number, number] | null, format?: string, named?: string, with_?: Record<string, unknown>): Promise<Added> {
     return this.request<"adding">({ type: "inserting", id: ++this.asked, source, state, n, at, format, named, with: with_ }).then(({ added }) => added);
   }
 
@@ -1282,14 +1283,14 @@ export class Stage {
     ops: unknown[],
     at: { index: number; state: string; node: string },
     format?: string,
-  ): Promise<{ source: string; edited: Edited; carets: Carets | null }> {
+  ): Promise<{ source: string; edited: Edited; carets: Carets | null; unquoted: Unquoted[] }> {
     const asked = { type: "type" as const, id: ++this.asked, source, ops, ...at, format };
-    return this.request<"typed">(asked).then(({ source, edited, carets }) => {
+    return this.request<"typed">(asked).then(({ source, edited, carets, unquoted }) => {
       if (edited.at) {
         this.at = edited.at;
         this.onAt(edited.at);
       }
-      return { source, edited, carets };
+      return { source, edited, carets, unquoted };
     });
   }
 
