@@ -35,7 +35,7 @@ rm -rf "$results"
 # each key went (PLAN 4.6), and how long the GPU, each deck, and each canvas's surface took to open.
 said="$root/target/ipad/log.txt"
 xcrun simctl spawn "$udid" log stream --level debug --style compact \
-  --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault))' >"$said" 2>&1 &
+  --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault)) OR (process == "ScaenaApp" AND subsystem == "com.apple.SwiftUI" AND category == "Changed Body Properties")' >"$said" 2>&1 &
 logging=$!
 status=0
 # A test held up past ten minutes fails by its name, its screenshot and result bundle kept, and the
