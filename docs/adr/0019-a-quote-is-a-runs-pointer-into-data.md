@@ -32,6 +32,7 @@ Five facts frame the choice:
    - `style_text` with `quote` makes the characters selected one run that quotes, and `null` takes the quote away (the words stay).
    - A `style_text` that cuts into a quoted run takes the whole figure.
    - Typing inside a figure makes it words: its run loses the quote. Typing beside one goes into a run of its own, with the figure's look but not its quote.
+     *Amended (dogfood-5 item 13): words typed over a figure that still say it as a word keep it, the figure in its own run and the words around it beside it; a figure that loses its quote is said in the editor, with the undo that brings it back.*
 
 ## Consequences
 
