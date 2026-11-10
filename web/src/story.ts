@@ -244,6 +244,26 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
   const list = into.querySelector<HTMLOListElement>("[data-findings]")!;
+  /** The line that says the story shown is as last read, while the source does not compile. */
+  const stale = Object.assign(document.createElement("p"), { hidden: true });
+  stale.dataset.stale = "";
+  stale.setAttribute("role", "status");
+  score.before(stale);
+  const listed = list.getAttribute("aria-label") ?? "";
+  /** The score as last said, so the live region speaks only when it changes. */
+  let scored = "";
+  /** Show the story as it was last read, or as read now (lift-up 20261110 deferred): a source that
+   * does not compile for a moment, mid-typing, keeps the last read, dimmed and said to be so, its
+   * fixes held, since each was made against a deck that no longer compiles. */
+  const asLastRead = (on: boolean) => {
+    if (on) into.dataset.stale = "";
+    else delete into.dataset.stale;
+    stale.hidden = !on;
+    if (on && !stale.textContent) stale.textContent = "Showing the story as last read: the source has an error to fix";
+    if (!on) stale.textContent = "";
+    list.setAttribute("aria-label", on ? `${listed}, as last read` : listed);
+    for (const fix of list.querySelectorAll<HTMLButtonElement>("[data-fix], [data-lint-fix]")) fix.disabled = on;
+  };
   /** What the worker last read. */
   let health: Health | undefined;
   /** Readings asked for: the last answer wins. */
@@ -274,9 +294,11 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       const got = await stage.health(editor.source());
       if (asked !== asking) return;
       health = got;
+      asLastRead(false);
       draw();
     } catch (e) {
       if (asked !== asking) return;
+      if (health) return asLastRead(true);
       health = undefined;
       score.textContent = "";
       measures.replaceChildren();
@@ -284,15 +306,18 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       idea.hidden = true;
       list.replaceChildren();
       score.textContent = `Its story is not read: ${said(e)}`;
+      scored = "";
     }
   }
 
   function draw() {
     const h = health;
     if (!h) return;
-    score.innerHTML =
+    // Said again only where it changed: the live region speaks each change once.
+    const scoring =
       `<b class="${grade(h.score)}">${h.score}</b> of 100, ` +
       (h.arc ? `written to the ${html(h.arc)} arc` : "no arc named: read against a talk's curve");
+    if (scoring !== scored) score.innerHTML = scored = scoring;
     measures.innerHTML = MEASURES.map(([key, name]) => {
       const m = h[key] as { score: number | null; says: string };
       const value = m.score === null ? "—" : String(m.score);
