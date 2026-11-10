@@ -60,6 +60,19 @@ public final class DeckEditor {
     private var lints = 0
     /// The state the window shows: where an edit is linted at once.
     public var shown: String?
+    /// What the last save said of the bundle's history, which the window says once (lift-up
+    /// 20261025b REL-1): one that could not be read, kept aside, or one a newer Scaena wrote, left
+    /// as it was. None where the save said nothing of it.
+    public var savedSaid: String?
+
+    /// What a save's summary (`Saved.summary`) says of the bundle's history, in words, as the
+    /// browser's status line says it: none where it says nothing.
+    public static func said(ofSave summary: JSONValue) -> String? {
+        if let aside = summary["again"]?.string {
+            return "Its history could not be read: it is kept aside as \(aside), and the history begins again"
+        }
+        return summary["unrecorded"]?.string
+    }
     /// The format frames are laid out in (PLAN 2.62, 3.16): one of the deck's `formats`, or none
     /// for its own canvas.
     public private(set) var format: String?
@@ -70,6 +83,13 @@ public final class DeckEditor {
         // Typing left uncompiled is compiled as the hold begins, before the model reads the deck,
         // so no burst's end compiles it over what the assistant makes (lift-up 10-25b PERF-2).
         didSet { if assisting { compileTyped() } }
+    }
+
+    /// The deck held as the assistant holds it while it works, no question asked: what the iPad's
+    /// UI tests launch with `-assistantAtWorkAfter N` to hold it once N edits are made, and see Undo
+    /// and Redo held (lift-up STAB-5).
+    public func holdForTests() {
+        assisting = true
     }
 
     /// Why an edit is refused while the assistant is at work, as the browser says it.

@@ -491,23 +491,41 @@ pub(super) struct Faint {
     needs: f64,
 }
 
-/// E110 and E111 over every state of the deck as laid out in this format; and into `faint`,
-/// each run of a node's own text that fails, by its node.
-pub fn check(
-    cx: &Cx,
-    backdrop: &mut dyn Backdrop,
-    faint: &mut BTreeMap<String, Vec<Faint>>,
-) -> Result<Vec<Finding>, EngineError> {
-    let scale = SIDE / cx.deck.canvas.width.min(cx.deck.canvas.height) as f32;
-    // Each node (each kind of a chart's text) once per format: its worst state, and
-    // every state it fails in.
-    let mut worst: BTreeMap<Subject, Worst> = BTreeMap::new();
-    // A deck's text comes in few colors: each color and alpha's tables, made once.
-    let mut tables: BTreeMap<[u64; 4], Ratios> = BTreeMap::new();
-    for state in cx.states {
+/// E110 and E111 over every state of the deck as laid out in one format, judged a state at a
+/// time (lift-up 20261110 PERF-1); into `faint`, each run of a node's own text that fails, by
+/// its node.
+pub(super) struct Pass {
+    scale: f32,
+    /// Each node (each kind of a chart's text) once per format: its worst state, and
+    /// every state it fails in.
+    worst: BTreeMap<Subject, Worst>,
+    /// A deck's text comes in few colors: each color and alpha's tables, made once.
+    tables: BTreeMap<[u64; 4], Ratios>,
+}
+
+impl Pass {
+    pub(super) fn new(cx: &Cx) -> Self {
+        Self {
+            scale: SIDE / cx.deck.canvas.width.min(cx.deck.canvas.height) as f32,
+            worst: BTreeMap::new(),
+            tables: BTreeMap::new(),
+        }
+    }
+
+    /// Judge `state`, one of `cx`'s, and keep what it finds; into `faint`, each run of a node's
+    /// own text that fails there.
+    pub(super) fn state(
+        &mut self,
+        cx: &Cx,
+        backdrop: &mut dyn Backdrop,
+        faint: &mut BTreeMap<String, Vec<Faint>>,
+        state: &Laid,
+    ) -> Result<(), EngineError> {
+        let Self { scale, worst, tables } = self;
+        let scale = *scale;
         let (runs, ids, charts) = texts(cx, state);
         if runs.is_empty() {
-            continue;
+            return Ok(());
         }
         let mut failed: BTreeSet<&Subject> = BTreeSet::new();
         // Where the text's glyphs are: the same at every time, painted once.
@@ -563,9 +581,14 @@ pub fn check(
                 states.push(state.snapshot.state_id.clone());
             }
         }
+        Ok(())
     }
-    let hex = |c: [u8; 3]| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
-    Ok(worst
+
+    /// What the states judged come to: an E110 or E111 for each node at its worst.
+    pub(super) fn finish(self, cx: &Cx) -> Vec<Finding> {
+        let worst = self.worst;
+        let hex = |c: [u8; 3]| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
+        worst
         .into_iter()
         .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, bare, states })| {
             let (code, class) = if needs > 3.0 { ("E110", "body") } else { ("E111", "display") };
@@ -635,7 +658,8 @@ pub fn check(
                 None => finding,
             }
         })
-        .collect())
+        .collect()
+    }
 }
 
 /// A color of the theme, under the name an inspector offers it by.

@@ -12,6 +12,8 @@
 //   edge of the picture that shows; one undo, and the deck is as it was.
 // - A slider's readout follows it as it is dragged, before it is let go, in percent, and the
 //   status says a value let go as the readout does.
+// - A slider held shows its value on the slide before it is let go, setting nothing (lift-up
+//   20261110 ATTR-5).
 // - On the next slide, where the warm photo is written cool, Warmth let go at none is none there:
 //   the photo's own warmth does not show through; one undo.
 // Exits 1 on any failure.
@@ -111,6 +113,13 @@ try {
   });
   check(readout[0] === "+50%" && readout[1] === "+50%", `the readout follows the drag, in percent: ${readout.join(", ")}`);
   check((await source()) === original, "and nothing is set until it is let go");
+  // Held back at none, the slide shows the photo as it is.
+  await page.evaluate(() => {
+    const input = document.querySelector("#look-adjust-exposure");
+    input.value = "0";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForTimeout(500);
 
   // Where the photo is most colorful, on a grid across its box; and a point on the slide beside it.
   const [x, y, w, h] = await page.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "adj-plain").rect);
@@ -122,6 +131,36 @@ try {
   const beside = [x + w + 12, y + h / 2];
   check(color(before[most]) > 60, `the photo has color to take away: ${before[most]}`);
   const [besideBefore] = await pixels([beside]);
+
+  // Saturation dragged to its least and held (lift-up 20261110 ATTR-5): the slide shows the photo
+  // gray before it is let go, and nothing is set; dragged back, the photo is as it was.
+  // The canvas as it shows, without the overlay's outlines.
+  const shown = async () => {
+    const hide = (v) => {
+      document.querySelector("#overlay svg").style.visibility = v;
+      document.querySelector("#marks").style.visibility = v;
+    };
+    await page.evaluate(hide, "hidden");
+    const png = await page.locator("#stage").screenshot();
+    await page.evaluate(hide, "");
+    return png;
+  };
+  const held = async (value) => {
+    await page.evaluate((v) => {
+      const input = document.querySelector("#look-adjust-saturation");
+      input.value = String(v);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }, value);
+    await page.evaluate(() => window.scaena.look.slid());
+    await page.waitForTimeout(300);
+    return shown();
+  };
+  const resting = await shown();
+  const dragged = await held(-1);
+  check(!dragged.equals(resting), "a slider held shows its value on the slide before it is let go");
+  check((await source()) === original, "and sets nothing while it is held");
+  const back = await held(0);
+  check(back.equals(resting), "dragged back to where it was, the slide is as it was");
 
   // Saturation at its least: one `choose`, written on the photo, and the color is gone.
   await slide("#look-adjust-saturation", -1);

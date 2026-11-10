@@ -5,7 +5,7 @@
 // runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
 import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
-import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
+import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Paid, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -42,6 +42,10 @@ export function said(event: GeneratingEvent): string {
       return "Writing the slides without an outline";
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
+    case "continuing":
+      return `The answer was cut short after ${event.written} slides: asking for the rest of ${event.slides}…`;
+    case "unrested":
+      return `The rest of the slides did not come back: ${event.why}`;
     case "retrying":
       return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
@@ -77,6 +81,15 @@ export function said(event: GeneratingEvent): string {
   }
 }
 
+/** Where the deck sends its audience: ". Linked: portal.org/playbook on slide 13" (lift-up
+ * 20261025 SEC-4). */
+function linked(m: Generated): string {
+  const links = m.links ?? [];
+  if (!links.length) return "";
+  const said = links.map((l) => `${l.href.replace(/^mailto:/, "").replace(/^https:\/\//, "")} on slide ${l.slide}`);
+  return `. Linked: ${said.join("; ")}`;
+}
+
 /** What was made, in a line for the status bar. */
 export function made(m: Generated): string {
   const fixed = m.fixed.length ? `, ${m.fixed.length} ${m.fixed.length === 1 ? "issue" : "issues"} fixed` : "";
@@ -84,7 +97,21 @@ export function made(m: Generated): string {
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
   const refused = m.refused?.length ? `, ${m.refused.length} of its changes let go` : "";
-  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}`;
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}${linked(m)}`;
+}
+
+/** What a run that failed had paid for, in words, to go on from (lift-up 20261110 REL-1); none
+ * where it paid for nothing worth keeping. */
+export function kept(paid: Paid): string | undefined {
+  const parts = [
+    paid.researched && "the research",
+    paid.settled && "the outline as you settled it",
+    paid.slides && "the slides as written",
+  ].filter(Boolean);
+  if (!parts.length) return undefined;
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  const arc = paid.arc ? `, on the ${paid.arc} arc` : "";
+  return `Kept from this run: ${list}${arc}. Go on from what was made to pay for none of it again, or Generate to start afresh.`;
 }
 
 /** A source given: a file, or a link. */
@@ -134,6 +161,10 @@ export function prompting(
   const progress = $<HTMLOListElement>("#prompting-progress");
   const film = $<HTMLOListElement>("#prompting-film");
   const go = $<HTMLButtonElement>("#prompting-go");
+  // What a run paid for, kept to go on from should a later step fail (lift-up 20261110 REL-1).
+  const goOn = $<HTMLButtonElement>("#prompting-go-on");
+  const keptSaid = $<HTMLParagraphElement>("#prompting-kept");
+  const download = $<HTMLButtonElement>("#prompting-download");
   const keying = $<HTMLFieldSetElement>("#prompting-key");
   const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
   const keyValue = $<HTMLInputElement>("#prompting-key-value");
@@ -235,6 +266,19 @@ export function prompting(
   };
 
   let given: Given[] = [];
+  /** What this dialog's runs have paid for, kept while it is open (lift-up 20261110 REL-1). */
+  let paid: Paid = {};
+  /** A deck made that would not open, kept to download. */
+  let unopened: { files: Record<string, ArrayBuffer>; name: string } | undefined;
+  /** Go on from what was made, offered where a run that failed paid for something. */
+  const offered = () => {
+    const line = running ? undefined : kept(paid);
+    keptSaid.textContent = line ?? "";
+    keptSaid.hidden = !line;
+    goOn.hidden = !line;
+    goOn.disabled = running || !asking?.key || !asking.model;
+    download.hidden = running || !unopened;
+  };
   /** The worker the deck is made in, from the dialog's opening until it closes. */
   let worker: Worker | undefined;
   let running = false;
@@ -424,11 +468,15 @@ export function prompting(
       if (!outlining(field)) field.disabled = on;
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
+    offered();
     if (!on) outlinePane.hidden = true;
     if (!on) unreadPane.hidden = true;
   };
 
   opener.onclick = () => {
+    paid = {};
+    unopened = undefined;
+    offered();
     progress.replaceChildren();
     film.replaceChildren();
     outlinePane.hidden = true;
@@ -493,9 +541,13 @@ export function prompting(
 
   form.onsubmit = async (e) => {
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
-    if (submitter?.value !== "generate") return;
+    if (submitter?.value !== "generate" && submitter?.value !== "goOn") return;
     e.preventDefault();
     if (running || !worker) return;
+    // Generate starts afresh; Go on goes on from what the last run paid for.
+    const goingOn = submitter.value === "goOn";
+    if (!goingOn) paid = {};
+    unopened = undefined;
     await whoWrites();
     if (!asking?.key || !asking.model) return;
     if (unsaved() && !confirm("The deck open is not saved. Make a new deck, and lose what is not saved when it opens?")) return;
@@ -538,6 +590,7 @@ export function prompting(
             }
           : undefined;
       })(),
+      paid: goingOn ? paid : undefined,
     };
     progress.replaceChildren();
     film.replaceChildren();
@@ -548,6 +601,7 @@ export function prompting(
         if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
+        else if (data.type === "paid") paid = { ...paid, ...data.paid };
         else if (data.type === "error") reject(new Error(data.message));
       };
       making.onerror = (e) => reject(new Error(e.message || "the generator stopped"));
@@ -575,8 +629,20 @@ export function prompting(
     );
     try {
       const deck = await done;
+      // Opened before the dialog closes: a deck that would not open is kept to download, not lost
+      // with the dialog (lift-up 20261110 REL-1).
+      try {
+        await open({ files: deck.files, name: deck.name });
+      } catch (err) {
+        if (worker !== making) return;
+        unopened = { files: deck.files, name: deck.name };
+        step(`The deck was made but would not open: ${err instanceof Error ? err.message : String(err)}. Download it to keep it.`, true);
+        busy(false);
+        download.focus();
+        return;
+      }
+      paid = {};
       dialog.close("generated");
-      await open({ files: deck.files, name: deck.name });
       // What was made is said at once; the deck lands on its story (narrative USE-2): the arc's
       // curve, the pacing against the brief, and each slide's fix, where Gamma lands on its
       // outline, its score in the line as soon as the story is read.
@@ -590,7 +656,31 @@ export function prompting(
       busy(false);
       // A worker that failed starts afresh.
       start();
+      if (!goOn.hidden) goOn.focus();
     }
+  };
+  // A deck made that would not open, zipped as it stands by the worker, downloaded.
+  let zipping = 0;
+  download.onclick = () => {
+    const deck = unopened;
+    if (!deck || !worker) return;
+    const id = ++zipping;
+    const zipper = worker;
+    const was = zipper.onmessage;
+    zipper.onmessage = (event: MessageEvent<FromWorker>) => {
+      const data = event.data;
+      if (data.type !== "filesZipped" || data.id !== id) return was?.call(zipper, event);
+      zipper.onmessage = was;
+      const url = URL.createObjectURL(new Blob([data.bytes], { type: "application/zip" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${deck.name}.scaena`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      step(`Downloaded ${deck.name}.scaena`);
+    };
+    // Copied, not handed over: the deck stays here to download again.
+    zipper.postMessage({ type: "zipFiles", id, files: deck.files } satisfies ToWorker);
   };
   return { running: () => running };
 }

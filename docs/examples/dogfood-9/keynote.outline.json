@@ -1,0 +1,31 @@
+{
+ "arc": "What Is → What Could Be",
+ "bigIdea": "The library reaches the one in three it has missed when it goes where people already are.",
+ "beats": [
+  {
+   "name": "What Is",
+   "claim": "One in three adults here has never held a library card, because we waited for them to come.",
+   "slides": 4
+  },
+  {
+   "name": "What Could Be",
+   "claim": "Twelve laundromats issued 2,400 new cards in six months.",
+   "slides": 2
+  },
+  {
+   "name": "Return",
+   "claim": "Going to people costs a quarter as much and reaches the people we missed.",
+   "slides": 2
+  },
+  {
+   "name": "Bridge",
+   "claim": "Two hundred sites take three steps and 4% of the budget.",
+   "slides": 1
+  },
+  {
+   "name": "Commit",
+   "claim": "Fund 200 outreach sites in January's budget vote.",
+   "slides": 2
+  }
+ ]
+}
