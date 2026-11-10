@@ -97,7 +97,12 @@ export async function ask(
   edited: (source: string, files: Rewritten[]) => Promise<void>,
   signal: AbortSignal,
 ) {
-  loaded ??= initResources();
+  // A module that did not load (a network gone for a moment, a deploy midway) is loaded again at
+  // the next question, not held as failed for the life of the page.
+  loaded ??= initResources().catch((e) => {
+    loaded = undefined;
+    throw e;
+  });
   await loaded;
   const listed = JSON.parse(list()) as Listed[];
   const bundleSkills = session.files().flatMap((path) => /^skills\/([a-z0-9-]{1,48})\/SKILL\.md$/.exec(path)?.[1] ?? []);

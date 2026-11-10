@@ -316,6 +316,8 @@
       /* The three slides that ran furthest over their plan (lift-up 20261110 FUNC-1): said in their row, and set in the warning's color too. */
       #rehearsed tr[data-over] td:nth-child(4) { color: var(--warning); }
       #rehearsed thead th[hidden] { display: none; }
+      /* Slides passed during their animation, which Keep leaves as they are (editor dogfood 4): said before Keep, in the warning's color. */
+      #rehearsed [data-passed] { color: var(--warning); }
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
       #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
@@ -531,6 +533,9 @@
       #story { padding: 6px 12px; font-size: 12px; }
       #story p { padding: 0; display: block; }
       #story [data-score] { margin: 0 0 6px; color: var(--muted); }
+      /* The story as last read, while the source does not compile (lift-up 20261110 deferred). */
+      #story > p[data-stale] { margin: 0 0 6px; color: var(--warning); }
+      #story[data-stale] > :is([data-score], [data-measures], [data-big-idea], [data-arc], [data-findings]) { opacity: 0.55; }
       #story [data-score] b { font-size: 22px; margin-right: 6px; }
       #story .good { color: var(--info); }
       #story .fair { color: var(--warning); }
@@ -571,6 +576,8 @@
       #story li { padding: 6px 0; border-top: 1px solid var(--line); }
       #story li .headline { margin-left: 6px; color: var(--muted); }
       #story li p { margin: 4px 0 0; }
+      #story li p[data-todo] { margin-top: 2px; color: var(--muted); }
+      #story li p[data-todo] span { color: var(--ink); }
       #story li[data-severity="error"] [data-show] { color: var(--error); }
       #story li[data-severity="warning"] [data-show] { color: var(--warning); }
       /* Each severity's shape before the slide's number, not its colour alone; its word is the button's name (lift-up 20261110 USE-1). */
@@ -808,6 +815,8 @@
       #prompting-film li { flex: none; height: 72px; aspect-ratio: 16 / 9; border-radius: 4px; background: var(--line); overflow: hidden; }
       #prompting-film img { display: block; height: 100%; width: 100%; object-fit: contain; }
       #prompting-film li:not(.drawn) img { visibility: hidden; }
+      #prompting-film li.looked { outline: 2px solid var(--info); outline-offset: -2px; }
+      #prompting-progress .elapsed { color: var(--muted); font-variant-numeric: tabular-nums; }
       #prompting-film li.drawn img { animation: prompting-drawn 240ms ease-out; }
       @keyframes prompting-drawn { from { opacity: 0; transform: translateY(6px); } }
       @media (prefers-reduced-motion: reduce) { #prompting-film li.drawn img { animation: none; } }
@@ -1175,7 +1184,7 @@
             <label>How it is delivered <select id="prompting-modality" name="modality"></select></label>
             <label>Arc <select id="prompting-arc" name="arc"></select></label>
             <label>What it should achieve <input id="prompting-outcome" name="outcome" autocomplete="off" /></label>
-            <label>Language <input id="prompting-language" name="language" placeholder="English" autocomplete="off" /></label>
+            <label>Language <select id="prompting-language" name="language"></select></label>
             <label>Voice <input id="prompting-voice" name="voice" placeholder="Plain, confident, no jargon" autocomplete="off" /></label>
             <label>Speak to them as <select id="prompting-persona" name="persona"></select></label>
             <label>GitHub token, for a private repository <input id="prompting-github" type="password" autocomplete="off" /></label>
@@ -1183,6 +1192,7 @@
         </details>
         <label class="check"><input id="prompting-show-outline" type="checkbox" checked /> Show the outline first: the big idea and what each beat says, to change before the slides are written</label>
         <label class="check"><input id="prompting-see" type="checkbox" checked /> Let the model see the slides once they are drawn, and tighten them: another call to your provider</label>
+        <label class="check"><input id="prompting-notes" type="checkbox" checked /> Write the speaker's notes for the talk, slide to slide, at its length: another call to your provider</label>
         <p class="note" id="prompting-who"></p>
         <fieldset id="prompting-key" hidden>
           <legend>Your key</legend>
@@ -1207,6 +1217,7 @@
           <label>Big idea <textarea id="prompting-big-idea" rows="2" aria-describedby="prompting-outline-title"></textarea></label>
           <ol id="prompting-beats" aria-label="The beats, in order"></ol>
           <p class="note" id="prompting-total" aria-live="polite"></p>
+          <p class="note" id="prompting-removed" hidden aria-live="polite"><span></span> <button type="button">Undo</button></p>
           <div class="row">
             <button type="button" id="prompting-add-beat">Add a beat</button>
             <label>Arc <select id="prompting-outline-arcs" aria-label="Another arc to outline on"></select></label>
@@ -1363,6 +1374,7 @@
       <form method="dialog">
         <h2 id="rehearsed-title">Rehearsed in <span data-total></span></h2>
         <p data-plan></p>
+        <p data-passed hidden></p>
         <table>
           <thead>
             <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col" data-planning>Planned</th><th scope="col" data-planning>Against plan</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>

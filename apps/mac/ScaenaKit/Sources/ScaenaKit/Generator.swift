@@ -32,6 +32,8 @@ public struct BriefChoices: Decodable, Sendable {
     public let audiences: [String]
     public let personas: [Persona]
     public let arcs: [String]
+    /// The languages Narrato writes, by their English names (lift-up 10-25b STAB-2).
+    public let languages: [String]
     public let defaults: Defaults
     /// The themes that ship, to make the deck in, each with its family (PLAN T.0d).
     public let themes: [ShippedTheme]
@@ -172,13 +174,31 @@ public enum GeneratingStep: Equatable, Sendable {
     case painted(pictures: Int, unmade: [String])
     case making
     case looking(slides: Int)
+    /// The model's answers read for this many of the look's rounds of all of them (lift-up
+    /// 20261110 ATTR-1), so the longest wait says how far it has come.
+    case lookedAt(round: Int, of: Int)
     case looked(slides: Int)
     case unlooked(String)
+    /// Each slide's speaker notes asked to be written for the talk, then these many taken, or
+    /// why some were not (lift-up 10-25 ATTR-2).
+    case noting(slides: Int)
+    case noted(slides: Int)
+    case unnoted(String)
     /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     case refused(slide: Int, what: String, why: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
+
+    /// How long a step has run, as the line it is on says it: "12 s", "1 min 20 s", "2 h 5 min"
+    /// (lift-up 20261110 ATTR-1).
+    public static func elapsed(_ seconds: TimeInterval) -> String {
+        let whole = max(0, Int(seconds))
+        let (h, m, s) = (whole / 3600, whole / 60 % 60, whole % 60)
+        if h > 0 { return m > 0 ? "\(h) h \(m) min" : "\(h) h" }
+        if m > 0 { return s > 0 ? "\(m) min \(s) s" : "\(m) min" }
+        return "\(s) s"
+    }
 
     /// What it says, in a person's words.
     public var words: String {
@@ -215,9 +235,13 @@ public enum GeneratingStep: Equatable, Sendable {
         case .painted(let pictures, let unmade): "\(pictures) pictures made; not made: \(unmade.joined(separator: "; "))"
         case .making: "Making the deck in the theme…"
         case .looking(let slides): "Showing the model the \(slides) slides as drawn…"
+        case .lookedAt(let round, let of): "The model has looked at round \(round) of \(of)"
         case .looked(let slides) where slides == 0: "The model saw nothing to change"
         case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
         case .unlooked(let why): "Not changed by what the model saw: \(why)"
+        case .noting(let slides): "Writing the \(slides) slides' notes for the talk…"
+        case .noted(let slides): "\(slides) \(slides == 1 ? "slide's" : "slides'") notes written for the talk"
+        case .unnoted(let why): "Notes not written for the talk: \(why)"
         case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
@@ -885,8 +909,18 @@ public final class Generator {
             let atOnce: Int
         }
 
+        /// A round of the speaker's notes: its request, and how many slides it writes for (lift-up
+        /// 10-25 ATTR-2).
+        struct Noted: Decodable, Sendable {
+            let request: GeneratorRequest
+            let slides: Int
+        }
+
         let look: Look?
         let fit: Fit?
+        /// The first round of each slide's speaker notes, written for the talk, where they are
+        /// asked once the look is done or none is (lift-up 10-25 ATTR-2).
+        let notes: Noted?
         /// Each slide as drawn for the model, a JPEG in base64 (lift-up ATTR-1).
         let drawn: [String]?
     }
@@ -917,6 +951,20 @@ public final class Generator {
         let drawn: [Redrawn]?
         /// Seconds to wait before `look`, the same round, is asked again, and how many times it
         /// was asked so far (lift-up REL-1).
+        let wait: Double?
+        let tried: Int?
+        /// The first round of the speaker notes, where they are asked once the look is done.
+        let notes: Making.Noted?
+    }
+
+    /// One round of the speaker notes answered (lift-up 10-25 ATTR-2): the next round where one
+    /// is left, or the same again after `wait` from a busy provider; else what the notes came to
+    /// and the fit asked for.
+    private struct Noting: Decodable, Sendable {
+        let notes: Making.Noted?
+        let noted: Int?
+        let unnoted: String?
+        let fit: Fit?
         let wait: Double?
         let tried: Int?
     }
@@ -1026,6 +1074,9 @@ public final class Generator {
 
     /// `requests` sent `atOnce` at a time, each group's answered before the next is sent, the
     /// replies in the order the requests came.
+    /// How many slides the look shows the model a round (`scaena_ops::narrative::LOOK_BATCH`).
+    nonisolated static let lookBatch = 12
+
     nonisolated static func asked(_ requests: [GeneratorRequest], atOnce: Int, send: @escaping Send) async -> [GeneratorReply] {
         var replies = [GeneratorReply?](repeating: nil, count: requests.count)
         let step = max(1, atOnce)
@@ -1159,7 +1210,7 @@ public final class Generator {
     /// kept changes touched once more, drawn again (lift-up ATTR-1).
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
-        theme: String, painter: Painter? = nil, look: Bool = true, outline: Settle? = nil,
+        theme: String, painter: Painter? = nil, look: Bool = true, notes: Bool = true, outline: Settle? = nil,
         drawn: (Int, Data) -> Void = { _, _ in },
         hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
@@ -1240,8 +1291,9 @@ public final class Generator {
         }
         hear(.making)
         let making: Making = try await stepAway(
-            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
+            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look), "notes": .bool(notes)])
         var fit = making.fit
+        var noting = making.notes
         // Each slide as drawn for the model, shown while it looks (lift-up ATTR-1).
         for (slide, jpeg) in (making.drawn ?? []).enumerated() {
             if let data = Data(base64Encoded: jpeg) { drawn(slide, data) }
@@ -1254,6 +1306,10 @@ public final class Generator {
         // back alone, asked again after the wait the engine says (lift-up REL-1).
         var seeing = making.look
         if let first = seeing { hear(.looking(slides: first.slides)) }
+        // The rounds answered, out of all of them: a round of `LOOK_BATCH` slides (lift-up
+        // 20261110 ATTR-1).
+        let allRounds = seeing.map { ($0.slides + Self.lookBatch - 1) / Self.lookBatch } ?? 0
+        var roundsRead = 0
         var refused: GeneratorReply?
         while let round = seeing {
             // The batch asked, a few rounds at a time, and the next batch drawn while it is out
@@ -1276,6 +1332,11 @@ public final class Generator {
                 return .object(answered)
             }
             let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
+            // A round a busy provider answered for now comes back, and is not counted yet.
+            if looking.wait == nil, allRounds > 1 {
+                roundsRead = min(allRounds, roundsRead + replies.count)
+                hear(.lookedAt(round: roundsRead, of: allRounds))
+            }
             if let wait = looking.wait {
                 hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
                 try await Task.sleep(for: .seconds(wait))
@@ -1295,6 +1356,33 @@ public final class Generator {
             // Each change let go, and what lint found (lift-up USE-4).
             for r in looking.refused ?? [] { hear(.refused(slide: r.slide, what: r.what, why: r.why)) }
             fit = looking.fit
+            noting = looking.notes
+        }
+        // Each slide's speaker notes written for the talk (lift-up 10-25 ATTR-2), a dozen slides a
+        // round as the look goes; then the fit, asked after them.
+        if let first = noting { hear(.noting(slides: first.slides)) }
+        while let round = noting {
+            let reply = await send(round.request)
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let noted: Noting = try await stepAway("noted", answered)
+            if let wait = noted.wait {
+                hear(.retrying(seconds: wait, tried: noted.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+            }
+            noting = noted.notes
+            if noting != nil { continue }
+            if let why = noted.unnoted {
+                hear(.unnoted(unanswered(why, provider, reply)))
+            } else {
+                hear(.noted(slides: noted.noted ?? 0))
+            }
+            fit = noted.fit
         }
         // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
         // busy provider, the same fit again after the wait the engine says (lift-up REL-1).

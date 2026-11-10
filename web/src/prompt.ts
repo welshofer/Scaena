@@ -7,8 +7,14 @@ import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Paid, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
+import { type Key, MOD } from "./commands";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+
+/** What the dialog answers (lift-up 20261110 deferred), as the keys sheet lists it. */
+export const promptKeys = (): Key[] => [
+  { keys: `${MOD}Enter`, label: "In From a prompt…: generate the deck, from any field", group: "The editor" },
+];
 
 /** How far the deck has come, in words, as `scaena generate` says it. */
 export function said(event: GeneratingEvent): string {
@@ -68,12 +74,20 @@ export function said(event: GeneratingEvent): string {
       return `Slide ${event.slide + 1} of ${event.of} drawn`;
     case "looking":
       return `Showing the model the ${event.slides} slides as drawn…`;
+    case "lookedAt":
+      return event.of > 1 ? `Round ${event.round} of ${event.of} looked at` : "The model has looked at the slides";
     case "looked":
       return event.slides
         ? `${event.slides} ${event.slides === 1 ? "slide" : "slides"} changed by what the model saw`
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "noting":
+      return `Writing the ${event.slides} slides' notes for the talk…`;
+    case "noted":
+      return `${event.slides} ${event.slides === 1 ? "slide's" : "slides'"} notes written for the talk`;
+    case "unnoted":
+      return `Notes not written for the talk: ${event.why}`;
     case "refused":
       return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
     case "fitting":
@@ -83,6 +97,14 @@ export function said(event: GeneratingEvent): string {
     case "unfitted":
       return `Not rewritten to fit: ${event.why}`;
   }
+}
+
+/** `ms`, how long a step has taken, as a person says it: nothing under five seconds, then " · 42 s",
+ * then " · 1 min 20 s" (lift-up 20261110 ATTR-1). */
+export function took(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 5) return "";
+  return s < 60 ? ` \u00b7 ${s} s` : ` \u00b7 ${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
 /** Where the deck sends its audience: ". Linked: portal.org/playbook on slide 13" (lift-up
@@ -147,10 +169,11 @@ export function prompting(
   const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
   const outcome = $<HTMLInputElement>("#prompting-outcome");
-  const language = $<HTMLInputElement>("#prompting-language");
+  const language = $<HTMLSelectElement>("#prompting-language");
   const voice = $<HTMLInputElement>("#prompting-voice");
   const persona = $<HTMLSelectElement>("#prompting-persona");
   const see = $<HTMLInputElement>("#prompting-see");
+  const speak = $<HTMLInputElement>("#prompting-notes");
   const quality = $<HTMLSelectElement>("#prompting-quality");
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
@@ -218,24 +241,81 @@ export function prompting(
     claim.oninput = () => (li.dataset.typed = "1");
     const acts = document.createElement("div");
     acts.className = "acts";
-    const act = (label: string, aria: string, on: () => void) => {
+    // Each button labelled by its beat's place, as `relabel` sets it (lift-up 20261110 USE-4).
+    const act = (label: string, kind: string, on: () => void) => {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
-      button.setAttribute("aria-label", aria);
+      button.dataset.act = kind;
       button.onclick = on;
       acts.append(button);
     };
-    act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
-    act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
-    act("Remove", "Remove the beat", () => {
-      li.remove();
-      totalled();
-    });
+    act("↑", "up", () => moved(li, li.previousElementSibling, "before"));
+    act("↓", "down", () => moved(li, li.nextElementSibling, "after"));
+    act("Remove", "remove", () => removeBeat(li));
     // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
-    act("Ask again", "Ask for this beat's claim again", () => askAgain?.(li));
+    act("Ask again", "again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
     return li;
+  };
+
+  /** Each beat's fields and buttons labelled by its place, "Beat 3 of 6: claim", so a screen
+   * reader hears which beat each is; set again after a beat is added, moved, removed, or put back
+   * (lift-up 20261110 USE-4). */
+  const relabel = () => {
+    const rows = [...beats.querySelectorAll("li")];
+    rows.forEach((li, i) => {
+      const at = `Beat ${i + 1} of ${rows.length}`;
+      const label = (selector: string, words: string) => li.querySelector(selector)?.setAttribute("aria-label", `${at}: ${words}`);
+      label(".name", "name");
+      label(".slides", "the slides it takes");
+      label(".claim", "claim");
+      label("[data-act=up]", "move up");
+      label("[data-act=down]", "move down");
+      label("[data-act=remove]", "remove");
+      label("[data-act=again]", "ask for its claim again");
+    });
+  };
+
+  /** `li` moved before or after `beside`, its place said, and the focus kept on its button. */
+  const moved = (li: HTMLLIElement, beside: Element | null, where: "before" | "after") => {
+    if (!beside) return;
+    beside[where](li);
+    relabel();
+    const rows = [...beats.querySelectorAll("li")];
+    step(`Moved to ${rows.indexOf(li) + 1} of ${rows.length}`);
+    li.querySelector<HTMLButtonElement>(`[data-act=${where === "before" ? "up" : "down"}]`)?.focus();
+  };
+
+  // A beat removed, kept for ten seconds to put back where it stood (lift-up 20261110 USE-4).
+  const removedNote = $<HTMLParagraphElement>("#prompting-removed");
+  let removed: { li: HTMLLIElement; at: number; until: ReturnType<typeof setTimeout> } | undefined;
+  const forget = () => {
+    if (removed) clearTimeout(removed.until);
+    removed = undefined;
+    removedNote.hidden = true;
+  };
+  const removeBeat = (li: HTMLLIElement) => {
+    forget();
+    const at = [...beats.querySelectorAll("li")].indexOf(li);
+    li.remove();
+    removed = { li, at, until: setTimeout(forget, 10_000) };
+    removedNote.querySelector("span")!.textContent = `Beat ${at + 1} removed`;
+    removedNote.hidden = false;
+    relabel();
+    totalled();
+    removedNote.querySelector("button")!.focus();
+  };
+  removedNote.querySelector("button")!.onclick = () => {
+    if (!removed) return;
+    const { li, at } = removed;
+    forget();
+    const rows = beats.querySelectorAll("li");
+    if (at < rows.length) rows[at].before(li);
+    else beats.append(li);
+    relabel();
+    totalled();
+    li.querySelector<HTMLTextAreaElement>(".claim")?.focus();
   };
 
   /** Asks for one beat's claim again, while the deck is being made and its outline shown. */
@@ -289,6 +369,8 @@ export function prompting(
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
     bigIdea.value = outlined.outline.bigIdea;
     beats.replaceChildren(...outlined.outline.beats.map(beatRow));
+    forget();
+    relabel();
     range = outlined.range;
     totalled();
     outlineArcs.replaceChildren(
@@ -318,6 +400,7 @@ export function prompting(
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
     const li = beatRow({ name: "", claim: "", slides: 0 });
     beats.append(li);
+    relabel();
     totalled();
     li.querySelector<HTMLInputElement>(".name")!.focus();
   };
@@ -379,6 +462,9 @@ export function prompting(
     // A persona chosen where the audience is in the person's own words; by default the one the
     // audience names (lift-up FUNC-5).
     options(persona, [["", "As the audience suggests"], ...choices.personas.map((p): [string, string] => [p.id, p.name])], "");
+    // A language Scaena sets, never free text a deck's tag and its health cannot read
+    // (lift-up 10-25b STAB-2).
+    options(language, choices.languages.map((l): [string, string] => [l, l]), "English");
     audience.placeholder = choices.defaults.audience;
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
@@ -492,12 +578,30 @@ export function prompting(
     worker.postMessage({ type: "briefing", engine: engine.module } satisfies ToWorker);
   };
 
+  // The step under way shows how long it has taken, so a long wait reads as working, not stuck
+  // (lift-up 20261110 ATTR-1): ticking in a part the live region does not read again each second.
+  let ticking: { span: HTMLSpanElement; since: number; every: ReturnType<typeof setInterval> } | undefined;
+  const untick = () => {
+    if (!ticking) return;
+    clearInterval(ticking.every);
+    ticking.span.remove();
+    ticking = undefined;
+  };
   const step = (line: string, failed = false) => {
+    untick();
     const item = document.createElement("li");
     item.textContent = line;
     if (failed) item.className = "failed";
     progress.append(item);
     item.scrollIntoView({ block: "nearest" });
+    if (failed || !running) return;
+    const span = document.createElement("span");
+    span.className = "elapsed";
+    span.setAttribute("aria-hidden", "true");
+    item.append(span);
+    const since = performance.now();
+    const tick = () => (span.textContent = took(performance.now() - since));
+    ticking = { span, since, every: setInterval(tick, 1000) };
   };
 
   // Each slide as it is drawn for the model, in a strip under the progress, so the wait shows the
@@ -513,12 +617,20 @@ export function prompting(
     }
     const item = film.children[event.slide] as HTMLLIElement;
     item.querySelector("img")!.src = `data:image/jpeg;base64,${event.jpeg}`;
+    item.classList.remove("looked");
     item.classList.add("drawn");
     item.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
 
+  /** A look round's slides marked in the strip as looked at, and the round said. */
+  const lookedAt = (event: Extract<GeneratingEvent, { kind: "lookedAt" }>) => {
+    for (let i = event.from; i <= event.to; i++) film.children[i]?.classList.add("looked");
+    step(said(event));
+  };
+
   const busy = (on: boolean) => {
     running = on;
+    if (!on) untick();
     for (const field of form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
       "input, select, textarea, #prompting-sources button, #prompting-add-link",
     ))
@@ -596,6 +708,14 @@ export function prompting(
     busy(false);
   };
 
+  // ⌘Enter (Ctrl+Enter) generates from any field, a brief's line breaks kept for Enter, while
+  // Generate may be pressed; while a deck is being made it does nothing (lift-up 20261110 deferred).
+  form.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
+    e.preventDefault();
+    if (!running && !go.disabled && !go.hidden) go.click();
+  });
+
   form.onsubmit = async (e) => {
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
     if (submitter?.value !== "generate" && submitter?.value !== "goOn") return;
@@ -616,7 +736,8 @@ export function prompting(
         length: length.value || undefined,
         modality: modality.value || undefined,
         desiredOutcomes: outcome.value.trim() || undefined,
-        language: language.value.trim() || undefined,
+        // English is Narrato's default, sent as none, so its prompt reads as it did.
+        language: language.value === "English" ? undefined : language.value || undefined,
         voice: voice.value.trim() || undefined,
         personaId: persona.value || undefined,
       },
@@ -634,6 +755,8 @@ export function prompting(
       research: research.checked,
       outline: showOutline.checked,
       look: see.checked,
+      // The speaker's notes written for the talk, or Narrato's drafts kept (lift-up 10-25 ATTR-2).
+      notes: speak.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;
@@ -656,6 +779,7 @@ export function prompting(
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
         if (data.type === "generating" && data.event.kind === "claimed") claimedBeat(data.event);
+        else if (data.type === "generating" && data.event.kind === "lookedAt") lookedAt(data.event);
         else if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);

@@ -222,6 +222,9 @@ struct PromptView: View {
     /// Whether the model is shown the slides once drawn, and may tighten them (PLAN G.13): another
     /// call to the provider (lift-up FUNC-5).
     @AppStorage("generate.see") private var see = true
+    /// Whether the speaker's notes are written for the talk, or Narrato's drafts kept (lift-up
+    /// 10-25 ATTR-2).
+    @AppStorage("generate.notes") private var speak = true
     @AppStorage("generate.theme") private var theme = "dusk"
     /// Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
     /// claim, settled before the slides are written.
@@ -236,7 +239,7 @@ struct PromptView: View {
     @State private var modality = ""
     @State private var arc = ""
     @State private var outcome = ""
-    @State private var language = ""
+    @State private var language = "English"
     @State private var voice = ""
     /// The persona the deck speaks to, by its id; none for the one the audience names.
     @State private var persona = ""
@@ -302,6 +305,8 @@ struct PromptView: View {
         let id = UUID()
         let words: String
         let failed: Bool
+        /// When it was said: the line under way says how long it has run (lift-up 20261110 ATTR-1).
+        var at = Date()
     }
 
     /// A beat of the outline as the person edits it: moved, removed, or added, its claim typed over.
@@ -448,9 +453,11 @@ struct PromptView: View {
                         .accessibilityIdentifier("prompt-show-outline")
                     Toggle("Let the model see the slides", isOn: $see)
                         .accessibilityIdentifier("prompt-see")
+                    Toggle("Write the speaker’s notes", isOn: $speak)
+                        .accessibilityIdentifier("prompt-notes")
                 } footer: {
                     Text(
-                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call."
+                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call; then the notes the speaker says, written for the talk, another."
                     )
                 }
                 Section {
@@ -463,7 +470,11 @@ struct PromptView: View {
                             ForEach(choices?.arcs ?? [], id: \.self) { Text($0).tag($0) }
                         }
                         TextField("What it should achieve", text: $outcome)
-                        field("Language", text: $language, prompt: "English")
+                        // A language Scaena sets, never free text a deck's tag and its health
+                        // cannot read (lift-up 10-25b STAB-2).
+                        Picker("Language", selection: $language) {
+                            ForEach(choices?.languages ?? ["English"], id: \.self) { Text($0).tag($0) }
+                        }
                         field("Voice", text: $voice, prompt: "Plain, confident, no jargon")
                         Picker("Speak to Them As", selection: $persona) {
                             Text("As the audience suggests").tag("")
@@ -490,10 +501,21 @@ struct PromptView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(steps) { line in
-                                Text(line.words)
-                                    .foregroundStyle(line.failed ? .red : .primary)
-                                    .font(.callout)
-                                    .id(line.id)
+                                Group {
+                                    // The line under way ticks how long it has run, so a wait of
+                                    // minutes reads as work, not as stuck (lift-up 20261110 ATTR-1).
+                                    if running != nil, line.id == steps.last?.id, !line.failed {
+                                        TimelineView(.periodic(from: line.at, by: 1)) { context in
+                                            Text("\(line.words) · \(GeneratingStep.elapsed(context.date.timeIntervalSince(line.at)))")
+                                                .accessibilityLabel(line.words)
+                                        }
+                                    } else {
+                                        Text(line.words)
+                                    }
+                                }
+                                .foregroundStyle(line.failed ? .red : .primary)
+                                .font(.callout)
+                                .id(line.id)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -740,9 +762,12 @@ struct PromptView: View {
     }
 
     /// Generate: the deck written, once it has something to be about and a key to write it with.
+    /// ⌘Return, as the assistant's Ask and the browser's dialog take it: the brief runs to several
+    /// lines, so Return is a line of it, never the deck made; and while the deck is made, or it
+    /// cannot be, the key does nothing, as the button does.
     private var generating: some View {
         Button(running == nil ? "Generate" : "Generating…", action: generate)
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(!ready)
             .accessibilityIdentifier("prompt-generate")
     }
@@ -888,7 +913,7 @@ struct PromptView: View {
             topic: topic.trimmingCharacters(in: .whitespacesAndNewlines),
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
             length: length.isEmpty ? nil : length, modality: modality.isEmpty ? nil : modality,
-            desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty ? nil : language,
+            desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty || language == "English" ? nil : language,
             voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona)
         let paint = painter.flatMap { made in
             keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look, quality: quality) }
@@ -897,7 +922,7 @@ struct PromptView: View {
             self.provider, self.model.wrappedValue, self.theme, self.arc, self.given
         )
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
-        let see = self.see
+        let (see, speak) = (self.see, self.speak)
         // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
         // of it; none where the slides are to come at once.
         let settle: Generator.Settle?
@@ -957,7 +982,7 @@ struct PromptView: View {
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint, look: see, outline: settle,
+                    theme: theme, painter: paint, look: see, notes: speak, outline: settle,
                     drawn: { slide, jpeg in
                         withAnimation {
                             if film.indices.contains(slide) { film[slide] = jpeg } else { film.append(jpeg) }
@@ -968,11 +993,13 @@ struct PromptView: View {
                 #if os(macOS)
                 // A reference document is made by a closure, not an autoclosure.
                 newDocument { ScaenaDocument(generated: session, said: made.words) }
+                Notifying.tell(.made(about: brief.topic, made.words))
                 // Made: nothing is under way, so the window's close asks nothing.
                 running = nil
                 dismissWindow(id: PromptWindow.id)
                 #else
                 let document = ScaenaDocument(generated: session, said: made.words)
+                Notifying.tell(.made(about: brief.topic, made.words))
                 // The brief goes as `finish` puts it away, and `halt` cancels this task then; nothing
                 // is awaited after it, so the deck is already written and opens all the same.
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
@@ -984,6 +1011,7 @@ struct PromptView: View {
                 // In a sentence, without the error's wrapping (PLAN 3.18). What the provider said
                 // of the brief stays its own (the generator's tests hold it so).
                 say(Why.said(error), failed: true)
+                Notifying.tell(.failed(about: brief.topic, Why.said(error)))
             }
         }
     }

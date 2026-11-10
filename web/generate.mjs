@@ -108,7 +108,9 @@ const provider = createServer(async (req, res) => {
   const system = (body.system ?? []).map((s) => s.text).join("\n");
   const asked = system.includes("tightening the words")
     ? "fit"
-    : system.includes("art director")
+    : system.includes("speechwriter")
+      ? "notes"
+      : system.includes("art director")
       ? "look"
       : system.includes("revising one beat")
         ? "claim"
@@ -139,6 +141,12 @@ const provider = createServer(async (req, res) => {
   // The rest of slides cut short (lift-up REL-2), asked with the slides' own prompt.
   if (asked === "slides" && state.rest && prompt.includes("CONTINUATION")) return reply(200, state.rest);
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
+  // Each slide's notes for the talk (lift-up 10-25 ATTR-2): the first slide's, at the words asked.
+  if (asked === "notes") {
+    const words = Number(/Slide 1 of \d+: about (\d+) words\./.exec(prompt)?.[1] ?? 0);
+    const notes = words ? [{ slide: 1, notes: Array(words).fill("cargo").join(" ") }] : [];
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ notes }) }], stop_reason: "end_turn" });
+  }
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
@@ -238,7 +246,8 @@ try {
     await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
   };
   /** The progress lines the dialog shows. */
-  const lines = () => page.locator("#prompting-progress li").allTextContents();
+  // Each line's words, without the time the step under way has taken (lift-up 20261110 ATTR-1).
+  const lines = () => page.locator("#prompting-progress li").evaluateAll((all) => all.map((li) => li.firstChild?.textContent ?? ""));
   /** Once the dialog has said it failed, its last line. */
   const failed = async () => {
     await page.waitForSelector("#prompting-progress li.failed", { timeout: 60000 });
@@ -312,7 +321,7 @@ try {
   });
   requests.length = 0;
   await page.click("#prompting details > summary");
-  await page.fill("#prompting-language", "Japanese");
+  await page.selectOption("#prompting-language", "Japanese");
   await page.click("#prompting-go");
   const unfetched = await failed();
   check(
@@ -322,7 +331,7 @@ try {
   check(requests.length === 0, `nothing is asked of the provider: ${requests.length}`);
   // Hindi's is fetched and checked, then the provider is asked, which refuses the key here.
   state.fail = true;
-  await page.fill("#prompting-language", "Hindi");
+  await page.selectOption("#prompting-language", "Hindi");
   await page.click("#prompting-go");
   const hindi = await failed();
   const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
@@ -336,7 +345,7 @@ try {
   await failed();
   check(devanagari() === 1 && !(await lines()).some((l) => l.startsWith("Fetching")), "kept, it is not fetched for the next deck");
   state.fail = false;
-  await page.fill("#prompting-language", "");
+  await page.selectOption("#prompting-language", "English");
   await page.click("#prompting details > summary");
 
   // A provider that refuses the key says so in a person's words, as the pictures do (lift-up
@@ -363,7 +372,12 @@ try {
     });
   check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
-  await page.click("#prompting-go");
+  // ⌘Enter (Ctrl+Enter) in a field generates, as Generate does (lift-up 20261110 deferred).
+  await page.locator("#prompting-topic").press("Control+Enter");
+  const began = await page
+    .waitForFunction(() => document.querySelector("#prompting-go").textContent === "Generating…", null, { timeout: 10000 })
+    .then(() => true, () => false);
+  check(began, "Ctrl+Enter in the brief generates");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
   // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
@@ -427,9 +441,19 @@ try {
   // Changed: the second beat's claim rewritten, the third moved first, the last removed, and a beat
   // of the person's own added.
   await page.locator("#prompting-beats .claim").nth(1).fill("No carrier can cut it alone.");
-  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label='Move the beat up']").click();
-  await page.locator("#prompting-beats li").nth(1).locator("button[aria-label='Move the beat up']").click();
-  await page.locator("#prompting-beats li").nth(5).locator("button[aria-label='Remove the beat']").click();
+  await page.locator("#prompting-beats li").nth(2).locator("button[data-act=up]").click();
+  await page.locator("#prompting-beats li").nth(1).locator("button[data-act=up]").click();
+  // Each beat's fields named by its place (lift-up 20261110 USE-4), the move said.
+  const labels = await page.locator("#prompting-beats li").nth(1).locator(".claim, [data-act=remove]").evaluateAll((all) => all.map((e) => e.getAttribute("aria-label")));
+  check(labels.join() === "Beat 2 of 6: claim,Beat 2 of 6: remove", `a beat's fields are named by its place: ${labels}`);
+  check((await lines()).at(-1) === "Moved to 1 of 6", `the move is said: ${(await lines()).at(-1)}`);
+  // A beat removed comes back where it stood with Undo, its claim as typed; then removed for good.
+  await page.locator("#prompting-beats li").nth(2).locator("button[data-act=remove]").click();
+  check((await page.textContent("#prompting-removed span")) === "Beat 3 removed" && (await page.locator("#prompting-beats li").count()) === 5, "a beat removed says so, with Undo");
+  await page.click("#prompting-removed button");
+  const putBack = await page.locator("#prompting-beats .claim").nth(2).inputValue();
+  check(putBack === "No carrier can cut it alone." && (await page.isHidden("#prompting-removed")), `Undo puts it back where it stood, as typed: ${putBack}`);
+  await page.locator("#prompting-beats li").nth(5).locator("button[data-act=remove]").click();
   await page.click("#prompting-add-beat");
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
@@ -445,10 +469,14 @@ try {
   check(inAll >= 5 && inAll <= 10, `the outline says its slides in all against the length asked: ${totalSaid}`);
   // The look answered slowly, so the strip of slides drawn for it can be seen while it waits
   // (lift-up ATTR-1).
-  state.looking = 4000;
+  state.looking = 7000;
   await page.click("#prompting-write");
   await page.waitForFunction(() => document.querySelectorAll("#prompting-film li.drawn").length === 5, null, { timeout: 180000 }).catch(() => {});
   await page.locator("#prompting").screenshot({ path: "target/web-generate/drawn.png" });
+  // The step under way says how long it has taken, out of the live region's words (lift-up 20261110 ATTR-1).
+  await page.waitForFunction(() => /^ · \d+ s$/.test(document.querySelector("#prompting-progress li:last-child .elapsed")?.textContent ?? ""), null, { timeout: 20000 }).catch(() => {});
+  const ticked = await page.locator("#prompting-progress li:last-child .elapsed").evaluate((e) => ({ said: e.textContent, hidden: e.getAttribute("aria-hidden") })).catch(() => ({}));
+  check(/^ · \d+ s$/.test(ticked.said ?? "") && ticked.hidden === "true", `the step under way ticks its time, unread by the live region: ${JSON.stringify(ticked)}`);
   state.looking = 0;
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
   const outlined = requests.filter((r) => r.asked === "outline");
@@ -461,6 +489,10 @@ try {
   check(/Beat 1 "Existing Approaches[^"]*" → slides 1–3:/.test(block), `the first beat takes the three slides set: ${block.slice(0, 300)}`);
   check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
   const writingSaid = (await lines()).find((l) => l.startsWith("Writing the slides"));
+  // The look's round said as its answer is read, its slides marked in the strip (lift-up 20261110 ATTR-1).
+  check((await lines()).includes("The model has looked at the slides"), `the look's round is said: ${(await lines()).join(" | ")}`);
+  check((await page.locator("#prompting-film li.looked").count()) > 0, "and its slides are marked in the strip");
+  check((await page.locator("#prompting-progress .elapsed").count()) === 0, "a deck made, no step ticks on");
   check(writingSaid === `Writing the slides, at least ${inAll}…`, `the slides asked as many as the outline settled: ${writingSaid} (${inAll})`);
   check(toOutline.includes(`AT LEAST ${inAll} slides`), "and the slides' prompt asks for them");
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
@@ -509,6 +541,11 @@ try {
     film.length === 5 && film.every((src) => src.startsWith("data:image/jpeg;base64,/9j/")),
     `the dialog shows each slide as drawn: ${film.length}`,
   );
+  // Then each slide's notes written for the talk, after the look (lift-up 10-25 ATTR-2).
+  const noted = requests.find((r) => r.asked === "notes");
+  check(noted?.prompt.startsWith("Write the speaker notes for the 5 slides of a talk"), `the notes are asked for the talk: ${noted?.prompt.slice(0, 80)}`);
+  check(requests.findIndex((r) => r.asked === "notes") > requests.findIndex((r) => r.asked === "look"), "after the look");
+  check((await lines()).some((l) => l === "1 slide's notes written for the talk"), `the progress says the notes were written: ${(await lines()).at(-3)}`);
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
@@ -558,6 +595,9 @@ try {
   // What to do first open, the rest folded (lift-up S1): a row for each slide in each, every
   // finding in one of them once.
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => li.querySelectorAll("p[data-kind]").length));
+  // Every kind of finding folded is said by a name a person reads (lift-up 10-25b FUNC-4).
+  const kinds = await page.evaluate(() => window.scaena.story.said(["look", "label", "look", "bigIdea"]));
+  check(kinds === "4 more: 2 change let go, 1 topic headline, 1 big idea", `the folded kinds named: ${kinds}`);
   const looked = await page.evaluate(() => window.scaena.story.health().findings.length);
   check(rows.reduce((a, b) => a + b, 0) === looked, `every finding has its row once: ${rows} of ${looked}`);
   // Opened, so a fix or a question folded with the rest can be reached.
@@ -586,6 +626,44 @@ try {
   await fixable.locator("[data-show]").click();
   await page.waitForFunction((n) => window.scaena.shown() === n - 1, slide, { timeout: 30000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.shown())) === slide - 1, `its slide is shown: slide ${slide}`);
+  // Pressed while the assistant is at work on the deck, the fix says why it waits and makes
+  // nothing (lift-up 20261110 deferred): the assistant held at work by an answer slow to come.
+  state.slow = 8000;
+  await page.evaluate(() => void window.scaena.assistant.ask("Hold the deck a moment."));
+  await page.waitForFunction(() => document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  const working = await page.evaluate(() => window.scaena.source());
+  await fixable.locator("[data-fix]").first().click();
+  await page
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Not fixed: the assistant is at work on the deck"), null, { timeout: 10000 })
+    .catch(() => {});
+  const waits = await page.textContent("#status");
+  check(
+    waits.startsWith("Not fixed: the assistant is at work on the deck") && (await page.evaluate(() => window.scaena.source())) === working,
+    `a fix pressed while the assistant works says why it waits: ${waits}`,
+  );
+  await page.evaluate(() => document.querySelector("#stop").click());
+  await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  state.slow = 0;
+  await page.evaluate(() => (document.querySelector("#question").value = ""));
+  // With the source not compiling for a moment, the Story shows the read before, its fixes held:
+  // each was made against a deck that no longer compiles (lift-up 20261110 deferred).
+  const whole = await page.evaluate(() => window.scaena.source());
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), whole);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const held = await fixable.locator("[data-fix]").first().isDisabled();
+  const unready = await page.evaluate(() => window.scaena.source());
+  await page.evaluate(() => document.querySelector("#story [data-findings] [data-fix]")?.click());
+  check(held && (await page.evaluate(() => window.scaena.source())) === unready, `as last read, its fix is held, and pressed makes nothing: ${held}`);
+  // Taken back by ⌘Z, the walk's own break leaves the deck's history as it was.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((w) => window.scaena.source() === w, whole, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
   await fixable.locator("[data-fix]").first().click();
@@ -810,7 +888,7 @@ try {
   const ownClaim = "Every container already carries a carbon price, unpaid.";
   await page.locator("#prompting-beats .claim").nth(1).fill(ownClaim);
   const takeFrom = requests.length;
-  await page.locator("#prompting-beats li").nth(2).locator("button[aria-label=\"Ask for this beat's claim again\"]").click();
+  await page.locator("#prompting-beats li").nth(2).locator("button[data-act=again]").click();
   await page
     .waitForFunction(() => document.querySelectorAll("#prompting-beats .claim")[2]?.value.startsWith("Asked again"), null, { timeout: 60000 })
     .catch(() => {});
@@ -891,8 +969,8 @@ try {
   check((await page.evaluate(() => window.scaena.source())) !== unoutlinedWas, "and the deck is made");
   state.unreadable = false;
   // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
-  // for an audience in the person's own words, pictures made with high care, and the slides not
-  // shown to the model.
+  // for an audience in the person's own words, pictures made with high care, the slides not
+  // shown to the model, and the speaker's notes left as Narrato drafted them (lift-up 10-25 ATTR-2).
   requests.length = 0;
   painted.length = 0;
   // The copy the editor kept of the deck before is offered as the last one opened, a modal over the
@@ -911,6 +989,7 @@ try {
   await page.click("#prompting details > summary");
   await page.selectOption("#prompting-quality", "high");
   await page.uncheck("#prompting-see");
+  await page.uncheck("#prompting-notes");
   const unbriefed = await page.evaluate(() => window.scaena.source());
   await page.click("#prompting-go");
   await page
@@ -920,6 +999,9 @@ try {
   check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
   check(painted.length > 0 && painted.every((p) => p.body.quality === "high"), `each picture asked for with high care: ${painted.map((p) => p.body.quality)}`);
   check(!requests.some((r) => r.asked === "look"), `the slides are not shown to the model: ${requests.map((r) => r.asked)}`);
+  check(!requests.some((r) => r.asked === "notes"), `the speaker's notes are not asked for: ${requests.map((r) => r.asked)}`);
+  // Still drawn for the person as the deck comes together (lift-up 20261110 ATTR-1).
+  check((await page.locator("#prompting-film li.drawn").count()) > 0, `with no look, the slides are still drawn in the strip: ${await page.locator("#prompting-film li.drawn").count()}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {

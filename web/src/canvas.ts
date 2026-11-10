@@ -2943,6 +2943,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     const [x, y, w, h] = was.mark.rect;
     const middle: Point = was.mark.transform ? apply(was.mark.transform, [x + w / 2, y + h / 2]) : [x + w / 2, y + h / 2];
     const mark = await stage.markAt(shown.state, middle, editor.format()).catch(() => undefined);
+    // Escape, or another mark picked, while the mark was asked for again stands: the answer picks
+    // nothing back (annotate.mjs on a loaded runner).
+    if (picked !== was) return draw();
     picked = mark?.node === was.mark.node && mark.key === was.mark.key ? { state: shown.state, mark } : undefined;
     draw();
   }
@@ -4508,6 +4511,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** What lint found, every finding: those about the state shown, in the format shown, stand on
      * it (PLAN 2.49). */
     found: (findings: Finding[]) => pins.found(findings),
+    /** Open `f`'s mark once the state it stands in is shown with it (editor dogfood 4). */
+    showMark: (f: Finding) => pins.show(f),
     /** The findings' marks shown, for a test. */
     marks: () => pins.shown(),
     /** `node` as the canvas names it in a sentence, by the words of the state shown last asked

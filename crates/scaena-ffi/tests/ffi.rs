@@ -487,7 +487,7 @@ fn an_older_theme_that_ships_opens_with_its_library() {
     let shipped = read("../../docs/examples/authorability/themes/daybreak.theme.json");
     assert_eq!(starters.len(), shipped["layouts"].as_object().unwrap().len() + 1, "every layout, and a blank slide");
     let sections: std::collections::BTreeSet<&str> = starters.iter().filter_map(|l| l["group"].as_str()).collect();
-    assert_eq!(sections.len(), 16, "{sections:?}");
+    assert_eq!(sections.len(), 17, "{sections:?}");
     unsafe { scaena_session_free(s) };
 }
 
@@ -2219,4 +2219,28 @@ fn a_re_theme_is_answered_on_a_stack_of_its_own() {
     assert!(answer["ok"]["added"].as_array().is_some_and(|a| !a.is_empty()), "linted in the theme: {answer}");
     assert!(linted.get("error").is_none(), "{linted}");
     unsafe { scaena_session_free(s.0) };
+}
+
+/// One slide asked for, read, and written as Swift drives Write This Slide Again… (lift-up
+/// FUNC-1): `slideAsk` gives the request's two halves, the person's words in its prompt;
+/// `slideRead` the slide a model's answer holds, which `slide_write` writes; and an answer that
+/// holds no slide, or a place in two, is an error, never a crash.
+#[test]
+fn one_slide_is_asked_for_read_and_written() {
+    let s = open(B1);
+    let first = call(s, "states", json!({}))[0].as_str().unwrap().to_string();
+    let asked = call(s, "slideAsk", json!({ "place": { "replace": first }, "ask": "Shorter, for executives" }));
+    assert!(asked["system"].as_str().is_some_and(|s| !s.is_empty()), "{asked}");
+    assert!(asked["prompt"].as_str().unwrap().contains("Shorter, for executives"), "{asked}");
+    let both = answered(s, "slideAsk", &json!({ "place": { "replace": first, "after": first } }));
+    assert!(both.get("error").is_some(), "{both}");
+    let answer = r#"{"slideTitle": "Identity is the primitive", "layoutSuggestion": "Bullet List",
+        "keyBullets": ["Nodes keep their names", "States say what changes", "Frames only sample"]}"#;
+    let slide = call(s, "slideRead", json!({ "answer": answer }));
+    assert_eq!(slide["slideTitle"], "Identity is the primitive", "{slide}");
+    let written = tool(s, "slide_write", json!({ "slide": slide, "after": first }));
+    assert_eq!(written["edited"], true, "{written}");
+    let none = answered(s, "slideRead", &json!({ "answer": "Sorry, I can't." }));
+    assert!(none.get("error").is_some(), "{none}");
+    unsafe { scaena_session_free(s) };
 }

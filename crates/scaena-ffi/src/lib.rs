@@ -2002,6 +2002,15 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             );
             value(serde_json::to_value(target.map_err(said)?))?
         }
+        // What to ask a model for one slide (lift-up FUNC-1), Write This Slide Again… and Add a
+        // Slide About…: `place` `{replace}` or `{after}`, `ask` the person's words: `{system,
+        // prompt}`, the browser's generator module's bytes.
+        "slideAsk" => {
+            let place = args.get("place").cloned().unwrap_or(Value::Null);
+            s.slide_asked(place, optional("ask").unwrap_or_default()).map_err(said)?
+        }
+        // The slide a model's `answer` to `slideAsk` holds, for `slide_write`; or why it is none.
+        "slideRead" => Session::slide_read(arg("answer")?).map_err(said)?,
         // Where a map asked for by `aim` goes, as the assistant's `map_fetch` asks (`{state?, into?,
         // at?}`): a target.
         "mapAiming" => {

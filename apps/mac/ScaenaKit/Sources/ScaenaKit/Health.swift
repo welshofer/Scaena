@@ -47,8 +47,9 @@ public struct Health: Decodable, Sendable {
         /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
         /// the settled outline its slides do not carry), `bigIdea` (a close that never lands it),
         /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from),
-        /// `pacing` (the first slide to cut where the deck runs past its brief), or `look` (a change
-        /// the model asked once it saw the slide, let go: lint found it worse).
+        /// `pacing` (the first slide to cut where the deck runs past its brief), `look` (a change
+        /// the model asked once it saw the slide, let go: lint found it worse), or `label` (a
+        /// content slide's headline that names its topic where it could state its point).
         public let kind: String
         public let says: String
         public let ask: String
@@ -116,6 +117,8 @@ extension Health {
                 switch finding.kind {
                 case "bigIdea": "big idea"
                 case "layout": "broken slide"
+                case "look": "change let go"
+                case "label": "topic headline"
                 default: finding.kind
                 }
             if let i = counts.firstIndex(where: { $0.kind == kind }) {
@@ -133,4 +136,14 @@ extension ScaenaSession {
     /// The deck's narrative health (PLAN G.9): its scores, each slide as read, and what to look at,
     /// as the browser's Story tab shows it.
     public func health() throws -> Health { try call("health") }
+}
+
+extension Health {
+    /// What a Story row names slide `slide`, its first state `state`, by: its headline as the deck
+    /// reads now (`slots`), where a text heads it, else health's title, its beat's claim, which an
+    /// edit of the headline leaves as it was (editor dogfood 4), as the browser's Story names it.
+    public func headline(of slide: Int, state: String, in slots: [ScaenaSession.Slot]) -> String {
+        if let now = slots.first(where: { $0.state == state })?.headline, !now.isEmpty { return now }
+        return slides.indices.contains(slide - 1) ? slides[slide - 1].title : ""
+    }
 }

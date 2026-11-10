@@ -142,6 +142,9 @@ export function numbered(slots: { state: string; said?: string }[], typed: strin
 /** The slides `states` are, as a person counts them (PLAN 2.99): this slide, where `shown` alone;
  * a slide by its number; 3 slides; 2 steps of Slide 4; or 3 slides, 5 steps in all. */
 export function reaching(states: string[], shown: string, slide: (state: string) => string): string {
+  // An edit that changes what no state draws, a slide's notes among them, is the slide's shown
+  // (W1's dogfood 5): never "on 0 slides".
+  if (states.length === 0) return "on this slide";
   if (states.length === 1) return states[0] === shown ? "on this slide" : `on ${slide(states[0])}`;
   const slides = new Set(states.map((s) => slide(s).replace(/, step \d+$/, "")));
   if (slides.size === states.length) return `on ${counted(slides.size, "slide")}`;

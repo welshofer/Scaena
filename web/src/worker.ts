@@ -836,6 +836,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         current(data.source);
         return post({ type: "restated", id: data.id, restated: JSON.parse(player.restated(data.before)) as Restated[] });
       case "health": {
+        // A source that does not compile has no story of its own: the panel keeps the last read.
+        if (data.source === unread) throw new Error("the source does not compile");
         current(data.source);
         const deck = deckRead();
         if (!deck) throw new Error("the deck does not read");
@@ -1877,6 +1879,10 @@ const compiledSources: string[] = [];
  * eight, but newer: it is compiled, never answered from the deck before the undo. */
 let asked: number | undefined;
 let heldAt: number | undefined;
+/** The source the editor last compiled, where it did not compile or validate: held among the
+ * sources compiled, it is answered from the deck before it, which a read of its story must not
+ * take for its own (lift-up 20261110 deferred). */
+let unread: string | undefined;
 function noted(source: string) {
   const was = compiledSources.indexOf(source);
   if (was >= 0) compiledSources.splice(was, 1);
@@ -1935,6 +1941,7 @@ async function editOf(source: string, index: number, at: string | undefined, rea
     valid: boolean;
   };
   noted(source);
+  unread = compiled.valid ? undefined : source;
   const compiledAt = performance.now();
   let where: Edited["at"];
   let shown: string | undefined;

@@ -947,15 +947,36 @@ fn drawing_in_step(
         snaps.get(i).and_then(|s| s.nodes.get(node)).is_some_and(|p| crate::reading::words(p) == words)
     };
     let mut out = Vec::new();
-    for (i, state) in d.states().iter().enumerate() {
-        if !says(&before, i, written) || !says(&edited, i, &now) {
-            continue;
+    // The states that say which paragraphs they draw of the text the edit changes, each kept in
+    // step by the edit, in runs of states one after another: a build by bullet the edit leaves
+    // showing its paragraphs in fewer steps than it could is drawn again, a step a paragraph, so
+    // one typed over a key at a time keeps a step for each (editor dogfood 4).
+    let changed = |i: usize| says(&before, i, written) && says(&edited, i, &now);
+    let steps: Vec<(usize, Value)> = (d.states().iter().enumerate())
+        .filter(|&(i, _)| changed(i))
+        .filter_map(|(i, s)| Some((i, drawn(s)?)))
+        .collect();
+    let mut runs: Vec<Vec<(usize, Value)>> = Vec::new();
+    for (i, was) in steps {
+        match runs.last_mut() {
+            Some(run) if run.last().is_some_and(|&(j, _)| j + 1 == i) => run.push((i, was)),
+            _ => runs.push(vec![(i, was)]),
         }
-        if let Some(was) = drawn(state)
-            && let Some(value) = crate::lists::redrawn(&was, written, range.clone(), text)
-            && value != was
-        {
-            out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/paragraphs", esc(node)), value });
+    }
+    for run in runs {
+        let kept: Vec<Value> = (run.iter())
+            .map(|(_, was)| crate::lists::redrawn(was, written, range.clone(), text).unwrap_or(was.clone()))
+            .collect();
+        let values = if run.len() > 1 { crate::lists::rebuilt(&kept, &now).unwrap_or(kept) } else { kept };
+        for ((i, was), value) in run.into_iter().zip(values) {
+            if value != was {
+                out.push(JsonOp::Replace { path: format!("/states/{i}/props/{}/paragraphs", esc(node)), value });
+            }
+        }
+    }
+    for (i, state) in d.states().iter().enumerate() {
+        if !changed(i) {
+            continue;
         }
         if let Some(was) = focused(state)
             && let Some(value) = crate::lists::refocused(&was, written, range.clone(), text)
@@ -2670,6 +2691,24 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
     };
     let state = &d.states()[at];
     let old = state.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(state)))?;
+    // The notes a presenter reads are the state's own, else its beat's (SPEC §2.6): a state with
+    // none of its own that opens the first beat naming it has its beat's written, as a made deck
+    // writes them, so the notes edited are those the presenter reads (editor dogfood 3).
+    if name == "notes" && !old.contains_key("notes") {
+        let id = id_of(state);
+        let first = d.beats().find(|(_, _, b)| {
+            b.get("states").and_then(Value::as_array).is_some_and(|s| s.iter().any(|s| s.as_str() == Some(id)))
+        });
+        if let Some((s, b, beat)) = first.filter(|(_, _, b)| b["states"][0].as_str() == Some(id)) {
+            let old = beat.as_object().ok_or_else(|| format!("beat `{}` is not an object", id_of(beat)))?;
+            let mut new = old.clone();
+            match value {
+                Value::Null => drop(new.shift_remove("notes")),
+                v => drop(new.insert("notes".into(), v.clone())),
+            }
+            return Ok(diff(&format!("/spine/sections/{s}/beats/{b}"), old, &new));
+        }
+    }
     let set = match &key {
         Some(key) => transition_with(old.get("transition"), key, value),
         None => (!value.is_null()).then(|| value.clone()),

@@ -771,6 +771,60 @@ fn a_number_in_japanese_is_set_in_the_scripts_face() {
     assert_eq!((one.as_str(), two.as_str()), ("fonts/Fraunces-VF.ttf", "fonts/Fraunces-VF.ttf"));
 }
 
+#[test]
+fn a_japanese_text_with_no_latin_letter_is_set_in_the_scripts_face_whole() {
+    // Dogfood pass 11: in Three Numbers, "120億円" was set in Noto Sans JP and "8%" and "40%"
+    // beside it in Fraunces, since figures took the script's face only beside its letters. A
+    // text with no Latin letter now takes it whole, its figures and signs too; one with a Latin
+    // letter keeps the rule before it.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let mut faces = |text: &str, lang: Option<&str>| {
+        let mut spec = TextSpec::plain(theme.text_role("display").unwrap(), text);
+        spec.lang = lang.map(String::from);
+        let layout = engine.layout(&mut fonts, &theme, &spec, 10_000.0).unwrap();
+        let mut ids: Vec<String> = layout.runs.iter().map(|r| r.font.id.clone()).collect();
+        ids.dedup();
+        ids
+    };
+    let (jp, fraunces) = ("fonts/NotoSansJP-subset.ttf".to_string(), "fonts/Fraunces-VF.ttf".to_string());
+    for figure in ["8%", "40%", "120億円", "3.5"] {
+        assert_eq!(faces(figure, Some("ja")), std::slice::from_ref(&jp), "{figure}");
+    }
+    // A Latin letter keeps a figure apart from its letters in the family's own face.
+    assert_eq!(faces("p99", Some("ja")), std::slice::from_ref(&fraunces));
+    // Outside Chinese, Japanese, and Korean, nothing changes.
+    assert_eq!(faces("8%", None), std::slice::from_ref(&fraunces));
+    assert_eq!(faces("8%", Some("en")), [fraunces]);
+}
+
+#[test]
+fn a_japanese_tables_figures_keep_their_columns_in_the_scripts_face() {
+    // Dogfood pass 11: a chart's and a table's text in a Japanese deck take its language, so
+    // their figures are set in Noto Sans JP. A column of figures still lines up there: Noto
+    // sets every figure at one width, tabular or not, so each figure's right edge falls where
+    // its digits say.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let mut width = |text: &str, lang: Option<&str>| {
+        let spec = TextSpec {
+            numeric: Some(scaena_engine::theme::Numeric::TabularLining),
+            lang: lang.map(String::from),
+            ..TextSpec::plain(theme.text_role("body").unwrap(), text)
+        };
+        let layout = engine.layout(&mut fonts, &theme, &spec, 10_000.0).unwrap();
+        layout.width
+    };
+    let one = width("1", Some("ja"));
+    for (figures, digits) in [("11", 2.0), ("111", 3.0), ("120", 3.0), ("888", 3.0)] {
+        let w = width(figures, Some("ja"));
+        assert!((w - one * digits).abs() < 0.01, "{figures}: {w} against {one} a figure");
+    }
+    // "8.5" and "12.5" share their point's column, as Inter's tabular figures do.
+    let point = width("8.5", Some("ja")) - 2.0 * one;
+    assert!((width("12.5", Some("ja")) - (3.0 * one + point)).abs() < 0.01);
+}
+
 /// An address breaks as Chicago breaks one (dogfood pass 10): after `@` or a `/`, or before a
 /// `.` or a `-`, the hyphen going on to the next line, never at a hyphen's end, and never in a
 /// word, hyphenation on or off. Its characters stay as written, so it copies and links whole.

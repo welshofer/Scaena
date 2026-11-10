@@ -68,6 +68,10 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
                 let look = #"{"slides": [{"slide": 1, "layout": "", "title": "Carbon-negative cargo, ready to scale", "subtitle": "", "bullets": [], "why": "One idea, one line."}]}"#
                 return GeneratorReply(status: 200, body: anthropic(look))
             }
+            if body.contains("speechwriter") {
+                let spoken = Array(repeating: "cargo", count: 150).joined(separator: " ")
+                return GeneratorReply(status: 200, body: anthropic(#"{"notes": [{"slide": 1, "notes": "\#(spoken)"}]}"#))
+            }
             return GeneratorReply(status: 200, body: slides)
         }
     }
@@ -109,6 +113,9 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
     #expect(heard.contains(.making))
     #expect(heard.contains(.looking(slides: made.layouts.count)))
     #expect(heard.contains(.looked(slides: 1)))
+    // Then each slide's notes written for the talk, the cover's taken (lift-up 10-25 ATTR-2).
+    #expect(heard.contains(.noting(slides: made.layouts.count)))
+    #expect(heard.contains(.noted(slides: 1)))
     #expect(made.looked?.first?.slide == 1)
     let looked = await asked.requests.filter { ($0.body ?? "").contains("art director") }
     #expect(looked.count == 1)
@@ -122,7 +129,7 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
     let slow = away.steps.map(\.step)
     // The next round drawn while the one asked is out (lift-up 10-25 PERF-5).
     #expect(Array(slow.prefix(3)) == ["make", "drawAhead", "looked"], "the slow steps: \(slow)")
-    #expect(Set(slow).isSubset(of: ["make", "drawAhead", "looked", "fitted"]), "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "drawAhead", "looked", "noted", "fitted"]), "the slow steps: \(slow)")
     #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
     // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
     #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")
@@ -180,7 +187,7 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
     var shown: Outlined?
     let (session, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
-        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false, notes: false,
         outline: { outlined in
             shown = outlined
             // The proof moved before the mechanism, the second beat's claim rewritten, the last
@@ -225,7 +232,7 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
     }
     _ = try await direct.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale"), provider: .anthropic, model: "a-model",
-        key: "sk-writer", theme: "dusk", look: false
+        key: "sk-writer", theme: "dusk", look: false, notes: false
     ) { _ in }
     let direct2 = await plain.requests.filter { $0.url.hasSuffix("/v1/messages") }
     #expect(direct2.count == 2)
@@ -253,7 +260,7 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
     var shown: [Outlined] = []
     let (_, made) = try await generator.generate(
         brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
-        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false, notes: false,
         outline: { outlined in
             shown.append(outlined)
             return .withoutOutline
@@ -655,6 +662,31 @@ private actor Once {
     #expect(looks.filter { $0.contains("Slide 13 of") }.count == 2, "the busy round, asked again")
     #expect(heard.contains(.retrying(seconds: 1, tried: 1)), "\(heard)")
     #expect(heard.contains(.looked(slides: 0)), "\(heard)")
+}
+
+/// The line under way says how long it has run, and the look how many of its rounds the model has
+/// answered, so the longest waits in making a deck read as work (lift-up 20261110 ATTR-1).
+@Test func theLongWaitsSayHowLongAndHowFar() {
+    #expect(GeneratingStep.elapsed(0) == "0 s")
+    #expect(GeneratingStep.elapsed(12.7) == "12 s")
+    #expect(GeneratingStep.elapsed(60) == "1 min")
+    #expect(GeneratingStep.elapsed(80) == "1 min 20 s")
+    #expect(GeneratingStep.elapsed(3600 + 300) == "1 h 5 min")
+    #expect(GeneratingStep.elapsed(-5) == "0 s", "never less than none")
+    #expect(GeneratingStep.lookedAt(round: 2, of: 3).words == "The model has looked at round 2 of 3")
+}
+
+/// A deck made, or not, is said by a notification while the person is in another app, its title
+/// naming the topic short enough to read (lift-up 20261110 ATTR-4).
+@Test func aDeckMadeOrNotIsSaidByItsTopic() {
+    let made = DeckNotice.made(about: "Why the river floods", "Made 14 slides on the arc Hero's journey")
+    #expect(made.title == "Your deck about Why the river floods is ready")
+    #expect(made.body == "Made 14 slides on the arc Hero's journey")
+    let failed = DeckNotice.failed(about: "Q3 results", "Anthropic refused the key.")
+    #expect(failed.title == "Your deck about Q3 results was not made" && failed.body == "Anthropic refused the key.")
+    let long = DeckNotice.made(about: String(repeating: "flood plain ", count: 10) + "\nmore", "x").title
+    #expect(long.hasSuffix("… is ready") && !long.contains("\n"), "\(long)")
+    #expect(DeckNotice.made(about: "  ", "x").title == "Your deck about your topic is ready")
 }
 
 /// A file handed to New from a Prompt is read and parsed away from the main actor, so the brief's

@@ -400,8 +400,41 @@ public struct Rehearsal: Sendable {
         slots.indices.map { i -> Rehearsed in
             let slot = slots[i]
             let keeps: Double? = spent[i] > 0 ? max(0, ((spent[i] - slot.span) / 100).rounded() * 100) : nil
-            return Rehearsed(state: slot.state, spent: spent[i], span: slot.span, hold: slot.hold, keeps: keeps)
+            return Rehearsed(
+                state: slot.state, spent: spent[i], span: slot.span, hold: slot.hold, keeps: keeps, planned: planned(i))
         }
+    }
+
+    /// How long the talk planned state `i` to take, ms (lift-up 20261110 FUNC-1): from the time
+    /// planned before it comes up to the time planned before the next state of its beat, or to the
+    /// end of its beat's plan (`Slot.story`). None where its beat plans no time.
+    public func planned(_ i: Int) -> Double? {
+        guard slots.indices.contains(i), let story = slots[i].story, let beat = story.planned else { return nil }
+        let same = { (j: Int) -> Bool in
+            slots.indices.contains(j) && slots[j].story?.claim == story.claim && slots[j].story?.planned == story.planned
+        }
+        var first = i
+        while same(first - 1) { first -= 1 }
+        let end = (slots[first].story?.before ?? story.before) + beat
+        let next = same(i + 1) ? (slots[i + 1].story?.before ?? end) : end
+        return max(0, next - story.before) * 1000
+    }
+
+    /// The time the slides rehearsed were planned to take, ms, and the time they took: none where
+    /// no slide reached has a plan, so the sheet says times alone.
+    public var againstPlan: (taken: Double, planned: Double)? {
+        let reached = kept.filter { $0.spent > 0 }
+        let planned = reached.compactMap(\.planned)
+        guard !planned.isEmpty else { return nil }
+        return (reached.filter { $0.planned != nil }.map(\.spent).reduce(0, +), planned.reduce(0, +))
+    }
+
+    /// The states that ran furthest past their plan, at most three, the furthest first.
+    public var furthestOver: [String] {
+        kept.compactMap { row in row.over.flatMap { $0 > 0 ? (row.state, $0) : nil } }
+            .sorted { $0.1 > $1.1 }
+            .prefix(3)
+            .map(\.0)
     }
 
     /// The patch Keep makes: each state reached holding as long as the time it was shown keeps,
@@ -432,6 +465,15 @@ public struct Rehearsed: Equatable, Sendable {
     public let span: Double
     public let hold: Double
     public let keeps: Double?
+    /// The time the talk planned it to take, where its beat plans one (lift-up 20261110 FUNC-1).
+    public var planned: Double? = nil
+
+    /// How far it ran past its plan, ms, less than none where it ran short; none where it was not
+    /// reached or has no plan.
+    public var over: Double? {
+        guard spent > 0, let planned else { return nil }
+        return spent - planned
+    }
 }
 
 extension Array where Element == ScaenaSession.Slot {
