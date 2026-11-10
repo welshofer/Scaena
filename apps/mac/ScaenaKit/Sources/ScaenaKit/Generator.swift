@@ -150,6 +150,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
+    /// A research that failed, the deck going on from the sources given (lift-up 10-25b REL-4).
+    case unresearched(String)
     case choosing
     case chose(arc: String, fallback: String?)
     /// The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -160,6 +162,10 @@ public enum GeneratingStep: Equatable, Sendable {
     /// The outline, twice unreadable, passed over (lift-up REL-3).
     case unoutlined
     case writing(slides: Int)
+    /// The answer was cut short after `written` slides: the rest is asked for (lift-up REL-2).
+    case continuing(written: Int, slides: Int)
+    /// The rest did not come back, and why: the deck is made of the slides written before it.
+    case unrested(why: String)
     case retrying(seconds: Double, tried: Int)
     case wrote(slides: Int, truncated: Bool)
     case painting(pictures: Int, model: String)
@@ -188,6 +194,8 @@ public enum GeneratingStep: Equatable, Sendable {
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
+        case .unresearched(let why):
+            "Research stopped: \(why.hasSuffix(".") ? String(why.dropLast()) : why). The deck is grounded in what you gave."
         case .choosing: "Choosing the arc…"
         case .chose(let arc, let fallback):
             fallback.map { "Arc: \(arc), the heuristic's (\($0))" } ?? "Arc: \(arc)"
@@ -196,6 +204,9 @@ public enum GeneratingStep: Equatable, Sendable {
         case .settled(let beats): "Outline settled: \(beats) beats"
         case .unoutlined: "Writing the slides without an outline"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
+        case .continuing(let written, let slides):
+            "The answer was cut short after \(written) slides: asking for the rest of \(slides)…"
+        case .unrested(let why): "The rest of the slides did not come back: \(why)"
         case .retrying(let seconds, let tried):
             "The provider is busy or did not answer: asking again in \(Int(seconds.rounded())) s (try \(tried + 1) of 6)…"
         case .wrote(let slides, let truncated): "\(slides) slides written\(truncated ? ", the answer cut short" : "")"
@@ -599,20 +610,31 @@ public final class Generator {
     /// and draw every slide (`make`, `looked`, `fitted`), which take seconds for a deck of 20 to 45
     /// slides, while the brief's window goes on answering and its steps go on showing (lift-up
     /// narrative PERF-3). One step at a time: each is awaited before the next is made.
-    func stepAway<T: Decodable & Sendable>(_ method: String, _ args: [String: JSONValue] = [:]) async throws -> T {
+    /// With `bytes`, a file handed over, as `step` hands one (`add`).
+    func stepAway<T: Decodable & Sendable>(
+        _ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil
+    ) async throws -> T {
         let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
-        return try await Self.stepped(on: made, method, json, heard: away)
+        return try await Self.stepped(on: made, method, json, bytes: bytes, heard: away)
     }
 
     /// `method` made on `made` on a thread of its own with `stack` bytes of stack, its answer awaited.
     nonisolated private static func stepped<T: Decodable & Sendable>(
-        on made: Made, _ method: String, _ json: String, heard: (@Sendable (String) -> Void)?
+        on made: Made, _ method: String, _ json: String, bytes: Data? = nil, heard: (@Sendable (String) -> Void)?
     ) async throws -> T {
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
             let thread = Thread {
                 heard?(method)
                 done.resume(with: Result {
-                    try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                    guard let bytes else {
+                        return try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                    }
+                    return try bytes.withUnsafeBytes { raw in
+                        try ScaenaSession.decode(
+                            scaena_generator_call(
+                                made.pointer, method, json, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count),
+                            as: T.self)
+                    }
                 })
             }
             thread.name = "ScaenaKit.generate"
@@ -655,7 +677,7 @@ public final class Generator {
         }
     }
 
-    private struct Read: Decodable {
+    private struct Read: Decodable, Sendable {
         let name: String
         let kind: String
     }
@@ -719,10 +741,19 @@ public final class Generator {
 
     /// The file `name`, whose bytes are `data`, read by its extension: Markdown, text, RTF, HTML,
     /// JSON, CSV, Excel, Word, PowerPoint as words alone, or a PDF, which the model reads as itself.
+    /// Parsed away from the main actor, so the brief's window, Cancel among it, goes on answering
+    /// while a large workbook or PDF is read (lift-up 20261025b PERF-4).
     @discardableResult
-    public func add(name: String, data: Data) throws -> GeneratingStep {
-        let read: Read = try step("add", ["name": .string(name)], bytes: data)
+    public func add(name: String, data: Data) async throws -> GeneratingStep {
+        let read: Read = try await stepAway("add", ["name": .string(name)], bytes: data)
         return .read(name: read.name, kind: read.kind)
+    }
+
+    /// ``add(name:data:)``, the file at `url` read away from the main actor too.
+    @discardableResult
+    public func add(contentsOf url: URL) async throws -> GeneratingStep {
+        let data = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value
+        return try await add(name: url.lastPathComponent, data: data)
     }
 
     private struct Fetched: Decodable {
@@ -832,6 +863,10 @@ public final class Generator {
         let fallback: String?
         let written: Int?
         let truncated: Bool?
+        /// The slides written so far, where the answer that wrote them was cut short and the rest
+        /// is asked for, and why the rest did not come back, where it did not (lift-up REL-2).
+        let partial: Int?
+        let unrested: String?
         /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
         let outline: StoryOutline?
         /// Why the outline did not read, once asked twice (lift-up REL-3).
@@ -1140,7 +1175,12 @@ public final class Generator {
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
             guard let request = standing.request else { break }
-            hear(standing.step == "arc" ? .choosing : standing.step == "outline" ? .outlining : .writing(slides: standing.slides ?? 0))
+            switch standing.step {
+            case "arc": hear(.choosing)
+            case "outline": hear(.outlining)
+            case "rest": hear(.continuing(written: standing.partial ?? 0, slides: standing.slides ?? 0))
+            default: hear(.writing(slides: standing.slides ?? 0))
+            }
             let reply = await send(request)
             var answered: [String: JSONValue] = [
                 "status": .number(Double(reply.status)),
@@ -1189,6 +1229,9 @@ public final class Generator {
                     let _: Standing = try step("outline")
                 }
             default:
+                // Cut short: the rest is the next request.
+                guard now.step != "rest" else { break }
+                if let why = now.unrested { hear(.unrested(why: why)) }
                 hear(.wrote(slides: now.written ?? 0, truncated: now.truncated ?? false))
             }
         }

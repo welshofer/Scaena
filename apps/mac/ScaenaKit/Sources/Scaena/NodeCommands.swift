@@ -26,6 +26,9 @@ struct DeckActions {
     /// Order the nodes selected among what their container paints: `forward`, `backward`,
     /// `front`, or `back` (PLAN 2.42).
     let order: ((String) -> Void)?
+    /// Set the lines of the texts selected `start`, `center`, or `end`, as the inspector's
+    /// Alignment does (lift-up 20261031 USE-2).
+    var align: ((String) -> Void)? = nil
     /// In another of the deck's formats, give the node selected a layout of its own there, where
     /// it stands (PLAN 2.85, 3.16).
     var placeAnew: (() -> Void)? = nil
@@ -86,13 +89,14 @@ extension FocusedValues {
 /// Paste Style (⌥⌘V, PLAN 2.58); and the Arrange menu: the order among what their container paints
 /// (⌥⌘], ⌘], ⌘[, ⌥⌘[, PLAN 2.42), Group (⌥⌘G) and Ungroup (⇧⌥⌘G, PLAN 2.43, Keynote's keys, since
 /// ⌘G is the Mac's Find Next, lift-up USE-5), Connect with Arrow and with Line (PLAN 2.109), and
-/// Lock (⇧⌘L); and Insert's Diagram from Text, the text selected drawn as a process, a cycle, or a
+/// Lock (⌘L, as Keynote's); and Insert's Diagram from Text, the text selected drawn as a process, a cycle, or a
 /// hierarchy (PLAN 2.110). Each acts on every object selected (PLAN 3.13). The canvas takes Delete
 /// and Shift+Delete itself, as the browser's does. Between Insert and Arrange, as a presentation
 /// app has it, the Slide menu: New Slide (⇧⌘N), New Step, Duplicate Slide, and Delete Slide, on the
-/// slide shown; and the Format menu, on the text typed in: Bold (⌘B), Italic (⌘I), Add Link (⌘K),
-/// and the lists, which the canvas takes itself while a text is typed in and the menu names, so
-/// Help's search finds them. Each key is `MenuKey`'s, the iPad's canvas's too.
+/// slide shown, Duplicate Slide on ⇧⌘D; and the Format menu, on the text typed in: Bold (⌘B),
+/// Italic (⌘I), Add Link (⌘K), and the lists, which the canvas takes itself while a text is typed
+/// in and the menu names, so Help's search finds them; and on the texts selected, Align Left (⌘{),
+/// Center (⌘|), and Right (⌘}), as Keynote's (lift-up 20261031 USE-2). Each key is `MenuKey`'s, the iPad's canvas's too.
 struct NodeCommands: Commands {
     @FocusedValue(\.deck) private var deck
     @FocusedValue(\.panes) private var panes
@@ -139,6 +143,7 @@ struct NodeCommands: Commands {
                 .disabled(panes?.newStep == nil)
             Divider()
             Button("Duplicate Slide") { panes?.duplicateSlide?() }
+                .keyboardShortcut(MenuKey.duplicateSlide.key, modifiers: MenuKey.duplicateSlide.modifiers)
                 .disabled(panes?.duplicateSlide == nil)
             Button("Delete Slide") { panes?.deleteSlide?() }
                 .disabled(panes?.deleteSlide == nil)
@@ -159,6 +164,16 @@ struct NodeCommands: Commands {
                 .disabled(canvas?.list == nil)
             Button("Numbered List") { canvas?.list?("number") }
                 .disabled(canvas?.list == nil)
+            Divider()
+            Button("Align Left") { deck?.align?("start") }
+                .keyboardShortcut(MenuKey.alignLeft.key, modifiers: MenuKey.alignLeft.modifiers)
+                .disabled(deck?.align == nil)
+            Button("Align Center") { deck?.align?("center") }
+                .keyboardShortcut(MenuKey.alignCenter.key, modifiers: MenuKey.alignCenter.modifiers)
+                .disabled(deck?.align == nil)
+            Button("Align Right") { deck?.align?("end") }
+                .keyboardShortcut(MenuKey.alignRight.key, modifiers: MenuKey.alignRight.modifiers)
+                .disabled(deck?.align == nil)
         }
         CommandGroup(after: .pasteboard) {
             Button("Paste as Text") { deck?.pasteAsText?() }

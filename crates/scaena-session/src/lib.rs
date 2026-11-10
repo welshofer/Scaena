@@ -140,6 +140,11 @@ pub struct Session {
     /// once a frame, as a resize does when it pauses (ADR-0013).
     #[cfg(feature = "editor")]
     previewing: Option<Deck>,
+    /// The theme an edit of it would make, shown before it is made: frames at rest draw in it,
+    /// laid out once a frame, as the Theme tab shows a color held in its picker
+    /// (`Session::theme_previewing`, lift-up ATTR-5).
+    #[cfg(feature = "editor")]
+    previewing_theme: Option<Theme>,
     /// The format frames are laid out in (SPEC §3.4); `None` for the deck's own canvas.
     format: Option<String>,
     /// What each format painted beside the canvas laid out, by the format (PLAN 2.62).
@@ -380,6 +385,8 @@ impl Session {
             view: None,
             #[cfg(feature = "editor")]
             previewing: None,
+            #[cfg(feature = "editor")]
+            previewing_theme: None,
             format: None,
             #[cfg(feature = "editor")]
             besides: BTreeMap::new(),
@@ -627,6 +634,7 @@ impl Session {
         #[cfg(feature = "editor")]
         {
             self.previewing = None;
+            self.previewing_theme = None;
             self.suggesting = None;
         }
     }
@@ -782,11 +790,13 @@ impl Session {
         let (start, span) = (slot.start, slot.span);
         if t_ms.is_nan() || t_ms >= span {
             #[cfg(feature = "editor")]
-            if let Some(deck) = &self.previewing {
+            if self.previewing.is_some() || self.previewing_theme.is_some() {
+                let deck = self.previewing.as_ref().unwrap_or(&self.deck);
+                let theme = self.previewing_theme.as_ref().unwrap_or(&self.theme);
                 // The engine is built by now: the timeline took it.
                 let engine = self.engine.as_mut().expect("built for the timeline");
                 let format = self.format.as_deref();
-                let req = FrameRequest { deck, theme: &self.theme, data: &self.data, state, t_ms, format };
+                let req = FrameRequest { deck, theme, data: &self.data, state, t_ms, format };
                 return Ok(engine.frame(&req)?.display_list);
             }
             // Its shaders at the time it comes to rest, or `t_ms` into its hold.
@@ -866,7 +876,7 @@ impl Session {
         // A drag, or a patch previewed, draws the state otherwise than it is at rest and moves
         // with the pointer (ADR-0013): a frame of it, as before, with nothing kept.
         #[cfg(feature = "editor")]
-        let previewing = self.previewing.is_some();
+        let previewing = self.previewing.is_some() || self.previewing_theme.is_some();
         #[cfg(not(feature = "editor"))]
         let previewing = false;
         if self.moving.is_some() || previewing {
@@ -1093,6 +1103,37 @@ impl Session {
     #[cfg(feature = "editor")]
     pub fn uncoding(&self, node: &str) -> Result<Vec<serde_json::Value>, Error> {
         scaena_ops::coding::uncoding(&self.deck, &self.theme, node).map_err(|e| Error::Ops(e.to_string()))
+    }
+
+    /// The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+    /// gutter's numbers, "2–4, 7" (PLAN 2.140, `scaena_core::code::focus::read`): Focus on These
+    /// Lines, the inspector's Lines in Focus, and, with nothing said, Clear Focus. Written into
+    /// `state`'s own props, the states after it as they were (`scaena_ops::coding::focusing`). An
+    /// error says, in a sentence, a line the code does not have.
+    #[cfg(feature = "editor")]
+    pub fn focusing(&self, state: &str, node: &str, said: &str) -> Result<Vec<serde_json::Value>, Error> {
+        let ops = |e: scaena_ops::OpsError| Error::Ops(e.to_string());
+        let (start, lines) = scaena_ops::coding::numbered(&self.deck, state, node).map_err(ops)?;
+        let focus = scaena_core::code::focus::read(said, start, lines).map_err(Error::Ops)?;
+        scaena_ops::coding::focusing(&self.deck, state, node, &focus).map_err(ops)
+    }
+
+    /// The patch Walk Through Lines… makes of code text `node` from `state` (PLAN 2.140): `state`
+    /// shows the lines the first of `steps` names, and a step after it each of the rest's, each in
+    /// its gutter's numbers as [`Session::focusing`] reads them, nothing or every line the whole
+    /// block; the states after them as they were (`scaena_ops::coding::walking`). An error names
+    /// the step, by its number, whose lines the code does not have.
+    #[cfg(feature = "editor")]
+    pub fn walking(&self, state: &str, node: &str, steps: &[String]) -> Result<Vec<serde_json::Value>, Error> {
+        let ops = |e: scaena_ops::OpsError| Error::Ops(e.to_string());
+        let (start, lines) = scaena_ops::coding::numbered(&self.deck, state, node).map_err(ops)?;
+        let read = (steps.iter().enumerate())
+            .map(|(k, said)| {
+                scaena_core::code::focus::read(said, start, lines)
+                    .map_err(|e| Error::Ops(format!("Step {}: {e}", k + 1)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        scaena_ops::coding::walking(&self.deck, state, node, &read).map_err(ops)
     }
 
     /// The patch Tidy Code makes of `node` as `state` shows it (PLAN 2.139): a `replace_text` for
@@ -4810,6 +4851,84 @@ mod tests {
         assert!(s.carets("revenue", "note").unwrap().unwrap().code.is_none());
     }
 
+    /// A walkthrough (PLAN 2.140): Walk Through Lines… adds a step for each range after the first,
+    /// from the whole block to the whole block, in one patch, each gliding in at `slow`, and every
+    /// state after them resolving as before; Focus on These Lines and Clear Focus set the state
+    /// shown's alone, the step after it as it was; a line the code lacks is refused in a sentence;
+    /// and the deck before the patch is the deck again (the editor's undo).
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_walkthrough_adds_a_step_for_each_range_and_keeps_the_states_after_it() {
+        use serde_json::json;
+        let by = || assistant::Caller { author: "user", at: None };
+        let mut s = revenue();
+        let taken = |s: &mut Session, patch: &[serde_json::Value]| {
+            let called = s.tool("deck_patch", json!({ "ops": patch }), by());
+            assert!(called.as_ref().is_ok_and(|c| c.edited), "{patch:?}: {:?}", called.map(|c| c.result));
+        };
+        let made = s.coding("note", Some("plain")).unwrap();
+        taken(&mut s, &made);
+        taken(&mut s, &[json!({ "op": "replace", "path": "/nodes/note/text", "value": "a\nb\nc\nd\ne" })]);
+        let shown = |s: &Session| -> Vec<(String, Option<serde_json::Value>)> {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            snaps.iter().map(|snap| (snap.state_id.clone(), snap.nodes.get("note").map(|p| json!(p)))).collect()
+        };
+        let focus = |s: &Session, state: &str| -> serde_json::Value {
+            let snaps = scaena_core::resolve_states(&s.deck).unwrap();
+            let snap = snaps.iter().find(|x| x.state_id == state).unwrap();
+            snap.nodes["note"].get("code").and_then(|c| c.get("focus")).cloned().unwrap_or(json!(null))
+        };
+        let before = s.deck.clone();
+        let was = shown(&s);
+        // Walk Through Lines…: the whole block, 2–3, 5, the whole block again.
+        let steps: Vec<String> = ["1–5", "2–3", "5", "1–5"].map(String::from).to_vec();
+        let walk = s.walking("revenue", "note", &steps).unwrap();
+        let added: Vec<&serde_json::Value> = walk.iter().filter(|op| op["op"] == "add_state").collect();
+        assert_eq!(added.len(), 3, "a step for each range after the first: {walk:#?}");
+        assert!(added.iter().all(|op| op["state"]["transition"] == "slow" && op["state"]["slide"] == "revenue"));
+        taken(&mut s, &walk);
+        let ids: Vec<String> = added.iter().map(|op| op["state"]["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(focus(&s, "revenue"), json!(null), "the whole block first");
+        assert_eq!(focus(&s, &ids[0]), json!([[2, 3]]));
+        assert_eq!(focus(&s, &ids[1]), json!([5]));
+        assert_eq!(focus(&s, &ids[2]), json!(null), "and the whole block last");
+        let now = shown(&s);
+        for (id, props) in &was {
+            assert_eq!(now.iter().find(|(n, _)| n == id).map(|(_, p)| p), Some(props), "`{id}` as it was");
+        }
+        // The editor's undo: the deck before the patch.
+        s.set_deck(before.clone());
+        assert_eq!(serde_json::to_value(&s.deck).unwrap(), serde_json::to_value(&before).unwrap());
+        // Focus on These Lines: `revenue`'s alone; `mix`, a step that tracks it, as it was.
+        let focusing = s.focusing("revenue", "note", "2 – 4").unwrap();
+        taken(&mut s, &focusing);
+        assert_eq!(focus(&s, "revenue"), json!([[2, 4]]));
+        assert_eq!(
+            shown(&s),
+            was.iter()
+                .map(|(id, p)| {
+                    let mut p = p.clone();
+                    if id == "revenue" {
+                        p.as_mut().unwrap()["code"]["focus"] = json!([[2, 4]]);
+                    }
+                    (id.clone(), p)
+                })
+                .collect::<Vec<_>>()
+        );
+        assert!(s.focusing("revenue", "note", "2–4").unwrap().is_empty(), "shown so already");
+        // Clear Focus: every line again, and the states after it as they were.
+        let clear = s.focusing("revenue", "note", "").unwrap();
+        taken(&mut s, &clear);
+        assert_eq!(focus(&s, "revenue"), json!(null));
+        assert_eq!(shown(&s), was);
+        // What the code does not have is said in a sentence.
+        let lacks = s.focusing("revenue", "note", "9").unwrap_err().to_string();
+        assert!(lacks.contains("The code has no line 9: its lines are 1 to 5"), "{lacks}");
+        let lacks = s.walking("revenue", "note", &["1–5".into(), "6".into()]).unwrap_err().to_string();
+        assert!(lacks.contains("Step 2: The code has no line 6"), "{lacks}");
+        assert!(s.focusing("revenue", "title", "1").is_err(), "no code");
+    }
+
     /// A key in a code text (PLAN 2.139), by its UTF-16 offsets as a page and Swift count them.
     #[test]
     fn a_code_key_counts_utf16_as_a_page_does() {
@@ -6106,7 +6225,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 71);
+        assert_eq!(s.states().len(), 72);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,

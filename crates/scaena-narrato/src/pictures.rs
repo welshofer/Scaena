@@ -445,15 +445,7 @@ pub fn read(
             .unwrap_or_else(|| format!("{status} {status_text}"));
         let lower = body.to_lowercase();
         // Out of credit is a 429 too, which waiting does not mend (Vzestup's signatures).
-        if [
-            "insufficient_quota",
-            "billing_hard_limit_reached",
-            "exceeded your current quota",
-            "check your plan and billing",
-        ]
-        .iter()
-        .any(|s| lower.contains(s))
-        {
+        if crate::for_good(status, body) {
             return Err(Unmade::Stopped(format!(
                 "{name} is out of credit for pictures: top up its balance. It said: {said}"
             )));

@@ -6,6 +6,7 @@
 import type { AssistantEvent, Edited, ProviderId, Rewritten, Seeing, Thumb } from "../protocol";
 import type { Stage } from "../stage";
 import type { Who } from "../writing";
+import * as talks from "../conversations";
 import * as keys from "./keys";
 import { render } from "./markdown";
 import { refusedBase } from "./providers";
@@ -25,6 +26,11 @@ export interface Editor {
   seeing(): Seeing | undefined;
   /** Make the source read-only, or not. */
   lock(on: boolean): void;
+  /** An answer begins, or ends (lift-up 10-25 FUNC-4): its edits make one step of the source's
+   * history once it ends. Ended, whether it edited anything. */
+  answering(on: boolean): boolean;
+  /** Take the last answer back, while its step is the last: whether it was. */
+  undoAnswer(): boolean;
   /** Each state's picture as the strip holds it once it has drawn the deck as it stands, by
    * state, and how many pixels high they are; and the deck's states (PLAN 2.93). */
   drawings(): Promise<{ height: number; drawn: Map<string, Drawing>; states: string[] }>;
@@ -32,6 +38,9 @@ export interface Editor {
   show(state: string): void;
   /** `state` as a person counts it (PLAN 2.99): Slide 3, or Slide 3, step 2. */
   slide?(state: string): string;
+  /** The key the deck's conversation is kept by in this browser, its recovery copy's (lift-up
+   * 20261110 FUNC-4). */
+  conversationKey?(): string;
 }
 
 /** A state's picture, and the digest of what it draws: none where it could not be painted. */
@@ -90,6 +99,7 @@ const undone = (tool: string) => TOOL_WORDS[tool]?.[2] ?? "Didn't use a tool";
 const STOPS: Record<string, string> = {
   stopped: "Stopped.",
   length: "The answer ran out of room.",
+  refused: "The model declined to answer that. Ask in other words.",
   steps: "Stopped after as many rounds of tools as one question allows: ask it to go on.",
   other: "The model stopped.",
 };
@@ -248,6 +258,8 @@ export function panel(stage: Stage, editor: Editor): Panel {
     if (working) return;
     stage.forget();
     transcript.replaceChildren();
+    const key = editor.conversationKey?.();
+    if (key) void talks.discard(key);
     // The words of an answer cut off went with the transcript (lift-up 20261031 STAB-4): the next
     // answer's go into an entry of their own, one the page shows.
     saying = undefined;
@@ -307,6 +319,8 @@ export function panel(stage: Stage, editor: Editor): Panel {
         // a link to a slide showing it; in the words' place, or in a new entry.
         const li = saying ?? entry("said");
         saying = undefined;
+        // Its words as the model wrote them, which a conversation kept shows again (FUNC-4).
+        li.dataset.words = event.text;
         render(event.text, li, { states: editor.states?.(), show: (state) => editor.show(state) });
         return;
       }
@@ -420,6 +434,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     thinking.textContent = "Working…";
     thinking.hidden = false;
     editor.lock(true);
+    editor.answering(true);
     askButton.disabled = true;
     newConversation.disabled = true;
     stop.hidden = false;
@@ -451,10 +466,69 @@ export function panel(stage: Stage, editor: Editor): Panel {
       working = false;
       thinking.hidden = true;
       editor.lock(false);
+      if (editor.answering(false)) undoable();
+      void keepConversation();
       askButton.disabled = false;
       newConversation.disabled = false;
       stop.hidden = true;
     }
+  }
+
+  /** The answer that edited the deck, one step: Undo this answer under it, which an earlier
+   * answer's gives way to (lift-up 10-25 FUNC-4). */
+  function undoable() {
+    for (const was of transcript.querySelectorAll<HTMLButtonElement>(".undo-answer button")) was.closest("li")?.remove();
+    const li = entry("undo-answer");
+    const button = Object.assign(document.createElement("button"), { type: "button", textContent: "Undo this answer" });
+    button.onclick = () => {
+      if (editor.undoAnswer()) li.replaceChildren("Answer undone. Redo makes it again.");
+      else li.replaceChildren("Not undone: the deck was edited after this answer. Undo those edits first, or undo step by step.");
+    };
+    li.append(button);
+  }
+
+  /** Keep the conversation as it now stands, to go on with after a reload or when the deck opens
+   * again (lift-up 20261110 FUNC-4): what the worker would send the model next, and the questions
+   * and answers the panel shows. */
+  async function keepConversation() {
+    const key = editor.conversationKey?.();
+    if (!key) return;
+    const messages = await stage.conversation().catch(() => []);
+    if (!messages.length) return void talks.discard(key);
+    const said = [...transcript.querySelectorAll<HTMLElement>("li.user, li.said")].map((li) =>
+      li.classList.contains("user") ? { who: "user" as const, text: li.textContent ?? "" } : { who: "said" as const, text: li.dataset.words ?? li.textContent ?? "" },
+    );
+    await talks.keep(key, { at: Date.now(), messages, said }).catch(() => {});
+  }
+
+  /** Offer the conversation kept for this deck, where one is: Go on with it, or Start anew. */
+  async function offerKept() {
+    const key = editor.conversationKey?.();
+    const last = key ? await talks.find(key) : null;
+    if (!key || !last || transcript.children.length || working) return;
+    const asked = last.said.filter((s) => s.who === "user").length;
+    const when = new Date(last.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const li = entry("resume", `Your last conversation about this deck, ${asked} ${asked === 1 ? "question" : "questions"}, from ${when}. `);
+    const on = Object.assign(document.createElement("button"), { type: "button", textContent: "Continue the last conversation" });
+    const anew = Object.assign(document.createElement("button"), { type: "button", textContent: "Start anew" });
+    on.onclick = () => {
+      stage.resume(last.messages);
+      transcript.replaceChildren();
+      for (const s of last.said) {
+        if (s.who === "user") entry("user", s.text);
+        else {
+          const said = entry("said");
+          said.dataset.words = s.text;
+          render(s.text, said, { states: editor.states?.(), show: (state) => editor.show(state) });
+        }
+      }
+      question.focus();
+    };
+    anew.onclick = () => {
+      void talks.discard(key);
+      li.remove();
+    };
+    li.append(on, " ", anew);
   }
 
   function failure(message: string): AssistantEvent {
@@ -462,8 +536,10 @@ export function panel(stage: Stage, editor: Editor): Panel {
     return { kind: "failed", message };
   }
 
-  // A bundle opened anew starts a conversation anew: the worker that held the last is gone.
+  // A bundle opened anew starts a conversation anew: the worker that held the last is gone. The
+  // one kept for the deck is offered (FUNC-4).
   transcript.replaceChildren();
+  void offerKept();
   usageLine.textContent = "";
   void choose(settings.provider);
   return {

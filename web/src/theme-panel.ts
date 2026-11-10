@@ -35,6 +35,9 @@ export interface ThemeEditor {
   /** The words for the state shown (PLAN 2.99): the theme's names said, its objects by what they
    * show. */
   words(): Lexicon | undefined;
+  /** Show the slide shown in the theme as `ops` would edit it, nothing made; without `ops`, in the
+   * theme as it is (lift-up ATTR-5). */
+  preview(ops?: unknown[]): Promise<void>;
 }
 
 type Json = Record<string, unknown>;
@@ -140,6 +143,48 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
 
   /** A change made in the panel, which `settled()` waits for. */
   const commit = (ops: unknown[], what: string) => void settle(change(ops, what));
+
+  /** The theme a color held in a picker would make, shown on the slide before it is chosen
+   * (lift-up ATTR-5): each move of the picker asks for the newest color only once the slide
+   * shows the one before, so a drag across it draws as fast as the slide paints. `undefined`
+   * shows the theme as it is; `null`, nothing waiting. */
+  let waiting: unknown[] | undefined | null = null;
+  let previewing = false;
+  let previewed = false;
+  function preview(ops: unknown[] | undefined) {
+    if (ops === undefined && !previewed && !previewing) return;
+    waiting = ops;
+    if (previewing) return;
+    previewing = true;
+    void (async () => {
+      while (waiting !== null) {
+        const asked = waiting;
+        waiting = null;
+        previewed = asked !== undefined;
+        await editor.preview(asked).catch(() => {});
+      }
+      previewing = false;
+    })();
+  }
+  /** A picker that previews its color while it is held, then makes it, or lets the preview go,
+   * when it is let go: `ops` the edit the color picked would make, none where it changes nothing. */
+  function held(swatch: HTMLInputElement, ops: () => unknown[] | undefined, what: () => string) {
+    swatch.addEventListener("input", () => preview(ops()));
+    swatch.addEventListener("change", () => {
+      const made = ops();
+      if (made?.length) {
+        const done = change(made, what());
+        void settle(done);
+        // An edit refused leaves the theme as it was, which the slide shows again.
+        void done.then(
+          (edited) => (edited?.applied ? (previewed = false) : preview(undefined)),
+          () => preview(undefined),
+        );
+      } else preview(undefined);
+    });
+    // Let go without a color chosen: the slide in the theme as it is.
+    swatch.addEventListener("blur", () => setTimeout(() => !swatch.matches(":focus") && waiting === null && previewed && preview(undefined), 0));
+  }
   /** A photo as a person knows it: by the name of the file they dropped, where this page saw it
    * dropped; else by its file's name, unless that is the hash of its content a save names it by,
    * when it is the photo. */
@@ -201,12 +246,16 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
         if (shown) {
           const swatch = Object.assign(document.createElement("input"), { type: "color", value: shown });
           swatch.setAttribute("aria-label", `${said("color", key)}: pick a color`);
-          swatch.addEventListener("change", () => {
-            // The picker keeps the color's alpha, where it has one, and its case.
+          // The picker keeps the color's alpha, where it has one, and its case.
+          const next = () => {
             const picked = text === text.toUpperCase() ? swatch.value.toUpperCase() : swatch.value;
-            const next = text.length === 9 ? picked + text.slice(7) : picked;
-            if (next !== text) commit([{ op: "replace", path: pointer("tokens", "color", key), value: next }], `${said("color", key)} ${next}`);
-          });
+            return text.length === 9 ? picked + text.slice(7) : picked;
+          };
+          held(
+            swatch,
+            () => (next() !== text ? [{ op: "replace", path: pointer("tokens", "color", key), value: next() }] : undefined),
+            () => `${said("color", key)} ${next()}`,
+          );
           li.append(swatch);
         } else {
           const swatch = document.createElement("span");
@@ -340,10 +389,11 @@ export function themePanel(stage: Stage, into: HTMLElement, editor: ThemeEditor)
         li.dataset.syntax = c.kind;
         const swatch = Object.assign(document.createElement("input"), { type: "color", value: c.drawn });
         swatch.setAttribute("aria-label", `${c.said}: pick a color`);
-        swatch.addEventListener("change", () => {
-          const ops = codeColored(c.kind, swatch.value);
-          if (swatch.value !== c.drawn && ops.length) commit(ops, `${c.said} in code: ${swatch.value}`);
-        });
+        held(
+          swatch,
+          () => (swatch.value !== c.drawn ? codeColored(c.kind, swatch.value) : undefined),
+          () => `${c.said} in code: ${swatch.value}`,
+        );
         const id = `theme-code-${c.kind}`;
         const label = Object.assign(document.createElement("label"), { htmlFor: id, textContent: c.said });
         const pick = Object.assign(document.createElement("select"), { id });
