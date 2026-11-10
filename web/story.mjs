@@ -18,6 +18,8 @@
 //   Story tab's first row is that slide's error, the disclosure left open as it was; the row
 //   offers lint's fix and Show it, which opens the slide's mark on the canvas, in focus, and the
 //   fix taken mends the slide (editor dogfood 4).
+// - A row names its slide by the headline the deck has now: retyped, the row says it, though
+//   health still names the slide by its beat's claim (editor dogfood 4).
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
 //   claim, is offered beside the status once the burst of typing ends ("Slide 1's story still says
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
@@ -134,6 +136,32 @@ try {
     .catch(() => {});
   const still = await page.evaluate((s) => window.scaena.story.health().findings.filter((f) => f.kind === "turn" && f.state === s), turn.state);
   check(still.length === 0, `and the turn is answered: ${JSON.stringify(still.map((f) => f.says))}`);
+
+  // A row names its slide by its headline as the deck reads now, not by its beat's claim, which
+  // health names it by: a headline retyped is the row's at once (editor dogfood 4).
+  const named = await page.evaluate(() => {
+    const row = document.querySelector("#story [data-findings] li[data-slide]");
+    const slide = Number(row.dataset.slide);
+    const state = window.scaena.story.health().slides[slide - 1].state;
+    return { slide, headline: window.scaena.last().slots.find((s) => s.state === state)?.headline, shown: row.querySelector(".headline").textContent };
+  });
+  check(named.headline && named.shown === named.headline, `a row is named by its slide's headline: ${JSON.stringify(named)}`);
+  const retitled = `${named.headline} Today`;
+  const was = await page.evaluate(() => window.scaena.source());
+  const at = was.indexOf(JSON.stringify(named.headline));
+  check(at >= 0, `the headline is found in the source: ${named.headline}`);
+  await page.evaluate((s) => window.scaena.type(s), was.slice(0, at) + JSON.stringify(retitled) + was.slice(at + JSON.stringify(named.headline).length));
+  const renamed = await page
+    .waitForFunction(
+      ([slide, words]) => document.querySelector(`#story [data-findings] li[data-slide="${slide}"] .headline`)?.textContent === words,
+      [named.slide, retitled],
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check(renamed, `the headline retyped, its row says it: ${retitled}`);
+  await page.evaluate((s) => window.scaena.type(s), was);
+  await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, was, { timeout: 60000 }).catch(() => {});
 
   // A slide that lint finds broken leads.
   const source = await page.evaluate(() => window.scaena.source());
