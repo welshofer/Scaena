@@ -1012,7 +1012,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
 
     let balance = &m.content_balance;
     let mut short = Vec::new();
-    if balance.avg_bullets_per_slide < 2.0 {
+    // The slides balance counts, those not made to make one point (ADR-0032 item 3): where none
+    // lists a point, "0 points each" says nothing of the deck, so say which they were (W1's
+    // dogfood 5).
+    let pointed: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible() && !read[i].one_idea).collect();
+    if pointed.iter().all(|&i| bullets(&read[i]) == 0) {
+        short.push(match pointed.is_empty() {
+            true => "every slide makes one point by design, so none lists points to count".to_string(),
+            false => {
+                let (named, _) = slides_named(&pointed);
+                format!("no slide balance counts makes a list of points: {named}. The rest make one point by design")
+            }
+        });
+    } else if balance.avg_bullets_per_slide < 2.0 {
         short
             .push(format!("slides make {} points each, where two to five read as full", balance.avg_bullets_per_slide));
     }
@@ -3061,6 +3073,25 @@ mod tests {
         };
         let both = says(&of(&dogfood("fleet", idea, joined)));
         assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
+    }
+
+    /// Where no slide balance counts lists a point, balance says which slides it counted rather
+    /// than "0 points each" (W1's dogfood 5): the grant renewal's content slides are big numbers
+    /// and statements, which make one point by design, and its cover, chart, and close list none.
+    /// The score is as before.
+    #[test]
+    fn balance_says_which_slides_it_counted_where_none_lists_points() {
+        let h = of(&dogfood("grant", "", |_| {}));
+        assert!(
+            h.balance.says.starts_with(
+                "No slide balance counts makes a list of points: slides 1, 7 and 9. The rest make one point by design"
+            ),
+            "{}",
+            h.balance.says
+        );
+        // A deck whose counted slides list points says how many, as before.
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
