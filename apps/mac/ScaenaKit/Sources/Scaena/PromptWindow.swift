@@ -305,6 +305,8 @@ struct PromptView: View {
         let id = UUID()
         let words: String
         let failed: Bool
+        /// When it was said: the line under way says how long it has run (lift-up 20261110 ATTR-1).
+        var at = Date()
     }
 
     /// A beat of the outline as the person edits it: moved, removed, or added, its claim typed over.
@@ -495,10 +497,21 @@ struct PromptView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(steps) { line in
-                                Text(line.words)
-                                    .foregroundStyle(line.failed ? .red : .primary)
-                                    .font(.callout)
-                                    .id(line.id)
+                                Group {
+                                    // The line under way ticks how long it has run, so a wait of
+                                    // minutes reads as work, not as stuck (lift-up 20261110 ATTR-1).
+                                    if running != nil, line.id == steps.last?.id, !line.failed {
+                                        TimelineView(.periodic(from: line.at, by: 1)) { context in
+                                            Text("\(line.words) · \(GeneratingStep.elapsed(context.date.timeIntervalSince(line.at)))")
+                                                .accessibilityLabel(line.words)
+                                        }
+                                    } else {
+                                        Text(line.words)
+                                    }
+                                }
+                                .foregroundStyle(line.failed ? .red : .primary)
+                                .font(.callout)
+                                .id(line.id)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -973,11 +986,13 @@ struct PromptView: View {
                 #if os(macOS)
                 // A reference document is made by a closure, not an autoclosure.
                 newDocument { ScaenaDocument(generated: session, said: made.words) }
+                Notifying.tell(.made(about: brief.topic, made.words))
                 // Made: nothing is under way, so the window's close asks nothing.
                 running = nil
                 dismissWindow(id: PromptWindow.id)
                 #else
                 let document = ScaenaDocument(generated: session, said: made.words)
+                Notifying.tell(.made(about: brief.topic, made.words))
                 // The brief goes as `finish` puts it away, and `halt` cancels this task then; nothing
                 // is awaited after it, so the deck is already written and opens all the same.
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
@@ -989,6 +1004,7 @@ struct PromptView: View {
                 // In a sentence, without the error's wrapping (PLAN 3.18). What the provider said
                 // of the brief stays its own (the generator's tests hold it so).
                 say(Why.said(error), failed: true)
+                Notifying.tell(.failed(about: brief.topic, Why.said(error)))
             }
         }
     }

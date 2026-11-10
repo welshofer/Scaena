@@ -1112,12 +1112,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         let ask = match hotter {
             true => format!(
-                "Plan slides {}\u{2013}{} calmer, so the talk builds as its arc does{later}.",
+                "Plan slides {}\u{2013}{} calmer by their Intensity, so the talk builds as its arc does{later}.",
                 first + 1,
                 last + 1
             ),
             false => format!(
-                "Plan slides {}\u{2013}{} more intense, so the talk carries what their places call for{later}.",
+                "Plan slides {}\u{2013}{} more intense by their Intensity, so the talk carries what their places call for{later}.",
                 first + 1,
                 last + 1
             ),
@@ -1144,7 +1144,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 (
                     format!("Slide {k} was planned {hotter} than its place in the talk."),
                     format!(
-                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way}, or move it {moved}."
+                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity, or move it {moved}."
                     ),
                 )
             }
@@ -1171,7 +1171,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
         let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
-                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so plan it for its place, not the words.",
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.",
                 level(calls)
             ),
             Some(calls) if g.detected < calls => format!(
@@ -1260,9 +1260,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         (Some(a), Some(b)) if a != b => format!("slides {}\u{2013}{}", a + 1, b + 1),
         _ => format!("slide {}", of[0] + 1),
     };
+    // A deck whose words no space sets apart is not read for its claims, and says so once, as
+    // intensity and tone say it (dogfood pass 11): its sentences would each read as one word.
+    let unspaced = spaceless(language);
+    if unspaced
+        && let Some(of) = (0..outlined.len()).map(of_beat).find(|of| !of.is_empty())
+        && outlined.iter().any(|(_, claim)| !claim.is_empty())
+    {
+        let name = language.and_then(language_named).unwrap_or_else(|| "a script set without spaces".to_string());
+        find(
+            &read[of[0]].id,
+            Severity::Info,
+            Kind::Claim,
+            format!(
+                "The slides are not read for the claims the outline settled: health reads words a space sets apart, and this deck is in {name}."
+            ),
+            "Read each part of the talk against the claim the outline settled for it: say whether its slides carry it, and what to change if not.".to_string(),
+            None,
+        );
+    }
     for (k, (name, claim)) in outlined.iter().enumerate() {
         let of = of_beat(k);
-        if claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
+        if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
             continue;
         }
         let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
@@ -1610,13 +1629,35 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     })
 }
 
-/// The words of `text` that coherence reads a slide by: lowercased, past three letters, Latin
-/// letters and figures alone, as `scaena_narrato::health::coherence::keyword_overlap` splits them.
+/// The words of `text` Scaena's own checks read it by, the claim's and the big idea's: lowercased,
+/// split at whatever is not a letter or a figure of any script, each more than three characters
+/// long with a letter in it, so "coûtera" and "émissions" stay whole and a year alone is no word,
+/// and none of a script that sets no spaces between its words ([`unspaced`]) (dogfood pass 11). Vzestup's coherence splits its own way, ASCII alone
+/// (`scaena_narrato::health::coherence::keywords`), its figures Vzestup's (ADR-0032).
 fn content_words(text: &str) -> std::collections::BTreeSet<String> {
-    (text.to_lowercase().split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()))
-        .filter(|w| w.len() > 3)
+    (text.to_lowercase().split(|c: char| !c.is_alphanumeric()))
+        .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// A letter of a script that sets no space between its words, Han, kana, Hangul, or Thai: a
+/// run of them is a phrase or a sentence, not a word, so a check that reads words reads none.
+fn unspaced(c: char) -> bool {
+    matches!(u32::from(c),
+        0x0E00..=0x0E7F | 0x1100..=0x11FF | 0x3040..=0x30FF | 0x3130..=0x318F | 0x31F0..=0x31FF
+        | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF66..=0xFF9F
+        | 0x20000..=0x2FFFF)
+}
+
+/// Whether `language` is one whose words no space sets apart, as health reads them: Chinese,
+/// Japanese, or Korean, by its tag or its English name. Its sentences read as one word each, so
+/// a check that reads words reads nothing there.
+fn spaceless(language: Option<&str>) -> bool {
+    let Some(name) = language.map(str::trim).filter(|l| !l.is_empty()) else { return false };
+    let name = name.to_lowercase();
+    let head = name.split(['-', '_', ' ']).next().unwrap_or_default();
+    matches!(head, "ja" | "jpn" | "japanese" | "zh" | "zho" | "chi" | "chinese" | "ko" | "kor" | "korean")
 }
 
 /// The share of the big idea's telling words a close must say to land it, as a fraction: half,
@@ -2285,6 +2326,32 @@ mod tests {
         );
     }
 
+    /// Scaena's own checks read words in any script (dogfood pass 11): a French claim keeps its
+    /// accented words whole, "coûtera" no "tera" and "émissions" no "missions", and a figure alone
+    /// is no word. A deck in Japanese, Chinese, or Korean is not read for its claims, and says so
+    /// once, an info; its claims, each one long run of letters, would otherwise never be found.
+    #[test]
+    fn claims_are_read_by_words_in_any_script_and_not_where_no_space_sets_them_apart() {
+        let words = content_words("Ne rien faire coûtera plus cher qu'investir 86 M€ ; −40 % d'émissions en 2030");
+        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        assert_eq!(words, ["cher", "coûtera", "faire", "investir", "plus", "rien", "émissions"]);
+        assert!(content_words("倉庫の自動化と拠点の統合で、2027年度に戻す").is_empty());
+        assert!(content_words("Schließt").contains("schließt"));
+        assert!((spaceless(Some("ja")), spaceless(Some("zh-Hant")), spaceless(Some("Korean"))) == (true, true, true));
+        assert!(!spaceless(Some("fr")) && !spaceless(Some("English")) && !spaceless(None));
+
+        let mut deck = climate();
+        let h = of(&deck);
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "倉庫を自動化する" })).collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "beats": beats });
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let claims: Vec<Finding> = of(&deck).findings.into_iter().filter(|f| f.kind == Kind::Claim).collect();
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].severity, Severity::Info);
+        assert!(claims[0].says.ends_with("and this deck is in Japanese."), "{}", claims[0].says);
+    }
+
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
     /// and whose close says its big idea is found carrying both, and the big idea is given for the
     /// editors to show; a claim no slide of its beat says, and a big idea the close never says,
@@ -2580,6 +2647,22 @@ mod tests {
         }
         // Only what the findings say changed: every figure is as before but the plan's.
         assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
+
+        // The ask names the control that plans it (editor dogfood 3), which the inspector offers
+        // with nothing selected: the beat's plan, by JSON Patch where it lives. Planned as its place
+        // calls for, it bends no more.
+        assert!(bend.ask.contains("by its Intensity"), "{}", bend.ask);
+        let d = Deck::from_value(&deck).unwrap();
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
+        assert_eq!(offered.intensity, Some(plan));
+        let place = h.slides.iter().find(|s| s.state == state).unwrap().curve;
+        let op = json!({ "op": "add", "path": format!("{}/intensity", offered.at), "value": place });
+        let mut replanned = deck.clone();
+        scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
+        let after = of(&replanned);
+        assert!(!after.findings.iter().any(|f| f.state == state && f.kind == Kind::Arc), "{:#?}", after.findings);
     }
 
     /// A slide lint finds an error on stands ahead of every other finding, said as lint says it,
