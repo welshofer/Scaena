@@ -342,6 +342,9 @@ try {
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
+  // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
+  // does (WCAG 2.1.1; axe's scrollable-region-focusable, editor dogfood 1).
+  check(await page.evaluate(() => document.querySelector("#prompting-progress").tabIndex === 0), "the keys reach the progress, which scrolls");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
