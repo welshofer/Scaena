@@ -109,12 +109,19 @@ try {
   const compiled = await page.evaluate(() => window.scaena.source());
   const second = await page.evaluate(() => window.scaena.last().states[1][0]);
   await page.locator(`#strip li[data-state="${second}"]`).click();
-  await page.keyboard.press("Alt+ArrowRight");
-  await page.waitForFunction((was) => window.scaena.source() !== was, compiled, { timeout: 30000 }).catch(() => {});
-  await page.waitForFunction(() => document.querySelector("#story [data-findings] [data-fix]"), null, { timeout: 60000 }).catch(() => {});
+  for (let step = 0; step < 4 && !(await page.locator("#story [data-findings] [data-fix]").count()); step++) {
+    const was = await page.evaluate(() => window.scaena.source());
+    await page.keyboard.press("Alt+ArrowRight");
+    await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction(() => document.querySelector("#story [data-findings] [data-fix]"), null, { timeout: 15000 }).catch(() => {});
+  }
   const moved = await page.evaluate(() => window.scaena.source());
   const shown = await page.locator("#story [data-findings] li[data-slide]").count();
   await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), moved);
+  // Shown again, the Story reads the source at once, as it does a pause after a burst of typing
+  // that ends mid-word.
+  await tab(page, "inspector");
+  await tab(page, "story");
   await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const asRead = await page.evaluate(() => ({
     said: document.querySelector("#story > p[data-stale]").textContent,
@@ -133,6 +140,10 @@ try {
   await page.evaluate((s) => window.scaena.type(s), compiled);
   await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   check(await page.evaluate(() => document.querySelector("#story > p[data-stale]").hidden), "compiled again, it reads anew");
+  await page.evaluate(() => {
+    const more = document.querySelector("#story [data-more] details");
+    if (more) more.open = true;
+  });
   await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
