@@ -118,6 +118,9 @@ function sentence(f: HealthFinding): string {
 }
 
 const SEVERITY = ["info", "warning", "error"] as const;
+/** Each severity's word, which names a finding's slide button beside the shape the page draws
+ * before it, so no finding is told by its colour alone (lift-up 20261110 USE-1, WCAG 1.4.1). */
+const WORD: Record<(typeof SEVERITY)[number], string> = { error: "Error", warning: "Warning", info: "Note" };
 
 /** How long the panel waits after an edit before it reads the deck again, in ms: the Mac's
  * Story panel's pause (lift-up PERF-1). */
@@ -283,12 +286,15 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     const { slide, state } = run[0];
     const li = document.createElement("li");
     li.dataset.slide = String(slide);
-    li.dataset.severity = SEVERITY[Math.max(...run.map((f) => SEVERITY.indexOf(f.severity)))];
+    const severity = SEVERITY[Math.max(...run.map((f) => SEVERITY.indexOf(f.severity)))];
+    li.dataset.severity = severity;
     const head = document.createElement("div");
     const show = document.createElement("button");
     show.type = "button";
     show.dataset.show = "";
     show.textContent = `Slide ${slide}`;
+    show.ariaLabel = `${WORD[severity]}: Slide ${slide}`;
+    show.title = WORD[severity];
     show.addEventListener("click", () => void editor.show(state));
     const title = document.createElement("span");
     title.className = "headline";
