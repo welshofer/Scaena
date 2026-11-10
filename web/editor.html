@@ -545,6 +545,9 @@
       #story .read { fill: none; stroke: var(--ink); }
       #story .hit { fill: transparent; cursor: pointer; }
       #story [data-legend] { margin: 4px 0 0; color: var(--muted); }
+      /* Each key with its words stays on one line: a narrow column wraps between keys, never
+         between a mark and what it means (editor dogfood 2). */
+      #story [data-legend] > span { white-space: nowrap; margin-right: 6px; }
       #story [data-legend] i { display: inline-block; vertical-align: middle; margin: 0 4px 0 6px; }
       #story [data-legend] i:first-child { margin-left: 0; }
       #story [data-legend] .declared { width: 14px; border-top: 1.5px solid var(--info); }
@@ -1059,7 +1062,7 @@
             <dl data-measures></dl>
             <p data-big-idea hidden></p>
             <div data-arc></div>
-            <p data-legend><i class="declared"></i>intensity as written <i class="read"></i>as its words read <i class="curve"></i>the arc's curve <i class="bends"></i>off it <i class="drifted"></i>out of its beat; higher is more intense. <i class="tone"></i>tone as written <i class="tone-read"></i>as its words read; higher is more hopeful</p>
+            <p data-legend><span><i class="declared"></i>intensity as written</span> <span><i class="read"></i>as its words read</span> <span><i class="curve"></i>the arc's curve</span> <span><i class="bends"></i>off it</span> <span><i class="drifted"></i>out of its beat</span> <span>(higher is more intense)</span><br><span><i class="tone"></i>tone as written</span> <span><i class="tone-read"></i>as its words read</span> <span>(higher is more hopeful)</span></p>
             <ol data-findings aria-label="What to look at, slide by slide"></ol>
           </section>
         </div>
