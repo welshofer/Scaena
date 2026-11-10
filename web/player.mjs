@@ -708,9 +708,16 @@ try {
   check(centered(mirrored), `and it draws the dot where it points: ${mirrored}`);
   // A black screen takes the dot with the slide, though the presenter's pointer still points over
   // its slide, clear of what it says in the middle, and the slide back brings it back there.
+  const beforeB = await stageBox();
   await presenter.keyboard.press("b");
   await player.waitForFunction(() => window.scaena.blank() === "black", null, { timeout: 5000 }).catch(() => {});
   shownBox = await stageBox();
+  // B blackens the room and never moves the presenter's own slide under the pointer: what it says
+  // of the room stands over the slide, taking no room beside it.
+  check(
+    ["x", "y", "width", "height"].every((k) => Math.abs(shownBox[k] - beforeB[k]) < 0.5),
+    `B leaves the presenter's slide where it stood: ${JSON.stringify(beforeB)} then ${JSON.stringify(shownBox)}`,
+  );
   await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4, { steps: 3 });
   const quarter = (p) => p && Math.abs(p[0] - 0.25) < 0.01 && Math.abs(p[1] - 0.25) < 0.01;
   await player.waitForFunction(() => window.scaena.laser().point?.[0] < 0.3, null, { timeout: 5000 }).catch(() => {});
