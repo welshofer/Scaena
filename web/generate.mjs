@@ -238,7 +238,8 @@ try {
     await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
   };
   /** The progress lines the dialog shows. */
-  const lines = () => page.locator("#prompting-progress li").allTextContents();
+  // Each line's words, without the time the step under way has taken (lift-up 20261110 ATTR-1).
+  const lines = () => page.locator("#prompting-progress li").evaluateAll((all) => all.map((li) => li.firstChild?.textContent ?? ""));
   /** Once the dialog has said it failed, its last line. */
   const failed = async () => {
     await page.waitForSelector("#prompting-progress li.failed", { timeout: 60000 });
@@ -455,10 +456,14 @@ try {
   check(inAll >= 5 && inAll <= 10, `the outline says its slides in all against the length asked: ${totalSaid}`);
   // The look answered slowly, so the strip of slides drawn for it can be seen while it waits
   // (lift-up ATTR-1).
-  state.looking = 4000;
+  state.looking = 7000;
   await page.click("#prompting-write");
   await page.waitForFunction(() => document.querySelectorAll("#prompting-film li.drawn").length === 5, null, { timeout: 180000 }).catch(() => {});
   await page.locator("#prompting").screenshot({ path: "target/web-generate/drawn.png" });
+  // The step under way says how long it has taken, out of the live region's words (lift-up 20261110 ATTR-1).
+  await page.waitForFunction(() => /^ · \d+ s$/.test(document.querySelector("#prompting-progress li:last-child .elapsed")?.textContent ?? ""), null, { timeout: 20000 }).catch(() => {});
+  const ticked = await page.locator("#prompting-progress li:last-child .elapsed").evaluate((e) => ({ said: e.textContent, hidden: e.getAttribute("aria-hidden") })).catch(() => ({}));
+  check(/^ · \d+ s$/.test(ticked.said ?? "") && ticked.hidden === "true", `the step under way ticks its time, unread by the live region: ${JSON.stringify(ticked)}`);
   state.looking = 0;
   await page.waitForFunction(() => window.scaena.where().name !== "revenue" && window.scaena.last(), null, { timeout: 180000 });
   const outlined = requests.filter((r) => r.asked === "outline");
@@ -471,6 +476,10 @@ try {
   check(/Beat 1 "Existing Approaches[^"]*" → slides 1–3:/.test(block), `the first beat takes the three slides set: ${block.slice(0, 300)}`);
   check(block.includes(": No carrier can cut it alone.\n") && block.includes("Beat 6 \"Thanks\"") && !block.includes("Claim 6:"), "the claim rewritten, the beat added, the beat removed");
   const writingSaid = (await lines()).find((l) => l.startsWith("Writing the slides"));
+  // The look's round said as its answer is read, its slides marked in the strip (lift-up 20261110 ATTR-1).
+  check((await lines()).includes("The model has looked at the slides"), `the look's round is said: ${(await lines()).join(" | ")}`);
+  check((await page.locator("#prompting-film li.looked").count()) > 0, "and its slides are marked in the strip");
+  check((await page.locator("#prompting-progress .elapsed").count()) === 0, "a deck made, no step ticks on");
   check(writingSaid === `Writing the slides, at least ${inAll}…`, `the slides asked as many as the outline settled: ${writingSaid} (${inAll})`);
   check(toOutline.includes(`AT LEAST ${inAll} slides`), "and the slides' prompt asks for them");
   check(await page.locator("#prompting").evaluate((d) => !d.open), "the deck made, the dialog closed");
@@ -930,6 +939,8 @@ try {
   check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
   check(painted.length > 0 && painted.every((p) => p.body.quality === "high"), `each picture asked for with high care: ${painted.map((p) => p.body.quality)}`);
   check(!requests.some((r) => r.asked === "look"), `the slides are not shown to the model: ${requests.map((r) => r.asked)}`);
+  // Still drawn for the person as the deck comes together (lift-up 20261110 ATTR-1).
+  check((await page.locator("#prompting-film li.drawn").count()) > 0, `with no look, the slides are still drawn in the strip: ${await page.locator("#prompting-film li.drawn").count()}`);
 } catch (e) {
   failures.push(String(e?.stack ?? e));
 } finally {

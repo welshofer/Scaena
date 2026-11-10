@@ -825,6 +825,10 @@
           "furniture": {
             "description": "The slide's number and footer (ADR-0028): what the deck shows on its slides, and what\nthis slide says of them.",
             "$ref": "#/$defs/FurnitureChoice"
+          },
+          "plan": {
+            "description": "The plan of the beat that tells it, its intensity and tone (editor dogfood 3): none where\nthe deck has no spine, or the beat declares neither.",
+            "anyOf": [{ "$ref": "#/$defs/PlanChoice" }, { "type": "null" }]
           }
         },
         "required": ["state", "fields", "furniture"]
@@ -850,6 +854,45 @@
           "shown": { "description": "Whether the slide shows them, as it stands.", "type": "boolean" }
         },
         "required": ["placed", "number", "head", "shown"]
+      },
+      "PlanChoice": {
+        "description": "What an inspector offers of the plan a beat declares for its slide (editor dogfood 3), as a\nmade deck writes it in the beat's `media.narrato` and story health reads it: its intensity,\n0 calm to 1 intense, and its tone (`valence`), -1 grave to 1 hopeful. Each is written by JSON\nPatch at `at`, `/intensity` or `/valence`, one patch; neither changes what a slide draws.",
+        "type": "object",
+        "properties": {
+          "beat": { "description": "The beat, by its id.", "type": "string" },
+          "at": {
+            "description": "The JSON Pointer to the beat's `media.narrato`, where its plan is written.",
+            "type": "string"
+          },
+          "intensity": {
+            "description": "Its intensity as planned, where it declares one.",
+            "type": ["number", "null"]
+          },
+          "tone": {
+            "description": "Its tone as planned (`valence`), where it declares one.",
+            "type": ["number", "null"]
+          },
+          "intensities": {
+            "description": "How each value reads, from the least each word says ([`crate::words::INTENSITIES`],\n[`crate::words::TONES`]): what the inspector says a value in as its slider moves.",
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [{ "type": "number" }, { "type": "string" }],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "tones": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [{ "type": "number" }, { "type": "string" }],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "required": ["beat", "at", "intensities", "tones"]
       },
       "Suggestion": {
         "description": "One layout a state may take, and what lint finds in the state laid out in it.",

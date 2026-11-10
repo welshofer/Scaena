@@ -657,6 +657,31 @@ private actor Once {
     #expect(heard.contains(.looked(slides: 0)), "\(heard)")
 }
 
+/// The line under way says how long it has run, and the look how many of its rounds the model has
+/// answered, so the longest waits in making a deck read as work (lift-up 20261110 ATTR-1).
+@Test func theLongWaitsSayHowLongAndHowFar() {
+    #expect(GeneratingStep.elapsed(0) == "0 s")
+    #expect(GeneratingStep.elapsed(12.7) == "12 s")
+    #expect(GeneratingStep.elapsed(60) == "1 min")
+    #expect(GeneratingStep.elapsed(80) == "1 min 20 s")
+    #expect(GeneratingStep.elapsed(3600 + 300) == "1 h 5 min")
+    #expect(GeneratingStep.elapsed(-5) == "0 s", "never less than none")
+    #expect(GeneratingStep.lookedAt(round: 2, of: 3).words == "The model has looked at round 2 of 3")
+}
+
+/// A deck made, or not, is said by a notification while the person is in another app, its title
+/// naming the topic short enough to read (lift-up 20261110 ATTR-4).
+@Test func aDeckMadeOrNotIsSaidByItsTopic() {
+    let made = DeckNotice.made(about: "Why the river floods", "Made 14 slides on the arc Hero's journey")
+    #expect(made.title == "Your deck about Why the river floods is ready")
+    #expect(made.body == "Made 14 slides on the arc Hero's journey")
+    let failed = DeckNotice.failed(about: "Q3 results", "Anthropic refused the key.")
+    #expect(failed.title == "Your deck about Q3 results was not made" && failed.body == "Anthropic refused the key.")
+    let long = DeckNotice.made(about: String(repeating: "flood plain ", count: 10) + "\nmore", "x").title
+    #expect(long.hasSuffix("… is ready") && !long.contains("\n"), "\(long)")
+    #expect(DeckNotice.made(about: "  ", "x").title == "Your deck about your topic is ready")
+}
+
 /// A file handed to New from a Prompt is read and parsed away from the main actor, so the brief's
 /// window, Cancel among it, goes on answering while a large one is read (lift-up 20261025b
 /// PERF-4).
