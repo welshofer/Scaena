@@ -380,7 +380,9 @@ struct BackgroundSet {
 /// `slide_write`'s arguments, as the MCP tool takes them, less the bundle.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[cfg_attr(not(feature = "generate"), allow(dead_code))]
+// Read by `slide_write`, which needs the icons that ship too: the editor's module, which makes a
+// deck (`generate`) and carries no icons, only checks the arguments.
+#[cfg_attr(not(all(feature = "generate", feature = "shipped")), allow(dead_code))]
 struct SlideWrite {
     slide: Map<String, Value>,
     #[serde(default)]
