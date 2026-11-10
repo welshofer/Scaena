@@ -2,6 +2,11 @@ import QuickLook
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
+
+/// Each lift of the slide over the software keyboard, said with what it was asked for and where the
+/// slide stood before and after (lift-up 20261110): what a UI test's `log.txt` shows of a loop.
+private let keyboardLog = Logger(subsystem: "com.welshofer.Scaena", category: "keyboard")
 
 /// A deck's window (PLAN 3.3–3.4), as a presentation app's (PLAN 3.18): the slides down the side,
 /// numbered, each drawn small, a slide's steps under it; the slide chosen painted by the engine on
@@ -1153,12 +1158,14 @@ struct DeckView: View {
                     // the window's screen, so a Stage Manager window offset on it reads right.
                     let desk = room.frame(in: .global)
                     zoom.cover(end.map { KeyboardCover.covered(by: $0, desk: desk, in: KeyboardCover.window) } ?? 0)
-                    zoom.lift(clearing: typedLine ?? .null)
+                    lift("frame \(end.map { "\($0)" } ?? "none") desk \(desk)")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    let was = zoom.lifted
                     zoom.cover(0)
+                    keyboardLog.debug("hide: lifted \(Double(was), privacy: .public) to \(Double(zoom.lifted), privacy: .public)")
                 }
-                .onChange(of: typedLine) { _, now in zoom.lift(clearing: now ?? .null) }
+                .onChange(of: typedLine) { _, _ in lift("line") }
                 #endif
                 .onChange(of: zoom) { _, now in
                     if zoomTaken { keptZoom = now.kept }
@@ -1186,6 +1193,19 @@ struct DeckView: View {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
     }
+
+    #if !os(macOS)
+    /// The slide lifted clear of the software keyboard for the line typed in, said with `why`, the
+    /// cover, and where it stood before and after, each time (lift-up 20261110).
+    private func lift(_ why: String) {
+        let line = typedLine
+        let was = zoom.lifted
+        let moved = zoom.lift(clearing: line ?? .null)
+        keyboardLog.debug(
+            "\(why, privacy: .public): covered \(Double(zoom.covered), privacy: .public), line \(line.map { "\($0)" } ?? "none", privacy: .public), lifted \(Double(was), privacy: .public) to \(Double(zoom.lifted), privacy: .public)\(moved ? "" : ", still", privacy: .public)"
+        )
+    }
+    #endif
 
     /// The line typed in, canvas units, as the caret stands on it: what the slide is lifted to keep
     /// above the software keyboard (lift-up 20261110); none while no text is typed in.

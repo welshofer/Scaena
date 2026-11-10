@@ -367,3 +367,30 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     #expect(KeyboardCover.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: desk, in: nil) == 0)
 }
 #endif
+
+/// A lift settles in one step and never answers its own pan (lift-up 20261110): asked again for the
+/// line it cleared, or for the line moved by less than `Zoom.still` on the desk, as a caret read
+/// again after the pan may be, it moves nothing, so the keyboard's notes and the caret's moves
+/// cannot lift the slide again and again.
+@Test func aLiftSettlesInOneStepAndNeverAnswersItsOwnPan() {
+    var zoom = Zoom(canvas: CGSize(width: 1920, height: 1080), desk: CGSize(width: 1016, height: 596))
+    let foot = CGRect(x: 100, y: 900, width: 800, height: 100)
+    zoom.cover(300)
+    let first = zoom.lift(clearing: foot)
+    #expect(first)
+    let lifted = zoom.lifted
+    let again = zoom.lift(clearing: foot)
+    #expect(!again && zoom.lifted == lifted, "lifted again for the line it cleared")
+    // Half a point on the desk, a canvas unit: a caret read again a hair lower.
+    let nudged = zoom.lift(clearing: foot.offsetBy(dx: 0, dy: 1))
+    #expect(!nudged && zoom.lifted == lifted, "a move under a point lifted the slide")
+    // The keyboard's cover said again, as each note of its frame says it, moves nothing more.
+    zoom.cover(300)
+    let noted = zoom.lift(clearing: foot)
+    #expect(!noted && zoom.lifted == lifted)
+    // A line a whole line lower lifts it again, once.
+    let lower = zoom.lift(clearing: foot.offsetBy(dx: 0, dy: 40))
+    #expect(lower && abs(zoom.lifted - (lifted + 20)) < 1e-6, "lifted \(zoom.lifted)")
+    let settled = zoom.lift(clearing: foot.offsetBy(dx: 0, dy: 40))
+    #expect(!settled)
+}

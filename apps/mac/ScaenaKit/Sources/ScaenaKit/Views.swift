@@ -235,19 +235,24 @@ public struct Zoom: Equatable, Sendable {
     /// above what the keyboard covers, as a presentation app on the iPad scrolls its canvas: no
     /// farther than brings its top to the desk's top, and back down where it clears the keyboard
     /// as the slide stands. While the keyboard is down, nothing is lifted, so a hardware keyboard's
-    /// bar lifts nothing unless the line is under it. Whether it moved.
+    /// bar lifts nothing unless the line is under it. Whether it moved. Worked out from where the
+    /// slide stands unlifted, so a lift never answers its own pan, and a move of under a point
+    /// (`Zoom.still`) is none, so it settles in one step.
     @discardableResult
     public mutating func lift(clearing rect: CGRect) -> Bool {
-        let was = lifted
+        var next: CGFloat = 0
         if covered > 0, !rect.isNull {
             let s = scale
             let (top, foot) = (corner.y + rect.minY * s, corner.y + rect.maxY * s)
-            lifted = max(0, min(foot - (desk.height - covered), top))
-        } else {
-            lifted = 0
+            next = max(0, min(foot - (desk.height - covered), top))
         }
-        return abs(lifted - was) > 1e-9
+        guard next == 0 ? lifted != 0 : abs(next - lifted) >= Zoom.still else { return false }
+        lifted = next
+        return true
     }
+
+    /// The least a lift moves the slide, points: under it, the slide stays where it stands.
+    public static let still: CGFloat = 1
 
     /// As close as it is, the slide's middle in the middle of the desk, as it is zoomed from
     /// fitted: another slide turned to (PLAN 4.12), where what the last showed may hold nothing.
