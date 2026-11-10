@@ -9,13 +9,15 @@
 //   slide's mark shows it.
 // - What to look at, what to do first open (every error a slide's lint finds, then the warnings
 //   whose measure scores lowest, five findings in all) and the rest folded under one "N more",
-//   counted by kind (lift-up S1); a row for each slide, its headline beside it: what health finds
+//   counted by kind (lift-up S1); a row for each slide, its headline as the deck reads now beside
+//   it, never its beat's claim, which health names it by (editor dogfood 4): what health finds
 //   there, in a person's words; Slide N shows it; each fix, where one is safe, is one change that
-//   ⌘Z takes back; and Ask puts its questions to the assistant, its tab shown and the question in
-//   its box, to send or change.
+//   ⌘Z takes back; a slide lint finds broken offers lint's fixes as its marks on the canvas do,
+//   and Show it, the slide with its problem's mark open (editor dogfood 4); and Ask puts its
+//   questions to the assistant, its tab shown and the question in its box, to send or change.
 // - It is read again whenever the deck changes while the tab is shown, the last answer winning.
 import { observing } from "./life";
-import type { Health, HealthFinding } from "./protocol";
+import type { Finding, Health, HealthFinding } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What the panel asks of the editor around it. */
@@ -30,10 +32,24 @@ export interface StoryEditor {
   /** Check `state`'s words against its beat's claim by the writing tools' model, which offers
    * the headline rewritten to carry it (narrative FUNC-4). */
   check(state: string): void;
+  /** The words that head the slide whose first state is `slide`, as the deck reads now, where a
+   * text heads it: what its row names it by, since health names a slide by its beat's claim
+   * (editor dogfood 4). */
+  headline(slide: string): string | undefined;
+  /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
+   * its marks on the canvas stand for (editor dogfood 4). */
+  issues(slide: string): Finding[];
+  /** Take `f`'s fix, as its mark on the canvas does: one change to undo. */
+  fix(f: Finding): Promise<void>;
+  /** Show `f`'s state, its mark on the canvas open. */
+  mark(f: Finding): Promise<void>;
   say(text: string): void;
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
 }
+
+/** How many of lint's fixes a broken slide's row offers, the worst first. */
+const FIXES = 3;
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const html = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
@@ -90,7 +106,7 @@ export function triage(h: Health, open = OPEN): { open: HealthFinding[]; more: H
 }
 
 /** A kind of finding as the folded count names it. */
-const KIND: Partial<Record<HealthFinding["kind"], string>> = { bigIdea: "big idea", layout: "broken slide" };
+const KIND: Partial<Record<HealthFinding["kind"], string>> = { bigIdea: "big idea", layout: "broken slide", source: "unsourced figure" };
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
 export function moreSaid(more: HealthFinding[]): string {
@@ -332,7 +348,9 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     show.addEventListener("click", () => void editor.show(state));
     const title = document.createElement("span");
     title.className = "headline";
-    title.textContent = h.slides[slide - 1]?.title ?? "";
+    // The slide as it reads now: its headline, else health's title, its beat's claim, which an
+    // edit of the headline leaves as it was (editor dogfood 4).
+    title.textContent = editor.headline(state) ?? h.slides[slide - 1]?.title ?? "";
     head.append(show, title);
     li.append(head);
     // What its words came from, of the sources the deck was grounded in (narrative FUNC-3).
@@ -378,6 +396,43 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
         }
       });
       actions.append(button);
+    }
+    // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
+    // the slide shown with its first problem's mark open, where the fix or the words are
+    // (editor dogfood 4).
+    if (run.some((f) => f.kind === "layout")) {
+      const issues = editor.issues(state).filter((f) => f.severity === "error");
+      const fixable = issues.filter((f) => f.fix && f.fixable);
+      const offered = new Set<string>();
+      for (const f of fixable) {
+        const says = f.fixing ?? "Fix";
+        if (offered.size >= FIXES || offered.has(says + (f.node ?? ""))) continue;
+        offered.add(says + (f.node ?? ""));
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.lintFix = f.code;
+        button.textContent = says;
+        button.title = f.said ?? f.message;
+        button.addEventListener("click", async () => {
+          try {
+            await editor.fix(f);
+            editor.say(`Slide ${slide}: ${says.toLowerCase()} · ⌘Z undoes it`);
+          } catch (e) {
+            editor.say(`Not fixed: ${said(e)}`);
+          }
+        });
+        actions.append(button);
+      }
+      const first = issues.find((f) => f.shown) ?? issues[0];
+      if (first) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.lintShow = "";
+        button.textContent = "Show it";
+        button.title = "The slide shown, its problem's mark open on the canvas";
+        button.addEventListener("click", () => void editor.mark(first));
+        actions.append(button);
+      }
     }
     const ask = document.createElement("button");
     ask.type = "button";

@@ -956,3 +956,94 @@ private final class Heard: @unchecked Sendable {
     let op = try #require(written.patch?.first)
     #expect(op["op"]?.string == "choose" && op["prop"]?.string == "alt" && op["node"]?.string == "adj-mono")
 }
+
+/// The bodies of the requests a test's `send` was handed.
+private actor Sent {
+    var bodies: [JSONValue] = []
+    func keep(_ request: URLRequest) {
+        if let body = request.httpBody, let json = try? JSONDecoder().decode(JSONValue.self, from: body) {
+            bodies.append(json)
+        }
+    }
+}
+
+/// Write This Slide Again… on the Mac and the iPad (lift-up FUNC-1), as the browser writes one:
+/// the model asked once, told Narrato's one-slide instructions, with the deck's words and the
+/// person's own in the prompt; its answer's slide written in the slide's place by `agent:` and
+/// the model's name, one edit that the source it replaced takes back; and an answer that holds no
+/// slide changes nothing.
+@MainActor
+@Test func aSlideIsWrittenAgainByTheModelAsOneEdit() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let states = try editor.session.states()
+    let first = try #require(states.first)
+    let asked = try editor.session.slideAsk(.replace(first), ask: "Shorter, for executives")
+    #expect(asked.prompt.contains("Shorter, for executives"), "\(asked.prompt)")
+    #expect(try editor.session.slideAsk(.after(first), ask: "").prompt != asked.prompt)
+
+    let slide = #"{\"slideTitle\": \"Scaena, in one line\", \"layoutSuggestion\": \"Bullet List\", \"keyBullets\": [\"One timeline of states\", \"One scene graph\", \"One Rust core\"]}"#
+    let sent = Sent()
+    let before = try editor.session.source()
+    let written = try await editor.writeSlide(
+        .replace(first), ask: "Shorter, for executives", provider: .anthropic, model: "a-model", key: "sk-test",
+        send: { request in
+            await sent.keep(request)
+            return (Data(answering(slide).utf8), 200)
+        })
+    let bodies = await sent.bodies
+    #expect(bodies.count == 1, "asked once")
+    #expect(bodies.first?["tools"] == nil, "with nothing to call")
+    #expect(bodies.first?["system"]?[0]?["text"]?.string == asked.system)
+    #expect(bodies.first?["messages"]?[0]?["content"]?[0]?["text"]?.string == asked.prompt)
+    #expect(written.before == before, "the source it replaced, for one step of undo")
+    let now = try editor.session.states()
+    #expect(!now.contains(first), "written in the slide's place: \(now)")
+    #expect(written.first.map(now.contains) == true, "\(String(describing: written.first)) in \(now)")
+    #expect(try editor.session.source().contains("Scaena, in one line"))
+    editor.restore(written.before)
+    #expect(try editor.session.states() == states, "the undo gives the deck back")
+
+    let unchanged = try editor.session.source()
+    await #expect(throws: ScaenaError.self) {
+        _ = try await editor.writeSlide(
+            .after(first), ask: "What comes next", provider: .anthropic, model: "a-model", key: "sk-test",
+            send: { _ in (Data(answering("Sorry, I can't write that.").utf8), 200) })
+    }
+    #expect(try editor.session.source() == unchanged, "an answer with no slide changes nothing")
+}
+
+/// The Story's Ask keeps a question already drafted in the box, its own after it past a blank
+/// line, and puts in none already there, as the browser's Story asks (lift-up 20261110 deferred).
+@MainActor
+@Test func theStorysAskKeepsWhatWasDraftedInTheBox() {
+    #expect(Assistant.drafting("", with: "Shorter?") == "Shorter?")
+    #expect(Assistant.drafting(" \n", with: "Shorter?") == "Shorter?")
+    #expect(Assistant.drafting("Make slide 2 warmer.\n", with: "Shorter?") == "Make slide 2 warmer.\n\nShorter?")
+    let asked = "Make slide 2 warmer.\n\nShorter?"
+    #expect(Assistant.drafting(asked, with: "Shorter?") == asked, "a question already there is not put there again")
+}
+
+/// A Story row names its slide by the headline the deck reads now, not by health's title, its
+/// beat's claim, which a headline typed over leaves as it was; a slide no text heads keeps the
+/// claim (editor dogfood 4).
+@Test func aStoryRowNamesItsSlideByItsHeadlineAsItReadsNow() throws {
+    let measure = #"{"score": 70, "says": "fine"}"#
+    let json = """
+        {"score": 61, "pacing": \(measure), "balance": \(measure), "coherence": \(measure),
+         "fidelity": \(measure), "intensity": \(measure), "tone": \(measure),
+         "slides": [{"state": "one", "title": "The claim", "curve": 0.5, "standing": "ok"},
+                    {"state": "two", "title": "Its claim", "curve": 0.5, "standing": "ok"}],
+         "findings": []}
+        """
+    let health = try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    let slots = try JSONDecoder().decode(
+        [ScaenaSession.Slot].self,
+        from: Data(
+            #"""
+            [{"state": "one", "slide": "one", "start": 0, "span": 0, "hold": 0, "headline": "Typed over"},
+             {"state": "two", "slide": "two", "start": 0, "span": 0, "hold": 0}]
+            """#.utf8))
+    #expect(health.headline(of: 1, state: "one", in: slots) == "Typed over")
+    #expect(health.headline(of: 2, state: "two", in: slots) == "Its claim")
+    #expect(health.headline(of: 3, state: "three", in: slots) == "")
+}

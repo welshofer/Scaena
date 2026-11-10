@@ -15,7 +15,11 @@
 //   the notes the presenter reads (the beat's, on this made deck), the presenter then reads the
 //   bridge before them, and the turn is answered (editor dogfood 3).
 // - A slide that lint finds broken leads: its support given more words than its place holds, the
-//   Story tab's first row is that slide's error, the disclosure left open as it was.
+//   Story tab's first row is that slide's error, the disclosure left open as it was; the row
+//   offers lint's fix and Show it, which opens the slide's mark on the canvas, in focus, and the
+//   fix taken mends the slide (editor dogfood 4).
+// - A row names its slide by the headline the deck has now: retyped, the row says it, though
+//   health still names the slide by its beat's claim (editor dogfood 4).
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
 //   claim, is offered beside the status once the burst of typing ends ("Slide 1's story still says
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
@@ -75,6 +79,19 @@ try {
   check(!(await first.isVisible()), "folded until it is opened");
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
+
+  // Ask the assistant keeps a question already drafted in its box, the finding's put after it
+  // (lift-up 20261110 deferred).
+  await tab(page, "assistant");
+  await page.fill("#question", "My own question first.");
+  await tab(page, "story");
+  await page.locator("#story [data-findings] li[data-slide] [data-ask]").first().click();
+  // Its slide is shown first, then the question put in the box.
+  await page.waitForFunction(() => document.querySelector("#question").value !== "My own question first.", null, { timeout: 10000 }).catch(() => {});
+  const drafted = await page.inputValue("#question");
+  check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
+  await page.fill("#question", "");
+  await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
   const todos = await page.evaluate(() =>
@@ -120,9 +137,36 @@ try {
   const still = await page.evaluate((s) => window.scaena.story.health().findings.filter((f) => f.kind === "turn" && f.state === s), turn.state);
   check(still.length === 0, `and the turn is answered: ${JSON.stringify(still.map((f) => f.says))}`);
 
+  // A row names its slide by its headline as the deck reads now, not by its beat's claim, which
+  // health names it by: a headline retyped is the row's at once (editor dogfood 4).
+  const named = await page.evaluate(() => {
+    const row = document.querySelector("#story [data-findings] li[data-slide]");
+    const slide = Number(row.dataset.slide);
+    const state = window.scaena.story.health().slides[slide - 1].state;
+    return { slide, headline: window.scaena.last().slots.find((s) => s.state === state)?.headline, shown: row.querySelector(".headline").textContent };
+  });
+  check(named.headline && named.shown === named.headline, `a row is named by its slide's headline: ${JSON.stringify(named)}`);
+  const retitled = `${named.headline} Today`;
+  const was = await page.evaluate(() => window.scaena.source());
+  const at = was.indexOf(JSON.stringify(named.headline));
+  check(at >= 0, `the headline is found in the source: ${named.headline}`);
+  await page.evaluate((s) => window.scaena.type(s), was.slice(0, at) + JSON.stringify(retitled) + was.slice(at + JSON.stringify(named.headline).length));
+  const renamed = await page
+    .waitForFunction(
+      ([slide, words]) => document.querySelector(`#story [data-findings] li[data-slide="${slide}"] .headline`)?.textContent === words,
+      [named.slide, retitled],
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check(renamed, `the headline retyped, its row says it: ${retitled}`);
+  await page.evaluate((s) => window.scaena.type(s), was);
+  await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, was, { timeout: 60000 }).catch(() => {});
+
   // A slide that lint finds broken leads.
   const source = await page.evaluate(() => window.scaena.source());
-  const long = "Comprehensive was the aspiration, and every campus grew to meet it. ".repeat(12).trim();
+  // Long enough to run past its place, short enough that lint's fix shrinks it to fit.
+  const long = "Comprehensive was the aspiration, and every campus grew to meet it. ".repeat(5).trim();
   const broken = source.replace(
     '"Comprehensive was the aspiration: more programs, labs, campuses, teams, international students, and online degrees. One answer to every question."',
     `"${long}"`,
@@ -153,6 +197,38 @@ try {
   const shapes = new Map(marked.map((m) => [m.severity, m.shape]));
   check(new Set(shapes.values()).size === shapes.size && shapes.size >= 2, `each severity its own shape: ${JSON.stringify([...shapes])}`);
   check(await page.evaluate(() => document.querySelector("#story [data-more] details")?.open === true), "the disclosure stays open as it was left");
+  // The broken slide's row offers what its mark on the canvas offers (editor dogfood 4): lint's fix,
+  // and Show it, which opens the slide with its problem's mark open.
+  const offers = await page.evaluate(() => {
+    const row = document.querySelector("#story [data-findings] > li[data-slide]");
+    return {
+      fixes: [...row.querySelectorAll("[data-lint-fix]")].map((b) => [b.dataset.lintFix, b.textContent]),
+      show: Boolean(row.querySelector("[data-lint-show]")),
+    };
+  });
+  check(offers.fixes.length > 0 && offers.show, `the broken slide's row offers lint's fix and Show it: ${JSON.stringify(offers)}`);
+  await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
+  const popped = await page
+    .waitForFunction(() => document.querySelector("#marked")?.matches(":popover-open") && document.querySelector("#marked").textContent, null, { timeout: 30000 })
+    .then((h) => h.jsonValue())
+    .catch(() => "");
+  check(/fit|room|box/i.test(popped), `Show it opens the slide's mark, saying its problem: ${popped.slice(0, 120)}`);
+  const markFixes = await page.evaluate(() => [...document.querySelectorAll("#marked [data-fix]")].map((b) => b.textContent));
+  check(
+    markFixes.length > 0 && markFixes.every((f) => offers.fixes.some(([, says]) => says === f)),
+    `the row offers the fix its mark offers: ${JSON.stringify(markFixes)} in ${JSON.stringify(offers.fixes)}`,
+  );
+  check(
+    await page.evaluate(() => document.querySelector("#marked")?.contains(document.activeElement)),
+    "the mark it opens takes the focus",
+  );
+  await page.keyboard.press("Escape");
+  await page.click(`#story [data-findings] > li[data-slide] [data-lint-fix]`);
+  await page
+    .waitForFunction(() => !window.scaena.story.health()?.findings.some((f) => f.kind === "layout"), null, { timeout: 120000 })
+    .catch(() => {});
+  const mended = await page.evaluate(() => window.scaena.story.health()?.findings.filter((f) => f.kind === "layout").map((f) => f.says));
+  check(mended?.length === 0, `its fix taken, the slide stands: ${JSON.stringify(mended)}`);
 
   // A claim a headline typed on the canvas leaves behind (lift-up FUNC-2), on the revenue
   // example, whose cover's headline (`subtitle`, a text with `semantic: claim`) says the opening

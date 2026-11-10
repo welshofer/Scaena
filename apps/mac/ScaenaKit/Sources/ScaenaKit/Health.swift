@@ -134,3 +134,13 @@ extension ScaenaSession {
     /// as the browser's Story tab shows it.
     public func health() throws -> Health { try call("health") }
 }
+
+extension Health {
+    /// What a Story row names slide `slide`, its first state `state`, by: its headline as the deck
+    /// reads now (`slots`), where a text heads it, else health's title, its beat's claim, which an
+    /// edit of the headline leaves as it was (editor dogfood 4), as the browser's Story names it.
+    public func headline(of slide: Int, state: String, in slots: [ScaenaSession.Slot]) -> String {
+        if let now = slots.first(where: { $0.state == state })?.headline, !now.isEmpty { return now }
+        return slides.indices.contains(slide - 1) ? slides[slide - 1].title : ""
+    }
+}

@@ -397,7 +397,12 @@ try {
   }));
   check(face.field === face.words && face.gap === 0, `the field is set in the dialog's face, with no gap under it: ${JSON.stringify(face)}`);
   await page.fill("#slide-ask-text", "What changed this quarter");
-  await page.click("#slide-ask-go");
+  // ⌘Enter (Ctrl+Enter) in the field writes the slide, as its button does (lift-up 20261110
+  // deferred).
+  const unasked = scripted.requests.length;
+  await page.locator("#slide-ask-text").press("Control+Enter");
+  await page.evaluate(() => window.scaena.slideAsk.settled());
+  check(scripted.requests.length > unasked, `Ctrl+Enter in the field writes the slide: ${scripted.requests.length - unasked} asked`);
   await page.evaluate(() => window.scaena.slideAsk.settled());
   const one = scripted.requests.at(-1)?.body ?? {};
   const told = one.messages?.[0]?.content?.find?.((c) => c.type === "text")?.text ?? "";
