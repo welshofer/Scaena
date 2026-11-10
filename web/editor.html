@@ -316,6 +316,8 @@
       /* The three slides that ran furthest over their plan (lift-up 20261110 FUNC-1): said in their row, and set in the warning's color too. */
       #rehearsed tr[data-over] td:nth-child(4) { color: var(--warning); }
       #rehearsed thead th[hidden] { display: none; }
+      /* Slides passed during their animation, which Keep leaves as they are (editor dogfood 4): said before Keep, in the warning's color. */
+      #rehearsed [data-passed] { color: var(--warning); }
       #strip { display: flex; gap: 6px; align-items: stretch; padding: 6px 12px 0; }
       #strip ol { display: flex; gap: 6px; margin: 0; padding: 3px; list-style: none; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
       #strip li { position: relative; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; font-size: 11px; }
@@ -1368,6 +1370,7 @@
       <form method="dialog">
         <h2 id="rehearsed-title">Rehearsed in <span data-total></span></h2>
         <p data-plan></p>
+        <p data-passed hidden></p>
         <table>
           <thead>
             <tr><th scope="col">Slide</th><th scope="col">Time</th><th scope="col" data-planning>Planned</th><th scope="col" data-planning>Against plan</th><th scope="col">Animation</th><th scope="col">Advance it keeps</th><th scope="col">Advance now</th></tr>
