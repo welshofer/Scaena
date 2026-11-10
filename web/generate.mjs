@@ -38,7 +38,7 @@
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve, tab } from "./serve.mjs";
+import { answering, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -153,6 +153,9 @@ try {
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
   const accepting = (d) => d.accept();
   page.on("dialog", accepting);
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the

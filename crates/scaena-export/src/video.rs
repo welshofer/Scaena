@@ -88,6 +88,10 @@ pub struct VideoSettings {
     /// description, never a time (lift-up 10-24b ATTR-4).
     pub title: Option<String>,
     pub comment: Option<String>,
+    /// Keep every pixel's color, a master's 4:4:4, where H.264 and VP9 otherwise halve it each
+    /// way (4:2:0) and ProRes across (4:2:2): H.264's High 4:4:4, VP9's profile 1, ProRes 4444.
+    /// Fewer players play such a file (lift-up 20261031 ATTR-5).
+    pub chroma444: bool,
     /// The frames `encode` will be handed, where it is known before ffmpeg starts: the video
     /// is then written that long, `frames / fps` seconds, and its sound padded and cut to it.
     /// A newer ffmpeg's `-shortest` lets padded sound run on past the last frame, a few tenths
@@ -107,6 +111,7 @@ impl Default for VideoSettings {
             ffmpeg: PathBuf::from("ffmpeg"),
             title: None,
             comment: None,
+            chroma444: false,
             frames: None,
         }
     }
@@ -538,6 +543,8 @@ fn metadata(chapters: &[Chapter]) -> String {
     out
 }
 
+/// How swscale turns the frames' RGB into the codec's YUV (lift-up 20261031 ATTR-5).
+const SCALING: &str = "lanczos+accurate_rnd+full_chroma_int+full_chroma_inp";
 /// `frames` at `fps`, in seconds as ffmpeg reads them: to the microsecond, no trailing zeros.
 fn seconds(frames: u64, fps: u32) -> String {
     let micros = (u128::from(frames) * 1_000_000).div_ceil(u128::from(fps.max(1)));
@@ -548,17 +555,36 @@ fn seconds(frames: u64, fps: u32) -> String {
 /// ffmpeg's arguments: raw RGB frames on stdin, then the sound track and the chapters, if
 /// there are any; the codecs' settings; `out`.
 fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option<&Path>) -> Vec<OsString> {
+    let full = settings.chroma444;
     let (pixels, codec, sound): (&str, &[&str], &[&str]) = match settings.codec {
+        // Slides are flat fields and hard edges, which `animation` tunes for (lift-up 20261031 ATTR-5).
         Codec::H264 => (
-            "yuv420p",
-            &["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-movflags", "+faststart", "-f", "mp4"],
+            if full { "yuv444p" } else { "yuv420p" },
+            &[
+                "-c:v",
+                "libx264",
+                "-profile:v",
+                if full { "high444" } else { "high" },
+                "-preset",
+                "medium",
+                "-tune",
+                "animation",
+                "-crf",
+                "18",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+            ],
             &["-c:a", "aac", "-b:a", "192k"],
         ),
         Codec::Vp9 => (
-            "yuv420p",
+            if full { "yuv444p" } else { "yuv420p" },
             &[
                 "-c:v",
                 "libvpx-vp9",
+                "-profile:v",
+                if full { "1" } else { "0" },
                 "-crf",
                 "30",
                 "-b:v",
@@ -575,14 +601,16 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
             &["-c:a", "libopus", "-b:a", "160k"],
         ),
         Codec::ProRes => (
-            "yuv422p10le",
-            &["-c:v", "prores_ks", "-profile:v", "3", "-vendor", "apl0", "-f", "mov"],
+            if full { "yuv444p10le" } else { "yuv422p10le" },
+            &["-c:v", "prores_ks", "-profile:v", if full { "4" } else { "3" }, "-vendor", "apl0", "-f", "mov"],
             &["-c:a", "pcm_s16le"],
         ),
     };
     let size = format!("{w}x{h}");
     let fps = settings.fps.to_string();
-    let filter = format!("scale=out_color_matrix=bt709:out_range=tv,format={pixels}");
+    // Lanczos, rounded exactly, the color worked out from every pixel and to every one before it is
+    // halved: swscale's bicubic default bleeds red and blue type into a dark ground.
+    let filter = format!("scale=out_color_matrix=bt709:out_range=tv:flags={SCALING},format={pixels}");
     let mut args: Vec<OsString> = [
         "-hide_banner",
         "-loglevel",
@@ -759,6 +787,34 @@ mod tests {
             (seconds(1, 60), seconds(90, 60), seconds(7, 3), seconds(0, 30)),
             ("0.016667".into(), "1.5".into(), "2.333334".into(), "0".into())
         );
+    }
+
+    #[test]
+    fn colored_type_keeps_its_edges_and_a_master_keeps_every_pixels_color() {
+        let said = |settings: &VideoSettings| -> Vec<String> {
+            args(settings, [1920, 1080], Path::new("x"), None).iter().map(|a| a.to_str().unwrap().to_string()).collect()
+        };
+        let has = |args: &[String], pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+        for codec in [Codec::H264, Codec::Vp9, Codec::ProRes] {
+            let args = said(&VideoSettings { codec, ..VideoSettings::default() });
+            let filter = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
+            assert!(filter.contains(":flags=lanczos+accurate_rnd+full_chroma_int+full_chroma_inp,"), "{filter}");
+            let master = said(&VideoSettings { codec, chroma444: true, ..VideoSettings::default() });
+            let (pixels, profile) = match codec {
+                Codec::H264 => ("yuv444p", "high444"),
+                Codec::Vp9 => ("yuv444p", "1"),
+                Codec::ProRes => ("yuv444p10le", "4"),
+            };
+            assert!(has(&master, ["-pix_fmt", pixels]) && has(&master, ["-profile:v", profile]), "{master:?}");
+            assert!(master.iter().any(|a| a.ends_with(&format!("format={pixels}"))), "{master:?}");
+        }
+        let h264 = said(&VideoSettings::default());
+        assert!(has(&h264, ["-tune", "animation"]) && has(&h264, ["-pix_fmt", "yuv420p"]), "{h264:?}");
+        assert!(has(&h264, ["-profile:v", "high"]), "{h264:?}");
+        let vp9 = said(&VideoSettings { codec: Codec::Vp9, ..VideoSettings::default() });
+        assert!(has(&vp9, ["-pix_fmt", "yuv420p"]) && has(&vp9, ["-profile:v", "0"]), "{vp9:?}");
+        let prores = said(&VideoSettings { codec: Codec::ProRes, ..VideoSettings::default() });
+        assert!(has(&prores, ["-pix_fmt", "yuv422p10le"]) && has(&prores, ["-profile:v", "3"]), "{prores:?}");
     }
 
     #[test]
