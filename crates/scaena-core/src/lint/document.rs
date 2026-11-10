@@ -521,7 +521,9 @@ impl Rule for W322Idle {
 
 /// The patch that takes `id` out of the motion at `pointer` in state `i`'s `choreography`: out of
 /// its targets where it has others, else the motion goes, and a sequence or a parallel it leaves
-/// with none goes with it.
+/// with none goes with it. Each removal first tests what it removes is as lint found it, so a fix
+/// applied after another that moved what it points at fails, and `lint --fix` passes it over
+/// rather than taking a neighbour out (lift-up 20261031 STAB-3).
 fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<Value> {
     let base = format!("/states/{i}/choreography");
     let Some(rest) = pointer.strip_prefix(&base) else { return Vec::new() };
@@ -531,7 +533,10 @@ fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<
         && targets.len() > 1
         && let Some(k) = targets.iter().position(|t| t.as_str() == Some(id))
     {
-        return vec![serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") })];
+        return vec![
+            serde_json::json!({ "op": "test", "path": format!("{pointer}/target"), "value": targets }),
+            serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") }),
+        ];
     }
     let mut steps: Vec<&str> = rest.split('/').skip(1).collect();
     while steps.len() >= 3 {
@@ -542,7 +547,12 @@ fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<
             break;
         }
     }
-    vec![serde_json::json!({ "op": "remove", "path": format!("{base}/{}", steps.join("/")) })]
+    let gone = format!("/{}", steps.join("/"));
+    let Some(was) = root.pointer(&gone) else { return Vec::new() };
+    vec![
+        serde_json::json!({ "op": "test", "path": format!("{base}{gone}"), "value": was }),
+        serde_json::json!({ "op": "remove", "path": format!("{base}{gone}") }),
+    ]
 }
 
 /// Every choreography target in `item`, with its pointer.
@@ -644,20 +654,56 @@ impl Rule for I400NoopState {
             .filter_map(|(i, w)| {
                 let (prev, cur) = (&w[0], &w[1]);
                 let st = &cx.deck.states[i + 1];
-                let same = prev.nodes == cur.nodes && st.choreography.is_empty() && prev.layout == cur.layout;
-                same.then(|| {
-                    Finding::new(
-                        self.code(),
-                        self.severity(),
-                        format!("state `{}` is identical to `{}`", cur.state_id, prev.state_id),
+                let still = st.choreography.is_empty() && prev.layout == cur.layout;
+                if !still || prev.nodes.len() != cur.nodes.len() {
+                    return None;
+                }
+                // Alike but for which paragraphs a text says it draws, drawing the same ones: a
+                // build by bullet with more steps than its text has paragraphs (editor dogfood 4).
+                let mut built = false;
+                for (id, pa) in &prev.nodes {
+                    let pb = cur.nodes.get(id)?;
+                    if pa != pb {
+                        if as_drawn(pa) != as_drawn(pb) {
+                            return None;
+                        }
+                        built = true;
+                    }
+                }
+                let (said, hint) = if built {
+                    (
+                        format!("state `{}` draws the same paragraphs as `{}`", cur.state_id, prev.state_id),
+                        "Remove the step: its text has fewer paragraphs than its build has steps.",
                     )
-                    .at(format!("/states/{}", i + 1))
-                    .state(cur.state_id.clone())
-                    .hint("Remove it, or give it a change worth a click.")
-                })
+                } else {
+                    (
+                        format!("state `{}` is identical to `{}`", cur.state_id, prev.state_id),
+                        "Remove it, or give it a change worth a click.",
+                    )
+                };
+                Some(
+                    Finding::new(self.code(), self.severity(), said)
+                        .at(format!("/states/{}", i + 1))
+                        .state(cur.state_id.clone())
+                        .hint(hint),
+                )
             })
             .collect()
     }
+}
+
+/// A node's props with a text's `paragraphs` as what it draws: none where it draws them all, else
+/// the first and the last drawn, counted from 1.
+fn as_drawn(props: &Props) -> Props {
+    let mut out = props.clone();
+    if let Some(said) = out.shift_remove("paragraphs") {
+        let count = crate::lists::paragraphs(&crate::reading::words(props)).len();
+        let drawn = crate::lists::drawn(Some(&said), count);
+        if drawn != (0..count) {
+            out.insert("paragraphs".into(), serde_json::json!([drawn.start + 1, drawn.end]));
+        }
+    }
+    out
 }
 
 struct I401NodeNeverVisible;
@@ -1019,5 +1065,48 @@ mod tests {
             { "text": "M" }
         ] }));
         assert_eq!((words(&text), words(&runs)), (5, 5));
+    }
+
+    /// W322's fixes applied one after another, as `lint --fix` applies them, a fix that fails
+    /// passed over: what is left of the deck's second state's choreography.
+    fn fixed(choreography: Value) -> Value {
+        let mut doc = serde_json::json!({
+            "scaena": crate::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "nodes": {
+                "a": { "type": "text", "text": "A", "at": { "in": "canvas" } },
+                "b": { "type": "text", "text": "B", "at": { "in": "canvas" } },
+                "c": { "type": "text", "text": "C", "at": { "in": "canvas" } }
+            },
+            "states": [{ "id": "one" }, { "id": "two", "props": { "c": {} }, "choreography": choreography }]
+        });
+        let deck = crate::Deck::from_value(&doc).unwrap();
+        let found: Vec<Finding> =
+            crate::lint::lint_document(&deck, None).into_iter().filter(|f| f.code == "W322").collect();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        for f in found {
+            let mut next = doc.clone();
+            if crate::patch::apply(&mut next, f.fix.as_deref().unwrap_or_default()).is_ok() {
+                doc = next;
+            }
+        }
+        doc["states"][1]["choreography"].clone()
+    }
+
+    /// Two idle targets of one motion, or two idle motions, before one that enters: their fixes
+    /// never take out the motion on `c`, which enters (lift-up 20261031 STAB-3).
+    #[test]
+    fn idle_motions_fixed_together_leave_the_one_that_moves() {
+        let targets = fixed(serde_json::json!([{ "target": ["a", "b", "c"], "enter": "fade" }]));
+        let left = targets[0]["target"].as_array().unwrap();
+        assert!(left.contains(&serde_json::json!("c")) && !left.contains(&serde_json::json!("a")), "{targets}");
+        let items = fixed(serde_json::json!([
+            { "target": "a", "enter": "fade" },
+            { "target": "b", "enter": "fade" },
+            { "target": "c", "enter": "fade" }
+        ]));
+        let items = items.as_array().unwrap();
+        assert!(items.iter().any(|i| i["target"] == "c"), "{items:?}");
+        assert!(!items.iter().any(|i| i["target"] == "a"), "{items:?}");
     }
 }

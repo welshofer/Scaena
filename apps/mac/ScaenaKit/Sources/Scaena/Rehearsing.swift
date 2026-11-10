@@ -3,9 +3,10 @@ import ScaenaNotes
 import SwiftUI
 
 /// A rehearsal in the window (PLAN 2.63, 3.14), in place of the canvas: the deck played as
-/// presented, from its first state, each state's cue as it comes, then the state at rest until the
-/// presenter goes on. → ↓ Page Down Space Return or a click go on; ← ↑ Page Up Delete go back;
-/// Escape stops, as does going on from the last state. The bar says which state is shown, how
+/// presented, from the slide shown (lift-up 10-25b USE-2), each state's cue as it comes, then the
+/// state at rest until the presenter goes on. → ↓ Page Down Space Return or a click go on; ← ↑
+/// Page Up Delete go back; P or Pause pauses the clock, and goes on with it; Escape stops, as does
+/// going on from the last state. The screen stays awake while it runs (`Awake`). The bar says which state is shown, how
 /// long it has been shown, and how long the rehearsal has run. Beside the slide, the state's notes
 /// as a speaker reads them and the next slide's name, as the presenter's window shows them (SPEC
 /// §2.6, lift-up USE-3). Nothing changes the deck until Keep, in what each state took
@@ -17,6 +18,8 @@ struct RehearsalStage: View {
     let stopped: () -> Void
     @State private var playhead = Playhead()
     @FocusState private var focused: Bool
+    /// The screen kept awake while the rehearsal runs, as a show keeps it (lift-up 10-25b USE-2).
+    @State private var awake: Awake?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,7 +66,18 @@ struct RehearsalStage: View {
             stop()
             return .handled
         }
-        .onAppear { focused = true }
+        .onKeyPress(keys: ["p", "P"]) { _ in
+            pause()
+            return .handled
+        }
+        .onAppear {
+            focused = true
+            awake = Awake(reason: "Scaena is rehearsing a deck")
+        }
+        .onDisappear {
+            awake?.end()
+            awake = nil
+        }
     }
 
     /// Where the rehearsal is, said four times a second, and its buttons.
@@ -74,6 +88,8 @@ struct RehearsalStage: View {
             }
             Spacer()
             Button("Back") { go(-1) }
+            Button(rehearsal.paused ? "Go On" : "Pause") { pause() }
+                .accessibilityIdentifier("rehearsal-pause")
             Button("Next") { go(1) }
             Button("End") { stop() }
         }
@@ -85,8 +101,8 @@ struct RehearsalStage: View {
         let n = rehearsal.slots.count
         let here = rehearsal.slots.indices.contains(rehearsal.index) ? rehearsal.index + 1 : n
         let slide = rehearsal.state.map { Words.slide($0, in: rehearsal.slots) } ?? "the end"
-        return "Rehearsing \(slide) · \(here) of \(n) · \(readable(rehearsal.here())) here · "
-            + "\(readable(rehearsal.total())) in all"
+        return "\(rehearsal.paused ? "Paused on" : "Rehearsing") \(slide) · \(here) of \(n) · "
+            + "\(readable(rehearsal.here())) here · \(readable(rehearsal.total())) in all"
     }
 
     private func go(_ by: Int) {
@@ -94,6 +110,11 @@ struct RehearsalStage: View {
         rehearsal.go(by)
         guard rehearsal.running else { return stopped() }
         playhead = Playhead()
+    }
+
+    private func pause() {
+        guard rehearsal.running else { return }
+        rehearsal.pause()
     }
 
     private func stop() {
@@ -113,9 +134,11 @@ struct RehearsedSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Your Rehearsal").font(.headline)
-            Text(
-                "\(readable(rehearsal.total())) in all. Keep makes each slide advance by itself after the time you "
-                    + "spent on it.")
+            // The time taken against the time the talk planned, where its beats plan one (lift-up
+            // 20261110 FUNC-1).
+            Text(againstPlan)
+                .accessibilityIdentifier("rehearsal-against-plan")
+            Text("Keep makes each slide advance by itself after the time you spent on it.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollView {
@@ -123,15 +146,28 @@ struct RehearsedSheet: View {
                     GridRow {
                         Text("Slide")
                         Text("You Took")
+                        if planned {
+                            Text("Planned")
+                            Text("Over")
+                        }
                         Text("Animation")
                         Text("Advances After")
                         Text("Now")
                     }
                     .font(.caption.bold())
                     ForEach(Array(rehearsal.kept.enumerated()), id: \.offset) { _, row in
+                        let far = furthest.contains(row.state)
+                        let farSaid: String = far ? "Among the furthest over its plan" : ""
                         GridRow {
                             Text(Words.slide(row.state, in: rehearsal.slots))
+                                .fontWeight(far ? .semibold : nil)
+                                .accessibilityValue(farSaid)
                             Text(row.spent > 0 ? readable(row.spent) : "Not reached")
+                            if planned {
+                                Text(row.planned.map(readable) ?? "—")
+                                Text(row.over.map(signed) ?? "")
+                                    .foregroundStyle(far ? Color.orange : (row.over ?? 0) > 0 ? Color.primary : Color.secondary)
+                            }
                             Text(readable(row.span))
                             Text(row.keeps.map(readable) ?? "As it is")
                             Text(row.hold > 0 ? readable(row.hold) : "On click")
@@ -154,6 +190,26 @@ struct RehearsedSheet: View {
         .padding()
         .frame(minWidth: 480, minHeight: 360)
     }
+
+    /// Whether any slide reached has a planned time.
+    private var planned: Bool { rehearsal.againstPlan != nil }
+
+    /// The slides that ran furthest past their plan.
+    private var furthest: [String] { rehearsal.furthestOver }
+
+    /// "18:40 taken against a 15:00 plan", or the time alone where no slide has a plan.
+    private var againstPlan: String {
+        guard let plan = rehearsal.againstPlan else {
+            return "\(readable(rehearsal.total())) in all. No slide rehearsed has a planned time, so times alone are shown."
+        }
+        return "\(readable(plan.taken)) taken against a \(readable(plan.planned)) plan, "
+            + "\(signed(plan.taken - plan.planned)) · \(readable(rehearsal.total())) in all."
+    }
+}
+
+/// `ms` past a plan, or short of it, as a rehearsal says it: `+1:05`, `−4.2 s`.
+func signed(_ ms: Double) -> String {
+    (ms < 0 ? "\u{2212}" : "+") + readable(abs(ms))
 }
 
 /// `ms` as a rehearsal says it: `1:05`, or `4.2 s` under a minute.

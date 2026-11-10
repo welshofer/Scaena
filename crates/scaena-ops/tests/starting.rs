@@ -100,7 +100,9 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                     .values()
                     .map(|n| serde_json::to_value(n).unwrap())
                     .find(|n| {
-                        n["at"]["in"] == *slot && ["shader", "chart", "table"].contains(&n["type"].as_str().unwrap())
+                        n["at"]["in"] == *slot
+                            && (["shader", "chart", "table"].contains(&n["type"].as_str().unwrap())
+                                || matches!(example, Example::Code(_)) && n.get("code").is_some())
                     })
                     .unwrap_or_else(|| panic!("{name}'s {layout}: nothing in `{slot}`"));
                 match example {
@@ -117,6 +119,20 @@ fn every_shipped_layout_draws_its_example_in_each_slot_that_waits() {
                         assert_eq!(node["kind"], serde_json::to_value(kind).unwrap());
                     }
                     Example::Table(_) => assert_eq!(node["type"], "table"),
+                    // The text the code slot starts with, set to the code, and nothing more in it
+                    // (PLAN 2.138).
+                    Example::Code(code) => {
+                        assert_eq!(
+                            (&node["text"], &node["code"]["language"]),
+                            (&serde_json::json!(code.text), &serde_json::json!(code.language))
+                        );
+                        let held = deck
+                            .nodes
+                            .values()
+                            .filter(|n| serde_json::to_value(n).unwrap()["at"]["in"] == *slot)
+                            .count();
+                        assert_eq!(held, 1, "{name}'s {layout}: one text in `{slot}`");
+                    }
                     Example::Map(preset) => {
                         // A map's place: the picture, then a pin and a label over it (PLAN O.1e).
                         assert_eq!(
@@ -285,5 +301,32 @@ fn a_haiku_slide_counts_5_7_5_in_every_theme() {
         let order: Vec<&String> = t.layouts.keys().collect();
         let at = |k: &str| order.iter().position(|o| *o == k).unwrap();
         assert_eq!(at("haiku"), at("key-point") + 1, "{name}: after Key Point");
+    }
+}
+
+/// The Code section (PLAN 2.138, ADR-0029): in every shipped theme, a slide started in each code
+/// layout sets each slot in the theme's code role as a Plain Text code block, its prompt's words its
+/// code, which the slide draws on its card; and lint finds nothing in it (the test above).
+#[test]
+fn a_code_layout_starts_each_code_slot_as_a_plain_text_code_block() {
+    for (name, theme) in shipped() {
+        let b = scaena_ops::open(&made(&format!("code-{name}"), &theme)).unwrap();
+        let t = scaena_ops::theme(&b).unwrap();
+        let first = b.deck.states[0].id.clone();
+        for layout in ["title-code", "code-notes", "two-code", "two-code-stacked"] {
+            let template = t.layouts.get(layout).unwrap_or_else(|| panic!("{name} has {layout}"));
+            let code = template.slots.iter().filter(|(_, s)| s.role.as_deref() == t.code_role()).count();
+            assert!(code >= 1, "{name}'s {layout} has a code slot");
+            let started = starting(&b.deck, &t, &first, Some(layout)).unwrap();
+            let blocks: Vec<&serde_json::Value> = (started.patch.iter())
+                .filter(|op| op["op"] == "add_node" && op["node"]["code"].is_object())
+                .map(|op| &op["node"])
+                .collect();
+            assert_eq!(blocks.len(), code, "{name}'s {layout}: {:?}", started.patch);
+            for block in blocks {
+                assert_eq!(block["code"], serde_json::json!({ "language": "plain" }), "{name}'s {layout}");
+                assert_eq!(block["text"], "Paste or type code", "{name}'s {layout}");
+            }
+        }
     }
 }

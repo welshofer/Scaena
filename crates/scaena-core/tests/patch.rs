@@ -1398,8 +1398,12 @@ fn set_state_writes_a_layout_where_it_lives_and_the_rest_in_the_state() {
     // Its hold and its notes.
     let (ops, _) = set("close", "hold", json!(4500));
     assert_eq!(ops, json!([{ "op": "add", "path": "/states/3/hold", "value": 4500 }]));
+    // Notes are written where the presenter reads them (SPEC §2.6, editor dogfood 3): `revenue`
+    // has none of its own and opens the beat `doubled`, so the beat's are; `mix` has its own.
     let (ops, _) = set("revenue", "notes", json!("Let the bars land."));
-    assert_eq!(ops, json!([{ "op": "add", "path": "/states/1/notes", "value": "Let the bars land." }]));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/spine/sections/1/beats/0/notes", "value": "Let the bars land." }]));
+    let (ops, _) = set("mix", "notes", json!("Stacked."));
+    assert_eq!(ops, json!([{ "op": "add", "path": "/states/2/notes", "value": "Stacked." }]));
     let (ops, _) = set("intro", "notes", Value::Null);
     assert_eq!(ops, json!([{ "op": "remove", "path": "/states/0/notes" }]));
     // A duration the theme lacks is E102.
@@ -2314,6 +2318,81 @@ fn typing_in_a_list_built_by_bullet_keeps_its_steps_in_step() {
     .doc;
     assert_eq!(more["nodes"]["list"]["text"], json!("Plants\nLeaves\n\nChlorophyll\nWater is split"));
     assert_eq!(drawn(&more), drawn(&typed));
+}
+
+/// A build of six bullets retyped whole into five lines on its last step keeps a step for each
+/// line, in one patch or a key at a time: each draws one more as it did, the fifth and the last
+/// all five, never every step all of them (editor dogfood 4).
+#[test]
+fn a_build_retyped_whole_keeps_a_step_for_each_line() {
+    let mut doc = example();
+    doc["nodes"]["list"] = json!({ "type": "text", "role": "body", "text": "One\nTwo\nThree\nFour\nFive\nSix",
+        "at": { "in": "main" } });
+    doc["states"][1]["props"]["list"] = json!({});
+    doc["states"][3]["remove"] = json!(["rev", "note", "list"]);
+    let built = patch(
+        &doc,
+        json!([{ "op": "choose", "node": "list", "prop": "enter", "value": "bullets", "state": "revenue" }]),
+    )
+    .unwrap()
+    .doc;
+    let steps = |doc: &Value| -> Vec<(String, Value)> {
+        doc["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["props"]["list"].is_object())
+            .map(|s| (s["id"].as_str().unwrap().to_string(), s["props"]["list"]["paragraphs"].clone()))
+            .collect()
+    };
+    let before = steps(&built);
+    let spans = |steps: &[(String, Value)]| steps.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>();
+    // Five steps each drawing one more, and the sixth all of them.
+    let mut built_spans: Vec<Value> = (1..=5).map(|k| json!([1, k])).collect();
+    built_spans.push(Value::Null);
+    assert_eq!(spans(&before), built_spans);
+    let last = before.last().unwrap().0.clone();
+    let written = built["nodes"]["list"]["text"].as_str().unwrap().chars().count();
+    let retyped = patch(
+        &built,
+        json!([{ "op": "replace_text", "node": "list", "from": 0, "to": written,
+                 "text": "Alpha\nBeta\nGamma\nDelta\nEpsilon", "state": last }]),
+    )
+    .unwrap()
+    .doc;
+    let after = steps(&retyped);
+    assert_eq!(after.iter().map(|(id, _)| id).collect::<Vec<_>>(), before.iter().map(|(id, _)| id).collect::<Vec<_>>());
+    assert_eq!(spans(&after), built_spans);
+    assert_eq!(errors(&retyped), Vec::<String>::new());
+    // Its fifth step and its last now draw the same five: lint says so of the last, and of no
+    // step before it, nor of the build as it was.
+    let repeats = |doc: &Value| -> Vec<(String, String)> {
+        let found = scaena_core::lint::check(&deck(doc), None);
+        found.into_iter().filter(|f| f.code == "I400").map(|f| (f.state.unwrap_or_default(), f.message)).collect()
+    };
+    assert_eq!(repeats(&built), []);
+    let (last_but_one, _) = &after[4];
+    assert_eq!(
+        repeats(&retyped),
+        [(last.clone(), format!("state `{last}` draws the same paragraphs as `{last_but_one}`"))]
+    );
+    // Typed over a key at a time, as the canvas types (each key a patch): all of it selected and
+    // a key typed over it leaves one paragraph, then each key goes at the end. The build still
+    // keeps a step for each line.
+    let mut typed = patch(
+        &built,
+        json!([{ "op": "replace_text", "node": "list", "from": 0, "to": written, "text": "W", "state": last }]),
+    )
+    .unwrap()
+    .doc;
+    for (k, key) in "eek 1\nWeek 2\nWeek 3\nWeek 4\nWeek 5".chars().enumerate() {
+        let at = k + 1;
+        let op = json!([{ "op": "replace_text", "node": "list", "from": at, "to": at, "text": key.to_string(), "state": last }]);
+        typed = patch(&typed, op).unwrap().doc;
+    }
+    assert_eq!(typed["nodes"]["list"]["text"], json!("Week 1\nWeek 2\nWeek 3\nWeek 4\nWeek 5"));
+    assert_eq!(spans(&steps(&typed)), built_spans, "each key a patch");
+    assert_eq!(errors(&typed), Vec::<String>::new());
 }
 
 /// A node or a state the deck does not have is refused with the id meant, where one is near it:

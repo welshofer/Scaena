@@ -16,7 +16,7 @@
 // tools as the MCP server's less `bundle`, each call's result as the model reads it, and the
 // frame as an image; that Gemini's thought signatures go back as they came; that the editor's
 // source takes each edit and lints clean at the end; that each edit shows the states it drew
-// anew, before and after (PLAN 2.93); that the theme's edit is one step of the source's undo, the
+// anew, before and after (PLAN 2.93); that the whole answer is one step of the source's undo, the
 // theme written back (PLAN 2.61); and that a question stops when asked to.
 // Then the key's field and storage: masked and shown on request, its form said as it is typed, its
 // provider's answer said (it works with its models, or is refused, in a person's words), kept
@@ -82,7 +82,7 @@ const SCRIPT = [
   { name: "deck_lint", args: {} },
   { name: "deck_render", args: { state: "start", size: "960x540" } },
   { name: "theme_edit", args: { ops: [{ op: "replace", path: "/tokens/color/accent", value: "#2E86E4" }] } },
-  { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2 } },
+  { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2, paths: true } },
   // A patch the deck refuses: a layout the theme has not.
   { name: "deck_patch", args: { ops: [{ op: "set_state", id: "start", prop: "layout", value: "no-such-layout" }] } },
   // The deck's story, read by the generator's module (narrative FUNC-2).
@@ -304,8 +304,9 @@ try {
   /** The editor on the bundle, in a browser of its own: the page before it left the assistant's
    * edits not saved, and a page that opened the deck again beside it would be offered them first
    * (lift-up REL-4). */
-  const open = async () => {
+  const open = async (routed) => {
     const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+    if (routed) await routed(context);
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
     page.on("console", (m) => m.type() === "error" && !/Failed to load resource/.test(m.text()) && failures.push(`console: ${m.text()}`));
@@ -337,12 +338,36 @@ try {
   for (const id of ["anthropic", "openai", "gemini"]) {
     const wire = WIRE[id];
     const scripted = await provider(wire);
-    const page = await open();
+    // With Gemini, the assistant's resources module fails to load the first time it is fetched, as a
+    // network gone for a moment does: that question fails, and the next loads it again.
+    let unloaded = 0;
+    const page = await open(
+      id === "gemini" &&
+        ((context) => context.route(/scaena_resources_bg[^/]*\.wasm$/, (route) => (unloaded++ === 0 ? route.abort() : route.continue()))),
+    );
     const before = await page.evaluate(() => window.scaena.source());
     const model = await choose(page, id, scripted.origin, `${id}-test-key`);
     check(model === "scripted", `${id}: the models the key can use are listed (${model})`);
+    // An empty conversation offers ways to begin from the deck's story (lift-up 20261110 ATTR-2):
+    // its health first, and every slide's claim; they go once a question is asked.
+    const starters = () =>
+      page.evaluate(() => {
+        const box = document.querySelector("#starters");
+        return { shown: !box.hidden, asks: [...box.querySelectorAll("button")].map((b) => b.textContent) };
+      });
+    await page.waitForFunction(() => !document.querySelector("#starters").hidden, null, { timeout: 30000 }).catch(() => {});
+    const offered = await starters();
+    check(
+      offered.shown && offered.asks[0] === "Make this talk stronger" && offered.asks.at(-1) === "Check every slide says its claim",
+      `${id}: an empty conversation offers ways to begin: ${JSON.stringify(offered)}`,
+    );
+    if (id === "gemini") {
+      const unread = await page.evaluate(() => window.scaena.assistant.ask("Put the trail headline on the slide, fix what lint finds, and show me."));
+      check(unread.kind === "failed" && unloaded === 1, `${id}: a question asked while the resources do not load fails: ${JSON.stringify(unread)}, ${unloaded} fetched`);
+    }
     const done = await page.evaluate(() => window.scaena.assistant.ask("Put the trail headline on the slide, fix what lint finds, and show me."));
-    check(done.kind === "done" && done.stop === "end", `${id}: the question is answered (${JSON.stringify(done)})`);
+    check(done.kind === "done" && done.stop === "end", `${id}: the question is answered (${JSON.stringify(done)})${id === "gemini" ? ", the resources loaded again" : ""}`);
+    check(!(await starters()).shown, `${id}: and once one is asked, the ways to begin go`);
     const { requests } = scripted;
     check(requests.length === SCRIPT.length + 1, `${id}: one request a turn: ${requests.length}`);
 
@@ -460,8 +485,10 @@ try {
     check(last.valid && !last.findings.some((f) => f.severity === "error"), `${id}: and lints clean: ${last.findings.map((f) => f.code).join(", ") || "nothing found"}`);
     const transcript = await page.evaluate(() => window.scaena.assistant.transcript());
     check(
-      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length && transcript.at(-1) === `said: ${PLAIN}`,
-      `${id}: the conversation shows each call and the answer (${transcript.length} entries): ${transcript.at(-1)}`,
+      transcript.filter((t) => t.startsWith("call")).length === SCRIPT.length &&
+        transcript.at(-2) === `said: ${PLAIN}` &&
+        transcript.at(-1) === "undo-answer: Undo this answer",
+      `${id}: the conversation shows each call, the answer, and Undo this answer under it (${transcript.length} entries): ${transcript.slice(-2).join(" | ")}`,
     );
     // The answer as it reads (narrative ATTR-4): its list and emphasis as elements, never markup
     // from the model's text, and the state named in a code span a link that shows it.
@@ -490,16 +517,34 @@ try {
     check(of(2).length === 1 && fixed2.state === "start" && fixed2.before === patched2.after && fixed2.after !== fixed2.before, `${id}: lint's fix shows start as the patch left it, then fixed: ${JSON.stringify(of(2))}`);
     check([1, 3, 4].every((i) => of(i).length === 0), `${id}: a lint and a render show nothing drawn anew`);
 
-    // The theme's edit shows in the Theme tab, and is one step of the source's undo: ⌘Z writes the
-    // theme back (PLAN 2.61).
+    // The theme's edit shows in the Theme tab. The whole answer is one step of the source's undo
+    // (lift-up 10-25 FUNC-4): ⌘Z takes back its patch, lint's fix, and the theme's edit at once,
+    // writing the theme back (PLAN 2.61), and ⌘⇧Z makes them again.
     const accent = () => page.evaluate(() => window.scaena.theme.theme()?.tokens?.color?.accent);
+    const source = () => page.evaluate(() => window.scaena.source());
+    const accented = (color) => page.waitForFunction((c) => window.scaena.theme.theme()?.tokens?.color?.accent === c, color, { timeout: 30000 }).catch(() => {});
     await tab(page, "theming");
-    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#2E86E4", null, { timeout: 30000 }).catch(() => {});
+    await accented("#2E86E4");
     check((await accent()) === "#2E86E4", `${id}: the Theme tab shows the assistant's edit: ${await accent()}`);
     await page.locator("#code .cm-content").focus();
     await page.keyboard.press("Control+z");
-    await page.waitForFunction(() => window.scaena.theme.theme()?.tokens?.color?.accent === "#FF6A3D", null, { timeout: 30000 }).catch(() => {});
-    check((await accent()) === "#FF6A3D" && (await page.evaluate(() => window.scaena.source())) === after, `${id}: ⌘Z writes the theme back, the source as it was`);
+    await accented("#FF6A3D");
+    check((await accent()) === "#FF6A3D" && (await source()) === before, `${id}: one ⌘Z takes the whole answer back, the theme and the source as they were asked`);
+    await page.keyboard.press("Control+Shift+z");
+    await accented("#2E86E4");
+    check((await accent()) === "#2E86E4" && (await source()) === after, `${id}: ⌘⇧Z makes it again`);
+    // Undo this answer, on the finished turn, does the same.
+    await tab(page, "assistant");
+    await page.click("#transcript .undo-answer button");
+    const undoneSaid = await page.locator("#transcript .undo-answer").textContent();
+    await tab(page, "theming");
+    await accented("#FF6A3D");
+    const undoneTo = { accent: await accent(), asked: (await source()) === before };
+    check(undoneTo.accent === "#FF6A3D" && undoneTo.asked && undoneSaid.startsWith("Answer undone"), `${id}: Undo this answer takes it back: ${undoneSaid} ${JSON.stringify(undoneTo)}`);
+    await page.locator("#code .cm-content").focus();
+    await page.keyboard.press("Control+Shift+z");
+    await accented("#2E86E4");
+    check((await source()) === after, `${id}: and ⌘⇧Z makes it again`);
     await tab(page, "assistant");
     const usage = await page.evaluate(() => window.scaena.assistant.usage());
     check(usage.input === 1000 * SCRIPT.length + 1200, `${id}: tokens counted: ${usage.input} in, ${usage.output} out`);
@@ -612,6 +657,7 @@ try {
         shorter.kind === "done" && shorter.stop === "end" && scripted.requests.length === before + 2 && sent(again) <= sent(long),
         `${id}: a conversation too long is asked again once, sending no more than it did, and answered (${JSON.stringify(shorter)}, ${scripted.requests.length - before} requests)`,
       );
+      check((await page.inputValue("#question")) === "", `${id}: a question answered leaves the box empty`);
       const asked = scripted.requests.length;
       scripted.state.long = 2;
       const refused = await page.evaluate(() => window.scaena.assistant.ask("Still shorter."));
@@ -620,6 +666,92 @@ try {
         refused.kind === "failed" && /more than .*'s model takes at once/.test(refused.message) && scripted.requests.length === asked + 2,
         `${id}: and too long again, it is said, once asked again (${JSON.stringify(refused)}, ${scripted.requests.length - asked} requests)`,
       );
+      // The question that failed is put back in the box, to send again (lift-up 20261110 USE-2).
+      check((await page.inputValue("#question")) === "Still shorter.", `${id}: the question that failed is back in the box: ${JSON.stringify(await page.inputValue("#question"))}`);
+      await page.fill("#question", "");
+    }
+
+    if (id === "anthropic") {
+      // The conversation is kept over a reload, and offered as the deck opens again (lift-up
+      // 20261110 FUNC-4): gone on with, the next question follows it.
+      await page.waitForTimeout(1000);
+      // What is kept is the messages and what was shown alone: no key, nor the provider's address.
+      const keptText = () =>
+        page.evaluate(async () => {
+          const texts = [];
+          try {
+            const all = await (await navigator.storage.getDirectory()).getDirectoryHandle("conversations");
+            for await (const handle of all.values()) texts.push(await (await handle.getFile()).text());
+          } catch {}
+          return texts;
+        });
+      const stored = await keptText();
+      check(
+        stored.length === 1 && !stored[0].includes("anthropic-test-key") && !stored[0].includes(scripted.origin) && !/x-api-key|authorization/i.test(stored[0]),
+        `one conversation is kept, holding no key, address, or header (${stored.length} kept, ${stored[0]?.length ?? 0} bytes)`,
+      );
+      await page.reload();
+      await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+      await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+      await tab(page, "assistant");
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      const offer = await page.evaluate(() => document.querySelector("#transcript .resume")?.textContent ?? "");
+      check(offer.startsWith("Your last conversation about this deck"), `a reload offers the conversation kept: ${offer}`);
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Continue the last conversation")?.click());
+      const shown = await page.evaluate(() => [...document.querySelectorAll("#transcript li")].map((li) => `${li.className}: ${li.textContent}`));
+      check(shown.includes("user: Shorter now.") && shown.some((s) => s.startsWith("said: ")), `gone on with, it shows its questions and answers: ${JSON.stringify(shown.slice(-4))}`);
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      const next = await page.evaluate(() => window.scaena.assistant.ask("And now?"));
+      const messages = scripted.requests[sent]?.body.messages ?? [];
+      check(
+        next.kind === "done" && messages.length > 2 && JSON.stringify(messages[0]).includes("Put the trail headline on the slide"),
+        `and the next question follows it: ${JSON.stringify(next)}, ${messages.length} messages sent`,
+      );
+      // New conversation takes the kept one away, its file and all; and so does Start anew, offered
+      // as the deck opens again, after which a reload offers nothing.
+      const reload = async () => {
+        await page.reload();
+        await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+        await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+        await tab(page, "assistant");
+      };
+      await page.waitForTimeout(1000);
+      check((await keptText()).length === 1, "the conversation gone on with is kept again");
+      await page.evaluate(() => document.querySelector("#new").click());
+      await page.waitForTimeout(500);
+      check((await keptText()).length === 0, "New conversation takes the kept conversation away");
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      await page.evaluate(() => window.scaena.assistant.ask("Once more?"));
+      await page.waitForTimeout(1000);
+      await reload();
+      await page.waitForSelector("#transcript .resume button", { timeout: 15000 }).catch(() => {});
+      await page.evaluate(() => [...document.querySelectorAll("#transcript .resume button")].find((b) => b.textContent === "Start anew")?.click());
+      await page.waitForTimeout(500);
+      check((await keptText()).length === 0, "Start anew takes the kept conversation away");
+      await reload();
+      await page.waitForTimeout(1500);
+      check(!(await page.evaluate(() => !!document.querySelector("#transcript .resume"))), "and a reload offers none");
+    }
+
+    if (id === "anthropic") {
+      // New conversation offers them again, and one pressed asks its question (lift-up 20261110
+      // ATTR-2): held while it is asked, then stopped.
+      await page.evaluate(() => document.querySelector("#new").click());
+      await page.waitForFunction(() => !document.querySelector("#starters").hidden, null, { timeout: 30000 }).catch(() => {});
+      check((await starters()).shown, "a new conversation offers the ways to begin again");
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      scripted.state.slow = 4000;
+      await page.evaluate(() => [...document.querySelectorAll("#starters button")].find((b) => b.textContent === "Check every slide says its claim").click());
+      await page.waitForFunction(() => !document.querySelector("#thinking").hidden, null, { timeout: 10000 }).catch(() => {});
+      const waited = Date.now();
+      while (scripted.requests.length === sent && Date.now() - waited < 15000) await page.waitForTimeout(100);
+      const words = JSON.stringify(scripted.requests[sent]?.body.messages ?? "");
+      check(words.includes("Check that every slide says its claim"), `and one pressed asks its question: ${words.slice(0, 160)}`);
+      await page.evaluate(() => document.querySelector("#stop").click());
+      await page.waitForFunction(() => document.querySelector("#thinking").hidden, null, { timeout: 15000 }).catch(() => {});
+      scripted.state.slow = 0;
     }
 
     if (id === "anthropic") {

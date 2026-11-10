@@ -84,6 +84,10 @@ export interface Around {
   /** Fetch the map image `node` shows again (ADR-0030, PLAN O.1c): `in` or `out` a step, centered
    * on its pin, or as it was asked. */
   remap?(node: string, how: "in" | "out" | "pin" | "again"): void;
+  /** Set code text `node`'s lines in focus in the state shown to those `said` names in its gutter's
+   * numbers, "2–4, 7"; nothing said shows every line (PLAN 2.140): one patch, the states after it
+   * as they were. */
+  focus?(node: string, said: string): Promise<void>;
   /** Show the tab a field stands in, Format or Animate (lift-up ATTR-4). */
   reveal?(tab: "format" | "animate"): void;
   /** The slide's animations on the timeline under the canvas: shown or hidden with `show`; whether
@@ -273,6 +277,19 @@ const told = (f: Field, v: unknown) =>
 
 /** The inspector's edits, in `into`, for the node the canvas selects in `stage`'s state shown, or
  * the state itself when it selects none. */
+/** The plan's controls (editor dogfood 3): each its key in `media.narrato`'s reading, its label,
+ * the least it takes, and its ends, said for a reader. */
+const PLANNED: [string, string, string, string][] = [
+  ["intensity", "Intensity", "0", "calm to intense"],
+  ["tone", "Tone", "-1", "grave to hopeful"],
+];
+
+/** A plan's value in the engine's words (`scaena_core::words::planned`): the last word whose
+ * least it reaches. */
+function plannedSaid(ladder: [number, string][], value: number): string {
+  return [...ladder].reverse().find(([least]) => value >= least)?.[1] ?? ladder[0]?.[1] ?? "";
+}
+
 export function looks(stage: Stage, into: HTMLElement, around: Around, animating: HTMLElement = document.createElement("div")) {
   /** Both panels, Format's and Animate's. */
   const panels = [into, animating];
@@ -440,6 +457,12 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
         const [rows, empty] = f.prop === "alt" ? [2, words] : [3, "Notes you see as you present"];
         return `<textarea id="${id}" ${prop} rows="${rows}" placeholder="${empty}">${html(typeof value === "string" ? value : "")}</textarea>`;
       }
+      case "lines": {
+        // A code text's lines in focus (PLAN 2.140), in its gutter's numbers; none shows every line.
+        const said = value === undefined ? "" : (f.words?.said[JSON.stringify(value)] ?? "");
+        const all = `${t.first}–${t.last}`;
+        return `<input id="${id}" type="text" ${prop} data-lines value="${html(said)}" placeholder="Every line (${all})" aria-label="${html(label)}, as the line numbers say them" title="The lines this step is about, ${html(all)}: 2–4, 7">`;
+      }
       case "fractions": {
         // An image's focal point or crop (PLAN 2.45): what shows where nothing sets it. Each part
         // is a share of the picture, in percent, under its caption, as the status says it.
@@ -589,6 +612,22 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
         <label for="look-furniture">This slide</label><span class="control"><select id="look-furniture" data-furnish="slide"><option value=""${furniture.slide === undefined ? " selected" : ""}>As its layout has them</option><option value="yes"${furniture.slide === true ? " selected" : ""}>Shows them</option><option value="no"${furniture.slide === false ? " selected" : ""}>Hides them</option></select></span><span class="lives">${furniture.shown ? "Shown" : "Hidden"}</span>
       </div>`
       : "";
+    // The plan of the beat that tells the slide (editor dogfood 3), where it declares one: its
+    // intensity and tone, which story health reads against the arc, each said in the engine's
+    // words.
+    const plan = !chars && !nodes.length && "plan" in offered ? offered.plan : undefined;
+    const planning = plan
+      ? `<h3 class="furniture-title">Plan</h3>
+      <div class="fields furniture plan">
+        ${PLANNED.map(([key, label, min, ends]) => {
+          const value = key === "intensity" ? plan.intensity : plan.tone;
+          // Undeclared, it stands in the middle of its range until it is planned.
+          const at = value ?? (key === "intensity" ? 0.5 : 0);
+          const word = plannedSaid(key === "intensity" ? plan.intensities : plan.tones, at);
+          return `<label for="look-plan-${key}">${label}</label><span class="control"><input id="look-plan-${key}" type="range" data-plan="${key === "intensity" ? "intensity" : "valence"}" min="${min}" max="1" step="0.05" value="${at}" aria-label="${label}, ${ends}" aria-valuetext="${html(word)}"></span><span class="lives">${html(word)}</span>`;
+        }).join("")}
+      </div>`
+      : "";
     // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
     const framed = !chars && nodes.length === 1 && "framed" in offered && offered.framed;
     const framing = framed ? `<p class="framed"><span class="arrange-kind">Frame</span> ${html(framed)}</p>` : "";
@@ -610,6 +649,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
       <div class="fields">${rows.join("")}</div>
       ${framing}
       ${furnishing}
+      ${planning}
       ${text ? "" : writing}
       ${reading}`;
     const swatches = into.querySelector<HTMLElement>(".backgrounds");
@@ -813,6 +853,45 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
 
   /** Choose `value` for the node shown's `prop`, or the state's with none shown; `null` takes it
    * away where it lives. */
+  /** The patch that sets `prop` to `value` on what is offered, in `state`: a `choose` of each
+   * node, or a `set_state` of the state. */
+  function chosen(state: string, prop: string, value: unknown) {
+    const on = offered && "node" in offered ? offered.node : undefined;
+    const all = offered && "nodes" in offered ? (offered as Shared).nodes : on !== undefined ? [on] : [];
+    const ops = all.length
+      ? all.map((n) => ({ op: "choose", node: n, prop, value, state, ...(keep ? { fork: true } : {}) }))
+      : [{ op: "set_state", id: state, prop, value, ...(keep && prop === "layout" ? { fork: true } : {}) }];
+    return { all, ops };
+  }
+
+  /** The value a slider stands at, as a choice: scaled, and none where an adjustment let go at
+   * none takes the object's own away, written as none on a slide (PLAN 2.117). */
+  function ranged(target: HTMLInputElement): unknown {
+    if (target.value === "") return null;
+    const value = Number(target.value) * Number(target.dataset.scale ?? 1);
+    return value === 0 && target.dataset.awayAtNone !== undefined ? null : value;
+  }
+
+  /** What a slider held at its value would choose (lift-up 20261110 ATTR-5), shown on the canvas
+   * as it is dragged, nothing made: one preview a frame, the last asked for winning, until it is
+   * let go and chosen. */
+  let sliding: { prop: string; value: unknown } | undefined;
+  let slid: Promise<void> | undefined;
+  function slide(prop: string, value: unknown) {
+    sliding = { prop, value };
+    slid ??= (async () => {
+      while (sliding) {
+        const asked = sliding;
+        sliding = undefined;
+        await new Promise((go) => requestAnimationFrame(go));
+        const now = around.shown();
+        if (!now || !offered || chars) continue;
+        await stage.preview(now.state, chosen(now.state, asked.prop, asked.value).ops, around.format()).catch(() => {});
+      }
+      slid = undefined;
+    })();
+  }
+
   function choose(prop: string, value: unknown): Promise<unknown> {
     queue = queue.then(() => make(prop, value));
     return queue;
@@ -830,11 +909,7 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
       else if (chars === selected) await characters(selected);
       return;
     }
-    const on = "node" in offered ? offered.node : undefined;
-    const all = "nodes" in offered ? (offered as Shared).nodes : on !== undefined ? [on] : [];
-    const ops = all.length
-      ? all.map((n) => ({ op: "choose", node: n, prop, value, state: now.state, ...(keep ? { fork: true } : {}) }))
-      : [{ op: "set_state", id: now.state, prop, value, ...(keep && prop === "layout" ? { fork: true } : {}) }];
+    const { all, ops } = chosen(now.state, prop, value);
     // What changed, as a person says it (PLAN 2.99): the property by its label, the value said,
     // several by how many, and the slides it reaches.
     const field = offered.fields.find((f) => f.prop === prop);
@@ -873,6 +948,17 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
 
   for (const panel of panels) listen(panel, "change", (e) => {
     const target = e.target as HTMLInputElement | HTMLSelectElement;
+    // The beat's plan (editor dogfood 3): one JSON Patch where it lives.
+    const planned = target.dataset.plan;
+    if (planned && offered && "plan" in offered && offered.plan) {
+      const plan = offered.plan;
+      const value = Number(target.value);
+      const slide = around.shown() ? around.slide(around.shown()!.state) : "The slide";
+      const [, label] = PLANNED.find(([k]) => (k === "intensity" ? "intensity" : "valence") === planned)!;
+      const word = plannedSaid(planned === "intensity" ? plan.intensities : plan.tones, value);
+      furnish([{ op: "add", path: `${plan.at}/${planned}`, value }], `${slide}: ${label} ${word}`);
+      return;
+    }
     const furnishing = target.dataset.furnish;
     if (furnishing && offered && "furniture" in offered) {
       const f = offered.furniture;
@@ -905,6 +991,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
     }
     const prop = target.dataset.prop;
     if (prop === undefined) return;
+    // A code text's lines in focus (PLAN 2.140): read by the engine, the states after as they were.
+    if (target.dataset.lines !== undefined && offered && "node" in offered && around.focus) {
+      return void around.focus(offered.node, target.value);
+    }
     // Fractions of the image, together (PLAN 2.45): a crop keeps some of the image, inside it.
     if (target.dataset.part !== undefined) {
       const inputs = [...into.querySelectorAll<HTMLInputElement>(`input[data-prop="${CSS.escape(prop)}"][data-part]`)];
@@ -924,22 +1014,36 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
     const call = called(offered && "fields" in offered ? offered.fields.find((f) => f.prop === prop)?.value : undefined);
     if (call && typeof value === "string" && target instanceof HTMLSelectElement) value = { ...call, preset: value };
     if (target.matches("[data-flag]") && value !== null) value = value === "yes";
-    if (target instanceof HTMLInputElement && (target.type === "number" || target.type === "range") && value !== null) {
+    // A slider let go is chosen once the slide shows where it was held, so no preview follows it.
+    if (target instanceof HTMLInputElement && target.type === "range") {
+      const at = ranged(target);
+      void (slid ?? Promise.resolve()).then(() => choose(prop, at));
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.type === "number" && value !== null) {
       value = Number(value) * Number(target.dataset.scale ?? 1);
     }
-    // An adjustment let go at none takes the object's own away, and is written as none on a
-    // slide (PLAN 2.117).
-    if (target instanceof HTMLInputElement && target.type === "range" && value === 0 && target.dataset.awayAtNone !== undefined) value = null;
     void choose(prop, value);
   });
-  // A slider's readout follows it as it is dragged, before it is let go.
+  // A slider's readout follows it as it is dragged, before it is let go, and so does the slide
+  // (lift-up 20261110 ATTR-5).
   for (const panel of panels) listen(panel, "input", (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || target.type !== "range") return;
+    // A plan's slider says its word as it is held (editor dogfood 3); it draws nothing on the
+    // slide, so nothing is previewed there.
+    if (target.dataset.plan && offered && "plan" in offered && offered.plan) {
+      const word = plannedSaid(target.dataset.plan === "intensity" ? offered.plan.intensities : offered.plan.tones, Number(target.value));
+      target.setAttribute("aria-valuetext", word);
+      const readout = target.closest(".control")?.nextElementSibling;
+      if (readout?.classList.contains("lives")) readout.textContent = word;
+      return;
+    }
     const said = adjustment(Number(target.value));
     target.setAttribute("aria-valuetext", said);
     const readout = target.nextElementSibling;
     if (readout?.classList.contains("lives")) readout.textContent = said;
+    if (target.dataset.prop !== undefined && target.dataset.part === undefined) slide(target.dataset.prop, ranged(target));
   });
   for (const panel of panels) listen(panel, "click", (e) => {
     const timeline = (e.target as Element).closest<HTMLElement>("[data-timeline]");
@@ -950,7 +1054,9 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
       return;
     }
     const away = (e.target as Element).closest<HTMLElement>("[data-away]");
-    if (away?.dataset.away) void choose(away.dataset.away, null);
+    // The lines in focus taken away show every line, the states after as they were (PLAN 2.140).
+    if (away?.dataset.away === "code/focus" && offered && "node" in offered && around.focus) void around.focus(offered.node, "");
+    else if (away?.dataset.away) void choose(away.dataset.away, null);
     const arranging = (e.target as Element).closest<HTMLElement>("[data-arrange]");
     if (arranging?.dataset.arrange) void around.arrange(JSON.parse(arranging.dataset.arrange) as Arrange);
     if ((e.target as Element).closest("[data-group]")) void around.group();
@@ -1013,6 +1119,10 @@ export function looks(stage: Stage, into: HTMLElement, around: Around, animating
     previewed: async () => {
       await previews;
       return previewed;
+    },
+    /** A slider held is shown on the canvas: what a test waits for (lift-up 20261110 ATTR-5). */
+    slid: async () => {
+      await slid;
     },
     /** Whether "Only on Slide N" is checked: what keeps an annotation made on the canvas to
      * the state shown too (PLAN 2.67). */

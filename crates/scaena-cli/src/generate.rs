@@ -5,11 +5,10 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
-use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::pictures::{self, Look, Quality};
 use scaena_narrato::{Brief, Generation, Outline, Provider, Request, Settings, Step};
 use scaena_ops::create::ThemeSource;
-use scaena_ops::narrative::{Looking, Painter, Progress, Reply, Transport};
+use scaena_ops::narrative::{Looking, Noting, Painter, Progress, Reply, Transport};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
@@ -119,6 +118,16 @@ pub struct GenerateArgs {
     /// the look is answered in: taken with no call, as `--slides` gives the slides.
     #[arg(long)]
     look_answer: Option<PathBuf>,
+    /// Make the deck with each slide's speaker notes as Narrato drafted them, not written again
+    /// for the talk (lift-up 10-25 ATTR-2). Written again, each slide's notes pick up from the
+    /// slide before, carry its claim, hand over to the next, and run to its share of the minutes
+    /// the brief's slot gives the talk.
+    #[arg(long)]
+    no_notes: bool,
+    /// The notes a model wrote for the talk elsewhere, the JSON they are answered in: taken with
+    /// no call, as `--look-answer` takes the look.
+    #[arg(long, conflicts_with = "no_notes")]
+    notes_answer: Option<PathBuf>,
     /// Show the outline before the slides are written: the arc, the big idea, and one claim for
     /// each beat, written to FILE as JSON, and no deck made. Edit it (a claim, a beat moved,
     /// taken out, or added), then `--from-outline FILE` writes the slides to it.
@@ -129,8 +138,9 @@ pub struct GenerateArgs {
     #[arg(long, requires = "outline")]
     allow_no_outline: bool,
     /// Make the deck from the outline `--outline` wrote, as edited: the slides follow its beats,
-    /// in its order, each carrying its claim.
-    #[arg(long, conflicts_with_all = ["slides", "outline"])]
+    /// in its order, each carrying its claim. With `--slides`, the outline those slides were
+    /// written to, each slide's `beatIndex` counting its beats.
+    #[arg(long, conflicts_with = "outline")]
     from_outline: Option<PathBuf>,
 }
 
@@ -341,6 +351,10 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Continuing { written, slides } => {
+            format!("the answer was cut short after {written} slides: asking for the rest of {slides}…")
+        }
+        Progress::Unrested { why } => format!("the rest of the slides did not come back: {why}"),
         Progress::Retrying { wait, tried } => format!(
             "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
             tried + 1,
@@ -353,11 +367,19 @@ fn said(p: &Progress) -> String {
         Progress::Painting { pictures } => format!("making {pictures} pictures for the slides… (a minute or two)"),
         Progress::Looking { slides } => format!("showing the model the {slides} slides as drawn…"),
         Progress::Looked { slides } => format!("{slides} slides changed by what the model saw"),
+        Progress::Noting { slides } => format!("writing the {slides} slides' notes for the talk…"),
+        Progress::Noted { slides } => format!("{slides} slides' notes written for the talk"),
         Progress::Painted { pictures, unmade } if unmade.is_empty() => format!("{pictures} pictures made"),
         Progress::Painted { pictures, unmade } => {
             format!("{pictures} pictures made; not made:\n  {}", unmade.join("\n  "))
         }
     }
+}
+
+/// What a research that failed says, the deck going on without it (lift-up 10-25b REL-4).
+fn stopped(why: &str) -> String {
+    let why = why.strip_prefix("deep research: ").unwrap_or(why).trim_end_matches('.');
+    format!("Research stopped: {why}. The deck is grounded in what you gave.")
 }
 
 /// The deep research the brief asks for (PLAN G.8), as a source: the report and its sources,
@@ -438,13 +460,16 @@ struct Kept {
     json: bool,
     research: Option<PathBuf>,
     slides: Option<PathBuf>,
+    /// The outline the slides are written to, as settled, which a resumed run writes them to again
+    /// (lift-up 10-25c FUNC-1).
+    outline: Option<PathBuf>,
     /// The arc the slides were written on, which a resumed run must take.
     arc: Option<String>,
 }
 
 impl Kept {
     fn new(dir: &Path, json: bool) -> Kept {
-        Kept { dir: dir.join(KEPT), json, research: None, slides: None, arc: None }
+        Kept { dir: dir.join(KEPT), json, research: None, slides: None, outline: None, arc: None }
     }
 
     /// `text` kept as `name`, where the disk takes it: one that refuses only means the run
@@ -468,6 +493,15 @@ impl Kept {
 
     fn slides(&mut self, text: &str) {
         self.slides = self.keep("slides.json", text);
+    }
+
+    /// The outline `generation` settled, with its arc, as `--outline` writes one for
+    /// `--from-outline`.
+    fn outline(&mut self, generation: &Generation) {
+        let Some(outline) = generation.outline() else { return };
+        let arc = generation.arc().map(|a| a.selection.as_str()).unwrap_or_default();
+        let written = serde_json::json!({ "arc": arc, "bigIdea": outline.big_idea, "beats": outline.beats });
+        self.outline = self.keep("outline.json", &format!("{written:#}\n"));
     }
 
     /// The folder taken away, once the deck is made, or on a run that kept nothing.
@@ -502,6 +536,7 @@ impl Kept {
             Some(slides) => {
                 flag(&mut args, "slides", path(Some(slides)).as_deref());
                 flag(&mut args, "arc", self.arc.as_deref().or(a.arc.as_deref()));
+                flag(&mut args, "from-outline", path(self.outline.as_deref()).as_deref());
             }
             None => {
                 flag(&mut args, "provider", a.provider.as_deref());
@@ -512,6 +547,10 @@ impl Kept {
                     args.push("--no-look".into());
                 }
                 flag(&mut args, "look-answer", path(a.look_answer.as_deref()).as_deref());
+                if a.no_notes {
+                    args.push("--no-notes".into());
+                }
+                flag(&mut args, "notes-answer", path(a.notes_answer.as_deref()).as_deref());
                 flag(&mut args, "from-outline", path(a.from_outline.as_deref()).as_deref());
             }
         }
@@ -688,16 +727,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         bail!("`{name}` is no arc of Narrato's: {}", names.join(", "));
     }
     let modality = match &a.modality {
-        Some(m) => Some(
-            MODALITIES
-                .iter()
-                .find(|(id, label)| id.eq_ignore_ascii_case(m) || label.eq_ignore_ascii_case(m))
-                .map(|(_, label)| label.to_string())
-                .with_context(|| {
-                    let ids: Vec<&str> = MODALITIES.iter().map(|(id, _)| *id).collect();
-                    format!("`{m}` is no way a deck is delivered: {}", ids.join(", "))
-                })?,
-        ),
+        Some(m) => Some(scaena_narrato::brief::modality(m).map_err(|e| anyhow!(e))?),
         None => None,
     };
     let topic = match (&a.prompt, &a.slides) {
@@ -746,12 +776,26 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     // What the costliest answers give is kept as it arrives, so a run that fails after them goes
     // on from it (narrative REL-2).
     let mut kept = Kept::new(dir, json);
+    let mut unresearched: Option<String> = None;
     if a.research {
         let key = key.as_deref().context("deep research asks a model: --slides makes no call")?;
-        let report = research(&brief, provider, &model, a.base.as_deref(), key, &agent, json)?;
-        kept.research(&report.text);
-        // Asked for last and the costliest, the report is packed first, so it is the last cut.
-        read.insert(0, report);
+        match research(&brief, provider, &model, a.base.as_deref(), key, &agent, json) {
+            Ok(report) => {
+                kept.research(&report.text);
+                // Asked for last and the costliest, the report is packed first, so it is the last cut.
+                read.insert(0, report);
+            }
+            // A research that fails goes on from the sources given, where they hold anything
+            // (lift-up 10-25b REL-4); with none, the deck would be grounded in nothing.
+            Err(e) if read.iter().any(|s| !s.text.trim().is_empty() || s.pdf.is_some()) => {
+                let why = stopped(&e.to_string());
+                if !json {
+                    eprintln!("{why}");
+                }
+                unresearched = Some(why);
+            }
+            Err(e) => return Err(e),
+        }
     }
     let grounding = scaena_ops::narrative::grounding(&read, provider)?;
     brief.source_content = grounding.content.clone();
@@ -776,6 +820,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
     generation.give_sources(scaena_ops::narrative::provenance(&grounding.given));
     match &a.slides {
+        // Slides written to an outline are read once it is settled, on its arc (lift-up 10-25c FUNC-1).
+        Some(_) if a.from_outline.is_some() => {}
         Some(path) => {
             generation.choose_arc(a.arc.as_deref());
             let text = written.as_deref().unwrap_or_default();
@@ -891,6 +937,11 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         if !json {
             eprintln!("outline: {} beats from {}", outline.beats.len(), path.display());
         }
+        kept.outline(&generation);
+        if let Some(slides) = &a.slides {
+            let text = written.as_deref().unwrap_or_default();
+            generation.written(text, false).map_err(|e| anyhow!("{}: {e}", slides.display()))?;
+        }
     }
     let (painting, unpictured) = match painter(&a, &agent)? {
         Pictures::By(settings, key, look) => (Some((settings, key, look)), None),
@@ -936,12 +987,22 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         (None, true) => Looking::No,
         (None, false) => Looking::Asked,
     };
+    let spoken = match &a.notes_answer {
+        Some(path) => Some(std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?),
+        None => None,
+    };
+    let noting = match (&spoken, a.no_notes) {
+        (Some(text), _) => Noting::Answered(text),
+        (None, true) => Noting::No,
+        (None, false) => Noting::Asked,
+    };
     let generated = scaena_ops::narrative::generate(
         generation,
         key.as_deref(),
         &grounding.documents,
         painter.as_ref(),
         looking,
+        noting,
         &theme.file,
         theme_text.clone(),
         &font,
@@ -968,6 +1029,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         let mut out = serde_json::to_value(&made)?;
         out["sources"] = serde_json::to_value(&grounding.given)?;
         out["data"] = serde_json::to_value(&sheets)?;
+        if let Some(why) = &unresearched {
+            out["unresearched"] = serde_json::Value::String(why.clone());
+        }
         if let Some(command) = &resume {
             out["resume"] = serde_json::Value::String(command.clone());
         }
@@ -996,6 +1060,18 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             (Some(why), false) => println!("  {why}"),
             (None, _) => {}
         }
+        if !made.noted.is_empty() {
+            println!("  notes written for the talk: {} slides", made.noted.len());
+        }
+        if let Some(why) = &made.unnoted {
+            println!("  notes not written for the talk: {why}");
+        }
+        // Where the deck sends its audience, so nobody is left not knowing it links anywhere
+        // (lift-up 20261025 SEC-4).
+        for l in &made.links {
+            let shown = l.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            println!("  linked: {shown} on slide {}", l.slide);
+        }
         // Each change let go, and what lint found (lift-up USE-4).
         for r in &made.refused {
             println!("  slide {} kept as made: the model asked for {}. {}", r.slide, r.what, r.why);
@@ -1005,6 +1081,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         for why in &made.unpictured {
             println!("  picture not made: {why}");
+        }
+        if let Some(why) = &unresearched {
+            println!("  {why}");
         }
         for g in &grounding.given {
             println!("  {}", given(g));
@@ -1026,4 +1105,30 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
     }
     Ok(if !made.created.created || made.created.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        a: GenerateArgs,
+    }
+
+    /// A run that kept slides written to an outline goes on from both (lift-up 10-25c FUNC-1).
+    #[test]
+    fn going_on_from_kept_slides_writes_them_to_the_kept_outline() {
+        let a = Cli::parse_from(["generate", "/d", "Tidewater", "--from-outline", "/mine.json"]).a;
+        let mut kept = Kept::new(Path::new("/d"), true);
+        kept.slides = Some(PathBuf::from("/d/.generating/slides.json"));
+        kept.outline = Some(PathBuf::from("/d/.generating/outline.json"));
+        kept.arc = Some("Problem\u{2013}Solution".into());
+        let resume = kept.resume(&a, Path::new("/d")).unwrap();
+        assert!(resume.contains("--slides /d/.generating/slides.json"), "{resume}");
+        assert!(resume.contains("--from-outline /d/.generating/outline.json"), "{resume}");
+        assert!(!resume.contains("/mine.json"), "{resume}");
+    }
 }

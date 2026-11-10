@@ -1,0 +1,36 @@
+{
+ "arc": "Learning Journey",
+ "bigIdea": "Read a paper in three passes, each with a question, and you understand it in an hour, not an evening.",
+ "beats": [
+  {
+   "name": "Orientation",
+   "claim": "Nobody reads a paper front to back.",
+   "slides": 3
+  },
+  {
+   "name": "Foundations",
+   "claim": "Each part of a paper answers one question, and you read it in three passes.",
+   "slides": 3
+  },
+  {
+   "name": "Application",
+   "claim": "Read the figures first, then try it on a real paper.",
+   "slides": 2
+  },
+  {
+   "name": "Mastery",
+   "claim": "Skim many papers, read few, and ask three questions of any result.",
+   "slides": 2
+  },
+  {
+   "name": "Assessment",
+   "claim": "You can now tell which part of a paper answers which question.",
+   "slides": 1
+  },
+  {
+   "name": "Transfer",
+   "claim": "Read Thursday's paper in two passes.",
+   "slides": 2
+  }
+ ]
+}

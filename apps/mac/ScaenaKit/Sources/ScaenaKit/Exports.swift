@@ -3,12 +3,14 @@ import Foundation
 /// What a deck is exported as (PLAN 3.8, 2.122): the PDF `scaena export` writes, or with the
 /// presenter's notes under each slide as `--notes` writes it; a state at rest as a PNG this many
 /// pixels wide; or every slide once its steps have played as PNGs in one zip, each named by its
-/// number after `name`.
+/// number after `name`; or the deck as one HTML file that plays offline, named `name`, as
+/// `--format html` writes it (lift-up 20261031 FUNC-3).
 public enum Export: Sendable, Equatable {
     case pdf
     case notes
     case png(state: String, width: Int)
     case slides(width: Int, name: String)
+    case html(name: String)
 }
 
 extension ScaenaSession.Snapshot {
@@ -25,6 +27,7 @@ extension ScaenaSession.Snapshot {
             case .notes: return try session.pdf(notes: true)
             case .png(let state, let width): return try session.png(state, width: width)
             case .slides(let width, let name): return try session.slides(width: width, name: name)
+            case .html(let name): return try session.html(name: name)
             }
         }
         try Task.checkCancellation()

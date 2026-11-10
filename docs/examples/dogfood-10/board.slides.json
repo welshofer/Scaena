@@ -1,0 +1,223 @@
+{
+ "executiveSummary": "Q3 FY26 revenue fell 11% to $19.6M as two enterprise customers left and churn doubled. We have cut $6M of run-rate cost, found the cause in onboarding, and ask the board to approve a $4M retention plan that returns us to growth by Q2 FY27.",
+ "slides": [
+  {
+   "slideTitle": "Q3 FY26: a hard quarter, and the plan to turn it",
+   "subtitle": "Board update · Calder Health · November 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- I will not soften this. Q3 was our worst quarter in three years.\n- I will show you why, what we have already done, and what we need from you.",
+   "beatIndex": 0,
+   "beatName": "Opposition",
+   "purpose": "Opens the update",
+   "intent": "Set an honest frame",
+   "expectedIntensity": 0.3,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Agenda",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "What happened in Q3",
+    "Why it happened",
+    "What we have already done",
+    "The plan, and what we ask of you"
+   ],
+   "speakerNotes": "- Four parts. Decisions at the end.",
+   "beatIndex": 0,
+   "beatName": "Opposition",
+   "purpose": "Sets the order",
+   "intent": "Orient the board",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.0
+  },
+  {
+   "slideTitle": "Revenue fell 11% this quarter, to $19.6M",
+   "subtitle": "Quarterly revenue, $M",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Our first decline in twelve quarters"
+   ],
+   "speakerNotes": "- $19.6M against $22.0M in Q2.\n- $1.9M of the drop is two enterprise accounts.",
+   "beatIndex": 1,
+   "beatName": "Escalation",
+   "purpose": "Shows the decline",
+   "intent": "State the problem plainly",
+   "expectedIntensity": 0.7,
+   "expectedValence": -0.7,
+   "chartData": {
+    "categories": [
+     "Q4 FY25",
+     "Q1 FY26",
+     "Q2 FY26",
+     "Q3 FY26"
+    ],
+    "series": [
+     {
+      "name": "Revenue",
+      "values": [
+       22.4,
+       23.1,
+       22.0,
+       19.6
+      ]
+     }
+    ],
+    "unit": "$M",
+    "sourceId": "board.csv"
+   },
+   "sourceRef": "board.csv"
+  },
+  {
+   "slideTitle": "Churn doubled in two quarters",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "4.2%",
+    "monthly logo churn in Q3, up from 2.1% in Q4 FY25"
+   ],
+   "speakerNotes": "- This is the number that matters most.\n- Every point of churn costs us about $2.6M a year.",
+   "beatIndex": 1,
+   "beatName": "Escalation",
+   "purpose": "Names the core problem",
+   "intent": "Make churn the story",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.8,
+   "supportingFacts": [
+    "board.csv"
+   ],
+   "sourceRef": "board.csv"
+  },
+  {
+   "slideTitle": "Margin and cash are falling with it",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "51%: gross margin, down 7 points in a year",
+    "$28.7M: cash, down $12.3M since Q4 FY25",
+    "14 months: runway at Q3's burn"
+   ],
+   "speakerNotes": "- Margin fell because we kept implementation staff while revenue fell.\n- Runway is 14 months if nothing changes. Things will change.",
+   "beatIndex": 1,
+   "beatName": "Escalation",
+   "purpose": "Shows the knock-on effects",
+   "intent": "Show the stakes",
+   "expectedIntensity": 0.8,
+   "expectedValence": -0.7,
+   "sourceRef": "board.csv"
+  },
+  {
+   "slideTitle": "We lost customers in their first 90 days",
+   "subtitle": "71% of Q3's churned accounts had not finished onboarding",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [],
+   "speakerNotes": "- We pulled every churned account.\n- Seven in ten never got through onboarding. It is not the product. It is how we start.",
+   "beatIndex": 2,
+   "beatName": "Turning Point",
+   "purpose": "The turn: the cause is found",
+   "intent": "Move from fear to understanding",
+   "expectedIntensity": 0.9,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Why onboarding broke",
+   "subtitle": "",
+   "layoutSuggestion": "Bullet List",
+   "keyBullets": [
+    "Implementation queue grew from 9 to 31 days",
+    "One onboarding lead for every 40 new accounts",
+    "No health check before go-live",
+    "Sales promised integrations we had not built"
+   ],
+   "speakerNotes": "- Each of these is fixable, and none needs new product.",
+   "beatIndex": 2,
+   "beatName": "Turning Point",
+   "purpose": "Explains the cause",
+   "intent": "Make the cause concrete",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "What we have already done",
+   "subtitle": "",
+   "layoutSuggestion": "Checklist",
+   "keyBullets": [
+    "Done: cut $6M of run-rate cost",
+    "Done: froze hiring outside onboarding",
+    "In progress: queue down to 14 days",
+    "Next: health check before go-live"
+   ],
+   "speakerNotes": "- We did not wait for this meeting. Cost is already out.",
+   "beatIndex": 3,
+   "beatName": "Resolution",
+   "purpose": "Shows action taken",
+   "intent": "Rebuild confidence",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Onboarding first, then growth",
+   "subtitle": "",
+   "layoutSuggestion": "Roadmap",
+   "keyBullets": [
+    "Now (Q4): queue under 10 days; onboarding team doubled; health checks live",
+    "Next (Q1 FY27): churn under 3%; win back the two lost accounts",
+    "Then (Q2 FY27): revenue growing again; margin back to 56%"
+   ],
+   "speakerNotes": "- Three steps. Each has a number we will report against.",
+   "beatIndex": 3,
+   "beatName": "Resolution",
+   "purpose": "Lays out the plan",
+   "intent": "Show a credible path",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Approve a $4M retention plan",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "$2.5M to double the onboarding team",
+    "$1.0M for the go-live health check",
+    "$0.5M for win-back offers to churned accounts"
+   ],
+   "speakerNotes": "- This is the decision we need today.\n- It keeps runway above 12 months.",
+   "beatIndex": 3,
+   "beatName": "Resolution",
+   "purpose": "The decision",
+   "intent": "Get approval",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Two risks we are watching",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Hiring: we may not fill 12 onboarding roles by January",
+    "Competition: Medora is pricing 20% under us in mid-market"
+   ],
+   "speakerNotes": "- If hiring slips, we pull in partners. If pricing bites, we hold price and sell outcomes.",
+   "beatIndex": 4,
+   "beatName": "Aftermath",
+   "purpose": "Names the risks",
+   "intent": "Be candid",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.1
+  },
+  {
+   "slideTitle": "Back to growth by Q2 FY27",
+   "subtitle": "Churn under 3% · runway above 12 months · revenue growing again",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- That is the turnaround. Questions.",
+   "beatIndex": 4,
+   "beatName": "Aftermath",
+   "purpose": "Closes on the outcome",
+   "intent": "Leave the board with the target",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  }
+ ]
+}

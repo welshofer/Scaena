@@ -16,10 +16,14 @@
 //   its steps have played (`mix` for the revenue slide), the width asked, within §13.5 of
 //   `scaena export --format png` of that state. The palette offers it too.
 // - The deck as a PDF, from the palette: the PDF's own module loads then, and not before, and the
-//   PDF is the one `scaena export --format pdf` writes, byte for byte; and with the presenter's
+//   PDF is the one `scaena export --format pdf` writes, byte for byte; a deck with no notes yet says
+//   so before a PDF with notes is made (editor dogfood 2); and with the presenter's
 //   notes, from Export…, the one `--notes` writes.
 // - The deck as one HTML file, from Export…: the one `scaena export --format html` writes, byte for
 //   byte. Opened from its address on disk with the network off, it plays.
+// - The deck as a movie, from Export… (lift-up 20261031 FUNC-2): its width and frames a second asked,
+//   the timeline the CLI's video plays encoded by the browser's own encoder as a WebM, which the
+//   browser plays back at the size asked; a browser with no encoder says so and offers nothing.
 // - A right click on a state in the strip offers Export it as a PNG…, which opens Export… on it.
 // - A source that does not compile is not exported: the status says why, and nothing downloads.
 // Exits 1 on any failure.
@@ -93,10 +97,12 @@ try {
     `Export… opens on a PNG of the state shown, 1920 wide, its pixels said (${JSON.stringify(opened)})`,
   );
   check(/^Slide \d+(, step \d+)?: 1920 × 1080 pixels\.$/.test(opened.note), `the note names the slide as a person counts it, and no painter: ${opened.note}`);
-  for (const as of ["pdf", "html", "png"]) {
+  for (const as of ["pdf", "html", "movie", "png"]) {
     await page.check(`#exporting input[name=as][value=${as}]`);
     const shown = await page.locator("#exporting-size").isVisible();
-    check(shown === (as === "png"), `the width is ${as === "png" ? "shown for a PNG" : `not shown for ${as.toUpperCase()}`}`);
+    const sized = as === "png" || as === "movie";
+    check(shown === sized, `the width is ${sized ? `shown for ${as === "png" ? "a PNG" : "a movie"}` : `not shown for ${as.toUpperCase()}`}`);
+    check((await page.locator("#exporting-rate").isVisible()) === (as === "movie"), `frames a second are ${as === "movie" ? "asked for a movie" : `not asked for ${as}`}`);
   }
   await axeInto(page);
   const violations = await page.evaluate(async () => (await window.axe.run(document.querySelector("#exporting"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] })).violations);
@@ -237,6 +243,36 @@ try {
   await page.keyboard.press("Escape");
   check(notCarried, "the notes asked for a PDF are not carried over to a single file");
 
+  // The deck as a movie, from Export… (lift-up 20261031 FUNC-2): the timeline as the CLI's video
+  // plays it, encoded here, a WebM that the browser's own player reads back, as long as the deck.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=movie]");
+  await page.fill("#exporting-width", "320");
+  await page.selectOption("#exporting-fps", "24");
+  const movieNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  const canEncode = await page.evaluate(() => typeof VideoEncoder !== "undefined");
+  if (!canEncode) {
+    check(movieNote.startsWith("This browser cannot encode a movie") && (await page.locator("#exporting-go").isDisabled()), `with no encoder, it says so and offers nothing: ${movieNote}`);
+    await page.keyboard.press("Escape");
+  } else {
+    check(movieNote.includes("320 × 180 pixels, 24 frames a second, VP9 in WebM"), `the note says the movie's size and rate: ${movieNote}`);
+    const film = await downloaded(() => page.click("#exporting-go"));
+    check(film.name === "revenue.webm" && film.bytes.readUInt32BE(0) === 0x1a45dfa3 && film.bytes.includes(Buffer.from("webm")), `Export downloads ${film.name}, a WebM, ${film.bytes.length} B`);
+    check((await status()).startsWith(`Downloaded ${film.name}`), `the status says what was downloaded: ${await status()}`);
+    const played = await page.evaluate(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const video = document.createElement("video");
+      video.muted = true;
+      video.src = URL.createObjectURL(new Blob([bytes], { type: "video/webm" }));
+      await new Promise((ok, no) => {
+        video.onloadeddata = ok;
+        video.onerror = () => no(new Error(video.error?.message ?? "the movie did not load"));
+      });
+      return { width: video.videoWidth, height: video.videoHeight, duration: video.duration };
+    }, film.bytes.toString("base64"));
+    check(played.width === 320 && played.height === 180 && played.duration > 1, `the browser plays it back, ${played.width} × ${played.height}, ${played.duration} s`);
+  }
+
   // A right click on a state in the strip.
   const li = page.locator(`#strip li[data-state="${state}"]`);
   await li.click({ button: "right" });
@@ -257,6 +293,23 @@ try {
   const refused = await page.evaluate(() => window.scaena.exportAs("pdf"));
   check(refused === undefined && downloads === 0 && (await status()).startsWith("Not exported: the source does not compile"), `a source that does not compile is not exported: ${await status()}`);
   await page.evaluate((s) => window.scaena.type(s), source);
+
+  // A deck with no notes yet: a PDF with notes is said, before it is made, to hold each slide
+  // alone, drawn smaller (editor dogfood 2).
+  const bare = await context.newPage();
+  await bare.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/stock.deck.json`);
+  await bare.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+  await bare.click("#export");
+  await bare.check("#exporting input[name=as][value=pdf]");
+  await bare.check("#exporting-with-notes");
+  const unnoted = await bare
+    .waitForFunction(() => document.querySelector("#exporting-note").textContent.startsWith("No slide has notes yet"), null, { timeout: 30000 })
+    .then(() => true, () => false);
+  check(unnoted, `a deck with no notes says so before a PDF with notes is made: ${await bare.textContent("#exporting-note")}`);
+  await bare.uncheck("#exporting-with-notes");
+  const plain = await bare.textContent("#exporting-note");
+  check(plain.startsWith("A page for each slide at its last state: vector paths"), `unchecked, the note is the plain PDF's again: ${plain}`);
+  await bare.close();
 } finally {
   await browser.close();
   server.close();

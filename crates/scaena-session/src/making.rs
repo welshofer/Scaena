@@ -104,6 +104,13 @@ impl Making {
         scaena_ops::narrative::drawn(write, width).map_err(ops)
     }
 
+    /// The slides `slides` names by index, drawn as [`Making::drawn`] draws each: a round of the
+    /// look, drawn while the one before is asked (lift-up 10-25 PERF-5).
+    pub fn drawn_in(&self, width: u32, slides: std::ops::Range<usize>) -> Result<Vec<Picture>, Error> {
+        let Some(write) = &self.write else { return Ok(Vec::new()) };
+        scaena_ops::narrative::drawn_in(write, width, slides).map_err(ops)
+    }
+
     /// The `index`th slide, whole at its last state, drawn `width` pixels wide, at rest, by the
     /// CPU painter: what a page makes a JPEG of for the model to see (PLAN G.13).
     #[cfg(feature = "cpu")]
@@ -200,6 +207,27 @@ impl Making {
     /// The rewrite failed: why, which the deck made says.
     pub fn unfitted(&mut self, why: String) {
         self.made.unfitted = Some(why);
+    }
+
+    /// Each slide as the model is asked to speak it, with the words its notes are to run to
+    /// (lift-up 10-25 ATTR-2): what `Generation::notes_request` takes; none where the deck would
+    /// not validate.
+    pub fn speaking(&self) -> Result<Vec<scaena_narrato::notes::Spoken>, Error> {
+        let Some(write) = &self.write else { return Ok(Vec::new()) };
+        scaena_ops::narrative::speaking(&write.deck).map_err(ops)
+    }
+
+    /// The notes the model wrote for the talk, each a slide's number from 1 and its words, set as
+    /// its beat's notes, the beat's time counted again from them.
+    pub fn noted(&mut self, written: Vec<(usize, String)>) -> Result<(), Error> {
+        let Some(write) = self.write.take() else { return Ok(()) };
+        self.write = Some(scaena_ops::narrative::noted(&mut self.made, write, written).map_err(ops)?);
+        Ok(())
+    }
+
+    /// The notes were not written for the talk, or some slides' not: why, which the report says.
+    pub fn unnoted(&mut self, why: String) {
+        self.made.unnoted = Some(why);
     }
 
     /// What still runs past its place once the last rewrite is set, which the deck made says

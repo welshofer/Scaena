@@ -101,6 +101,22 @@ private func playing(_ editor: DeckEditor) -> [String] {
     var on = Rehearsal(slots: Array(slots.prefix(1)), at: began)
     on.go(1, at: began + .milliseconds(450))
     #expect(!on.running && on.kept.first?.keeps == 100)
+
+    // From the slide shown, paused for a call: the pause counts toward neither the slide nor the
+    // whole, and only the slides rehearsed keep a time (lift-up 10-25b USE-2).
+    var here = Rehearsal(slots: slots, from: 1, at: began)
+    #expect(here.state == "b")
+    here.pause(at: began + .milliseconds(1000))
+    #expect(here.paused && here.here(at: began + .milliseconds(60000)) == 1000)
+    here.pause(at: began + .milliseconds(60000))
+    #expect(!here.paused)
+    here.go(1, at: began + .milliseconds(61500))
+    #expect(here.state == "c")
+    here.pause(at: began + .milliseconds(62000))
+    here.go(1, at: began + .milliseconds(90000))
+    #expect(!here.running && !here.paused && here.total() == 3000)
+    #expect(here.kept.map(\.keeps) == [nil, 2500, 100])
+    #expect(Rehearsal(slots: slots, from: 9).state == "a", "a place past the end begins at the first")
 }
 
 /// The cue's bars (PLAN 2.44, 3.14), as the browser's: a motion's start and end dragged, each a
@@ -295,4 +311,44 @@ private func playing(_ editor: DeckEditor) -> [String] {
     #expect(rehearsal.current?.text.hasPrefix("Pause on the Q3 bar before the build.") == true, "its beat's")
     // Given none, it shows none.
     #expect(Rehearsal(slots: slots).current == nil)
+}
+
+/// A rehearsal says each slide's time against the time the talk planned for it, from its beat's
+/// plan, the whole against the plan of the slides rehearsed, and the slides furthest over; with no
+/// plan, times alone (lift-up 20261110 FUNC-1).
+@Test func aRehearsalComparesEachSlideWithItsPlan() throws {
+    let slots = try JSONDecoder().decode(
+        [ScaenaSession.Slot].self,
+        from: Data(
+            #"""
+            [{"state": "a", "slide": "a", "start": 0, "span": 0, "hold": 0,
+              "story": {"claim": "Why", "planned": 60, "before": 0}},
+             {"state": "b", "slide": "b", "start": 0, "span": 0, "hold": 0,
+              "story": {"claim": "Why", "planned": 60, "before": 20}},
+             {"state": "c", "slide": "c", "start": 0, "span": 0, "hold": 0,
+              "story": {"claim": "How", "planned": 30, "before": 60}},
+             {"state": "d", "slide": "d", "start": 0, "span": 0, "hold": 0}]
+            """#.utf8))
+    let began = ContinuousClock.now
+    var rehearsal = Rehearsal(slots: slots, at: began)
+    #expect(rehearsal.planned(0) == 20_000, "to the next state of its beat")
+    #expect(rehearsal.planned(1) == 40_000, "to the end of its beat's plan")
+    #expect(rehearsal.planned(2) == 30_000)
+    #expect(rehearsal.planned(3) == nil, "a beat with no plan plans nothing")
+    rehearsal.go(1, at: began + .seconds(25))
+    rehearsal.go(1, at: began + .seconds(55))
+    rehearsal.go(1, at: began + .seconds(100))
+    rehearsal.stop(at: began + .seconds(110))
+    #expect(rehearsal.kept.map(\.over) == [5_000, -10_000, 15_000, nil])
+    let plan = try #require(rehearsal.againstPlan)
+    #expect(plan.taken == 100_000 && plan.planned == 90_000, "the slides with a plan, against it")
+    #expect(rehearsal.furthestOver == ["c", "a"], "those over their plan, the furthest first")
+
+    // With no plan, nothing to compare against.
+    let unplanned = try JSONDecoder().decode(
+        [ScaenaSession.Slot].self,
+        from: Data(#"[{"state": "a", "slide": "a", "start": 0, "span": 0, "hold": 0}]"#.utf8))
+    var alone = Rehearsal(slots: unplanned, at: began)
+    alone.stop(at: began + .seconds(5))
+    #expect(alone.againstPlan == nil && alone.furthestOver.isEmpty && alone.kept.first?.planned == nil)
 }

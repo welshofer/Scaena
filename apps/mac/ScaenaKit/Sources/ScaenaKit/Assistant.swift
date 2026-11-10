@@ -120,11 +120,28 @@ public final class Assistant {
     public private(set) var working = false {
         didSet { editor.assisting = working }
     }
+    /// Whether the last answer edited the deck: one step of the window's undo, which Undo This
+    /// Answer takes back (lift-up 10-25 FUNC-4).
+    public private(set) var answered = false
+    /// Bumped by each piece of an answer heard as it is written: what the panel follows it by
+    /// (lift-up 10-25c ATTR-3), the last entry growing in place.
+    public private(set) var spoken = 0
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
-    /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
+    /// A question another panel drafted for the user to send (the story's, PLAN G.9), or one the
+    /// assistant gave back, refused or stopped before any answer (lift-up 20261110 USE-2): the
     /// assistant's panel takes it into its box, and it is gone from here.
     public var drafted: String?
+
+    /// The question box's `draft` with `question` put in it (lift-up 20261110 deferred): a draft
+    /// kept, the question after it past a blank line, and a question already there not put there
+    /// again, as the browser's Story asks.
+    public static func drafting(_ draft: String, with question: String) -> String {
+        var kept = draft
+        while kept.last?.isWhitespace == true { kept.removeLast() }
+        if kept.isEmpty { return question }
+        return kept.contains(question) ? kept : kept + "\n\n" + question
+    }
     /// Why the provider is being asked again, and when, while it is (narrative REL-3): "Anthropic
     /// is busy. Trying again in 4 s (2 of 3)…"; none while nothing waits.
     public private(set) var waiting: String?
@@ -135,9 +152,12 @@ public final class Assistant {
     public var silence: TimeInterval = 120
     /// The waits before asking again, in seconds; a test shortens them.
     public var waits: [TimeInterval] = [2, 4, 8]
-    /// Hears each change the assistant makes to the deck: the source it replaced and the files it
-    /// wrote beside the deck, for an undo.
+    /// Hears what an answer changed in the deck, once it ends (lift-up 10-25 FUNC-4): the source
+    /// as it was asked and each file its calls wrote beside the deck, as the answer found it and
+    /// left it, for one step of undo however many calls edited.
     @ObservationIgnored public var edited: (_ before: String, _ files: [Rewritten]) -> Void = { _, _ in }
+    /// What the answer being given has changed so far.
+    @ObservationIgnored private var answer: (before: String, files: [Rewritten])?
     /// The Geoapify key `map_fetch` fetches a map with (ADR-0030, PLAN O.1d): the Keychain's.
     @ObservationIgnored public var mapKey: () -> String? = { Keychain().geoapify }
     /// How `map_fetch` makes each of Geoapify's requests: `URLSession` in the app.
@@ -151,6 +171,9 @@ public final class Assistant {
     @ObservationIgnored private var counted = 0
     /// The entry the answer being written goes into, until it is whole (narrative ATTR-3).
     @ObservationIgnored private var saying: Int?
+    /// The question being answered, as the person typed it: given back to the box where no answer
+    /// to it came (lift-up 20261110 USE-2).
+    @ObservationIgnored private var asked: String?
 
     /// The assistant on `editor`'s deck, its requests made by `stream`, which reads each answer as
     /// it is written (narrative ATTR-3), else by `send`, which reads it whole: `URLSession`'s in
@@ -200,16 +223,39 @@ public final class Assistant {
             try chat.ask(text, seeing: seeing, on: editor.session)
         } catch {
             add(.failed(Why.said(error, of: provider)))
+            // Never asked: the words go back to the box to send again (lift-up 20261110 USE-2).
+            drafted = text
             return
         }
+        asked = text
         add(.question(text))
         working = true
+        answered = false
         asking = Task { await converse(key: key) }
     }
 
     /// Stop the question being answered: a call not yet run is answered as stopped.
     public func stop() {
         asking?.cancel()
+    }
+
+    /// The last answer taken back by the window's undo: there is none to take back now.
+    public func answerUndone() {
+        answered = false
+    }
+
+    /// A call's edit, gathered into the answer's: the source as the answer found it, and each file
+    /// with its text as the answer found it and as this call left it.
+    private func gather(_ before: String, _ files: [Rewritten]) {
+        var made = answer ?? (before: before, files: [])
+        for file in files {
+            if let at = made.files.firstIndex(where: { $0.path == file.path }) {
+                made.files[at] = Rewritten(path: file.path, before: made.files[at].before, after: file.after)
+            } else {
+                made.files.append(file)
+            }
+        }
+        answer = made
     }
 
     /// Start again: the next question is the first.
@@ -236,6 +282,12 @@ public final class Assistant {
     /// The model asked, and each call it makes run, until it answers.
     private func converse(key: String) async {
         defer {
+            // The answer's edits, stopped or not, one step of undo.
+            if let made = answer {
+                answer = nil
+                edited(made.before, made.files)
+                answered = true
+            }
             working = false
             asking = nil
         }
@@ -253,7 +305,10 @@ public final class Assistant {
                     if refusal.tooLong, try chat.shorter() { continue }
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
+                    // The question no answer joined is taken back, so asked again it is one
+                    // (lift-up 20261110 STAB-3).
                     unsaid()
+                    takeBack(chat)
                     add(.failed(refusal.said))
                     return
                 }
@@ -282,7 +337,7 @@ public final class Assistant {
                         }
                         entries[at].kind = .call(name: call.name, args: call.args, ran: ran)
                         if ran.edited || !ran.rewritten.isEmpty, let before = editor.reread() {
-                            edited(before, ran.rewritten)
+                            gather(before, ran.rewritten)
                         }
                     }
                     guard try chat.next() else {
@@ -296,7 +351,17 @@ public final class Assistant {
         } catch let error as URLError where error.code == .cancelled {
             settle(chat)
         } catch {
-            if Task.isCancelled { settle(chat) } else { add(.failed(Why.said(error, of: chat.provider))) }
+            if Task.isCancelled {
+                settle(chat)
+            } else {
+                // A failure mid-round: every call of the answer answered, those not run as not run,
+                // so the next question is not refused for a call left without its result; and a
+                // question no answer joined taken back (lift-up 20261110 STAB-3).
+                unsaid()
+                _ = try? chat.next()
+                takeBack(chat)
+                add(.failed(Why.said(error, of: chat.provider)))
+            }
         }
     }
 
@@ -490,6 +555,7 @@ public final class Assistant {
         } else {
             saying = add(.said(words))
         }
+        spoken += 1
     }
 
     /// The answer's words, whole: in the entry they were written into, or a new one.
@@ -508,11 +574,20 @@ public final class Assistant {
         saying = nil
     }
 
-    /// A question stopped: every call of the last answer answered, as stopped where it never ran.
+    /// A question stopped: every call of the last answer answered, as stopped where it never ran,
+    /// and one stopped before any answer taken back (lift-up 20261110 STAB-3).
     private func settle(_ chat: ScaenaChat) {
         saying = nil
         _ = try? chat.next()
+        takeBack(chat)
         add(.done("stopped"))
+    }
+
+    /// The question asked last taken back from the conversation, where no answer to it joined it:
+    /// its words given back to the box (lift-up 20261110 STAB-3, USE-2).
+    private func takeBack(_ chat: ScaenaChat) {
+        if chat.takeBack(), let asked { drafted = asked }
+        asked = nil
     }
 
     private func count(_ used: Usage?) {
@@ -520,12 +595,35 @@ public final class Assistant {
         usage = Usage(input: usage.input + used.input, output: usage.output + used.output)
     }
 
-    /// Add `kind` to the conversation shown: where it stands.
+    /// Add `kind` to the conversation shown: where it stands. An answer done, or failed, is said
+    /// to VoiceOver, as the browser's transcript, a live region, says it (lift-up 10-25c USE-1).
     @discardableResult
     private func add(_ kind: Entry.Kind) -> Int {
         counted += 1
         entries.append(Entry(id: counted, kind: kind))
+        switch kind {
+        case .done(let why): Spoken.say(Self.stopped(why) ?? "The assistant has answered.")
+        case .failed(let why): Spoken.say(why, urgent: true)
+        default: break
+        }
         return entries.count - 1
+    }
+
+    /// Why an answer stopped, in a person's words, where it did not simply end: `stopped`,
+    /// `steps`, `length`, `refused`, or the provider's own reason. None where it ended as answers
+    /// do.
+    nonisolated public static func stopped(_ why: String) -> String? {
+        switch why {
+        case "end", "tools": nil
+        case "stopped": "Stopped."
+        case "steps": "Stopped after 32 rounds of calls: ask again to go on."
+        case "length": "The answer ran out of room."
+        // Said as what it is, as the browser says it, so the same ask is not paid for again
+        // (lift-up 20261025c REL-1).
+        case "refused": "The model declined to answer that. Ask in other words."
+        // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
+        default: "The model stopped."
+        }
     }
 }
 

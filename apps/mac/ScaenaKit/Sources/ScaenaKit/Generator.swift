@@ -1,5 +1,6 @@
 import CScaena
 import Foundation
+import Synchronization
 import os
 
 private let generatingLog = Logger(subsystem: "com.welshofer.Scaena", category: "generating")
@@ -149,6 +150,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case researching(String)
     case researchingNow(String)
     case researched(sources: Int, cut: Bool)
+    /// A research that failed, the deck going on from the sources given (lift-up 10-25b REL-4).
+    case unresearched(String)
     case choosing
     case chose(arc: String, fallback: String?)
     /// The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -159,19 +162,41 @@ public enum GeneratingStep: Equatable, Sendable {
     /// The outline, twice unreadable, passed over (lift-up REL-3).
     case unoutlined
     case writing(slides: Int)
+    /// The answer was cut short after `written` slides: the rest is asked for (lift-up REL-2).
+    case continuing(written: Int, slides: Int)
+    /// The rest did not come back, and why: the deck is made of the slides written before it.
+    case unrested(why: String)
     case retrying(seconds: Double, tried: Int)
     case wrote(slides: Int, truncated: Bool)
     case painting(pictures: Int, model: String)
     case painted(pictures: Int, unmade: [String])
     case making
     case looking(slides: Int)
+    /// The model's answers read for this many of the look's rounds of all of them (lift-up
+    /// 20261110 ATTR-1), so the longest wait says how far it has come.
+    case lookedAt(round: Int, of: Int)
     case looked(slides: Int)
     case unlooked(String)
+    /// Each slide's speaker notes asked to be written for the talk, then these many taken, or
+    /// why some were not (lift-up 10-25 ATTR-2).
+    case noting(slides: Int)
+    case noted(slides: Int)
+    case unnoted(String)
     /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     case refused(slide: Int, what: String, why: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
+
+    /// How long a step has run, as the line it is on says it: "12 s", "1 min 20 s", "2 h 5 min"
+    /// (lift-up 20261110 ATTR-1).
+    public static func elapsed(_ seconds: TimeInterval) -> String {
+        let whole = max(0, Int(seconds))
+        let (h, m, s) = (whole / 3600, whole / 60 % 60, whole % 60)
+        if h > 0 { return m > 0 ? "\(h) h \(m) min" : "\(h) h" }
+        if m > 0 { return s > 0 ? "\(m) min \(s) s" : "\(m) min" }
+        return "\(s) s"
+    }
 
     /// What it says, in a person's words.
     public var words: String {
@@ -187,6 +212,8 @@ public enum GeneratingStep: Equatable, Sendable {
         case .researching(let topic): "Researching \(topic)… (minutes)"
         case .researchingNow(let doing): doing
         case .researched(let sources, let cut): "Researched: \(sources) sources\(cut ? ", cut short" : "")"
+        case .unresearched(let why):
+            "Research stopped: \(why.hasSuffix(".") ? String(why.dropLast()) : why). The deck is grounded in what you gave."
         case .choosing: "Choosing the arc…"
         case .chose(let arc, let fallback):
             fallback.map { "Arc: \(arc), the heuristic's (\($0))" } ?? "Arc: \(arc)"
@@ -195,6 +222,9 @@ public enum GeneratingStep: Equatable, Sendable {
         case .settled(let beats): "Outline settled: \(beats) beats"
         case .unoutlined: "Writing the slides without an outline"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
+        case .continuing(let written, let slides):
+            "The answer was cut short after \(written) slides: asking for the rest of \(slides)…"
+        case .unrested(let why): "The rest of the slides did not come back: \(why)"
         case .retrying(let seconds, let tried):
             "The provider is busy or did not answer: asking again in \(Int(seconds.rounded())) s (try \(tried + 1) of 6)…"
         case .wrote(let slides, let truncated): "\(slides) slides written\(truncated ? ", the answer cut short" : "")"
@@ -203,9 +233,13 @@ public enum GeneratingStep: Equatable, Sendable {
         case .painted(let pictures, let unmade): "\(pictures) pictures made; not made: \(unmade.joined(separator: "; "))"
         case .making: "Making the deck in the theme…"
         case .looking(let slides): "Showing the model the \(slides) slides as drawn…"
+        case .lookedAt(let round, let of): "The model has looked at round \(round) of \(of)"
         case .looked(let slides) where slides == 0: "The model saw nothing to change"
         case .looked(let slides): "\(slides) \(slides == 1 ? "slide" : "slides") changed by what the model saw"
         case .unlooked(let why): "Not changed by what the model saw: \(why)"
+        case .noting(let slides): "Writing the \(slides) slides' notes for the talk…"
+        case .noted(let slides): "\(slides) \(slides == 1 ? "slide's" : "slides'") notes written for the talk"
+        case .unnoted(let why): "Notes not written for the talk: \(why)"
         case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
@@ -233,6 +267,15 @@ public struct Generated: Decodable, Sendable {
     /// What the model changed on the deck it saw drawn (PLAN G.13), slide by slide, or why not.
     public let looked: [Looked]?
     public let unlooked: String?
+    /// Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4).
+    public let links: [Linked]?
+
+    /// An address the deck links: the slide that first shows it, and where it goes.
+    public struct Linked: Decodable, Sendable {
+        public let slide: Int
+        public let href: String
+    }
+
     /// Each change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     public let refused: [Refused]?
 
@@ -256,7 +299,13 @@ public struct Generated: Decodable, Sendable {
         let made = pictures.map { $0 == 0 ? "" : ", \($0) \($0 == 1 ? "picture" : "pictures")" } ?? ""
         let seen = (looked?.count).map { $0 == 0 ? "" : ", \($0) changed by what the model saw" } ?? ""
         let letGo = (refused?.count).map { $0 == 0 ? "" : ", \($0) of its changes let go" } ?? ""
-        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(letGo)\(errors)"
+        let linked = (links ?? []).map { link in
+            let shown = link.href.replacingOccurrences(of: "mailto:", with: "")
+                .replacingOccurrences(of: "https://", with: "")
+            return "\(shown) on slide \(link.slide)"
+        }
+        let said = linked.isEmpty ? "" : ". Linked: " + linked.joined(separator: "; ")
+        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(letGo)\(errors)\(said)"
     }
 }
 
@@ -268,11 +317,22 @@ public struct GeneratorRequest: Decodable, Sendable {
     public let headers: [String: String]
     public let body: String?
     public let most: Int?
+    /// Whether it may reach only the public internet: a web source's GET (lift-up 10-24b SEC-3),
+    /// which ``GeneratorReply/made(_:by:)`` holds to the address each of its transactions
+    /// connected to, and never answers from a cache. The client sets it; the engine's requests
+    /// come without it.
+    public var reachesPublic = false
+
+    enum CodingKeys: String, CodingKey {
+        case method, url, headers, body, most
+    }
 
     /// The request as `URLSession` makes it. A model may think for minutes before it answers.
     public func urlRequest() throws -> URLRequest {
         guard let address = URL(string: url) else { throw ScaenaError(message: "\(url) is no address") }
         var request = URLRequest(url: address, timeoutInterval: 900)
+        // A cached answer was connected to by no one now: it says nothing of where the host is.
+        if reachesPublic { request.cachePolicy = .reloadIgnoringLocalCacheData }
         request.httpMethod = method
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -297,15 +357,19 @@ public struct GeneratorReply: Sendable {
     }
 
     /// `request` made by `URLSession`: status 0 where it never came back, saying why. A redirect is
-    /// followed only where ``follows(_:)`` lets it, else answered as it came.
+    /// followed only where ``follows(_:)`` lets it, else answered as it came. One that may reach
+    /// only the public internet (``GeneratorRequest/reachesPublic``) is answered with status 0
+    /// unless every address it connected to, each redirect's among them, is one the public
+    /// internet reaches, whatever its host resolved to when it was checked (lift-up 10-24b SEC-3).
     public static func made(_ request: GeneratorRequest, by session: URLSession = .shared) async -> GeneratorReply {
+        let held = Held()
         do {
             let (data, response): (Data, URLResponse)
             if let most = request.most {
                 // A source's body read no further than its plan's `most`, as it arrives: a page or a
                 // redirect a person names can stream gigabytes, and the app would run out of memory
                 // before a check after the whole (the 20261024 plan's SEC-2), as the CLI reads it.
-                let (bytes, answered) = try await session.bytes(for: try request.urlRequest(), delegate: Redirects())
+                let (bytes, answered) = try await session.bytes(for: try request.urlRequest(), delegate: held)
                 let tooMuch = GeneratorReply(
                     status: 0, kind: "", body: Data("\(request.url) answered with more than \(most >> 20) MB".utf8))
                 if answered.expectedContentLength > Int64(most) {
@@ -322,7 +386,14 @@ public struct GeneratorReply: Sendable {
                 }
                 (data, response) = (read, answered)
             } else {
-                (data, response) = try await session.data(for: try request.urlRequest(), delegate: Redirects())
+                (data, response) = try await session.data(for: try request.urlRequest(), delegate: held)
+            }
+            // Read from where it connected, not where its name pointed when it was checked: an
+            // answer from this machine or its network is let go unread.
+            if request.reachesPublic, !(await held.reachedPublic()) {
+                return GeneratorReply(
+                    status: 0, kind: "",
+                    body: Data("\(request.url) was answered from this machine or its network: a web source is a public address".utf8))
             }
             let http = response as? HTTPURLResponse
             return GeneratorReply(
@@ -349,63 +420,110 @@ public struct GeneratorReply: Sendable {
         return host.contains(".") && !numbers && host != "localhost" && !host.hasSuffix(".localhost")
     }
 
-    /// Whether `host` resolves only to addresses the public internet reaches, as
+    /// Whether `host` resolves, and only to addresses the public internet reaches, as
     /// `scaena_sources::fetch::reached` holds them (lift-up 10-24b SEC-3): a public name may
-    /// resolve to this machine or its network (`127.0.0.1.nip.io`). A host that does not resolve
-    /// passes: its request fails on its own. It blocks while the name is looked up.
+    /// resolve to this machine or its network (`127.0.0.1.nip.io`). A host that does not resolve,
+    /// or resolves to nothing, is refused too, so a failed look-up never lets a request by. It
+    /// blocks while the name is looked up. `URLSession` looks the name up again as it connects, so
+    /// a request that may reach only the public internet is held again to the address it
+    /// connected to (``made(_:by:)``).
     public static func resolvesPublic(_ host: String) -> Bool {
         var hints = addrinfo()
         hints.ai_socktype = SOCK_STREAM
         var found: UnsafeMutablePointer<addrinfo>?
         let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        guard getaddrinfo(bare, nil, &hints, &found) == 0, let first = found else { return true }
+        guard getaddrinfo(bare, nil, &hints, &found) == 0, let first = found else { return false }
         defer { freeaddrinfo(first) }
         var each: UnsafeMutablePointer<addrinfo>? = first
         while let node = each {
-            if let address = node.pointee.ai_addr, !reached(address) { return false }
+            guard let address = node.pointee.ai_addr, reached(address) else { return false }
             each = node.pointee.ai_next
         }
         return true
     }
 
-    /// Whether the public internet reaches `address`, an IPv4 or IPv6 one.
+    /// Whether the public internet reaches `address`, an IPv4 or IPv6 one; no other kind.
     private static func reached(_ address: UnsafeMutablePointer<sockaddr>) -> Bool {
         switch Int32(address.pointee.sa_family) {
         case AF_INET:
             let v4 = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
             return reached(v4: withUnsafeBytes(of: v4) { Array($0) })
         case AF_INET6:
-            let b = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { p in
-                withUnsafeBytes(of: p.pointee.sin6_addr) { Array($0) }
-            }
-            // An IPv4 address mapped into IPv6 is that address.
-            if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xff && b[11] == 0xff { return reached(v4: Array(b[12...])) }
-            let loopback = b[0..<15].allSatisfy { $0 == 0 } && b[15] == 1
-            let unspecified = b.allSatisfy { $0 == 0 }
-            let multicast = b[0] == 0xff
-            let local = (b[0] & 0xfe) == 0xfc || (b[0] == 0xfe && (b[1] & 0xc0) == 0x80)
-            return !(loopback || unspecified || multicast || local)
+            let v6 = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+            return reached(v6: withUnsafeBytes(of: v6) { Array($0) })
         default:
             return false
         }
     }
 
-    /// Whether the public internet reaches the IPv4 address of bytes `b`, in order.
+    /// Whether the public internet reaches `address` as `URLSessionTaskTransactionMetrics` writes
+    /// the one a request connected to: IPv4 or IPv6, in brackets or not, a zone after it or not.
+    /// One that reads as neither is not reached.
+    static func reached(address: String) -> Bool {
+        var bare = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if let zone = bare.firstIndex(of: "%") { bare = String(bare[..<zone]) }
+        var v4 = in_addr()
+        if inet_pton(AF_INET, bare, &v4) == 1 { return reached(v4: withUnsafeBytes(of: v4) { Array($0) }) }
+        var v6 = in6_addr()
+        if inet_pton(AF_INET6, bare, &v6) == 1 { return reached(v6: withUnsafeBytes(of: v6) { Array($0) }) }
+        return false
+    }
+
+    /// Whether the public internet reaches the IPv4 address of bytes `b`, in order: not this
+    /// network (`0/8`), a private one, a loopback, link-local, or shared (`100.64/10`) address,
+    /// the IETF's own (`192.0.0/24`), a benchmark's (`198.18/15`), documentation's, multicast,
+    /// or reserved (`240/4`, the broadcast address among them).
     static func reached(v4 b: [UInt8]) -> Bool {
+        guard b.count == 4 else { return false }
         let isPrivate = b[0] == 10 || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168)
         let documentation =
             (b[0] == 192 && b[1] == 0 && b[2] == 2) || (b[0] == 198 && b[1] == 51 && b[2] == 100)
             || (b[0] == 203 && b[1] == 0 && b[2] == 113)
         let shared = b[0] == 100 && (64..<128).contains(b[1])
-        let reserved =
-            b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || (224...239).contains(b[0])
-            || b == [255, 255, 255, 255]
-        return !(isPrivate || documentation || shared || reserved)
+        let assigned = (b[0] == 192 && b[1] == 0 && b[2] == 0) || (b[0] == 198 && (18...19).contains(b[1]))
+        let reserved = b[0] == 0 || b[0] == 127 || (b[0] == 169 && b[1] == 254) || b[0] >= 224
+        return !(isPrivate || documentation || shared || assigned || reserved)
+    }
+
+    /// Whether the public internet reaches the IPv6 address of bytes `b`, in order. One that
+    /// carries an IPv4 address is held as that address: mapped (`::ffff:a.b.c.d`), compatible
+    /// (`::a.b.c.d`, the unspecified and loopback addresses among them), behind NAT64's
+    /// well-known prefix (`64:ff9b::/96`), or 6to4's (`2002::/16`). The rest of `64:ff9b::/32`,
+    /// NAT64's for local use, is not reached, nor a unique local (`fc00::/7`), link-local
+    /// (`fe80::/10`), or site-local (`fec0::/10`) address, multicast (`ff00::/8`), or
+    /// documentation's (`2001:db8::/32`).
+    static func reached(v6 b: [UInt8]) -> Bool {
+        guard b.count == 16 else { return false }
+        let zeros = { (range: Range<Int>) -> Bool in b[range].allSatisfy { $0 == 0 } }
+        let v4 = Array(b[12...])
+        if zeros(0..<10) && b[10] == 0xff && b[11] == 0xff { return reached(v4: v4) }
+        if zeros(0..<12) { return reached(v4: v4) }
+        if b[0..<4] == [0x00, 0x64, 0xff, 0x9b] { return zeros(4..<12) && reached(v4: v4) }
+        if b[0] == 0x20 && b[1] == 0x02 { return reached(v4: Array(b[2..<6])) }
+        let multicast = b[0] == 0xff
+        let local = (b[0] & 0xfe) == 0xfc || (b[0] == 0xfe && (b[1] & 0x80) == 0x80)
+        let documentation = b[0..<4] == [0x20, 0x01, 0x0d, 0xb8]
+        return !(multicast || local || documentation)
     }
 }
 
-/// Holds each redirect a request meets to ``GeneratorReply/follows(_:)``.
-private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
+/// Holds a request to where it may go (lift-up SEC-2, 10-24b SEC-3): each redirect to
+/// ``GeneratorReply/follows(_:)`` and to where its host resolves; and, for a request that may
+/// reach only the public internet, the address each of its transactions connected to, as the
+/// task's metrics say, each redirect's included. `URLSession` looks a name up again as it
+/// connects, so an answer rebound since the check would reach this machine or its network: the
+/// address connected to is the one held. A transaction through a proxy connected to the proxy,
+/// which looks the host up itself; there the check before the request holds, as the CLI's does.
+private final class Held: NSObject, URLSessionTaskDelegate, Sendable {
+    /// What the metrics said, once they have: whether every transaction connected to an address
+    /// the public internet reaches; and who waits to hear it.
+    private struct Told: Sendable {
+        var reached: Bool?
+        var waiting: [CheckedContinuation<Bool, Never>] = []
+    }
+
+    private let told = Mutex(Told())
+
     func urlSession(
         _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
         newRequest request: URLRequest
@@ -414,6 +532,48 @@ private final class Redirects: NSObject, URLSessionTaskDelegate, Sendable {
             GeneratorReply.resolvesPublic(host)
         else { return nil }
         return request
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let transactions = metrics.transactionMetrics
+        settle(
+            !transactions.isEmpty
+                && transactions.allSatisfy { transaction in
+                    transaction.isProxyConnection
+                        || transaction.remoteAddress.map { GeneratorReply.reached(address: $0) } == true
+                })
+    }
+
+    /// Whether every transaction of the task connected to an address the public internet reaches,
+    /// once its metrics are collected: not, where they never were, or have not come `seconds`
+    /// after it is asked, so nothing unchecked is read.
+    func reachedPublic(within seconds: Double = 10) async -> Bool {
+        let late = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if !Task.isCancelled { self?.settle(false) }
+        }
+        defer { late.cancel() }
+        return await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            let now = told.withLock { told -> Bool? in
+                if let reached = told.reached { return reached }
+                told.waiting.append(done)
+                return nil
+            }
+            if let now { done.resume(returning: now) }
+        }
+    }
+
+    /// The first word on where the task connected, told to each who waits for it; any after it
+    /// is let go.
+    private func settle(_ reached: Bool) {
+        let waiting = told.withLock { told -> [CheckedContinuation<Bool, Never>] in
+            guard told.reached == nil else { return [] }
+            told.reached = reached
+            let waiting = told.waiting
+            told.waiting = []
+            return waiting
+        }
+        for done in waiting { done.resume(returning: reached) }
     }
 }
 
@@ -472,20 +632,31 @@ public final class Generator {
     /// and draw every slide (`make`, `looked`, `fitted`), which take seconds for a deck of 20 to 45
     /// slides, while the brief's window goes on answering and its steps go on showing (lift-up
     /// narrative PERF-3). One step at a time: each is awaited before the next is made.
-    func stepAway<T: Decodable & Sendable>(_ method: String, _ args: [String: JSONValue] = [:]) async throws -> T {
+    /// With `bytes`, a file handed over, as `step` hands one (`add`).
+    func stepAway<T: Decodable & Sendable>(
+        _ method: String, _ args: [String: JSONValue] = [:], bytes: Data? = nil
+    ) async throws -> T {
         let json = String(decoding: try JSONEncoder().encode(JSONValue.object(args)), as: UTF8.self)
-        return try await Self.stepped(on: made, method, json, heard: away)
+        return try await Self.stepped(on: made, method, json, bytes: bytes, heard: away)
     }
 
     /// `method` made on `made` on a thread of its own with `stack` bytes of stack, its answer awaited.
     nonisolated private static func stepped<T: Decodable & Sendable>(
-        on made: Made, _ method: String, _ json: String, heard: (@Sendable (String) -> Void)?
+        on made: Made, _ method: String, _ json: String, bytes: Data? = nil, heard: (@Sendable (String) -> Void)?
     ) async throws -> T {
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<T, any Error>) in
             let thread = Thread {
                 heard?(method)
                 done.resume(with: Result {
-                    try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                    guard let bytes else {
+                        return try ScaenaSession.decode(scaena_generator_call(made.pointer, method, json, nil, 0), as: T.self)
+                    }
+                    return try bytes.withUnsafeBytes { raw in
+                        try ScaenaSession.decode(
+                            scaena_generator_call(
+                                made.pointer, method, json, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count),
+                            as: T.self)
+                    }
                 })
             }
             thread.name = "ScaenaKit.generate"
@@ -528,7 +699,7 @@ public final class Generator {
         }
     }
 
-    private struct Read: Decodable {
+    private struct Read: Decodable, Sendable {
         let name: String
         let kind: String
     }
@@ -592,10 +763,19 @@ public final class Generator {
 
     /// The file `name`, whose bytes are `data`, read by its extension: Markdown, text, RTF, HTML,
     /// JSON, CSV, Excel, Word, PowerPoint as words alone, or a PDF, which the model reads as itself.
+    /// Parsed away from the main actor, so the brief's window, Cancel among it, goes on answering
+    /// while a large workbook or PDF is read (lift-up 20261025b PERF-4).
     @discardableResult
-    public func add(name: String, data: Data) throws -> GeneratingStep {
-        let read: Read = try step("add", ["name": .string(name)], bytes: data)
+    public func add(name: String, data: Data) async throws -> GeneratingStep {
+        let read: Read = try await stepAway("add", ["name": .string(name)], bytes: data)
         return .read(name: read.name, kind: read.kind)
+    }
+
+    /// ``add(name:data:)``, the file at `url` read away from the main actor too.
+    @discardableResult
+    public func add(contentsOf url: URL) async throws -> GeneratingStep {
+        let data = try await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value
+        return try await add(name: url.lastPathComponent, data: data)
     }
 
     private struct Fetched: Decodable {
@@ -611,13 +791,19 @@ public final class Generator {
         if let contact { args["contact"] = .string(contact) }
         if let token { args["token"] = .string(token) }
         var next: Fetched = try step("fetch", args)
-        while let get = next.get {
-            // Where the host resolves, off the main actor: never this machine or its network.
-            if let host = URL(string: get.url)?.host(percentEncoded: false),
-                !(await Task.detached { GeneratorReply.resolvesPublic(host) }.value)
-            {
+        while let planned = next.get {
+            // Where the host resolves, off the main actor: never this machine or its network, and
+            // a host that does not resolve is asked nothing. The GET is held again to the address
+            // it connected to, which `URLSession` looks up anew (lift-up 10-24b SEC-3).
+            var get = planned
+            get.reachesPublic = true
+            guard let host = URL(string: get.url)?.host(percentEncoded: false),
+                await Task.detached(operation: { GeneratorReply.resolvesPublic(host) }).value
+            else {
                 throw ScaenaError(
-                    message: "\(get.url): \(host) resolves to this machine or its network: a web source is a public address")
+                    message:
+                        "\(get.url): its host could not be looked up, or resolves to this machine or its network: a web source is a public address"
+                )
             }
             let reply = await send(get)
             if reply.status == 0 { throw ScaenaError(message: "\(get.url) could not be reached: \(reply.text)") }
@@ -699,6 +885,10 @@ public final class Generator {
         let fallback: String?
         let written: Int?
         let truncated: Bool?
+        /// The slides written so far, where the answer that wrote them was cut short and the rest
+        /// is asked for, and why the rest did not come back, where it did not (lift-up REL-2).
+        let partial: Int?
+        let unrested: String?
         /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
         let outline: StoryOutline?
         /// Why the outline did not read, once asked twice (lift-up REL-3).
@@ -717,8 +907,18 @@ public final class Generator {
             let atOnce: Int
         }
 
+        /// A round of the speaker's notes: its request, and how many slides it writes for (lift-up
+        /// 10-25 ATTR-2).
+        struct Noted: Decodable, Sendable {
+            let request: GeneratorRequest
+            let slides: Int
+        }
+
         let look: Look?
         let fit: Fit?
+        /// The first round of each slide's speaker notes, written for the talk, where they are
+        /// asked once the look is done or none is (lift-up 10-25 ATTR-2).
+        let notes: Noted?
         /// Each slide as drawn for the model, a JPEG in base64 (lift-up ATTR-1).
         let drawn: [String]?
     }
@@ -728,7 +928,15 @@ public final class Generator {
         let texts: Int
     }
 
-    /// The look's rounds answered: what it came to, and the fit asked for.
+    /// The look's next batch drawn: each slide it drew, by its index, for the window (lift-up
+    /// ATTR-1), or why a slide would not draw, where one would not.
+    private struct Ahead: Decodable, Sendable {
+        let drawn: [Redrawn]?
+        let unlooked: String?
+    }
+
+    /// The look's rounds answered: the next batch where one is left (lift-up 10-25 PERF-5), else
+    /// what it came to, and the fit asked for.
     private struct Looking: Decodable, Sendable {
         /// The rounds a busy provider answered for now, handed back to be asked again.
         let look: Making.Look?
@@ -741,6 +949,20 @@ public final class Generator {
         let drawn: [Redrawn]?
         /// Seconds to wait before `look`, the same round, is asked again, and how many times it
         /// was asked so far (lift-up REL-1).
+        let wait: Double?
+        let tried: Int?
+        /// The first round of the speaker notes, where they are asked once the look is done.
+        let notes: Making.Noted?
+    }
+
+    /// One round of the speaker notes answered (lift-up 10-25 ATTR-2): the next round where one
+    /// is left, or the same again after `wait` from a busy provider; else what the notes came to
+    /// and the fit asked for.
+    private struct Noting: Decodable, Sendable {
+        let notes: Making.Noted?
+        let noted: Int?
+        let unnoted: String?
+        let fit: Fit?
         let wait: Double?
         let tried: Int?
     }
@@ -850,6 +1072,9 @@ public final class Generator {
 
     /// `requests` sent `atOnce` at a time, each group's answered before the next is sent, the
     /// replies in the order the requests came.
+    /// How many slides the look shows the model a round (`scaena_ops::narrative::LOOK_BATCH`).
+    nonisolated static let lookBatch = 12
+
     nonisolated static func asked(_ requests: [GeneratorRequest], atOnce: Int, send: @escaping Send) async -> [GeneratorReply] {
         var replies = [GeneratorReply?](repeating: nil, count: requests.count)
         let step = max(1, atOnce)
@@ -983,7 +1208,7 @@ public final class Generator {
     /// kept changes touched once more, drawn again (lift-up ATTR-1).
     public func generate(
         brief: Brief, arc: String? = nil, provider: Provider, model: String, base: String? = nil, key: String,
-        theme: String, painter: Painter? = nil, look: Bool = true, outline: Settle? = nil,
+        theme: String, painter: Painter? = nil, look: Bool = true, notes: Bool = true, outline: Settle? = nil,
         drawn: (Int, Data) -> Void = { _, _ in },
         hear: (GeneratingStep) -> Void
     ) async throws -> (ScaenaSession, Generated) {
@@ -999,7 +1224,12 @@ public final class Generator {
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
             guard let request = standing.request else { break }
-            hear(standing.step == "arc" ? .choosing : standing.step == "outline" ? .outlining : .writing(slides: standing.slides ?? 0))
+            switch standing.step {
+            case "arc": hear(.choosing)
+            case "outline": hear(.outlining)
+            case "rest": hear(.continuing(written: standing.partial ?? 0, slides: standing.slides ?? 0))
+            default: hear(.writing(slides: standing.slides ?? 0))
+            }
             let reply = await send(request)
             var answered: [String: JSONValue] = [
                 "status": .number(Double(reply.status)),
@@ -1048,6 +1278,9 @@ public final class Generator {
                     let _: Standing = try step("outline")
                 }
             default:
+                // Cut short: the rest is the next request.
+                guard now.step != "rest" else { break }
+                if let why = now.unrested { hear(.unrested(why: why)) }
                 hear(.wrote(slides: now.written ?? 0, truncated: now.truncated ?? false))
             }
         }
@@ -1056,8 +1289,9 @@ public final class Generator {
         }
         hear(.making)
         let making: Making = try await stepAway(
-            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look)])
+            "make", ["theme": .string(theme), "key": .string(key), "look": .bool(look), "notes": .bool(notes)])
         var fit = making.fit
+        var noting = making.notes
         // Each slide as drawn for the model, shown while it looks (lift-up ATTR-1).
         for (slide, jpeg) in (making.drawn ?? []).enumerated() {
             if let data = Data(base64Encoded: jpeg) { drawn(slide, data) }
@@ -1070,9 +1304,21 @@ public final class Generator {
         // back alone, asked again after the wait the engine says (lift-up REL-1).
         var seeing = making.look
         if let first = seeing { hear(.looking(slides: first.slides)) }
+        // The rounds answered, out of all of them: a round of `LOOK_BATCH` slides (lift-up
+        // 20261110 ATTR-1).
+        let allRounds = seeing.map { ($0.slides + Self.lookBatch - 1) / Self.lookBatch } ?? 0
+        var roundsRead = 0
         var refused: GeneratorReply?
         while let round = seeing {
-            let replies = await Self.asked(round.rounds, atOnce: round.atOnce, send: send)
+            // The batch asked, a few rounds at a time, and the next batch drawn while it is out
+            // (lift-up 10-25 PERF-5); a slide that will not draw is said by `looked`.
+            let send = self.send
+            async let asking = Self.asked(round.rounds, atOnce: round.atOnce, send: send)
+            let ahead: Ahead = try await stepAway("drawAhead")
+            for next in ahead.drawn ?? [] {
+                if let data = Data(base64Encoded: next.jpeg) { drawn(next.slide, data) }
+            }
+            let replies = await asking
             refused = replies.last { !(200..<300).contains($0.status) } ?? refused
             let answers: [JSONValue] = replies.map { reply -> JSONValue in
                 var answered: [String: JSONValue] = [
@@ -1084,15 +1330,22 @@ public final class Generator {
                 return .object(answered)
             }
             let looking: Looking = try await stepAway("looked", ["replies": .array(answers), "key": .string(key)])
+            // A round a busy provider answered for now comes back, and is not counted yet.
+            if looking.wait == nil, allRounds > 1 {
+                roundsRead = min(allRounds, roundsRead + replies.count)
+                hear(.lookedAt(round: roundsRead, of: allRounds))
+            }
             if let wait = looking.wait {
                 hear(.retrying(seconds: wait, tried: looking.tried ?? 0))
                 try await Task.sleep(for: .seconds(wait))
             }
             seeing = looking.look
-            if seeing != nil { continue }
+            // The slides the next batch drew, where none was drawn ahead, or once the look is done,
+            // those its kept changes touched, drawn again (lift-up ATTR-1).
             for again in looking.drawn ?? [] {
                 if let data = Data(base64Encoded: again.jpeg) { drawn(again.slide, data) }
             }
+            if seeing != nil { continue }
             if let why = looking.unlooked {
                 hear(.unlooked(unanswered(why, provider, refused ?? replies[0])))
             } else {
@@ -1101,6 +1354,33 @@ public final class Generator {
             // Each change let go, and what lint found (lift-up USE-4).
             for r in looking.refused ?? [] { hear(.refused(slide: r.slide, what: r.what, why: r.why)) }
             fit = looking.fit
+            noting = looking.notes
+        }
+        // Each slide's speaker notes written for the talk (lift-up 10-25 ATTR-2), a dozen slides a
+        // round as the look goes; then the fit, asked after them.
+        if let first = noting { hear(.noting(slides: first.slides)) }
+        while let round = noting {
+            let reply = await send(round.request)
+            var answered: [String: JSONValue] = [
+                "status": .number(Double(reply.status)),
+                "statusText": .string(reply.status == 0 ? reply.text : HTTPURLResponse.localizedString(forStatusCode: reply.status)),
+                "body": .string(reply.status == 0 ? "" : reply.text),
+                "key": .string(key),
+            ]
+            if let after = reply.after { answered["after"] = .string(after) }
+            let noted: Noting = try await stepAway("noted", answered)
+            if let wait = noted.wait {
+                hear(.retrying(seconds: wait, tried: noted.tried ?? 0))
+                try await Task.sleep(for: .seconds(wait))
+            }
+            noting = noted.notes
+            if noting != nil { continue }
+            if let why = noted.unnoted {
+                hear(.unnoted(unanswered(why, provider, reply)))
+            } else {
+                hear(.noted(slides: noted.noted ?? 0))
+            }
+            fit = noted.fit
         }
         // Each answer may ask once more for what the rewrite left too long (STAB-4), or, from a
         // busy provider, the same fit again after the wait the engine says (lift-up REL-1).

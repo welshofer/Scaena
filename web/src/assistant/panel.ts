@@ -6,6 +6,7 @@
 import type { AssistantEvent, Edited, ProviderId, Rewritten, Seeing, Thumb } from "../protocol";
 import type { Stage } from "../stage";
 import type { Who } from "../writing";
+import * as talks from "../conversations";
 import * as keys from "./keys";
 import { render } from "./markdown";
 import { refusedBase } from "./providers";
@@ -25,6 +26,11 @@ export interface Editor {
   seeing(): Seeing | undefined;
   /** Make the source read-only, or not. */
   lock(on: boolean): void;
+  /** An answer begins, or ends (lift-up 10-25 FUNC-4): its edits make one step of the source's
+   * history once it ends. Ended, whether it edited anything. */
+  answering(on: boolean): boolean;
+  /** Take the last answer back, while its step is the last: whether it was. */
+  undoAnswer(): boolean;
   /** Each state's picture as the strip holds it once it has drawn the deck as it stands, by
    * state, and how many pixels high they are; and the deck's states (PLAN 2.93). */
   drawings(): Promise<{ height: number; drawn: Map<string, Drawing>; states: string[] }>;
@@ -32,6 +38,9 @@ export interface Editor {
   show(state: string): void;
   /** `state` as a person counts it (PLAN 2.99): Slide 3, or Slide 3, step 2. */
   slide?(state: string): string;
+  /** The key the deck's conversation is kept by in this browser, its recovery copy's (lift-up
+   * 20261110 FUNC-4). */
+  conversationKey?(): string;
 }
 
 /** A state's picture, and the digest of what it draws: none where it could not be painted. */
@@ -90,6 +99,7 @@ const undone = (tool: string) => TOOL_WORDS[tool]?.[2] ?? "Didn't use a tool";
 const STOPS: Record<string, string> = {
   stopped: "Stopped.",
   length: "The answer ran out of room.",
+  refused: "The model declined to answer that. Ask in other words.",
   steps: "Stopped after as many rounds of tools as one question allows: ask it to go on.",
   other: "The model stopped.",
 };
@@ -119,6 +129,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
   const hintLine = $("#keyhint");
   const reveal = $<HTMLButtonElement>("#reveal-key");
   const transcript = $<HTMLOListElement>("#transcript");
+  const starters = $("#starters");
   const question = $<HTMLTextAreaElement>("#question");
   const askButton = $<HTMLButtonElement>("#ask");
   const stop = $<HTMLButtonElement>("#stop");
@@ -242,9 +253,18 @@ export function panel(stage: Stage, editor: Editor): Panel {
     say("none", `No key yet: paste ${PROVIDERS[which()].name}'s to ask its models.`);
     tell(`The ${PROVIDERS[which()].name} key is forgotten. ${risk()}`);
   };
-  $<HTMLButtonElement>("#new").onclick = () => {
+  const newConversation = $<HTMLButtonElement>("#new");
+  newConversation.onclick = () => {
+    // Never while a question works: its answer would go on into a conversation forgotten.
+    if (working) return;
     stage.forget();
     transcript.replaceChildren();
+    void offer();
+    const key = editor.conversationKey?.();
+    if (key) void talks.discard(key);
+    // The words of an answer cut off went with the transcript (lift-up 20261031 STAB-4): the next
+    // answer's go into an entry of their own, one the page shows.
+    saying = undefined;
     used.input = used.output = 0;
     usageLine.textContent = "";
   };
@@ -296,15 +316,19 @@ export function panel(stage: Stage, editor: Editor): Panel {
         return;
       }
       case "text": {
+        begun = true;
         thinking.textContent = "Working…";
         // Said whole, as it reads (narrative ATTR-4): its lists, code, emphasis, and links,
         // a link to a slide showing it; in the words' place, or in a new entry.
         const li = saying ?? entry("said");
         saying = undefined;
+        // Its words as the model wrote them, which a conversation kept shows again (FUNC-4).
+        li.dataset.words = event.text;
         render(event.text, li, { states: editor.states?.(), show: (state) => editor.show(state) });
         return;
       }
       case "call": {
+        begun = true;
         thinking.textContent = "Working…";
         const li = entry("call");
         // What the call does, in a person's words; the tool and what it was given, opened.
@@ -337,10 +361,14 @@ export function panel(stage: Stage, editor: Editor): Panel {
         used.output += event.output;
         usageLine.textContent = `${used.input.toLocaleString()} tokens in, ${used.output.toLocaleString()} out`;
         return;
+      // An answer stopped, cut off, or failed ends its words where they stand: the next answer's
+      // go into an entry of their own (lift-up 20261031 STAB-4).
       case "done":
+        saying = undefined;
         if (event.stop !== "end" && event.stop !== "tools") entry("end", STOPS[event.stop] ?? STOPS.other);
         return;
       case "failed":
+        saying = undefined;
         return void entry("failed", event.message);
     }
   }
@@ -387,6 +415,7 @@ export function panel(stage: Stage, editor: Editor): Panel {
     for (const { state, digest, image } of now) {
       drawn.set(state, { digest, image });
       were.add(state);
+      if (!redrawn.includes(state)) redrawn.push(state);
     }
     for (const state of gone) {
       drawn.delete(state);
@@ -394,14 +423,25 @@ export function panel(stage: Stage, editor: Editor): Panel {
     }
   }
 
+  /** Whether the answer to the question asked has begun: its first words or call. Until then, a
+   * question that fails or is stopped goes back into the box (lift-up 20261110 USE-2). */
+  let begun = false;
+  /** The states the answer being given drew anew, in the order it did (editor dogfood 1). */
+  let redrawn: string[] = [];
+
   async function ask(text: string): Promise<AssistantEvent> {
     text = text.trim();
     if (!text || working) return { kind: "failed", message: working ? "the assistant is working" : "nothing asked" };
     if (!key.value) return failure(`Enter your ${PROVIDERS[which()].name} key first.`);
     if (!model.value) return failure("Pick a model first: the list fills once the provider has your key.");
     remember();
+    saying = undefined;
     entry("user", text);
+    starters.hidden = true;
     question.value = "";
+    begun = false;
+    redrawn = [];
+    let outcome: AssistantEvent | undefined;
     // What the editor shows as it is asked: the source locks below, and shows nothing then.
     const seeing = editor.seeing();
     const stopped = (stopping = new AbortController()).signal;
@@ -409,7 +449,9 @@ export function panel(stage: Stage, editor: Editor): Panel {
     thinking.textContent = "Working…";
     thinking.hidden = false;
     editor.lock(true);
+    editor.answering(true);
     askButton.disabled = true;
+    newConversation.disabled = true;
     stop.hidden = false;
     try {
       // Each state as the question finds it: each edit's pictures are drawn against it (PLAN 2.93).
@@ -422,26 +464,102 @@ export function panel(stage: Stage, editor: Editor): Panel {
       if (stopped.aborted) {
         const done: AssistantEvent = { kind: "done", stop: "stopped" };
         hear(done);
-        return done;
+        return (outcome = done);
       }
       // Sent after the question, so the worker stops this one.
       stopped.addEventListener("abort", () => stage.stop(), { once: true });
-      return await stage.ask(
+      return (outcome = await stage.ask(
         editor.source(),
         { provider: which(), model: model.value, key: key.value, base: base.value || undefined, text, seeing, mapKey, timeoutMs },
         hear,
         { height: drawings.height, known },
-      );
+      ));
     } catch (e) {
-      return failure(e instanceof Error ? e.message : String(e));
+      return (outcome = failure(e instanceof Error ? e.message : String(e)));
     } finally {
+      // A question that failed, or was stopped before any answer came, is put back as it was asked,
+      // to send again or mend: a refused key or a dropped connection loses nothing typed. One the
+      // person has begun typing since is left as they typed it.
+      const unanswered = outcome?.kind === "failed" || (outcome?.kind === "done" && outcome.stop === "stopped");
+      if (unanswered && !begun && !question.value) {
+        question.value = text;
+        question.setSelectionRange(text.length, text.length);
+      }
       stopping = undefined;
       working = false;
       thinking.hidden = true;
       editor.lock(false);
+      if (editor.answering(false)) {
+        undoable();
+        // What it changed is shown (editor dogfood 1): an answer that drew none of the slide shown
+        // anew shows the first slide it did, so its edit is seen, not left on another slide.
+        const shown = editor.seeing()?.state;
+        const first = redrawn.find((state) => drawn.has(state));
+        if (first && shown && !redrawn.includes(shown)) editor.show(first);
+      }
+      void keepConversation();
       askButton.disabled = false;
+      newConversation.disabled = false;
       stop.hidden = true;
     }
+  }
+
+  /** The answer that edited the deck, one step: Undo this answer under it, which an earlier
+   * answer's gives way to (lift-up 10-25 FUNC-4). */
+  function undoable() {
+    for (const was of transcript.querySelectorAll<HTMLButtonElement>(".undo-answer button")) was.closest("li")?.remove();
+    const li = entry("undo-answer");
+    const button = Object.assign(document.createElement("button"), { type: "button", textContent: "Undo this answer" });
+    button.onclick = () => {
+      if (editor.undoAnswer()) li.replaceChildren("Answer undone. Redo makes it again.");
+      else li.replaceChildren("Not undone: the deck was edited after this answer. Undo those edits first, or undo step by step.");
+    };
+    li.append(button);
+  }
+
+  /** Keep the conversation as it now stands, to go on with after a reload or when the deck opens
+   * again (lift-up 20261110 FUNC-4): what the worker would send the model next, and the questions
+   * and answers the panel shows. */
+  async function keepConversation() {
+    const key = editor.conversationKey?.();
+    if (!key) return;
+    const messages = await stage.conversation().catch(() => []);
+    if (!messages.length) return void talks.discard(key);
+    const said = [...transcript.querySelectorAll<HTMLElement>("li.user, li.said")].map((li) =>
+      li.classList.contains("user") ? { who: "user" as const, text: li.textContent ?? "" } : { who: "said" as const, text: li.dataset.words ?? li.textContent ?? "" },
+    );
+    await talks.keep(key, { at: Date.now(), messages, said }).catch(() => {});
+  }
+
+  /** Offer the conversation kept for this deck, where one is: Go on with it, or Start anew. */
+  async function offerKept() {
+    const key = editor.conversationKey?.();
+    const last = key ? await talks.find(key) : null;
+    if (!key || !last || transcript.children.length || working) return;
+    const asked = last.said.filter((s) => s.who === "user").length;
+    const when = new Date(last.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    const li = entry("resume", `Your last conversation about this deck, ${asked} ${asked === 1 ? "question" : "questions"}, from ${when}. `);
+    const on = Object.assign(document.createElement("button"), { type: "button", textContent: "Continue the last conversation" });
+    const anew = Object.assign(document.createElement("button"), { type: "button", textContent: "Start anew" });
+    on.onclick = () => {
+      stage.resume(last.messages);
+      transcript.replaceChildren();
+      starters.hidden = true;
+      for (const s of last.said) {
+        if (s.who === "user") entry("user", s.text);
+        else {
+          const said = entry("said");
+          said.dataset.words = s.text;
+          render(s.text, said, { states: editor.states?.(), show: (state) => editor.show(state) });
+        }
+      }
+      question.focus();
+    };
+    anew.onclick = () => {
+      void talks.discard(key);
+      li.remove();
+    };
+    li.append(on, " ", anew);
   }
 
   function failure(message: string): AssistantEvent {
@@ -449,8 +567,76 @@ export function panel(stage: Stage, editor: Editor): Panel {
     return { kind: "failed", message };
   }
 
-  // A bundle opened anew starts a conversation anew: the worker that held the last is gone.
+  /** Settled once the ways to begin have first been on the screen. */
+  let looked: Promise<void> | undefined;
+  /** Once a person may see the ways to begin: the deck's health is read only then, from the deck as
+   * it stands. Read as the panel is made, it loaded the generator's module at every start of the
+   * editor and set the worker's deck to the source the page held before the bundle opened, which a
+   * request that carries no source (a slide asked for) was then answered from. */
+  const onScreen = () =>
+    (looked ??= new Promise<void>((seen) => {
+      const watch = new IntersectionObserver((entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        watch.disconnect();
+        seen();
+      });
+      watch.observe(starters);
+    }));
+
+  /** Ways to begin, under an empty conversation (lift-up 20261110 ATTR-2): asks the deck's own
+   * story suggests, its health first, each a button that asks it. The beat whose slides health
+   * finds the most to look at is named, where the deck has beats, once the ways are on the screen;
+   * they go once a question is asked, and come back with a new conversation. */
+  async function offer() {
+    const stronger: [string, string] = [
+      "Make this talk stronger",
+      "Make this talk stronger. Read its health first, then fix what it says matters most, one change at a time, and tell me what you changed and why.",
+    ];
+    const claims: [string, string] = [
+      "Check every slide says its claim",
+      "Check that every slide says its claim: read the deck's health and each slide's headline, and tell me the slides whose words don't carry their beat's claim, each with a headline that would.",
+    ];
+    const offering = (asks: [string, string][]) => {
+      starters.replaceChildren(
+        ...asks.map(([label, words]) => {
+          const button = Object.assign(document.createElement("button"), { type: "button", textContent: label, title: words });
+          button.onclick = () => void ask(words);
+          return button;
+        }),
+      );
+      starters.hidden = false;
+    };
+    offering([stronger, claims]);
+    await onScreen();
+    if (transcript.children.length || working) return;
+    const health = await stage.health(editor.source()).catch(() => undefined);
+    if (transcript.children.length || working || starters.hidden) return;
+    // The part of the talk, by the arc's beat each slide was written for, whose slides health finds
+    // the most to look at: an error weighs more than a warning, an info nothing.
+    const weight = { error: 3, warning: 2, info: 0 };
+    const parts = new Map<number, number>();
+    for (const f of health?.findings ?? []) {
+      const part = health?.slides[f.slide - 1]?.part;
+      if (part !== undefined && weight[f.severity]) parts.set(part, (parts.get(part) ?? 0) + weight[f.severity]);
+    }
+    const weakest = [...parts].sort(([, a], [, b]) => b - a)[0]?.[0];
+    const named = weakest === undefined ? undefined : health?.beats[weakest];
+    if (!named) return;
+    // Its name as the arc says it ("Proof: case studies, data, demos"), the part before a colon on
+    // the button.
+    const short = named.split(":")[0].trim();
+    offering([
+      stronger,
+      [`Tighten \u201c${short}\u201d`, `Tighten the \u201c${named}\u201d part of the talk: fewer words on its slides, each slide saying its claim, nothing the audience needs lost.`],
+      claims,
+    ]);
+  }
+
+  // A bundle opened anew starts a conversation anew: the worker that held the last is gone. The
+  // one kept for the deck is offered (FUNC-4), beside the ways to begin anew.
   transcript.replaceChildren();
+  void offer();
+  void offerKept();
   usageLine.textContent = "";
   void choose(settings.provider);
   return {

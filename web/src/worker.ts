@@ -27,9 +27,12 @@ import init, {
 } from "@scaena/wasm";
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import type { Decision, Outlined } from "./generate";
+import { sha256 } from "./recovery";
+import { within } from "./within";
 import { finding } from "./words";
 import type {
   SlideWritten,
+  Linted,
   Added,
   Asking,
   AssistantEvent,
@@ -46,6 +49,7 @@ import type {
   FromHelper,
   FromWorker,
   Generate,
+  Paid,
   Insert,
   Keyed,
   Layer,
@@ -111,6 +115,8 @@ let player: Player;
  * wasm32 does not unwind: a panic traps, and the session is not used again. */
 let mirror = new Map<string, Uint8Array>();
 let mirrored: { of: Player; edition: number } | undefined;
+/** Whether the page goes on from a crash with the files, so the mirror is kept (PERF-3). */
+let recoverable = false;
 /** The panic's words, once the engine has stopped: every request after is refused with them. */
 let stopped: string | undefined;
 /** The last panic the engine's hook said, which the console hears first. */
@@ -128,18 +134,26 @@ self.addEventListener("unhandledrejection", (e) => {
   if (e.reason instanceof WebAssembly.RuntimeError) crashed(e.reason);
 });
 
-/** The mirror of the session's files, kept in step: every file copied again when their edition
- * changed, or the session is another. */
+/** The mirror of the session's files, kept in step where the page goes on from a crash with
+ * them (the editor's): the files written or taken out since its edition copied again, or every
+ * file where the session is another (lift-up 20261031 PERF-3). */
 function mirrorFiles() {
-  if (!player || stopped !== undefined) return;
+  if (!recoverable || !player || stopped !== undefined) return;
   const edition = player.filesEdition();
-  if (mirrored?.of === player && mirrored.edition === edition) return;
-  const next = new Map<string, Uint8Array>();
-  for (const path of player.files()) {
-    const bytes = player.file(path);
-    if (bytes) next.set(path, bytes);
+  if (mirrored?.of === player) {
+    if (mirrored.edition === edition) return;
+    for (const path of player.filesChangedSince(mirrored.edition)) {
+      const bytes = player.file(path);
+      if (bytes) mirror.set(path, bytes);
+      else mirror.delete(path);
+    }
+  } else {
+    mirror = new Map();
+    for (const path of player.files()) {
+      const bytes = player.file(path);
+      if (bytes) mirror.set(path, bytes);
+    }
   }
-  mirror = next;
   mirrored = { of: player, edition };
 }
 
@@ -185,6 +199,56 @@ let only: string[] | undefined;
 /** The words of the state last asked for (PLAN 2.99), kept while only reads come: the inspector,
  * the layers, and the canvas each ask for them after an edit. */
 let worded: { state: string; words: Lexicon } | undefined;
+/** The round of whole-deck lints: one asked for while another is laid out ends it. */
+let lintRound = 0;
+/** How long the whole-deck lint works before it lets the worker answer what waits, ms. */
+const LINT_SLICE = 8;
+
+/** A task's turn to go, at once: what the whole-deck lint waits for between its slices, so a
+ * message that came meanwhile is answered first. A timer nested this deep waits 4 ms more. */
+function turn(): Promise<void> {
+  return new Promise((go) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      go();
+    };
+    channel.port2.postMessage(null);
+  });
+}
+
+/** Lint every state of the deck compiled last (lift-up 20261110 PERF-1): laid out a slice at a
+ * time, each a few ms of states laid out or judged, the worker answering what came meanwhile
+ * between them, so typing after a pause is not held behind a large deck's lint. An edit that
+ * compiles another deck, a file handed over, or a newer lint drops it, as the Mac's lint on its
+ * own thread is dropped; what it found then stands for nothing. */
+async function lintEvery(): Promise<Linted> {
+  const start = performance.now();
+  const round = ++lintRound;
+  const laying = player.laying();
+  const dropped = (): Linted => ({ findings: [], laid: false, whole: true, ms: performance.now() - start, dropped: true });
+  // No deck that validates: the lint of what did not compile, at once.
+  if (!laying) {
+    const linted = JSON.parse(player.lint(undefined, Math.floor(Date.now() / 1000))) as Omit<Linted, "ms">;
+    return { ...linted, ms: performance.now() - start };
+  }
+  try {
+    for (;;) {
+      const slice = performance.now();
+      let laid = false;
+      while (!(laid = laying.step()) && performance.now() - slice < LINT_SLICE) {}
+      if (laid) break;
+      await turn();
+      if (round !== lintRound || stopped !== undefined || !player.holds(laying)) return dropped();
+    }
+    const linted = player.lintLaid(laying, Math.floor(Date.now() / 1000));
+    if (linted === undefined) return dropped();
+    return { ...(JSON.parse(linted) as Omit<Linted, "ms">), ms: performance.now() - start };
+  } finally {
+    laying.free();
+  }
+}
+
 /** What only reads the deck and its theme. Any other message may change either, and the words
  * kept go, before it and after it. */
 const READS = new Set<ToWorker["type"]>([
@@ -240,6 +304,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
   try {
     switch (data.type) {
       case "open":
+        recoverable = data.recoverable === true;
         return await open(data.source, data.painter, data.canvas, data.engine);
       case "trap":
         return player.trap();
@@ -270,18 +335,34 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding = undefined;
         return;
       case "outlineAgain":
-        deciding?.({ arc: data.arc });
+        deciding?.({ arc: data.arc, kept: data.kept });
         deciding = undefined;
         return;
       case "outlinePassed":
         deciding?.({ without: true });
         deciding = undefined;
         return;
+      case "claimAgain":
+        deciding?.({ again: { beat: data.beat, outline: data.outline } });
+        deciding = undefined;
+        return;
+      // A deck made that would not open, as a `.scaena` to download (lift-up 20261110 REL-1).
+      case "zipFiles": {
+        const { zipped } = await import("@scaena/generate");
+        const bytes = zipped(data.files).buffer as ArrayBuffer;
+        return post({ type: "filesZipped", id: data.id, bytes }, [bytes]);
+      }
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
         const was = player;
-        player = await fetched(from.url, from.serve);
+        const again = await fetched(from.url, from.serve);
+        player = again.player;
+        // The folder as served now is what a save is weighed against.
+        if (home?.where.kind === "serve") {
+          home.held.clear();
+          holding(home, again.read);
+        }
         await library();
         // A frame in flight finishes on the engine it began with.
         await painting;
@@ -335,12 +416,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const source = stale(data.source) ? player.source() : data.source;
         return post({ type: "edited", id: data.id, ...(await edit(source, data.index, data.format)) });
       }
-      case "lint": {
-        const start = performance.now();
-        const now = Math.floor(Date.now() / 1000);
-        const linted = JSON.parse(player.lint(undefined, now)) as { findings: Finding[]; laid: boolean; whole: boolean };
-        return post({ type: "linted", id: data.id, ...linted, ms: performance.now() - start });
-      }
+      case "lint":
+        return post({ type: "linted", id: data.id, ...(await lintEvery()) });
       case "fix":
         return post({ type: "fixed", id: data.id, source: player.fix(JSON.stringify(data.patch)) });
       case "inspect":
@@ -420,8 +497,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format);
         player.setMoving([], 0, 0);
         player.preview(undefined);
+        player.previewTheme(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
+        return answerShown(data.id, start);
+      }
+      case "previewTheme": {
+        latest++;
+        layOut(data.format);
+        player.previewTheme(data.ops?.length ? JSON.stringify(data.ops) : undefined);
+        const start = performance.now();
+        // The formats beside show the theme as it is: nothing is made.
+        await paint(data.state, Infinity, "keep");
         return answerShown(data.id, start);
       }
       case "make":
@@ -628,6 +715,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
               : player.tidying(data.state, data.node);
         return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
       }
+      // Lines in focus, and a walkthrough (PLAN 2.140): each the patch the page then makes.
+      case "focusing":
+      case "walking": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "focusing"
+            ? player.focusing(data.state, data.node, data.said)
+            : player.walking(data.state, data.node, JSON.stringify(data.steps));
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
       case "codeWords": {
         const behind = !held(data.source);
         if (behind) saveable(data.source);
@@ -675,7 +773,10 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         } else {
           await renameKept(data.from, data.to);
           if (open) {
+            const held = home!.held;
             home = keptIn(await keptBundle(data.to), "opfs");
+            // Renamed, the folder holds what it held.
+            home.held = held;
             name = data.to;
           }
         }
@@ -695,7 +796,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "export": {
         saveable(data.source);
-        const bytes = (await exporting(data.as)).slice().buffer as ArrayBuffer;
+        const bytes = (await exporting(data.as, (done, of) => post({ type: "exportProgress", id: data.id, done, of }))).slice().buffer as ArrayBuffer;
         return post({ type: "exported", id: data.id, bytes }, [bytes]);
       }
       case "drop": {
@@ -876,6 +977,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return asking?.abort();
       case "forget":
         return (await import("@scaena/assistant")).forget();
+      case "conversation":
+        return post({ type: "conversation", id: data.id, messages: (await import("@scaena/assistant")).kept() });
+      case "resume": {
+        const { resume } = await import("@scaena/assistant");
+        return resume(data.messages as Parameters<typeof resume>[0]);
+      }
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
@@ -915,8 +1022,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const stop = new AbortController();
         writes.set(data.id, stop);
         try {
-          const { text, usage } = await write(data.call, stop.signal);
-          return post({ type: "wrote", id: data.id, text, usage });
+          const { text, stop: why, usage } = await write(data.call, stop.signal);
+          return post({ type: "wrote", id: data.id, text, stop: why, usage });
         } finally {
           writes.delete(data.id);
         }
@@ -1096,6 +1203,15 @@ interface Home {
   where: Where;
   write(path: string, bytes: Uint8Array): Promise<void>;
   remove(path: string): Promise<void>;
+  /** The SHA-256 of each file as this page last read it from here or wrote it here: a save
+   * writes again only a file whose bytes are otherwise (lift-up 20261031 PERF-4). A home made
+   * afresh holds none, so its first save writes every file. */
+  held: Map<string, Promise<string>>;
+}
+
+/** `home` holds `files` as they are now. */
+function holding(home: Home, files: Iterable<readonly [string, Uint8Array]>) {
+  for (const [path, bytes] of files) home.held.set(path, sha256(bytes as Uint8Array<ArrayBuffer>).catch(() => ""));
 }
 
 /** A bundle kept in `dir`: a folder on disk, or one in the browser's storage. */
@@ -1104,6 +1220,7 @@ function keptIn(dir: FileSystemDirectoryHandle, kind: "folder" | "opfs"): Home {
     where: { kind, name: dir.name },
     write: (path, bytes) => write(dir, path, bytes),
     remove: (path) => remove(dir, path),
+    held: new Map(),
   };
 }
 
@@ -1112,7 +1229,7 @@ function keptIn(dir: FileSystemDirectoryHandle, kind: "folder" | "opfs"): Home {
  * with the token its address carried (lift-up 10-24b SEC-5). */
 function served(deck: string, serve: Serving, folder: string): Home {
   const sent = async (method: "PUT" | "DELETE", path: string, bytes?: Uint8Array) => {
-    const url = new URL(path.split("/").map(encodeURIComponent).join("/"), deck);
+    const url = within(path.split("/").map(encodeURIComponent).join("/"), deck);
     const body = bytes as Uint8Array<ArrayBuffer> | undefined;
     const headers = { "X-Scaena-Client": serve.client, "X-Scaena-Token": serve.token };
     const response = await fetch(url, { method, body, headers });
@@ -1120,14 +1237,20 @@ function served(deck: string, serve: Serving, folder: string): Home {
     if (method === "DELETE" && response.status === 404) return;
     if (!response.ok) throw new Error(`${path}: ${(await response.text()).trim() || response.status}`);
   };
-  return { where: { kind: "serve", name: folder }, write: (path, bytes) => sent("PUT", path, bytes), remove: (path) => sent("DELETE", path) };
+  return {
+    where: { kind: "serve", name: folder },
+    write: (path, bytes) => sent("PUT", path, bytes),
+    remove: (path) => sent("DELETE", path),
+    held: new Map(),
+  };
 }
 
 /** Open the bundle at `source` (SPEC §3.1). A zip is copied into the browser's storage, and
  * kept there from then on. */
 async function load(source: Source) {
   if ("url" in source) {
-    player = await fetched(source.url, source.serve);
+    const got = await fetched(source.url, source.serve);
+    player = got.player;
     name = nameOf(source.url);
     if (source.serve) {
       // The folder's own name, as `scaena serve` says it.
@@ -1136,6 +1259,7 @@ async function load(source: Source) {
       );
       name = state.name || name;
       home = served(source.url, source.serve, name);
+      holding(home, got.read);
     }
   } else if ("create" in source) {
     player = await made(source.create.theme, source.create.title);
@@ -1159,13 +1283,19 @@ async function load(source: Source) {
   } else if ("zip" in source) {
     player = Player.fromZip(new Uint8Array(source.zip));
     const dir = await newBundle(source.name);
-    for (const path of player.files()) await write(dir, path, player.file(path)!);
     home = keptIn(dir, "opfs");
+    for (const path of player.files()) {
+      const bytes = player.file(path)!;
+      await write(dir, path, bytes);
+      holding(home, [[path, bytes]]);
+    }
     name = dir.name;
   } else {
     const dir = "opfs" in source ? await keptBundle(source.opfs) : source.folder;
-    player = bundleOf(await readAll(dir));
+    const read = await readAll(dir);
+    player = bundleOf(read);
     home = keptIn(dir, "opfs" in source ? "opfs" : "folder");
+    holding(home, read);
     name = dir.name;
   }
 }
@@ -1173,24 +1303,33 @@ async function load(source: Source) {
 /** The bundle whose deck file is at `deck`: every file is where the deck names it, from the
  * deck's directory (SPEC §3.1). A saved bundle's manifest lists the rest: licenses, the
  * history. `scaena serve` reads each only with the token its address carried (lift-up R1). */
-async function fetched(deck: string, serve?: Serving): Promise<Player> {
+/** The bundle whose deck is at `deck`, and every file of it as read. */
+async function fetched(deck: string, serve?: Serving): Promise<{ player: Player; read: Map<string, Uint8Array> }> {
+  // The token goes only with what `within` lets through: the deck's own origin, under its folder.
   const headers: Record<string, string> = serve ? { "X-Scaena-Token": serve.token } : {};
   const get = async (path: string) => {
-    const response = await fetch(new URL(path, deck), { headers });
+    const response = await fetch(within(path, deck), { headers });
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response;
   };
-  const json = await (await get(deck)).text();
+  const read = new Map<string, Uint8Array>();
+  const text = async (path: string, as: string) => {
+    const bytes = new Uint8Array(await (await get(path)).arrayBuffer());
+    read.set(as, bytes);
+    return new TextDecoder().decode(bytes);
+  };
+  const json = await text(deck, "deck.json");
   const files = JSON.parse(json) as DeckFiles;
-  const theme = typeof files.theme === "string" ? await (await get(files.theme)).text() : JSON.stringify(files.theme);
+  const theme = typeof files.theme === "string" ? await text(files.theme, files.theme) : JSON.stringify(files.theme);
   const fetchedPlayer = new Player(json, theme);
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
   if (new URL(deck).pathname.endsWith("/deck.json")) {
-    const manifest = await fetch(new URL("manifest.json", deck), { headers }).catch(() => undefined);
+    const manifest = await fetch(within("manifest.json", deck), { headers }).catch(() => undefined);
     if (manifest?.ok) {
       const bytes = new Uint8Array(await manifest.arrayBuffer());
       fetchedPlayer.addFile("manifest.json", bytes);
+      read.set("manifest.json", bytes);
       const listed = (JSON.parse(new TextDecoder().decode(bytes)) as { files?: Record<string, string> }).files;
       for (const path of Object.keys(listed ?? {})) paths.add(path);
     }
@@ -1199,8 +1338,11 @@ async function fetched(deck: string, serve?: Serving): Promise<Player> {
   const bytes = await Promise.all(
     [...paths].map(async (path) => [path, new Uint8Array(await (await get(path)).arrayBuffer())] as const),
   );
-  for (const [path, file] of bytes) fetchedPlayer.addFile(path, file);
-  return fetchedPlayer;
+  for (const [path, file] of bytes) {
+    fetchedPlayer.addFile(path, file);
+    read.set(path, file);
+  }
+  return { player: fetchedPlayer, read };
 }
 
 /** The theme that ships as `theme`, which the page carries (`themes.ts`), fetched now: its file's
@@ -1244,13 +1386,16 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   const theme = await shipped(job.theme);
   // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
   // of it: `settled` or `outlineAgain`, which the page sends.
-  const settle = (outlined: Outlined) => {
-    post({ type: "storyOutlined", ...outlined });
+  // Without `outlined`, the outline shown stays: a beat asked again waits on the next decision.
+  const settle = (outlined?: Outlined) => {
+    if (outlined) post({ type: "storyOutlined", ...outlined });
     return new Promise<Decision>((resolve) => {
       deciding = resolve;
     });
   };
-  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle);
+  // Each part paid for, kept by the page to go on from should a later step fail (lift-up 20261110 REL-1).
+  const keep = (paid: Paid) => post({ type: "paid", paid });
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle, keep);
   const out: Record<string, ArrayBuffer> = {};
   for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
   post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));
@@ -1366,7 +1511,7 @@ async function subsetFonts() {
  * module draws a PDF, loaded the first time one is asked for: the engine's module lays the
  * pages out and leaves the PDF writer out (SPEC §15). A single file's fonts are subset first,
  * as a download's are. */
-async function exporting(what: Export): Promise<Uint8Array> {
+async function exporting(what: Export, progress: (done: number, of: number) => void): Promise<Uint8Array> {
   switch (what.kind) {
     case "png":
       layOut(what.format);
@@ -1388,6 +1533,11 @@ async function exporting(what: Export): Promise<Uint8Array> {
     case "html":
       await subsetFonts();
       return new TextEncoder().encode(player.standalone(what.page, what.name, what.notes));
+    case "movie": {
+      layOut(what.format);
+      const { movie } = await import("./movie");
+      return movie(player, what.fps, what.width, what.name, progress);
+    }
   }
 }
 
@@ -1449,10 +1599,23 @@ async function save(): Promise<{ where: Where; renamed: [string, string][]; file
   try {
     const paths = saved.paths();
     const last = ["deck.json", "manifest.json"];
-    for (const path of [...paths.filter((p) => !last.includes(p)), ...last.filter((p) => paths.includes(p))])
-      await home.write(path, saved.file(path)!);
+    // A file whose bytes are as this page last read or wrote them where the bundle is kept is
+    // not written again (lift-up 20261031 PERF-4); the deck and the manifest, which say what
+    // the rest is, always are, last.
+    for (const path of [...paths.filter((p) => !last.includes(p)), ...last.filter((p) => paths.includes(p))]) {
+      const bytes = saved.file(path)!;
+      const digest = await sha256(bytes as Uint8Array<ArrayBuffer>);
+      if (!last.includes(path) && (await home.held.get(path)) === digest) continue;
+      home.held.delete(path);
+      await home.write(path, bytes);
+      home.held.set(path, Promise.resolve(digest));
+    }
     const written = new Set(paths);
-    for (const path of saved.replaced()) if (!written.has(path)) await home.remove(path);
+    for (const path of saved.replaced())
+      if (!written.has(path)) {
+        home.held.delete(path);
+        await home.remove(path);
+      }
     const { renamed, again, unrecorded } = JSON.parse(saved.summary()) as { renamed: [string, string][]; again?: string; unrecorded?: string };
     player.adopt(saved);
     return { where: home.where, renamed, files: paths.length, recorded: recorder !== undefined && !unrecorded, again, unrecorded };

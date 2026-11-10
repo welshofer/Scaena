@@ -12,12 +12,21 @@ import AppKit
 /// the next, the notes, where the show is and the presenter's timer, and Back and Next, a tap or a
 /// swipe as on the stage. With no show playing, Play plays it. What the room sees is mirrored: a
 /// black or white screen and the end of the show, which the Show menu asks for too, with the timer
-/// paused or reset and a slide by its number (lift-up FUNC-5).
+/// paused or reset and a slide by its number (lift-up FUNC-5). A link lost mid-talk joins again
+/// with the code it joined with, by itself after 1, 2, and 4 s, the last slide shown under
+/// "Reconnecting…", then by Join Again; Back keeps the presenter and the code (lift-up 20261110
+/// REL-4).
 public struct RemoteView: View {
     @State private var browser = RemoteBrowser()
     @State private var client: RemoteClient?
     @State private var chosen: RemotePresenter?
     @State private var code = ""
+    /// The last place heard before the link was lost, shown while the remote joins again.
+    @State private var kept: RemotePlace?
+    /// How many times it has joined again by itself since the link was lost.
+    @State private var tries = 0
+    /// How long it waits before each time it joins again by itself.
+    private static let waits: [Double] = [1, 2, 4]
 
     public init() {}
 
@@ -25,7 +34,13 @@ public struct RemoteView: View {
         NavigationStack {
             Group {
                 if let client {
-                    RemoteShow(client: client, leave: leave)
+                    RemoteShow(
+                        client: client, kept: kept, rejoining: rejoining(client),
+                        again: {
+                            tries = 0
+                            rejoin()
+                        },
+                        back: back, leave: leave)
                 } else if let chosen {
                     pairing(chosen)
                 } else {
@@ -33,6 +48,7 @@ public struct RemoteView: View {
                 }
             }
         }
+        .task(id: watching) { await follow() }
         .onAppear { browser.start() }
         .onDisappear {
             browser.stop()
@@ -79,14 +95,20 @@ public struct RemoteView: View {
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
+                    // Its digits alone, as many as a code has: typed with the space it is shown
+                    // with, or pasted, it reads as the code.
+                    .onChange(of: code) { _, typed in
+                        let digits = Remote.typed(typed)
+                        if digits != typed { code = digits }
+                    }
                     .onSubmit { join(presenter) }
                     .accessibilityIdentifier("remote-code")
                 Button("Join") { join(presenter) }
-                    .disabled(code.count != 4)
+                    .disabled(code.count != Remote.digits)
             } header: {
                 Text(presenter.name)
             } footer: {
-                Text("The four digits its Remote… shows.")
+                Text("The eight digits its Remote… shows.")
             }
         }
         .navigationTitle("Enter the Code")
@@ -96,20 +118,75 @@ public struct RemoteView: View {
     }
 
     private func join(_ presenter: RemotePresenter) {
-        guard code.count == 4 else { return }
-        client = RemoteClient(presenter.endpoint, code: code)
+        let digits = Remote.typed(code)
+        guard digits.count == Remote.digits else { return }
+        client = RemoteClient(presenter.endpoint, code: digits)
     }
 
     private func leave() {
         client?.leave()
         client = nil
         chosen = nil
+        kept = nil
+        tries = 0
+    }
+
+    /// Back from a link lost: the code screen, the presenter and its code kept.
+    private func back() {
+        client?.leave()
+        client = nil
+        kept = nil
+        tries = 0
+    }
+
+    /// Join the same presenter again with the same code, the show last heard kept to show meanwhile.
+    private func rejoin() {
+        guard let old = client else { return }
+        kept = old.place ?? kept
+        client = old.again()
+    }
+
+    /// Whether `client`, lost, is joined again by itself: lost after it joined, or a time it joined
+    /// again by itself that did not answer, never a code refused, at most `waits.count` times.
+    private func rejoining(_ client: RemoteClient) -> Bool {
+        (client.rejoinable || tries > 0) && !client.refused && tries < Self.waits.count
+    }
+
+    /// The remote and its status, which `follow` is run again on.
+    private var watching: String {
+        guard let client else { return "" }
+        return "\(ObjectIdentifier(client).hashValue) \(client.status)"
+    }
+
+    /// Joined: the tries begin again from none. Lost where it may: joined again after its wait.
+    private func follow() async {
+        guard let client else { return }
+        switch client.status {
+        case .joined:
+            tries = 0
+            kept = nil
+        case .lost where rejoining(client):
+            try? await Task.sleep(for: .seconds(Self.waits[tries]))
+            guard !Task.isCancelled, self.client === client else { return }
+            tries += 1
+            rejoin()
+        default:
+            break
+        }
     }
 }
 
 /// The show a remote is joined to.
 private struct RemoteShow: View {
     let client: RemoteClient
+    /// The show as last heard before the link was lost, shown while it joins again.
+    let kept: RemotePlace?
+    /// Whether the remote, lost, joins again by itself.
+    let rejoining: Bool
+    /// Join again with the same code, as Join Again asks.
+    let again: () -> Void
+    /// Back to the code, kept.
+    let back: () -> Void
     let leave: () -> Void
     /// Whether Go to Slide… asks for a number, and the number typed.
     @State private var going = false
@@ -119,18 +196,31 @@ private struct RemoteShow: View {
         Group {
             switch client.status {
             case .joining:
-                ProgressView("Joining…")
+                if let kept, kept.showing {
+                    reconnecting(kept)
+                } else {
+                    ProgressView("Joining…")
+                }
             case .lost(let why):
-                ContentUnavailableView {
-                    Label("Not Joined", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(why)
-                } actions: {
-                    Button("Back", action: leave)
+                if rejoining, let kept, kept.showing {
+                    reconnecting(kept)
+                } else if rejoining {
+                    ProgressView("Reconnecting…")
+                } else {
+                    ContentUnavailableView {
+                        Label("Not Joined", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text(why)
+                    } actions: {
+                        Button("Join Again", action: again)
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("remote-join-again")
+                        Button("Back", action: back)
+                    }
                 }
             case .joined:
-                if let place = client.place, place.showing {
-                    playing(place)
+                if let place = client.place ?? kept, place.showing {
+                    if client.reconnecting { reconnecting(place) } else { playing(place) }
                 } else {
                     waiting
                 }
@@ -144,6 +234,22 @@ private struct RemoteShow: View {
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         #endif
+    }
+
+    /// The show as last heard, out of reach while the link comes back: "Reconnecting…" over it,
+    /// never shown as joined (lift-up 20261110 REL-4).
+    private func reconnecting(_ place: RemotePlace) -> some View {
+        playing(place)
+            .disabled(true)
+            .opacity(0.6)
+            .overlay {
+                Label("Reconnecting…", systemImage: "wifi.exclamationmark")
+                    .font(.headline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule())
+                    .accessibilityIdentifier("remote-reconnecting")
+            }
     }
 
     /// Joined, with no show playing.

@@ -179,7 +179,10 @@ pub fn edited(list: &[Option<ListItem>], written: &str, range: Range<usize>, tex
 /// once bytes `range` of `written` are `text`, as [`edited`] keeps a list: the paragraphs before
 /// the edit keep their places, the paragraphs it touches become those it leaves, drawn where one
 /// of them was, so what is typed into a paragraph drawn is drawn too, and those after it move by
-/// as many as it adds or takes away. None where it names no paragraph.
+/// as many as it adds or takes away. Of the paragraphs an edit across several touches, each keeps
+/// its place among those it leaves, so a build retyped whole draws a paragraph more at each step
+/// as it did; a span that reaches the last it touches draws all it leaves (editor dogfood 4).
+/// None where it names no paragraph.
 pub fn redrawn(
     paragraphs: &serde_json::Value,
     written: &str,
@@ -195,15 +198,41 @@ pub fn redrawn(
     let first = before.iter().position(|p| range.start <= p.end).unwrap_or(before.len() - 1);
     let last = before.iter().position(|p| range.end <= p.end).unwrap_or(before.len() - 1);
     let typed = self::paragraphs(text).len();
-    // Where paragraph `q` is once edited: the edit's first or last paragraph where it touched `q`.
+    // Where paragraph `q` is once edited: its place among the paragraphs the edit leaves where
+    // it touched `q`, the last of them where a span ends on the last it touched.
     let moved = |q: usize, end: bool| match q {
         q if q < first => q,
         q if q > last => q - (last + 1) + first + typed,
-        _ if end => first + typed - 1,
-        _ => first,
+        q if end && q == last => first + typed - 1,
+        q => first + (q - first).min(typed - 1),
     };
     let (a, b) = (moved(a, false), moved(b, true));
     Some(if one && a == b { serde_json::Value::from(a + 1) } else { serde_json::Value::from(vec![a + 1, b + 1]) })
+}
+
+/// The paragraphs each step of a build by bullet draws (PLAN 2.129), drawn again, where `steps`
+/// are the spans a run of consecutive states draws of `text`, in order, as an edit left them,
+/// and they read as a build in that has come to show its paragraphs in fewer steps than it has
+/// steps and paragraphs to give them: each draws from the first paragraph, none fewer than the
+/// step before it, two or more alike. So it goes where a build is typed over a key at a time, the
+/// first key leaving one paragraph for every step to draw (editor dogfood 4). Step k then draws
+/// through the k-th paragraph with words, a blank one coming with the one before it, and the steps
+/// past the last draw them all. None where the run reads otherwise, and keeps what it draws.
+pub fn rebuilt(steps: &[serde_json::Value], text: &str) -> Option<Vec<serde_json::Value>> {
+    let all = paragraphs(text);
+    let spans: Vec<Range<usize>> = steps.iter().map(|s| drawn(Some(s), all.len())).collect();
+    let worded: Vec<usize> = (all.iter().enumerate())
+        .filter(|(_, r)| text[(*r).clone()].chars().any(|c| !c.is_whitespace()))
+        .map(|(k, _)| k)
+        .collect();
+    let grows = spans.windows(2).all(|w| w[0].end <= w[1].end);
+    let distinct = 1 + spans.windows(2).filter(|w| w[0] != w[1]).count();
+    let built = !spans.is_empty() && grows && spans.iter().all(|r| r.start == 0 && !r.is_empty());
+    if !built || distinct >= steps.len().min(worded.len()) {
+        return None;
+    }
+    let through = |k: usize| worded.get(k + 1).copied().unwrap_or(all.len()).max(1);
+    Some((0..steps.len()).map(|k| serde_json::Value::from(vec![1, through(k)])).collect())
 }
 
 /// A code text's `code.focus` (PLAN 2.140), the lines in focus, once bytes `range` of `written`
@@ -336,6 +365,37 @@ mod tests {
         // Pasted lines in the last move none before them.
         assert_eq!(redrawn(&json!([1, 2]), text, 13..13, "\nfour\nfive"), Some(json!([1, 2])));
         assert_eq!(redrawn(&json!(0), text, 0..0, "x"), None);
+        // A build of six retyped whole into five: each step draws one more, as it did, the last
+        // two all five (editor dogfood 4).
+        let six = "a\nb\nc\nd\ne\nf";
+        let steps: Vec<_> = (1..=6).map(|k| redrawn(&json!([1, k]), six, 0..six.len(), "1\n2\n3\n4\n5")).collect();
+        let want = [[1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [1, 5]].map(|s| Some(json!(s)));
+        assert_eq!(steps, want);
+    }
+
+    #[test]
+    fn a_build_by_bullet_typed_over_keeps_a_step_for_each_paragraph() {
+        use serde_json::json;
+        let steps = |spans: &[[u64; 2]]| spans.iter().map(|s| json!(s)).collect::<Vec<_>>();
+        // A build typed over a key at a time (editor dogfood 4): the first key leaves one
+        // paragraph, which each step draws, and Enter a second, blank, which each draws with it:
+        // nothing to tell apart yet.
+        assert_eq!(rebuilt(&steps(&[[1, 1]; 5]), "W"), None);
+        assert_eq!(rebuilt(&steps(&[[1, 2]; 5]), "W\n"), None);
+        // Words in the second, which every step draws: each step from the second on draws it.
+        assert_eq!(rebuilt(&steps(&[[1, 2]; 5]), "W\nX"), Some(steps(&[[1, 1], [1, 2], [1, 2], [1, 2], [1, 2]])));
+        // Enter at its end, the new one drawn where the second was, then words in it.
+        let three = "W\nX\nY";
+        let typed = steps(&[[1, 1], [1, 3], [1, 3], [1, 3], [1, 3]]);
+        assert_eq!(rebuilt(&typed, three), Some(steps(&[[1, 1], [1, 2], [1, 3], [1, 3], [1, 3]])));
+        // A blank paragraph comes with the one before it.
+        assert_eq!(rebuilt(&steps(&[[1, 3]; 3]), "a\n\nb\nc"), Some(steps(&[[1, 2], [1, 3], [1, 4]])));
+        // A build that shows a paragraph a step, or as many as it has steps, stays as it is, a step
+        // that draws as the one before it among them; so does a run that is no build in.
+        assert_eq!(rebuilt(&steps(&[[1, 3], [1, 4]]), "a\nb\nc\nd"), None);
+        assert_eq!(rebuilt(&steps(&[[1, 1], [1, 2], [1, 2], [1, 3]]), "a\nb\nc"), None);
+        assert_eq!(rebuilt(&steps(&[[2, 2], [2, 2]]), "a\nb\nc"), None);
+        assert_eq!(rebuilt(&steps(&[[1, 3], [1, 2]]), "a\nb\nc"), None);
     }
 
     #[test]

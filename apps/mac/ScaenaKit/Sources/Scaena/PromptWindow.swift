@@ -94,6 +94,24 @@ struct CloseGuard: NSViewRepresentable {
         }
     }
 }
+
+/// What closes the window it stands in once `close` is true, as its close button does: the
+/// window's delegate asked first, `CloseGuard` among it (lift-up 20261110 REL-3).
+struct WindowCloser: NSViewRepresentable {
+    let close: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        guard close, let window = view.window else { return }
+        // Once SwiftUI's update is done: a window closed inside it closes under its views.
+        DispatchQueue.main.async { window.performClose(nil) }
+    }
+}
 #else
 /// New from a Prompt on the iPad (PLAN G.6): the document browser's launch screen offers it beside
 /// New Deck, and its brief covers the screen (`ScaenaApp`). The deck made is kept in the app's own
@@ -204,6 +222,9 @@ struct PromptView: View {
     /// Whether the model is shown the slides once drawn, and may tighten them (PLAN G.13): another
     /// call to the provider (lift-up FUNC-5).
     @AppStorage("generate.see") private var see = true
+    /// Whether the speaker's notes are written for the talk, or Narrato's drafts kept (lift-up
+    /// 10-25 ATTR-2).
+    @AppStorage("generate.notes") private var speak = true
     @AppStorage("generate.theme") private var theme = "dusk"
     /// Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
     /// claim, settled before the slides are written.
@@ -284,6 +305,8 @@ struct PromptView: View {
         let id = UUID()
         let words: String
         let failed: Bool
+        /// When it was said: the line under way says how long it has run (lift-up 20261110 ATTR-1).
+        var at = Date()
     }
 
     /// A beat of the outline as the person edits it: moved, removed, or added, its claim typed over.
@@ -430,9 +453,11 @@ struct PromptView: View {
                         .accessibilityIdentifier("prompt-show-outline")
                     Toggle("Let the model see the slides", isOn: $see)
                         .accessibilityIdentifier("prompt-see")
+                    Toggle("Write the speaker’s notes", isOn: $speak)
+                        .accessibilityIdentifier("prompt-notes")
                 } footer: {
                     Text(
-                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call."
+                        "The arc, the big idea, and what each beat says, to change before the slides are written; then the slides, once drawn, shown to the model to tighten, another call; then the notes the speaker says, written for the talk, another."
                     )
                 }
                 Section {
@@ -472,10 +497,21 @@ struct PromptView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(steps) { line in
-                                Text(line.words)
-                                    .foregroundStyle(line.failed ? .red : .primary)
-                                    .font(.callout)
-                                    .id(line.id)
+                                Group {
+                                    // The line under way ticks how long it has run, so a wait of
+                                    // minutes reads as work, not as stuck (lift-up 20261110 ATTR-1).
+                                    if running != nil, line.id == steps.last?.id, !line.failed {
+                                        TimelineView(.periodic(from: line.at, by: 1)) { context in
+                                            Text("\(line.words) · \(GeneratingStep.elapsed(context.date.timeIntervalSince(line.at)))")
+                                                .accessibilityLabel(line.words)
+                                        }
+                                    } else {
+                                        Text(line.words)
+                                    }
+                                }
+                                .foregroundStyle(line.failed ? .red : .primary)
+                                .font(.callout)
+                                .id(line.id)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -857,6 +893,9 @@ struct PromptView: View {
 
     private func say(_ words: String, failed: Bool = false) {
         steps.append(Line(words: words, failed: failed))
+        // Said to VoiceOver too, as the browser's progress list is a live region (lift-up 10-25c
+        // USE-1): a failure at once.
+        Spoken.say(words, urgent: failed)
     }
 
     private func generate() {
@@ -876,7 +915,7 @@ struct PromptView: View {
             self.provider, self.model.wrappedValue, self.theme, self.arc, self.given
         )
         let (research, contact, token) = (self.research && self.provider != .openai, self.secContact, self.token)
-        let see = self.see
+        let (see, speak) = (self.see, self.speak)
         // The outline shown to settle (narrative FUNC-1), the generation waiting on what is decided
         // of it; none where the slides are to come at once.
         let settle: Generator.Settle?
@@ -913,7 +952,7 @@ struct PromptView: View {
                         say(GeneratingStep.reading(url.lastPathComponent).words)
                         let reading = url.startAccessingSecurityScopedResource()
                         defer { if reading { url.stopAccessingSecurityScopedResource() } }
-                        say(try generator.add(name: url.lastPathComponent, data: try Data(contentsOf: url)).words)
+                        say(try await generator.add(contentsOf: url).words)
                     case .link(let link):
                         say(GeneratingStep.reading(link).words)
                         let read = try await generator.fetch(
@@ -923,14 +962,20 @@ struct PromptView: View {
                     try Task.checkCancellation()
                 }
                 if research {
-                    try await generator.research(brief: brief, provider: provider, model: model, key: key) {
-                        say($0.words)
+                    do {
+                        try await generator.research(brief: brief, provider: provider, model: model, key: key) {
+                            say($0.words)
+                        }
+                    } catch where !given.isEmpty && !Task.isCancelled && !(error is CancellationError) {
+                        // A research that fails goes on from the files and links given, where there
+                        // are any (lift-up 10-25b REL-4); with none, it stops the deck.
+                        say(GeneratingStep.unresearched(Why.said(error)).words)
                     }
                     try Task.checkCancellation()
                 }
                 let (session, made) = try await generator.generate(
                     brief: brief, arc: arc.isEmpty ? nil : arc, provider: provider, model: model, key: key,
-                    theme: theme, painter: paint, look: see, outline: settle,
+                    theme: theme, painter: paint, look: see, notes: speak, outline: settle,
                     drawn: { slide, jpeg in
                         withAnimation {
                             if film.indices.contains(slide) { film[slide] = jpeg } else { film.append(jpeg) }
@@ -941,11 +986,13 @@ struct PromptView: View {
                 #if os(macOS)
                 // A reference document is made by a closure, not an autoclosure.
                 newDocument { ScaenaDocument(generated: session, said: made.words) }
+                Notifying.tell(.made(about: brief.topic, made.words))
                 // Made: nothing is under way, so the window's close asks nothing.
                 running = nil
                 dismissWindow(id: PromptWindow.id)
                 #else
                 let document = ScaenaDocument(generated: session, said: made.words)
+                Notifying.tell(.made(about: brief.topic, made.words))
                 // The brief goes as `finish` puts it away, and `halt` cancels this task then; nothing
                 // is awaited after it, so the deck is already written and opens all the same.
                 finish(try Prompting.written(document, about: brief.topic, said: made.words))
@@ -957,6 +1004,7 @@ struct PromptView: View {
                 // In a sentence, without the error's wrapping (PLAN 3.18). What the provider said
                 // of the brief stays its own (the generator's tests hold it so).
                 say(Why.said(error), failed: true)
+                Notifying.tell(.failed(about: brief.topic, Why.said(error)))
             }
         }
     }

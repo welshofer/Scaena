@@ -345,14 +345,137 @@ final class KeysTests: XCTestCase {
 
         try XCTContext.runActivity(named: "⌘Z takes the typing back, and ⌘Z again Make Code") { _ in
             // B1 is left as it was: Not Code would leave the subtitle in the body's role, not its own.
-            app.typeKey("z", modifierFlags: .command)
-            settle(1)
-            app.typeKey("z", modifierFlags: .command)
-            settle()
+            // Each ⌘Z is waited on by the step the toolbar's Undo names, never by a fixed pause: on a
+            // loaded runner the burst of typing ends, and a ⌘Z lands, later than a second allows,
+            // and two ⌘Z sent blind left the subtitle code (PLAN 4.11, the undo's own words).
+            let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+            guard undo.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Undo in the toolbar: \(app.debugDescription)")
+            }
+            XCTAssertTrue(wait(5) { undo.label == "Undo Typing" }, "the step to take back first is \(undo.label)")
+            try undoing(undo, in: app)
+            XCTAssertEqual(undo.label, "Undo Make Code", "the typing was not one step: \(app.debugDescription)")
+            try undoing(undo, in: app)
             subtitle.press(forDuration: 1.2)
             let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
             XCTAssertTrue(paged(to: make, in: app), "the subtitle is still code: \(app.debugDescription)")
             app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+        }
+    }
+
+    /// Typing in code with the software keyboard up, the app settles: nothing on screen animates
+    /// on with nothing changing, so XCTest's wait for the app to go idle before an event, which
+    /// it makes before every key and tap, comes to an end at once. On #865's iPad run it never
+    /// did: each event waited out the quiescence timeout, some two minutes, and the test ran past
+    /// its ten (lift-up 20261110). The app is launched with `-reportAnimations YES`, which says in
+    /// `log.txt` every two seconds what animates while a text is typed in.
+    @MainActor
+    func testTypingInCodeSettles() throws {
+        let app = launched(arguments: ["-reportAnimations", "YES"])
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        guard subtitle.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no subtitle: \(app.debugDescription)")
+        }
+        settle()
+        subtitle.press(forDuration: 1.2)
+        let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
+        guard paged(to: make, in: app) else {
+            keep(app, as: "settles-no-make-code")
+            throw Unseen(description: "the long press offered no Make Code: \(app.debugDescription)")
+        }
+        make.tap()
+        settle()
+        let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+        app.typeKey("\n", modifierFlags: [])
+        guard typing.waitForExistence(timeout: 5) else {
+            throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
+        }
+        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+        // What a tab typed and the keyboard brought have had time to finish.
+        settle(3)
+        keep(app, as: "settles-typing")
+        // → at the end of the line moves nothing: what it takes is XCTest's wait for the app to
+        // settle before it, which is a moment where nothing animates on.
+        let began = Date()
+        app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+        let waited = Date().timeIntervalSince(began)
+        print("a key typed in code waited \(String(format: "%.1f", waited)) s for the app to settle")
+        XCTAssertLessThan(waited, 30, "typing in code, the app did not settle: a key waited \(Int(waited)) s")
+        XCTAssertTrue(typing.exists, "→ at the end of the code left the text")
+        _ = cancel(app, until: { !typing.exists })
+    }
+
+    /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named: the key
+    /// sent again once where the app did not hear it, as a loaded simulator drops one.
+    @MainActor
+    private func undoing(_ undo: XCUIElement, in app: XCUIApplication) throws {
+        let step = undo.label
+        for _ in 0..<2 {
+            app.typeKey("z", modifierFlags: .command)
+            if wait(5, { undo.label != step }) {
+                settle(1)
+                return
+            }
+        }
+        throw Unseen(description: "⌘Z took back nothing: Undo still reads \(step): \(app.debugDescription)")
+    }
+
+    /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the
+    /// Mac's Edit menu holds them: on B1's cover with a hardware keyboard, the title nudged by
+    /// eight arrows, the deck then held as the assistant holds it (`-assistantAtWorkAfter 8`), and ⌘Z and ⇧⌘Z
+    /// take nothing back, the canvas saying the assistant is at work on the deck.
+    @MainActor
+    func testUndoWaitsWhileTheAssistantIsAtWork() throws {
+        let app = launched(arguments: ["-assistantAtWorkAfter", "8"])
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
+        guard title.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no title: \(app.debugDescription)")
+        }
+        let hint = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'hint'")).firstMatch
+        let said = { hint.exists ? hint.label : "nothing" }
+        settle()
+
+        // A tap where nothing draws gives the canvas the keyboard; Tab selects the title, and eight
+        // arrows nudge it, the eight edits after which the deck is held.
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
+        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+        guard wait(5, { title.isSelected }) else {
+            throw Unseen(description: "Tab selected no title: \(app.debugDescription)")
+        }
+        let before = title.frame
+        for _ in 0..<8 {
+            app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+        }
+        guard wait(5, { title.frame.minX > before.minX + 2 }) else {
+            throw Unseen(description: "the arrows nudged nothing: \(before) → \(title.frame)")
+        }
+        let nudged = title.frame
+        settle(1)
+
+        try XCTContext.runActivity(named: "⌘Z and ⇧⌘Z take nothing back, saying the assistant is at work") { _ in
+            app.typeKey("z", modifierFlags: .command)
+            settle(1)
+            keep(app, as: "undo-held")
+            XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⌘Z says \(said())")
+            XCTAssertEqual(
+                title.frame.minX, nudged.minX, accuracy: 0.5, "⌘Z took a nudge back while the assistant worked")
+            // The hint stands six seconds, and ⇧⌘Z says the same words, which keep it standing no
+            // longer: so ⇧⌘Z is pressed once ⌘Z's words have gone, and must bring them back. Pressed
+            // within those seconds, as the first run of this test did, it was held (the keys log
+            // says so) but its words went with ⌘Z's before they were read.
+            XCTAssertTrue(wait(10) { !hint.exists }, "⌘Z's words stand: \(said())")
+            app.typeKey("z", modifierFlags: [.command, .shift])
+            XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⇧⌘Z says \(said())")
+            settle(1)
+            XCTAssertEqual(
+                title.frame.minX, nudged.minX, accuracy: 0.5, "⇧⌘Z changed the title while the assistant worked")
         }
     }
 

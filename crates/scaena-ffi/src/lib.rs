@@ -117,7 +117,7 @@ const DEEP: usize = 16 << 20;
 /// the caller's own is left: a call of the session's has the room any deck takes to lay out,
 /// whichever thread Swift calls from, and stays on that thread, so what core keeps per thread
 /// (the theme checked, `validate::CHECKED`) is kept from call to call.
-fn deep<T>(f: impl FnOnce() -> T) -> T {
+pub(crate) fn deep<T>(f: impl FnOnce() -> T) -> T {
     stacker::maybe_grow(ROOM, DEEP, f)
 }
 
@@ -355,7 +355,9 @@ pub unsafe extern "C" fn scaena_laying_new(session: *mut ScaenaSession) -> *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scaena_laying_lay(laying: *mut ScaenaLaying) -> bool {
     guarded(|| {
-        unsafe { handle(laying, "laying") }?.0.lay();
+        // On the stack any deck takes to lay out, whichever thread calls (lift-up 20261031 STAB-1).
+        let laying = unsafe { handle(laying, "laying") }?;
+        deep(|| laying.0.lay());
         Ok(())
     })
     .is_ok()
@@ -1156,6 +1158,13 @@ pub struct ScaenaSurface {
     painter: scaena_paint::gpu::LayerPainter,
 }
 
+/// Whether this library carries the web player a single-file export is made from (`scaena_export`'s
+/// `html`): only one built after `just web` does, as only such a `scaena` exports `--format html`.
+#[unsafe(no_mangle)]
+pub extern "C" fn scaena_carries_player() -> bool {
+    scaena_export::html::player().is_some()
+}
+
 /// Make the GPU every surface paints with, if it is not made yet: what the app calls as it starts,
 /// off its main thread, so that the first deck it opens shows its first frame without waiting for
 /// it (gate 3). A surface made meanwhile waits for it. False where none can be made, as on any
@@ -1348,7 +1357,10 @@ pub unsafe extern "C" fn scaena_surface_free(surface: *mut ScaenaSurface) {
 /// painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 /// every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
 /// 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
-/// 3.15). Null bytes where it cannot be made, `*error` then saying why.
+/// 3.15); or `html`, `args` `{name, notes}`, the deck as one file that plays offline, named `name`,
+/// as `export --format html` writes it, the presenter's notes kept only with `notes: true`, made
+/// only by a library that carries the web player ([`scaena_carries_player`]). Null bytes where it
+/// cannot be made, `*error` then saying why.
 ///
 /// # Safety
 /// `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
@@ -1409,7 +1421,24 @@ pub unsafe extern "C" fn scaena_export(
                     .ok_or_else(|| said("version: `width` is a number of pixels, 1 to 16384"))?;
                 session.0.version_png(state, width).map_err(said)
             }
-            _ => Err(said(format!("`{format}` is not an export this library makes: pdf, png, slides, or version"))),
+            // One file that plays offline (lift-up 20261031 FUNC-3), as `export --format html` writes it.
+            "html" => {
+                let page = scaena_export::html::player().ok_or_else(|| {
+                    said(
+                        "html: this Scaena was built without the web player a single file carries: build it after \
+                         `just web`",
+                    )
+                })?;
+                let name = args.get("name").and_then(Value::as_str).unwrap_or("Deck");
+                let notes = match args.get("notes").and_then(Value::as_bool).unwrap_or(false) {
+                    true => scaena_ops::export::Notes::Keep,
+                    false => scaena_ops::export::Notes::Drop,
+                };
+                session.0.standalone(page, name, notes).map(String::into_bytes).map_err(said)
+            }
+            _ => {
+                Err(said(format!("`{format}` is not an export this library makes: pdf, png, slides, html, or version")))
+            }
         }
     });
     match made {

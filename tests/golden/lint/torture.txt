@@ -1,6 +1,5 @@
 E100 - wrap-longword wrap-word /nodes/wrap-word fix
 E100 9:16 wrap-longword wrap-word /nodes/wrap-word
-E100 9:16 wrap-url wrap-link /nodes/wrap-link fix
 E100 9:16 wrap-narrow wrap-narrow-col /nodes/wrap-narrow-col fix
 E100 9:16 hyphenation hyph-off /nodes/hyph-off fix
 E101 9:16 hyphenation hyph-off /nodes/hyph-off
@@ -203,7 +202,7 @@ W421 - shadows - /states/60
 W421 - shadows-next - /states/61
 W421 - adjust - /states/62
 W421 - adjust-next - /states/63
-W421 - maps - /states/67
+W421 - maps - /states/68
 I402 - - marks-dot /overrides/marks-dot
 I402 - - gp-linear /overrides/gp-linear
 I402 - - gp-conic /overrides/gp-conic
