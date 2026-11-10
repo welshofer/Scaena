@@ -1149,8 +1149,10 @@ struct DeckView: View {
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
                     note in
                     let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                    // The end frame is the screen's; the desk's, its window's, converted through
+                    // the window's screen, so a Stage Manager window offset on it reads right.
                     let desk = room.frame(in: .global)
-                    zoom.cover(end.map { max(0, desk.maxY - $0.minY) } ?? 0)
+                    zoom.cover(end.map { KeyboardCover.covered(by: $0, desk: desk, in: KeyboardCover.window) } ?? 0)
                     zoom.lift(clearing: typedLine ?? .null)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in

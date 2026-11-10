@@ -216,6 +216,14 @@ public struct Zoom: Equatable, Sendable {
         settle()
     }
 
+    /// How much of `desk` the keyboard at `keyboard` covers, both in one space, points: the depth
+    /// of their overlap where they meet, else none (lift-up 20261110).
+    public static func covered(by keyboard: CGRect, desk: CGRect) -> CGFloat {
+        let both = keyboard.intersection(desk)
+        guard !both.isNull, both.width > 0, both.height > 0 else { return 0 }
+        return desk.maxY - both.minY
+    }
+
     /// The software keyboard covers `points` of the desk's foot, none where it is down (lift-up
     /// 20261110). The slide does not move for it; down, the slide settles back where it stood.
     public mutating func cover(_ points: CGFloat) {

@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 import CoreGraphics
 import Foundation
@@ -333,3 +335,30 @@ private func alike(_ a: CGRect, _ b: CGRect) -> Bool {
     let s = zoom.scale
     #expect(zoom.slide.minY + foot.maxY * s <= zoom.desk.height - zoom.covered + 1e-6, "\(zoom.slide)")
 }
+
+/// How much of the desk the keyboard covers is read in one space (lift-up 20261110): the depth of
+/// their overlap, none where they do not meet, and the same for a desk offset in its window as a
+/// Stage Manager window stands offset on the screen.
+@Test func theKeyboardCoversTheDepthOfItsOverlapWithTheDesk() {
+    let desk = CGRect(x: 0, y: 100, width: 1000, height: 600)  // 100 to 700 down
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 400, width: 1376, height: 498), desk: desk) == 300)
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 1032, width: 1376, height: 498), desk: desk) == 0, "down, it covers nothing")
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 650, width: 1376, height: 66), desk: desk) == 50, "a bar covers its own depth")
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 0, width: 1376, height: 0), desk: desk) == 0)
+    // The same desk in a window 200 points down the screen: the keyboard at 534 on the screen
+    // covers the desk from 534 to its foot at 900.
+    let offset = desk.offsetBy(dx: 120, dy: 200)
+    #expect(Zoom.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: offset) == 366)
+}
+
+#if os(iOS)
+/// The keyboard's end frame, the screen's, against a desk in a window offset on the screen, as a
+/// Stage Manager window stands: converted through the window's screen (lift-up 20261110).
+@MainActor
+@Test func theKeyboardIsReadAgainstTheDeskThroughItsWindowsScreen() {
+    let window = UIWindow(frame: CGRect(x: 120, y: 200, width: 1000, height: 700))
+    let desk = CGRect(x: 0, y: 100, width: 1000, height: 600)  // 300 to 900 down the screen
+    #expect(KeyboardCover.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: desk, in: window) == 366)
+    #expect(KeyboardCover.covered(by: CGRect(x: 0, y: 534, width: 1376, height: 498), desk: desk, in: nil) == 0)
+}
+#endif
