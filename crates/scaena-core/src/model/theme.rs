@@ -612,10 +612,12 @@ pub struct Slot {
     /// Default text role for nodes placed in this slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// How far in from its cells the slot stands on each side, canvas units (theme format 0.11,
-    /// PLAN 3.30): words on a card that fills the same cells.
+    /// How far in from its cells the slot stands, canvas units (theme format 0.11, PLAN 3.30):
+    /// one number on each side, words on a card that fills the same cells; or each side its own
+    /// (theme format 0.27), as words under a text set on the foot of its cells stand clear of its
+    /// descenders.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inset: Option<f64>,
+    pub inset: Option<SlotInset>,
     /// What goes in the slot (theme format 0.11, PLAN 3.30). Words a person types over: a new
     /// slide in the layout puts a text in the slot's `role` there, with these words, each item of
     /// a list a paragraph. A slot with no role says in words what goes in it, a picture or a
@@ -656,6 +658,40 @@ impl Slot {
             (Some(_), _) => kind == NodeType::Text,
             (None, Some(_)) => matches!(kind, NodeType::Image | NodeType::Chart | NodeType::Table | NodeType::Shader),
             (None, None) => true,
+        }
+    }
+}
+
+/// How far in from its cells a slot stands: the same on each side, or each side its own (theme
+/// format 0.27), a side left out none.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SlotInset {
+    All(f64),
+    Sides(Sides),
+}
+
+/// Each side's own inset, canvas units.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(extend("minProperties" = 1))]
+pub struct Sides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<f64>,
+}
+
+impl SlotInset {
+    /// Its sides: top, right, bottom, left.
+    pub fn sides(&self) -> [f64; 4] {
+        match *self {
+            SlotInset::All(n) => [n; 4],
+            SlotInset::Sides(s) => [s.top, s.right, s.bottom, s.left].map(|n| n.unwrap_or(0.0)),
         }
     }
 }
@@ -1033,6 +1069,25 @@ pub struct CodeLook {
     /// code (PLAN 2.136, theme format 0.26).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub numbers: Option<CodeNumbers>,
+    /// How the lines out of a code text's focus are set back, and what marks those in it (PLAN
+    /// 2.140, theme format 0.28).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus: Option<CodeFocus>,
+}
+
+/// How a walkthrough sets back the lines out of focus (ADR-0029): each token's color mixed toward
+/// its ground, never under 3:1, and the band behind the lines in focus.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CodeFocus {
+    /// How far each token out of focus is mixed toward its ground, 0 to 1: 0.55 where unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0.0, max = 1.0))]
+    pub dim: Option<f64>,
+    /// The color of a band behind the lines in focus, a color token or role: none where unset.
+    /// The code in focus is held to read on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub band: Option<String>,
 }
 
 /// The card a code text stands on (ADR-0029): a rect that hugs the code and its gutter, `inset`

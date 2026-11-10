@@ -3,7 +3,7 @@
 // makes one. It is made in an engine's worker of its own, which starts as the dialog opens and
 // loads the generator's module while the brief is written; Cancel stops it, asking first while it
 // runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
@@ -38,6 +38,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "unoutlined":
+      return "Writing the slides without an outline";
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
     case "retrying":
@@ -64,6 +66,8 @@ export function said(event: GeneratingEvent): string {
         : "The model saw nothing to change";
     case "unlooked":
       return `Not changed by what the model saw: ${event.why}`;
+    case "refused":
+      return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
@@ -73,13 +77,23 @@ export function said(event: GeneratingEvent): string {
   }
 }
 
+/** Where the deck sends its audience: ". Linked: portal.org/playbook on slide 13" (lift-up
+ * 20261025 SEC-4). */
+function linked(m: Generated): string {
+  const links = m.links ?? [];
+  if (!links.length) return "";
+  const said = links.map((l) => `${l.href.replace(/^mailto:/, "").replace(/^https:\/\//, "")} on slide ${l.slide}`);
+  return `. Linked: ${said.join("; ")}`;
+}
+
 /** What was made, in a line for the status bar. */
 export function made(m: Generated): string {
   const fixed = m.fixed.length ? `, ${m.fixed.length} ${m.fixed.length === 1 ? "issue" : "issues"} fixed` : "";
   const errors = m.created.errors ? `, ${m.created.errors} ${m.created.errors === 1 ? "problem" : "problems"} to look at` : "";
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
-  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${fixed}${errors}`;
+  const refused = m.refused?.length ? `, ${m.refused.length} of its changes let go` : "";
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}${linked(m)}`;
 }
 
 /** A source given: a file, or a link. */
@@ -107,11 +121,15 @@ export function prompting(
   const audience = $<HTMLInputElement>("#prompting-audience");
   const goal = $<HTMLSelectElement>("#prompting-goal");
   const length = $<HTMLSelectElement>("#prompting-length");
-  const theme = $<HTMLSelectElement>("#prompting-theme");
+  // The themes that ship, chosen by their title slides (lift-up 10-25b ATTR-1).
+  const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
   const outcome = $<HTMLInputElement>("#prompting-outcome");
   const language = $<HTMLInputElement>("#prompting-language");
   const voice = $<HTMLInputElement>("#prompting-voice");
+  const persona = $<HTMLSelectElement>("#prompting-persona");
+  const see = $<HTMLInputElement>("#prompting-see");
+  const quality = $<HTMLSelectElement>("#prompting-quality");
   const arc = $<HTMLSelectElement>("#prompting-arc");
   const github = $<HTMLInputElement>("#prompting-github");
   const research = $<HTMLInputElement>("#prompting-research");
@@ -132,7 +150,6 @@ export function prompting(
   const keyKeep = $<HTMLInputElement>("#prompting-key-keep");
   const keySaid = $<HTMLParagraphElement>("#prompting-key-said");
   const showOutline = $<HTMLInputElement>("#prompting-show-outline");
-  theme.replaceChildren(...familySections());
   // The outline before the slides (narrative FUNC-1): the arc, the big idea, and each beat's claim,
   // shown once the model writes it, to change before the slides are written.
   const outlinePane = $<HTMLElement>("#prompting-outline");
@@ -140,8 +157,11 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
-  /** The outline pane's own fields, which stay live while the deck is made. */
-  const outlining = (field: Element) => field.closest("#prompting-outline") !== null;
+  // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
+  const unreadPane = $<HTMLElement>("#prompting-unread");
+  const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
+  /** The outline panes' own fields, which stay live while the deck is made. */
+  const outlining = (field: Element) => field.closest("#prompting-outline, #prompting-unread") !== null;
 
   /** A beat as a row: its name, its claim to type over, the slides it takes, a number to set
    * (lift-up FUNC-4), and Up, Down, and Remove. */
@@ -192,8 +212,18 @@ export function prompting(
     })),
   });
 
-  /** The outline shown, to settle: the arc and why, the big idea, and the beats. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string }) => {
+  /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
+   * not read, why, to write without one or stop. */
+  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+    if (outlined.unread) {
+      // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
+      const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
+      unreadWhy.textContent = `It was asked twice, and ${why}. Write the slides without one, on the ${outlined.arc} arc already chosen, or stop.`;
+      unreadPane.hidden = false;
+      for (const button of unreadPane.querySelectorAll("button")) button.disabled = false;
+      $<HTMLButtonElement>("#prompting-without").focus();
+      return;
+    }
     outlineArc.textContent = outlined.fallback
       ? `Arc: ${outlined.arc}, the heuristic's (${outlined.fallback}).`
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
@@ -254,6 +284,9 @@ export function prompting(
     options(length, choices.lengths.map((l) => [l, l.replaceAll("-", "\u2013")]), choices.defaults.length);
     options(modality, choices.modalities.map((m) => [m.id, m.label]), choices.modalities[0]?.id ?? "");
     options(arc, [["", "The model's choice"], ...choices.arcs.map((a): [string, string] => [a, a])], "");
+    // A persona chosen where the audience is in the person's own words; by default the one the
+    // audience names (lift-up FUNC-5).
+    options(persona, [["", "As the audience suggests"], ...choices.personas.map((p): [string, string] => [p.id, p.name])], "");
     audience.placeholder = choices.defaults.audience;
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
@@ -263,6 +296,7 @@ export function prompting(
   const whoPaints = () => {
     const chosen = pictures.value as "openai" | "gemini" | "";
     look.disabled = running || !chosen;
+    quality.disabled = running || !chosen;
     if (!chosen) {
       painter.textContent = "No pictures: each slide is set in a layout that waits for none.";
     } else if (!painters[chosen]) {
@@ -400,12 +434,14 @@ export function prompting(
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
     if (!on) outlinePane.hidden = true;
+    if (!on) unreadPane.hidden = true;
   };
 
   opener.onclick = () => {
     progress.replaceChildren();
     film.replaceChildren();
     outlinePane.hidden = true;
+    unreadPane.hidden = true;
     dialog.returnValue = "";
     dialog.showModal();
     topic.focus();
@@ -482,6 +518,7 @@ export function prompting(
         desiredOutcomes: outcome.value.trim() || undefined,
         language: language.value.trim() || undefined,
         voice: voice.value.trim() || undefined,
+        personaId: persona.value || undefined,
       },
       arc: arc.value || undefined,
       theme: theme.value,
@@ -496,10 +533,19 @@ export function prompting(
       github: github.value.trim() || undefined,
       research: research.checked,
       outline: showOutline.checked,
+      look: see.checked,
       pictures: (() => {
         const chosen = pictures.value as "openai" | "gemini" | "";
         const kept = chosen ? painters[chosen] : undefined;
-        return chosen && kept ? { provider: chosen, key: kept.key, base: kept.base, look: look.value as "illustration" | "photo" } : undefined;
+        return chosen && kept
+          ? {
+              provider: chosen,
+              key: kept.key,
+              base: kept.base,
+              look: look.value as "illustration" | "photo",
+              quality: quality.value as "low" | "medium" | "high",
+            }
+          : undefined;
       })(),
     };
     progress.replaceChildren();
@@ -526,6 +572,12 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
     };
+    // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
+    $<HTMLButtonElement>("#prompting-without").onclick = () => {
+      unreadPane.hidden = true;
+      making.postMessage({ type: "outlinePassed" } satisfies ToWorker);
+    };
+    $<HTMLButtonElement>("#prompting-unread-stop").onclick = () => dialog.close("cancel");
     making.postMessage(
       { type: "generate", generate: job, engine: engine.module } satisfies ToWorker,
       job.files.map((f) => f.bytes),

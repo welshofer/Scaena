@@ -208,9 +208,10 @@ pub struct ContentBalance {
     pub score: f64,
     /// To a tenth.
     pub avg_bullets_per_slide: f64,
-    /// In UTF-16 units, as JavaScript counts a string's length.
+    /// In UTF-16 units, as JavaScript counts a string's length, a CJK character two ([`units`]).
     pub avg_speaker_notes_length: f64,
-    /// The share of slides with an embedding or a body of more than 30 units, to a hundredth.
+    /// The share of slides with an embedding or a body of more than 30 units ([`units`]), to a
+    /// hundredth.
     pub visual_coverage: f64,
     pub message: String,
 }
@@ -401,6 +402,34 @@ fn signed(v: f64) -> String {
     format!("{}{}", if v >= 0.0 { "+" } else { "\u{2212}" }, js::to_fixed(v.abs(), 2))
 }
 
+/// How long `text` reads: its UTF-16 units, as JavaScript counts a string's length, but a
+/// character of Han, kana, or Hangul two, since it says about as much as two letters of a
+/// language written in an alphabet (Scaena's, not Vzestup's: ADR-0032 item 5, Jay's call,
+/// 2026-10-25). A text in an alphabet counts as Vzestup counts it.
+fn units(text: &str) -> usize {
+    text.chars().map(|c| if cjk(c) { 2 } else { c.len_utf16() }).sum()
+}
+
+/// A character of a script written without spaces for its words, or with syllables for letters:
+/// Han, kana, Hangul, and their marks, punctuation, and full-width forms.
+fn cjk(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x11FF       // Hangul Jamo
+        | 0x2E80..=0x2FDF     // CJK radicals, Kangxi radicals
+        | 0x3000..=0x303F     // CJK symbols and punctuation
+        | 0x3040..=0x30FF     // Hiragana, Katakana
+        | 0x3130..=0x318F     // Hangul compatibility Jamo
+        | 0x31F0..=0x31FF     // Katakana phonetic extensions
+        | 0x3400..=0x4DBF     // CJK extension A
+        | 0x4E00..=0x9FFF     // CJK unified ideographs
+        | 0xA960..=0xA97F     // Hangul Jamo extended A
+        | 0xAC00..=0xD7FF     // Hangul syllables, Jamo extended B
+        | 0xF900..=0xFAFF     // CJK compatibility ideographs
+        | 0xFF00..=0xFFEF     // Half-width and full-width forms
+        | 0x20000..=0x3FFFF   // CJK extensions B on
+    )
+}
+
 /// The narrative health of `slides`, a talk of `length_minutes` (`localHealthMetrics`): the
 /// slides hidden or left out of evaluation are not read.
 pub fn metrics(slides: &[SlideForHealth], length_minutes: Option<u32>) -> LocalHealthMetrics {
@@ -427,7 +456,6 @@ pub fn metrics(slides: &[SlideForHealth], length_minutes: Option<u32>) -> LocalH
     };
 
     // Content balance.
-    let units = |text: &str| text.encode_utf16().count();
     // The points made on average, over the slides made to make several.
     let pointed: Vec<&SlideForHealth> = visible.iter().filter(|s| !s.one_idea).collect();
     let bullets: usize = (pointed.iter())
@@ -825,6 +853,24 @@ mod tests {
         let m = metrics(&slides, Some(15));
         assert!(m.alerts.iter().any(|a| a.level == Level::Warning && a.slide_id.as_deref() == Some("b0")));
         assert!(m.coherence.weak_transitions.iter().any(|id| id == "b0"));
+    }
+
+    /// A character of Han, kana, or Hangul says about as much as two letters, so a slide in
+    /// Japanese shows something at half the characters of one in English (ADR-0032 item 5).
+    #[test]
+    fn a_cjk_character_weighs_two_letters() {
+        assert_eq!(
+            (units("microgrid"), units("マイクログリッド"), units("微電網"), units("마이크로그리드")),
+            (9, 16, 6, 14)
+        );
+        assert_eq!(units("11日間の停電"), 2 + 2 * 5);
+        assert_eq!(units("😀"), 2);
+        // 19 characters of Japanese read past 30 units; 16 of English do not.
+        let ja =
+            SlideForHealth { body: "停電のあと町は自分たちの電力網を築いた".into(), ..slide("ja") };
+        let en = SlideForHealth { body: "the town rebuilt".into(), ..slide("en") };
+        assert_eq!(metrics(&[ja], Some(15)).content_balance.visual_coverage, 1.0);
+        assert_eq!(metrics(&[en], Some(15)).content_balance.visual_coverage, 0.0);
     }
 
     /// A one-idea slide makes the point it is made for, and is left out of the points a slide

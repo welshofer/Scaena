@@ -33,8 +33,13 @@ Every step works through either surface. An MCP tool takes the same settings its
 | find an icon | `scaena icons <words> --json`: each its `path` and `view`, for `add_node` | `icon_find` |
 | start a slide in a layout | `scaena start <bundle> <state> --layout bullets`: a new slide after that state's slide, as Add Slide starts one, with a text in each slot to write over; `--claim "…"` tells its claim in a beat of its own, else it joins that state's beat; `--id pricing` names it and its nodes (`pricing-header`), and it says each slot it filled with the node there, and each it left empty for a picture or a figure; `scaena inspect <bundle> --state <id> --layouts` lists the layouts | `state_start` |
 | set a slide's background | `scaena background <bundle> <state> backdrop`, one of the theme's shader presets; `--none` takes it away; neither lists what the slide may take | `background_set` |
-| write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief | `slide_write` |
+| write one slide as the generator builds them | the MCP server's alone: a slide in the JSON Narrato writes (`deck_generate`'s `slides`), after a slide (`after`) or in a slide's place (`replace`), its layout chosen for its items in the deck's theme and brief; `beat` names the beat of the spine it tells, which its states join and which keeps its claim; with none, a deck with no spine yet begins one, the first slide taking the place of `deck_create`'s blank one | `slide_write` |
 | make a deck from slides you wrote | `scaena generate <dir> "topic" --slides slides.json`: Narrato's slide JSON, no model called | `deck_generate`: the same, the slides given inline |
+| find and replace words | `scaena find <bundle> TEXT`, with `--replace WITH` | `deck_find`, with `replace` |
+| put a picture on a slide | copy it into the bundle's `assets/`, then `add_node` an image | `image_add`: a PNG or JPEG `file`, on a slide, in its empty place for a picture or a box, described by `alt` |
+| edit the theme | `scaena theme <bundle> --edit ops.json` | `theme_edit`: JSON Patch on the theme the deck names |
+| edit a data source's rows | `scaena data <bundle> <source> --edits edits.json` | `data_edit` |
+| read and restore versions (undo) | `scaena history <bundle>`, with `--at`, `--diff`, or `--restore` | `deck_history`, with `at`, `compare`, or `restore` |
 
 Errors:
 - Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
@@ -42,9 +47,15 @@ Errors:
 
 ## Procedure
 
+0. **Choose the path**, in this order:
+   - A whole deck: write its slides in the JSON Narrato writes and make it with `deck_generate` (`scaena generate --slides`), which calls no model and gives the spine, its beats and notes, the layouts, the figures, and the builds.
+   - One slide into a deck that exists: `slide_write`, with the `beat` it tells.
+   - A deck written by hand: `deck_create`, then the steps below with `deck_patch`.
+
 1. **Spine first.**
    - From the brief, write `spine.sections[].beats[]`: one `claim` sentence per beat, `evidence` refs, and `notes`.
    - Aim for 3–7 beats. If the brief is thin, ask one question, then proceed.
+   - Over MCP, plan the spine with `spine_update`, then write each slide with `slide_write` and its `beat`: the slide's states join the beat you planned, which keeps its claim, so the story you wrote is the one the deck tells and `deck_health` reads.
    - On a deck that exists, read its spine before anything else: `spine_read` (from the CLI, `scaena export <bundle> --format spine`). Each beat's claim is what its slides must say, so an edit serves a claim or changes the spine; `spine_update` replaces the spine, checked as a patch is. Then read its story (step 6) to know what it needs before you touch a slide.
 2. **Data.**
    - Register sources under `data` (`data/*.csv|json`), each with a `schema`; `data_attach` writes both.
@@ -84,14 +95,15 @@ Errors:
      - **intensity** and **tone**: how closely each slide's words carry what it declares; English only, never in the score.
    - `score` weighs pacing, balance, and fidelity. `slides` reads each slide: its beat, its headline, where the arc's curve stands at its place, what it declares, what its words read, and how it stands (`ok`, `bends`, `drifted`).
    - Each finding names a slide and says what to look at; its `ask` is a question to answer in the deck, not a fix to apply blindly: a slide that reads flatter than its place in the arc wants stronger words or a move, not a number changed. Where a finding carries a `fix`, it only declares what the words already read, or the beat a moved slide now stands in; apply it with `deck_patch`.
-   - A deck with no `meta.narrative` is measured against a talk's curve. Give it an arc with `scaena generate --slides`, which writes `meta.narrative` as Narrato's decks carry it, or leave fidelity aside and read pacing, balance, and the findings.
+   - A deck with no `meta.narrative` is measured against a talk's curve. Give it an arc with a patch, `{ "op": "add", "path": "/meta/narrative", "value": { "generator": "narrato", "arc": "Problem–Solution", "brief": { "topic": "…", "audience": "…", "goal": "Persuade", "length": "11-15 slides" } } }` (`deck_patch`; `scaena generate` makes a new deck and refuses a folder that holds one), or leave fidelity aside and read pacing, balance, and the findings.
 7. **Inspect.**
    - `inspect --state <id>` confirms tracking did what you meant.
    - `--timeline` shows when each motion runs, and over how many words, lines, or marks.
    - `--data` shows the rows a chart or table reads after its `dataTransform`.
    - `diff --from a --to b` confirms that a build changes only what it should.
 8. **Edit with patches.**
-   - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result is the patch as JSON Patch and what lint finds differently (`added`, `removed`).
+   - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result says what the patch changed in the slides and the story (`summary`), what lint finds that it did not (`added`) and finds no more (`removed`), and each beat whose claim its slide no longer says (`restated`); `verbose: true` returns the JSON Patch it compiled to.
+   - A slide's own ops: `move_slide`, `remove_slide`, and `duplicate_slide` move, take away, and copy a slide with its steps and its beat; `set_state` sets a state's layout, transition, hold, and notes; `place`, `choose`, and `replace_text` place a node, set a property where its value lives, and change words, keeping their runs.
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
      - `choose` changes one property where it lives, as a person does in the editor's inspector: `inspect --state <id> --choices <node>` (`deck_inspect` with `choices`) lists what the theme offers for each property, the value shown, and where it lives.

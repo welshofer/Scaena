@@ -1,0 +1,28 @@
+{
+  "_comment": "API addresses a key may go to, and those it may not (lift-up 20261025 SEC-2): scaena-narrato's and scaena-chat's checked_base and the browser's refusedBase are each held to every case.",
+  "good": [
+    "https://api.example.com",
+    "HTTPS://proxy.example.com:8443/v1/",
+    "http://localhost:8080",
+    "http://127.0.0.1",
+    "http://[::1]:9000/",
+    "http://LOCALHOST/proxy",
+    "http://localhost:"
+  ],
+  "bad": [
+    "http://api.example.com",
+    "http://localhost.evil.example",
+    "http://127.0.0.1.evil.example",
+    "http://localhost:80@evil.example",
+    "http://[::1]@evil.example/",
+    "http://[::1]evil.example",
+    "http://[::1]\t@evil.example",
+    "http://[::1]:80@evil.example",
+    "http://127.0.0.1@evil.example",
+    "http://localhost@evil.example",
+    "https://",
+    "https://user@evil.example",
+    "ftp://example.com",
+    "api.example.com"
+  ]
+}

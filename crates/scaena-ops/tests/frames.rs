@@ -151,9 +151,15 @@ fn an_image_export_says_what_it_needs() {
     let wrong = Request { size: Some("1000x1000".into()), ..png(Some(scratch("png-square"))) };
     assert!(ask(wrong).contains("aspect ratio"));
     let fps = Request { fps: Some(30), ..png(Some(scratch("png-fps"))) };
-    assert!(ask(fps).contains("--fps"));
+    // Each names its field, as an MCP client writes it, and its flag (lift-up 10-25b USE-5).
+    assert!(ask(fps).contains("`fps` (--fps)"));
     let pdf = Request { format: "pdf".into(), size: Some("960x540".into()), ..png(Some(scratch("pdf-size"))) };
-    assert!(ask(pdf).contains("--size"));
+    assert!(ask(pdf).contains("`size` (--size)"));
+    let nowhere = Request { format: "pdf".into(), out: None, ..png(None) };
+    assert!(ask(nowhere).contains("give it `out`, a file's path (--out FILE)"));
+    let guessed = Request { states: Some(vec!["revenu".into()]), ..png(Some(scratch("png-guessed"))) };
+    let said = ask(guessed);
+    assert!(said.contains("`states` (--states) names `revenu`, which is not a state of the deck; "), "{said}");
 }
 
 /// An image of each state is named by where it stands among the slides, as the editor's zip of
@@ -183,7 +189,10 @@ fn images_are_named_by_their_slide_and_step_and_titled_by_its_headline() {
         .find(|(_, p)| matches!(p.get("role").and_then(|r| r.as_str()), Some("display" | "headline" | "title")))
         .map(|(_, p)| scaena_core::reading::words(p))
         .expect("the second slide has a headline");
-    let title = svg.split("<title>").nth(1).and_then(|t| t.split("</title>").next()).unwrap();
+    // The title names the drawing for a reader (lift-up 20261031 FUNC-1).
+    let (tag, rest) = svg.split_once("<title id=\"").and_then(|(_, t)| t.split_once("\">")).unwrap();
+    assert!(svg.contains(&format!("aria-labelledby=\"{tag}\"")), "the drawing is named by its title");
+    let title = rest.split("</title>").next().unwrap();
     assert_eq!(title, headline.split_whitespace().collect::<Vec<_>>().join(" ").replace('&', "&amp;"));
     let deck_title = deck.meta.as_ref().and_then(|m| m.title.clone()).unwrap_or_default();
     assert_ne!(title, deck_title, "not the deck's title");

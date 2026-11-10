@@ -259,10 +259,17 @@ enum Cmd {
         /// state's hold alone, as a player auto-advances.
         #[arg(long, value_enum, default_value_t = PaceArg::Beats)]
         pace: PaceArg,
-        /// A PDF with the presenter's notes: each slide drawn smaller at the head of a page, the
-        /// notes a presenter reads for it under it, as Keynote's "Include presenter notes".
+        /// The presenter's notes, as Keynote's "Include presenter notes": a PDF with each slide
+        /// drawn smaller at the head of a page and the notes a presenter reads for it under it; a
+        /// single HTML file with each state's and beat's notes, each beat's evidence, and what
+        /// Narrato planned, the presenter's own copy. Without it a single file is the room's,
+        /// sent after a talk, those left out. Only a PDF or a single file.
         #[arg(long)]
         notes: bool,
+        /// A video's chroma: `444` keeps every pixel's color, for a master (H.264 High 4:4:4, VP9
+        /// profile 1, ProRes 4444), which fewer players play. Default: 4:2:0, and ProRes 4:2:2.
+        #[arg(long)]
+        chroma: Option<String>,
     },
     /// Apply a patch: JSON Patch (RFC 6902) and semantic ops, all or none, and say what
     /// changes in what `validate` and `lint` find. A patch that would make the deck invalid
@@ -696,6 +703,12 @@ fn run(cli: Cli) -> Result<ExitCode> {
                 for (old, new) in &saved.renamed {
                     println!("  {old} → {new}");
                 }
+                if let Some(aside) = &saved.again {
+                    println!("  the history could not be read: kept aside as {aside}, and begun again");
+                }
+                if let Some(why) = &saved.unrecorded {
+                    println!("  {why}");
+                }
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -799,9 +812,10 @@ fn run(cli: Cli) -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace, notes } => {
+        Cmd::Export { bundle, format, out, states, size, fps, audio, painter, pace, notes, chroma } => {
             let (painter, pace) = (painter.into(), pace.into());
-            let req = scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace, notes };
+            let req =
+                scaena_ops::export::Request { format, states, out, size, fps, audio, painter, pace, notes, chroma };
             let exported = scaena_ops::export::export(&open(&bundle)?, &req)?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&exported)?);
@@ -887,8 +901,15 @@ fn run(cli: Cli) -> Result<ExitCode> {
         },
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
         Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
-            let ask =
-                scaena_ops::history::Ask { at, scn, compare: diff.unwrap_or_default(), restore, dry_run, begin: false };
+            let ask = scaena_ops::history::Ask {
+                at,
+                scn,
+                compare: diff.unwrap_or_default(),
+                restore,
+                dry_run,
+                begin: false,
+                last: None,
+            };
             history(&bundle, &ask, cli.json)
         }
         Cmd::Find { bundle, text, case, words, replace, dry_run } => {

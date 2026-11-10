@@ -73,6 +73,13 @@ impl OpsError {
         OpsError { message: message.into(), plan: Some(plan.into()), op: None }
     }
 
+    /// `state` names no state of `deck`: the state meant where one is near it, else the first few
+    /// (lift-up 10-25b USE-5), so an agent mends a guessed id without a round of `deck_inspect`.
+    pub fn unknown_state(deck: &scaena_core::Deck, state: &str) -> OpsError {
+        let known = deck.states.iter().map(|s| s.id.as_str());
+        OpsError::new(format!("unknown state `{state}`{}", scaena_core::patch::nearest("states", state, known)))
+    }
+
     /// This error, with what it was doing in front: `context: message`.
     pub fn context(mut self, context: impl Display) -> OpsError {
         self.message = format!("{context}: {}", self.message);

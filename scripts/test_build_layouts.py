@@ -2,6 +2,7 @@
 lists takes its family's layouts, and a new theme its family's first file's."""
 
 import json
+import math
 import sys
 import tempfile
 import unittest
@@ -64,6 +65,102 @@ class ByGeometry(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, f"has no layout `{gone}`"):
             layouts.library("basel", old, geometry)
 
+
+
+class ClearOfDescenders(unittest.TestCase):
+    """Words under a text set on the foot of its cells stand clear of its descenders (theme format
+    0.27): their slot takes the descent at its top, its other sides as they were."""
+
+    def test_the_quote_credit_takes_the_quotes_descent_at_its_top(self):
+        for slug, geometry, paths in LISTED:
+            with self.subTest(theme=slug):
+                who = own(paths)["quote"]["slots"]["who"]
+                descent = layouts.family(geometry)[0]["quote"][0]
+                self.assertEqual(who["inset"]["top"], math.ceil(descent))
+                self.assertEqual(who["col"], own(paths)["quote"]["slots"]["quote"]["col"])
+                roles, row, gutter = layouts.family(geometry)
+                given = {k: v for k, v in who.items() if k != "inset"}
+                self.assertGreaterEqual(layouts.lines(who, roles, row, gutter), layouts.lines(given, roles, row, gutter))
+
+    def test_words_under_a_text_keep_every_line_they_held(self):
+        # Pitch 2's lede under its statement held two lines before its clearance (F4): it reaches
+        # into the free row under it rather than losing one.
+        for slug, geometry, paths in LISTED:
+            roles, row, gutter = layouts.family(geometry)
+            for name, layout in own(paths).items():
+                for key, s in layout["slots"].items():
+                    if s.get("role") not in roles or "inset" not in s or "row" not in s or s["role"] in layouts.FIGURES:
+                        continue
+                    if s["role"] == "display" and s.get("fit") == "shrink":
+                        continue
+                    given = dict(s)
+                    apart = layouts.apart(s["inset"])
+                    if apart is None:
+                        del given["inset"]
+                    else:
+                        given["inset"] = apart
+                    with self.subTest(theme=slug, layout=name, slot=key):
+                        self.assertGreaterEqual(layouts.lines(s, roles, row, gutter), layouts.lines(given, roles, row, gutter))
+
+    def test_the_statements_support_reaches_into_the_row_under_it(self):
+        # In the Dusk family, whose statement sets its last line on the foot of its cells: two lines
+        # of its lede, as before its clearance, and more.
+        for slug, geometry, paths in LISTED:
+            if geometry == "ember":
+                continue
+            support = own(paths)["statement"]["slots"]["support"]
+            roles, row, gutter = layouts.family(geometry)
+            with self.subTest(theme=slug):
+                self.assertLess(support["inset"]["bottom"], 0)
+                self.assertGreaterEqual(layouts.lines(support, roles, row, gutter), 2)
+
+    def test_siblings_in_a_row_stand_clear_alike(self):
+        # Glossary's third and fourth terms, side by side: one could reach a free row and the
+        # other could not, so both titles stand higher alike, their baselines in line (F4).
+        for slug, geometry, paths in LISTED:
+            slots = own(paths)["glossary"]["slots"]
+            with self.subTest(theme=slug):
+                self.assertEqual(slots["third-title"].get("inset"), slots["fourth-title"].get("inset"))
+                self.assertEqual(slots["third"].get("inset"), slots["fourth"].get("inset"))
+        unlike = {
+            "third": {"col": [1, 6], "row": [9, 10], "role": "body", "inset": {"top": 12, "bottom": -76}},
+            "fourth": {"col": [7, 12], "row": [9, 10], "role": "body"},
+        }
+        with self.assertRaisesRegex(AssertionError, "siblings stand clear unlike"):
+            layouts.in_line("basel", "unlike", unlike)
+
+    def test_a_slot_the_clearance_costs_a_line_is_refused(self):
+        _, geometry, _ = LISTED[0]
+        given = {"note": {"col": [1, 6], "row": [5, 6], "role": "body"}}
+        cost = {"note": {"col": [1, 6], "row": [5, 6], "role": "body", "inset": {"top": 60}}}
+        with self.assertRaisesRegex(AssertionError, "the clearance costs `note`"):
+            layouts.kept_lines("basel", "cost", cost, given, geometry)
+
+    def test_a_card_already_clear_takes_nothing_more(self):
+        _, geometry, paths = LISTED[0]
+        cards = own(paths)["numbered-cards"]["slots"]
+        self.assertEqual(cards["first"].get("inset"), cards["first-title"].get("inset"))
+
+    def test_four_numbers_figures_stand_higher_where_their_labels_would_hold_no_line(self):
+        for slug, geometry, paths in LISTED:
+            slots = own(paths)["four-numbers"]["slots"]
+            roles, row, gutter = layouts.family(geometry)
+            with self.subTest(theme=slug):
+                self.assertGreaterEqual(layouts.height(slots["first-title"], row, gutter), roles["body"][3])
+                lifted = "bottom" in (slots["first-figure"].get("inset") or {})
+                self.assertNotEqual(lifted, "top" in (slots["first-title"].get("inset") or {}))
+
+    def test_a_slot_too_short_for_a_line_of_its_role_is_refused(self):
+        _, geometry, _ = LISTED[0]
+        short = {"note": {"col": [1, 6], "row": [5, 5], "role": "body", "inset": {"top": 30}}}
+        with self.assertRaisesRegex(AssertionError, "less than a line of its body"):
+            layouts.holding("basel", "short", short, geometry)
+
+    def test_clearing_twice_clears_once(self):
+        _, geometry, paths = LISTED[0]
+        for name, layout in own(paths).items():
+            with self.subTest(layout=name):
+                self.assertEqual(layouts.cleared(layout["slots"], geometry)[0], layout["slots"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -374,6 +374,8 @@ fn theme_ops(r: &mut Rng, theme: &Value, values: &BTreeMap<String, Vec<Value>>) 
             0 => json!({ "op": "remove", "path": path }),
             1 => json!({ "op": "add", "path": path, "value": value }),
             2 => json!({ "op": "move", "from": path, "path": to }),
+            // Now and then the whole theme, from its root (lift-up 20261031 SEC-4).
+            3 if r.below(4) == 0 => json!({ "op": "copy", "from": "", "path": to }),
             3 => json!({ "op": "copy", "from": path, "path": to }),
             4 => json!({ "op": "test", "path": path, "value": value }),
             _ => json!({ "op": "replace", "path": path, "value": value }),

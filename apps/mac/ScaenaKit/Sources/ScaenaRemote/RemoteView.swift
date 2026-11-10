@@ -79,14 +79,20 @@ public struct RemoteView: View {
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
+                    // Its digits alone, as many as a code has: typed with the space it is shown
+                    // with, or pasted, it reads as the code.
+                    .onChange(of: code) { _, typed in
+                        let digits = Remote.typed(typed)
+                        if digits != typed { code = digits }
+                    }
                     .onSubmit { join(presenter) }
                     .accessibilityIdentifier("remote-code")
                 Button("Join") { join(presenter) }
-                    .disabled(code.count != 4)
+                    .disabled(code.count != Remote.digits)
             } header: {
                 Text(presenter.name)
             } footer: {
-                Text("The four digits its Remote… shows.")
+                Text("The eight digits its Remote… shows.")
             }
         }
         .navigationTitle("Enter the Code")
@@ -96,8 +102,9 @@ public struct RemoteView: View {
     }
 
     private func join(_ presenter: RemotePresenter) {
-        guard code.count == 4 else { return }
-        client = RemoteClient(presenter.endpoint, code: code)
+        let digits = Remote.typed(code)
+        guard digits.count == Remote.digits else { return }
+        client = RemoteClient(presenter.endpoint, code: digits)
     }
 
     private func leave() {
@@ -163,7 +170,7 @@ private struct RemoteShow: View {
     private func playing(_ place: RemotePlace) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("\(place.index + 1) of \(place.count)")
+                Text(place.said)
                 Spacer()
                 // The presenter's timer, as their view reads it, paused where it is; from a presenter
                 // that sends none, the time since the show began.
@@ -283,7 +290,7 @@ private struct RemoteShow: View {
 
     /// What VoiceOver hears of the screen: where the show is, and what the room sees there.
     private func seen(_ place: RemotePlace) -> String {
-        let at = "Slide \(place.index + 1) of \(place.count)"
+        let at = place.said
         if place.over { return "\(at), end of the show" }
         return place.blank.map { "\(at), \($0.rawValue) screen" } ?? at
     }

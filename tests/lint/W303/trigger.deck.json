@@ -1,5 +1,5 @@
 {
-  "scaena": "0.39",
+  "scaena": "0.40",
   "_comment": "W303 trigger: a note placed in the margin at the foot of the slide, where its footer stands.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

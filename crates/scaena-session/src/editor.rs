@@ -66,6 +66,18 @@ pub struct Laying {
     drawer: Option<Drawer>,
 }
 
+/// The cue into a state, its two snapshots laid out ahead by a [`Laying`] away from the session
+/// ([`Laying::cue`]), with what tells the deck it was laid out from: what a show goes on to while
+/// the state shown rests, which [`Session::cue_laid`] takes (lift-up 10-25b PERF-5).
+pub struct Cue {
+    source: String,
+    files: Arc<BTreeMap<String, Vec<u8>>>,
+    theme_json: String,
+    format: Option<String>,
+    state: String,
+    cue: scaena_engine::sample::Transition,
+}
+
 /// What a [`Laying`] draws a state at rest with (lift-up PERF-2): an engine of its own, the
 /// pictures and fonts it paints from, the CPU painter, and the timeline in the format last drawn.
 struct Drawer {
@@ -133,11 +145,7 @@ impl Laying {
     /// states is drawn by one (lift-up PERF-2).
     pub fn pixels(&mut self, format: Option<&str>, state: &str, width: u32) -> Result<scaena_paint::Raster, Error> {
         use scaena_paint::Painter;
-        if self.drawer.is_none() {
-            let (engine, store) = crate::engine_for(&self.deck, &self.theme, &self.files, &self.kept)?;
-            let engine = engine.with_timed(self.timed.clone());
-            self.drawer = Some(Drawer { engine, store, painter: Default::default(), timeline: None });
-        }
+        self.draws()?;
         let drawer = self.drawer.as_mut().expect("built above");
         if drawer.timeline.as_ref().is_none_or(|(drawn, _)| drawn.as_deref() != format) {
             let (deck, theme) = scaena_engine::project(&self.deck, &self.theme, format)?;
@@ -154,6 +162,36 @@ impl Laying {
         let scale = width as f32 / dl.viewport[0];
         Ok(drawer.painter.paint(&dl, &drawer.store, scale)?)
     }
+
+    /// The cue into `state` in `format` (the deck's own canvas where none), its two snapshots laid
+    /// out as [`Session::prepare`] lays them out, on whatever thread calls it, which touches no
+    /// session, with the engine the states are drawn with: a show's next cue laid out while the
+    /// state shown rests, away from the window, which [`Session::cue_laid`] then takes (lift-up
+    /// 10-25b PERF-5).
+    pub fn cue(&mut self, format: Option<&str>, state: &str) -> Result<Cue, Error> {
+        self.draws()?;
+        let engine = &mut self.drawer.as_mut().expect("built above").engine;
+        let (deck, theme) = scaena_engine::project(&self.deck, &self.theme, format)?;
+        let cue = engine.transition(&deck, &theme, &self.data, state)?;
+        Ok(Cue {
+            source: self.source.clone(),
+            files: Arc::clone(&self.files),
+            theme_json: self.theme_json.clone(),
+            format: format.map(str::to_string),
+            state: state.to_string(),
+            cue,
+        })
+    }
+
+    /// Build what it draws with, the first time it is asked to.
+    fn draws(&mut self) -> Result<(), Error> {
+        if self.drawer.is_none() {
+            let (engine, store) = crate::engine_for(&self.deck, &self.theme, &self.files, &self.kept)?;
+            let engine = engine.with_timed(self.timed.clone());
+            self.drawer = Some(Drawer { engine, store, painter: Default::default(), timeline: None });
+        }
+        Ok(())
+    }
 }
 
 /// A [`Laying`] goes to another thread and back: it shares nothing with the session that a
@@ -161,6 +199,7 @@ impl Laying {
 const _: fn() = || {
     fn sent<T: Send>() {}
     sent::<Laying>();
+    sent::<Cue>();
 };
 
 /// Each state of `deck` by its id, with the nodes it shows and those that leave in its cue:
@@ -184,6 +223,14 @@ impl BundleFiles for Handed<'_> {
     fn read_text(&self, path: &str) -> Option<String> {
         String::from_utf8(self.0.get(path)?.clone()).ok()
     }
+}
+
+/// What [`Session::typing`] made: the deck's source after it, written out but not compiled, and
+/// its states end to end, as `slots` gives them.
+#[derive(Debug, Serialize)]
+pub struct Typed {
+    pub source: String,
+    pub timeline: Value,
 }
 
 /// Where in the source something is: UTF-16 offsets, and the 1-based line and column (in
@@ -290,6 +337,17 @@ impl Session {
         scaena_core::dsl::decompile(&self.deck)
     }
 
+    /// Text typed on the canvas, made as [`Session::typed`] makes it, and the deck's source and
+    /// timeline after it, the source written out but not compiled again (lift-up 10-25b PERF-2):
+    /// what a client that shows the source takes at each key of a burst of typing, compiling it
+    /// once, when the burst ends. None where it changed nothing.
+    pub fn typing(&mut self, ops: &Value, at: Option<i64>) -> Result<Option<Typed>, Error> {
+        if !self.typed(ops, at)? {
+            return Ok(None);
+        }
+        Ok(Some(Typed { source: self.source(), timeline: self.slots()? }))
+    }
+
     /// Whether the deck shown is the one compiled from `source`, nothing written over it since:
     /// what a page asks before it reads a state of the deck its source says.
     pub fn compiled_from(&self, source: &str) -> bool {
@@ -352,6 +410,15 @@ impl Session {
         Compiling { error: None, findings, states, valid }
     }
 
+    /// The beats whose claim a slide said in the deck `before` compiles to and says no longer in
+    /// the deck now, each with the `replace` that restates it in the slide's words (lift-up
+    /// FUNC-2): what an editor asks once a burst of typing ends, `before` the source as it began,
+    /// since typing is validated but not linted. None where `before` does not make a deck.
+    pub fn restated(&self, before: &str) -> Vec<scaena_core::claims::Restated> {
+        let before = compile_renamed(before, &Handed(&self.files), &self.renamed).ok().and_then(|c| c.deck());
+        before.map_or_else(Vec::new, |before| scaena_ops::patch::between(&before, &self.deck))
+    }
+
     /// Lint the deck compiled last: validation, the document rules, and the layout rules in
     /// every format, laid out by the session's engine. With `only`, the layout rules lay out
     /// that state alone, the one being edited, so the answer comes at once (PLAN 2.3); the
@@ -402,9 +469,34 @@ impl Session {
     /// Whether `laying` was taken from the deck as it stands: the source compiled last, the
     /// bundle's files, and the theme it was taken with. One that is not draws an older deck.
     pub fn holds(&self, laying: &Laying) -> bool {
-        self.edit.as_ref().is_some_and(|edit| edit.source == laying.source)
-            && Arc::ptr_eq(&self.files, &laying.files)
-            && self.theme_json == laying.theme_json
+        self.taken_from(&laying.source, &laying.files, &laying.theme_json)
+    }
+
+    /// Whether what was taken with `source`, `files`, and `theme_json` was taken from the deck as
+    /// it stands.
+    fn taken_from(&self, source: &str, files: &Arc<BTreeMap<String, Vec<u8>>>, theme_json: &str) -> bool {
+        self.edit.as_ref().is_some_and(|edit| edit.source == source)
+            && Arc::ptr_eq(&self.files, files)
+            && self.theme_json == theme_json
+    }
+
+    /// Take `cue`, laid out ahead away from the session ([`Laying::cue`]), as the one the next
+    /// frames into its state sample, as [`Session::prepare`] keeps one, laying nothing out here
+    /// (lift-up 10-25b PERF-5): where it was laid out from the deck shown as it stands, in the
+    /// format shown, and no cue into that state is kept already. Whether it was taken.
+    pub fn cue_laid(&mut self, cue: Cue) -> bool {
+        let shown = self.edit.as_ref().is_some_and(|edit| edit.shown);
+        if !shown || !self.taken_from(&cue.source, &cue.files, &cue.theme_json) || cue.format != self.format {
+            return false;
+        }
+        let kept = |kept: &Option<(String, scaena_engine::sample::Transition)>| {
+            kept.as_ref().is_some_and(|(state, _)| *state == cue.state)
+        };
+        if kept(&self.transition) || kept(&self.prepared) {
+            return false;
+        }
+        self.prepared = Some((cue.state, cue.cue));
+        true
     }
 
     /// Lint the deck compiled last on every state, as [`Session::lint`] does, with what
@@ -1026,8 +1118,8 @@ mod tests {
         let before = s.pixels("revenue", f64::INFINITY, 160).unwrap();
         let listed = s.starters_painted("revenue", 90, None).unwrap();
         let layouts: Vec<&str> = listed.iter().map(|one| one["layout"].as_str().unwrap_or("blank")).collect();
-        assert_eq!(layouts.len(), 176, "Dusk's 175 layouts, then a blank slide: {layouts:?}");
-        assert_eq!((layouts[0], layouts[175]), ("title", "blank"));
+        assert_eq!(layouts.len(), 177, "Dusk's 176 layouts, then a blank slide: {layouts:?}");
+        assert_eq!((layouts[0], layouts[176]), ("title", "blank"));
         let bullets = &listed[layouts.iter().position(|l| *l == "bullets").unwrap()];
         assert_eq!(bullets["description"], "A headline, and the points that make its case.");
         assert_eq!((bullets["name"].as_str(), bullets["group"].as_str()), (Some("Bullets"), Some("Lists")));
@@ -1039,7 +1131,7 @@ mod tests {
         let fine = &listed[layouts.iter().position(|l| *l == "fine-print").unwrap()];
         assert_eq!(fine["also"], serde_json::json!(["Disclosures"]), "Fine Print, by Disclosures (PLAN S.3)");
         assert!(
-            listed[175]["name"].is_null() && listed[175]["description"].is_null() && listed[175]["group"].is_null()
+            listed[176]["name"].is_null() && listed[176]["description"].is_null() && listed[176]["group"].is_null()
         );
         let mut pictures: Vec<scaena_paint::Raster> = Vec::new();
         for (i, one) in listed.iter().enumerate() {
@@ -1279,6 +1371,68 @@ mod tests {
         assert!(fresh.laying().is_none());
     }
 
+    /// The cue a show goes on to, laid out ahead away from the session (lift-up 10-25b PERF-5): the
+    /// one its frames sample, as one `prepare` lays out; one from a deck changed since, or in
+    /// another format, is not taken.
+    #[test]
+    fn a_cue_laid_out_away_from_the_session_is_the_one_its_frames_sample() {
+        let mut s = revenue();
+        assert!(s.compile(&s.source()).valid);
+        let slots = s.slots().unwrap();
+        let cued = (slots.as_array().unwrap().iter())
+            .filter(|slot| slot["span"].as_f64().unwrap() > 0.0)
+            .map(|slot| slot["state"].as_str().unwrap().to_string())
+            .nth(1)
+            .unwrap();
+        let half = |s: &mut Session| {
+            let span = s.kept_timeline().unwrap().slot(&cued).unwrap().span;
+            s.frame(&cued, span / 2.0).unwrap()
+        };
+        let drawn = half(&mut revenue());
+        let mut laying = s.laying().unwrap();
+        let state = cued.clone();
+        let (mut laying, cue) = std::thread::spawn(move || {
+            let cue = laying.cue(None, &state).unwrap();
+            (laying, cue)
+        })
+        .join()
+        .unwrap();
+        assert!(s.cue_laid(cue), "taken");
+        assert!(s.prepared.as_ref().is_some_and(|(state, _)| *state == cued));
+        assert_eq!(half(&mut s), drawn);
+        assert!(s.prepared.is_none(), "sampled");
+        // The cue shown is kept: another is not taken.
+        assert!(!s.cue_laid(laying.cue(None, &cued).unwrap()), "kept already");
+
+        // Another source compiled since, or another format: not taken.
+        let mut fresh = revenue();
+        assert!(fresh.compile(&fresh.source()).valid);
+        let stale = fresh.laying().unwrap().cue(None, &cued).unwrap();
+        assert!(fresh.compile(&fresh.source().replace("\"Revenue doubled\"", "\"Revenue grew\"")).valid);
+        assert!(!fresh.cue_laid(stale), "another source");
+        let other = fresh.laying().unwrap().cue(Some("9:16"), &cued).unwrap();
+        assert!(!fresh.cue_laid(other), "another format");
+        assert!(fresh.cue_laid(fresh.laying().unwrap().cue(None, &cued).unwrap()), "the deck as it stands");
+        assert!(fresh.laying().unwrap().cue(None, "nowhere").is_err(), "a state the deck has not");
+    }
+
+    /// Text typed (lift-up 10-25b PERF-2): the source after it is the deck's, written out but not
+    /// compiled, and the timeline is the deck's; it compiles to the deck typed once asked.
+    #[test]
+    fn typing_gives_the_source_and_timeline_after_it_without_compiling() {
+        let mut s = revenue();
+        let ops = serde_json::json!([{ "op": "replace_text", "state": "intro", "node": "title", "from": 0, "to": 0, "text": "Now: " }]);
+        let typed = s.typing(&ops, None).unwrap().unwrap();
+        assert!(typed.source.contains("Now: "), "{}", typed.source);
+        assert_eq!(typed.source, s.source());
+        assert_eq!(typed.timeline, s.slots().unwrap());
+        assert!(!s.compiled_from(&typed.source), "not compiled");
+        assert!(s.compile(&typed.source).valid);
+        assert!(s.compiled_from(&typed.source));
+        let unchanged = serde_json::json!([{ "op": "replace_text", "state": "intro", "node": "title", "from": 0, "to": 0, "text": "" }]);
+        assert!(s.typing(&unchanged, None).unwrap().is_none(), "it reads so already");
+    }
+
     /// Each finding, written out as the page reads it.
     fn written(l: &Linting) -> Vec<String> {
         let mut found: Vec<String> = l.findings.iter().map(|f| serde_json::to_string(&f.finding).unwrap()).collect();
@@ -1329,8 +1483,9 @@ mod tests {
         assert!(s.compile(&format!("{original}\nstate encore\n  title \"{long}\"\n")).valid);
         let whole = s.lint(None, None).unwrap();
         let encore = |l: &Linting| l.findings.iter().any(|f| f.finding.state.as_deref() == Some("encore"));
-        let overflow = |f: &Located| f.finding.code == "E100" && f.finding.state.as_deref() == Some("encore");
-        assert!(whole.findings.iter().any(overflow), "{:#?}", written(&whole));
+        // The title's slot shrinks it (D2): what is found there is that it shrank and still runs
+        // past its box, not that it overflows.
+        assert!(encore(&whole), "{:#?}", written(&whole));
         assert!(s.compile(&original).valid);
         let one = s.lint(Some("revenue"), None).unwrap();
         assert!(!encore(&one), "{:#?}", written(&one));

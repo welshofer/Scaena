@@ -115,8 +115,11 @@ public final class Assistant {
 
     public let editor: DeckEditor
     public private(set) var entries: [Entry] = []
-    /// Whether a question is being answered.
-    public private(set) var working = false
+    /// Whether a question is being answered: while one is, the deck is the assistant's alone
+    /// (lift-up STAB-5).
+    public private(set) var working = false {
+        didSet { editor.assisting = working }
+    }
     /// Whether the last answer edited the deck: one step of the window's undo, which Undo This
     /// Answer takes back (lift-up 10-25 FUNC-4).
     public private(set) var answered = false

@@ -6,9 +6,16 @@ use crate::model::theme::Lists;
 use crate::model::values::{ListItem, ListKind};
 use std::ops::Range;
 
-/// The paragraphs of `text`, as byte ranges without the break that ends each: a hard line
-/// break ends one (`\n`, `\r`, `\r\n`, U+2028, U+2029). A text has one paragraph more than
-/// it has breaks, so an empty text has one, empty.
+/// A character that ends a line wherever it stands, UAX #14's mandatory breaks, as the engine
+/// lays a text out: `\n`, `\r`, VT, FF, NEL, U+2028, and U+2029 (a CRLF breaks once).
+pub fn breaks(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{B}' | '\u{C}' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
+/// The paragraphs of `text`, as byte ranges without the break that ends each: each character
+/// that [`breaks`] a line ends one, a CRLF once, so a text has a paragraph for each line the
+/// engine draws it in before wrapping. A text has one paragraph more than it has breaks, so
+/// an empty text has one, empty.
 pub fn paragraphs(text: &str) -> Vec<Range<usize>> {
     let mut out = Vec::new();
     let mut start = 0;
@@ -19,7 +26,7 @@ pub fn paragraphs(text: &str) -> Vec<Range<usize>> {
                 chars.next();
                 i + 2
             }
-            '\n' | '\r' | '\u{2028}' | '\u{2029}' => i + c.len_utf8(),
+            _ if breaks(c) => i + c.len_utf8(),
             _ => continue,
         };
         out.push(start..i);
@@ -199,6 +206,22 @@ pub fn redrawn(
     Some(if one && a == b { serde_json::Value::from(a + 1) } else { serde_json::Value::from(vec![a + 1, b + 1]) })
 }
 
+/// A code text's `code.focus` (PLAN 2.140), the lines in focus, once bytes `range` of `written`
+/// are `text`, each span kept as [`redrawn`] keeps the paragraphs a state draws: a line typed
+/// into stays in focus with what is typed, and the lines after the edit move with those it adds
+/// or takes away. None where it names no line.
+pub fn refocused(
+    focus: &serde_json::Value,
+    written: &str,
+    range: Range<usize>,
+    text: &str,
+) -> Option<serde_json::Value> {
+    let spans = focus.as_array()?;
+    let kept: Option<Vec<serde_json::Value>> =
+        spans.iter().map(|span| redrawn(span, written, range.clone(), text)).collect();
+    kept.map(serde_json::Value::Array)
+}
+
 /// `list` with the paragraphs that characters `range` of `written` touch (bytes) marked as
 /// `how` says: each set to `kind` (none takes it out of the list) at `level`, or, with `by`,
 /// each item moved that many levels deeper, from 0 to 8. A paragraph that is no item and
@@ -255,6 +278,9 @@ mod tests {
         assert_eq!(paragraphs("a\nb"), [0..1, 2..3]);
         assert_eq!(paragraphs("a\r\nb\n"), [0..1, 3..4, 5..5]);
         assert_eq!(paragraphs("a\u{2028}b"), [0..1, 4..5]);
+        // A form feed, as GNU sources and Python's page their code, and the rest of UAX #14's
+        // mandatory breaks, end a line as the engine draws it (PLAN 2.140).
+        assert_eq!(paragraphs("a\u{C}b\u{B}c\u{85}d"), [0..1, 2..3, 4..5, 7..8]);
     }
 
     #[test]
@@ -310,6 +336,23 @@ mod tests {
         // Pasted lines in the last move none before them.
         assert_eq!(redrawn(&json!([1, 2]), text, 13..13, "\nfour\nfive"), Some(json!([1, 2])));
         assert_eq!(redrawn(&json!(0), text, 0..0, "x"), None);
+    }
+
+    #[test]
+    fn a_focus_keeps_each_span_in_step_with_typed_lines() {
+        use serde_json::json;
+        let text = "one\ntwo\nthree";
+        // A line broken at the end of the first, which is in focus: the line it makes is in focus
+        // with it, and the spans after it move down.
+        assert_eq!(refocused(&json!([1, [2, 3]]), text, 3..3, "\nnew"), Some(json!([[1, 2], [3, 4]])));
+        // A line typed before the second: the span from it moves down.
+        assert_eq!(refocused(&json!([[2, 3]]), text, 0..0, "zero\n"), Some(json!([[3, 4]])));
+        // A line taken away: the span over it closes up.
+        assert_eq!(refocused(&json!([[2, 3]]), text, 3..7, ""), Some(json!([[1, 2]])));
+        // A line typed into a line in focus stays in focus with it.
+        assert_eq!(refocused(&json!([2]), text, 7..7, "\nmore"), Some(json!([[2, 3]])));
+        assert_eq!(refocused(&json!(2), text, 0..0, "x"), None);
+        assert_eq!(refocused(&json!([0]), text, 0..0, "x"), None);
     }
 
     #[test]

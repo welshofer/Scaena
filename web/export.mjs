@@ -20,6 +20,9 @@
 //   notes, from Export…, the one `--notes` writes.
 // - The deck as one HTML file, from Export…: the one `scaena export --format html` writes, byte for
 //   byte. Opened from its address on disk with the network off, it plays.
+// - The deck as a movie, from Export… (lift-up 20261031 FUNC-2): its width and frames a second asked,
+//   the timeline the CLI's video plays encoded by the browser's own encoder as a WebM, which the
+//   browser plays back at the size asked; a browser with no encoder says so and offers nothing.
 // - A right click on a state in the strip offers Export it as a PNG…, which opens Export… on it.
 // - A source that does not compile is not exported: the status says why, and nothing downloads.
 // Exits 1 on any failure.
@@ -93,10 +96,12 @@ try {
     `Export… opens on a PNG of the state shown, 1920 wide, its pixels said (${JSON.stringify(opened)})`,
   );
   check(/^Slide \d+(, step \d+)?: 1920 × 1080 pixels\.$/.test(opened.note), `the note names the slide as a person counts it, and no painter: ${opened.note}`);
-  for (const as of ["pdf", "html", "png"]) {
+  for (const as of ["pdf", "html", "movie", "png"]) {
     await page.check(`#exporting input[name=as][value=${as}]`);
     const shown = await page.locator("#exporting-size").isVisible();
-    check(shown === (as === "png"), `the width is ${as === "png" ? "shown for a PNG" : `not shown for ${as.toUpperCase()}`}`);
+    const sized = as === "png" || as === "movie";
+    check(shown === sized, `the width is ${sized ? `shown for ${as === "png" ? "a PNG" : "a movie"}` : `not shown for ${as.toUpperCase()}`}`);
+    check((await page.locator("#exporting-rate").isVisible()) === (as === "movie"), `frames a second are ${as === "movie" ? "asked for a movie" : `not asked for ${as}`}`);
   }
   await axeInto(page);
   const violations = await page.evaluate(async () => (await window.axe.run(document.querySelector("#exporting"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] })).violations);
@@ -207,6 +212,65 @@ try {
     .catch((e) => String(e));
   check(JSON.stringify(plays) === '["intro","revenue","mix","close"]', `the file plays offline: ${JSON.stringify(plays)}`);
   await offline.close();
+
+  // The file above is the room's: the speaker notes left out unless asked for, as the CLI leaves
+  // them out by default (lift-up 20261025 SEC-3; Jay's call, 2026-10-25). Asked for, they are
+  // the CLI's --notes.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=html]");
+  // Asked for each time: the PDF's choice above is not carried over to a file sent to the room.
+  const notesOffered = (await page.locator("#exporting-notes").isVisible()) && !(await page.isChecked("#exporting-with-notes"));
+  const roomNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  await page.check("#exporting-with-notes");
+  const keptNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  const kept = await downloaded(() => page.click("#exporting-go"));
+  scaena("export", bundle, "--format", "html", "--notes", "--out", join(out, "kept.html"));
+  const cliKept = readFileSync(join(out, "kept.html"));
+  check(
+    notesOffered && roomNote.includes("without the speaker notes") && keptNote.includes("with the speaker notes"),
+    `Export… offers the speaker notes, left out until asked for: ${roomNote} / ${keptNote}`,
+  );
+  check(
+    kept.bytes.equals(cliKept) && !kept.bytes.equals(cliHtml),
+    `with the notes, it is the CLI's --notes byte for byte (${kept.bytes.length} B), and not the room's (${cliHtml.length} B)`,
+  );
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=pdf]");
+  await page.check("#exporting-with-notes");
+  await page.check("#exporting input[name=as][value=html]");
+  const notCarried = !(await page.isChecked("#exporting-with-notes"));
+  await page.keyboard.press("Escape");
+  check(notCarried, "the notes asked for a PDF are not carried over to a single file");
+
+  // The deck as a movie, from Export… (lift-up 20261031 FUNC-2): the timeline as the CLI's video
+  // plays it, encoded here, a WebM that the browser's own player reads back, as long as the deck.
+  await page.click("#export");
+  await page.check("#exporting input[name=as][value=movie]");
+  await page.fill("#exporting-width", "320");
+  await page.selectOption("#exporting-fps", "24");
+  const movieNote = await page.evaluate(() => document.querySelector("#exporting-note").textContent);
+  const canEncode = await page.evaluate(() => typeof VideoEncoder !== "undefined");
+  if (!canEncode) {
+    check(movieNote.startsWith("This browser cannot encode a movie") && (await page.locator("#exporting-go").isDisabled()), `with no encoder, it says so and offers nothing: ${movieNote}`);
+    await page.keyboard.press("Escape");
+  } else {
+    check(movieNote.includes("320 × 180 pixels, 24 frames a second, VP9 in WebM"), `the note says the movie's size and rate: ${movieNote}`);
+    const film = await downloaded(() => page.click("#exporting-go"));
+    check(film.name === "revenue.webm" && film.bytes.readUInt32BE(0) === 0x1a45dfa3 && film.bytes.includes(Buffer.from("webm")), `Export downloads ${film.name}, a WebM, ${film.bytes.length} B`);
+    check((await status()).startsWith(`Downloaded ${film.name}`), `the status says what was downloaded: ${await status()}`);
+    const played = await page.evaluate(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const video = document.createElement("video");
+      video.muted = true;
+      video.src = URL.createObjectURL(new Blob([bytes], { type: "video/webm" }));
+      await new Promise((ok, no) => {
+        video.onloadeddata = ok;
+        video.onerror = () => no(new Error(video.error?.message ?? "the movie did not load"));
+      });
+      return { width: video.videoWidth, height: video.videoHeight, duration: video.duration };
+    }, film.bytes.toString("base64"));
+    check(played.width === 320 && played.height === 180 && played.duration > 1, `the browser plays it back, ${played.width} × ${played.height}, ${played.duration} s`);
+  }
 
   // A right click on a state in the strip.
   const li = page.locator(`#strip li[data-state="${state}"]`);

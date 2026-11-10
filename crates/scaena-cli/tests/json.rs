@@ -921,7 +921,7 @@ fn diff_reads_as_changes_for_a_person_and_as_an_object_for_an_agent() {
 
 /// `export --format pdf --notes` (dogfood pass 2): a page for each slide, as the PDF without notes
 /// has them, each the slide with its presenter's notes under it, the notes' words text a reader
-/// copies; `--notes` on any other format stops with why.
+/// copies; `--notes` on any format but a PDF or a single file stops with why.
 #[test]
 fn export_pdf_notes_prints_a_page_for_each_slide_with_its_notes() {
     let dir = scratch("pdf-notes");

@@ -96,8 +96,7 @@ pub fn uncoding(deck: &Deck, theme: &Theme, node: &str) -> Result<Vec<Value>, Op
 pub fn tidying(deck: &Deck, theme: &Theme, state: &str, node: &str) -> Result<Vec<Value>, OpsError> {
     text_node(deck, node)?;
     let snaps = scaena_core::resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let mut props = snap
         .nodes
         .get(node)

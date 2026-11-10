@@ -297,3 +297,20 @@ private func slots() throws -> [ScaenaSession.Slot] {
     #expect(NotesSize.stepped(200, by: -1) == 40)
     #expect(NotesSize.sizes.contains(NotesSize.standard))
 }
+
+/// A state's place in the talk (lift-up FUNC-2), as the session hands it over in its slots: the
+/// section and the claim told together, and the talk against its plan, as the browser says it.
+@Test func aSlotSaysItsPlaceInTheTalkAndThePaceAgainstThePlan() throws {
+    let json = #"{"state":"mix","slide":"revenue","start":9000,"span":800,"hold":6000,"#
+        + #""story":{"section":"Growth","claim":"Revenue doubled","planned":60,"before":75}}"#
+    let slot = try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(json.utf8))
+    let story = try #require(slot.story)
+    #expect(story.told == "Growth \u{00B7} Revenue doubled")
+    #expect(story.planned == 60)
+    #expect(story.pace(elapsed: 77) == "On plan")
+    #expect(story.pace(elapsed: 155) == "1:20 behind")
+    #expect(story.pace(elapsed: 30) == "0:45 ahead")
+    // A state no beat names has no place, and a slot from before says none.
+    let plain = #"{"state":"a","slide":"a","start":0,"span":0,"hold":0}"#
+    #expect(try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(plain.utf8)).story == nil)
+}

@@ -2353,8 +2353,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       const told = done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`;
       editor.apply(source, edited, told);
+      const applied = editor.version();
       await refresh();
-      editor.say(told);
+      // An undo, or another edit, made while the canvas caught up is newer: this one's words
+      // are not said over it.
+      if (editor.version() === applied) editor.say(told);
     } catch (e) {
       await still(`Not placed: ${said(e)}`);
     }
@@ -2370,7 +2373,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     try {
       const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       editor.apply(source, edited, done);
+      const applied = editor.version();
       await refresh();
+      // An undo, or another edit, made while the canvas caught up is newer: what this one would
+      // select is not taken back over it, nor its words said over the undo's, or over a gesture's
+      // after it (Escape on a drag begun meanwhile), and what a caller does next with the change
+      // (words typed in, a stroke joined) does not go on.
+      if (editor.version() !== applied) return false;
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
       else if (next !== undefined) select(next ?? undefined);
       editor.say(done);
@@ -3987,7 +3996,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   // A press on the desk around the slide selects nothing, as a click off the slide does in a
   // presentation app: the inspector shows the slide's own settings. The canvas takes the focus,
   // so that its keys go on working.
-  overlay.closest<HTMLElement>("#desk")?.addEventListener("pointerdown", (e) => {
+  const desk = overlay.closest<HTMLElement>("#desk");
+  // Until the editor opens another bundle: the desk stays, and the next canvas listens afresh.
+  if (desk) listen(desk, "pointerdown", (e) => {
     const on = e.target as Element;
     if (e.button !== 0 || overlay.contains(on) || on.closest("#marks") || drag || sketch || turning || cropping || reshaping || slotting) return;
     e.preventDefault();

@@ -1,3 +1,6 @@
+#if os(macOS)
+import AppKit
+#endif
 import ScaenaKit
 import SwiftUI
 
@@ -210,12 +213,17 @@ struct InsertMenu: View {
 /// Undo Body Size.
 struct UndoButton: View {
     let undo: UndoManager?
+    /// Whether the assistant is at work on the deck: a tap then takes nothing back (lift-up STAB-5).
+    var locked = false
+    /// Told of a tap refused while `locked`.
+    var refused: () -> Void = {}
     /// What a tap takes back and what Redo makes again, as the window's undo names them.
     @State private var steps = UndoSteps()
 
     var body: some View {
         Menu {
             Button {
+                if locked { return refused() }
                 if undo?.canRedo == true { undo?.redo() }
             } label: {
                 Label(steps.redo ?? "Redo", systemImage: "arrow.uturn.forward")
@@ -224,6 +232,7 @@ struct UndoButton: View {
         } label: {
             Label("Undo", systemImage: "arrow.uturn.backward")
         } primaryAction: {
+            if locked { return refused() }
             if undo?.canUndo == true { undo?.undo() }
         }
         .disabled(steps.undo == nil && steps.redo == nil)
@@ -265,6 +274,53 @@ struct SelectButton: View {
     }
 }
 
+#endif
+
+#if os(macOS)
+/// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the browser
+/// holds them: the model's next call reads the deck it left, never one taken back under it. The
+/// Edit menu's Undo and Redo, and ⌘Z and ⇧⌘Z, go up the responder chain to the window, which takes
+/// back a step of its undo; while `locked`, ScaenaKit's `UndoHold`, put between the window's
+/// content and the window, takes them first and says why instead. Unlocked, it answers neither,
+/// so the window's own undo is as it was, its steps named as the Edit menu names them (PLAN 3.28).
+/// It takes no press.
+struct UndoGuard: NSViewRepresentable {
+    let locked: Bool
+    /// Told of an undo or a redo refused while `locked`.
+    let refused: () -> Void
+
+    func makeNSView(context: Context) -> GuardView {
+        let view = GuardView()
+        updateNSView(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: GuardView, context: Context) {
+        view.holding.locked = locked
+        view.holding.refused = refused
+        if let window = view.window { view.holding.hold(in: window) }
+    }
+
+    final class GuardView: NSView {
+        let holding = UndoHold()
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            // Out of the chain of the window it leaves, wherever in it the hold stands.
+            if let window { holding.release(from: window) }
+            super.viewWillMove(toWindow: newWindow)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { holding.hold(in: window) }
+        }
+    }
+}
+#endif
+
+#if !os(macOS)
 /// What an undo manager would take back and make again, by the titles its menu items would have:
 /// none where there is nothing to.
 struct UndoSteps: Equatable {

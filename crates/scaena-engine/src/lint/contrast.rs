@@ -117,11 +117,14 @@ struct Run {
     /// Whether it is a code text's that stands on no card (PLAN 2.136), which a card would
     /// give the ground its colors are held to.
     bare: bool,
+    /// Whether it is on a line a walkthrough sets back out of focus, or that line's number (PLAN
+    /// 2.140): judged at 3:1 whatever its size, SPEC §7.5's exception (ADR-0029, call 3).
+    set_back: bool,
 }
 
 /// Each run of `t` placed at `origin`, as boxes from its glyphs' advances and its line's
-/// ascent and descent.
-fn runs(t: &TextLayout, origin: [f32; 2]) -> Vec<([f32; 4], Color, f32)> {
+/// ascent and descent, with the line it is on.
+fn runs(t: &TextLayout, origin: [f32; 2]) -> Vec<([f32; 4], Color, f32, usize)> {
     let mut out = Vec::new();
     for run in &t.runs {
         let Some(line) = t.lines.get(run.line) else { continue };
@@ -132,7 +135,7 @@ fn runs(t: &TextLayout, origin: [f32; 2]) -> Vec<([f32; 4], Color, f32)> {
         }
         let top = line.baseline - line.ascent;
         let rect = [origin[0] + left, origin[1] + top, right - left, line.ascent + line.descent];
-        out.push((rect, run.color, run.size));
+        out.push((rect, run.color, run.size, run.line));
     }
     out
 }
@@ -217,9 +220,15 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
             _ => ids.insert(node.id.clone()),
         };
         let code = shows_code(cx, state, &node.id);
+        // The lines a walkthrough keeps in focus, where it sets others back (PLAN 2.140): the
+        // code's lines and their numbers, which share their lines.
+        let focus = match &node.content {
+            Content::Text(placed) if code => placed.focus.as_deref(),
+            _ => None,
+        };
         for (t, origin, own, part) in placed {
             let said = part.map(|_| t.text.replace('\u{AD}', ""));
-            for (rect, color, size) in runs(t, origin) {
+            for (rect, color, size, line) in runs(t, origin) {
                 let rect = if moved { scaena_core::pose::bounds(&map, rect) } else { rect };
                 let px = size * scale * screen;
                 let [r, g, b, a] = color.0.map(|c| f64::from(c) / 255.0);
@@ -235,6 +244,7 @@ fn texts(cx: &Cx, state: &Laid) -> (Vec<Run>, BTreeSet<String>, Charts) {
                     size: px,
                     code,
                     bare: code && !card,
+                    set_back: focus.is_some_and(|spans| !crate::code::in_spans(spans, line)),
                 });
             }
         }
@@ -511,7 +521,7 @@ pub fn check(
                 let ratios = tables.entry(key).or_insert_with(|| Ratios::new(run.color, alpha));
                 let under = under(run.rect, &px, ink, scale);
                 let Some((r, bg)) = read(ratios, &under) else { continue };
-                let needs = if run.display { 3.0 } else { 4.5 };
+                let needs = if run.display || run.set_back { 3.0 } else { 4.5 };
                 if r >= needs {
                     continue;
                 }
@@ -820,7 +830,7 @@ fn recolored(
                         color: run.color,
                         alpha: run.alpha,
                         opacity: run.opacity,
-                        needs: if run.display { 3.0 } else { 4.5 },
+                        needs: if run.display || run.set_back { 3.0 } else { 4.5 },
                     });
                 }
             }

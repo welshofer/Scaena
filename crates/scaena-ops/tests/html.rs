@@ -37,7 +37,8 @@ fn an_html_export_carries_its_bundle_its_states_and_how_each_reads() {
     assert!(html.starts_with("<!doctype html>\n<html lang=\"en-US\">"), "{}", &html[..80]);
     assert!(html.contains("<title>Q3 Review</title>"));
     assert!(html.contains(
-        r#"<script type="application/json" id="scaena-deck">{"name":"revenue","states":["revenue","intro"]}</script>"#
+        // The room's file, the speaker notes left out by default, which says so (Jay's call, 2026-10-25).
+        r#"<script type="application/json" id="scaena-deck">{"name":"revenue","states":["revenue","intro"],"notes":false}</script>"#
     ));
     // The engine, and nothing that loads from elsewhere.
     assert!(html.contains(r#"<script type="application/octet-stream" id="scaena-engine">"#));

@@ -31,6 +31,7 @@
 // as it is made: the deck is read again and shown where it was. A `deck.scn` that does not
 // compile says so, at its line, and the deck stays as it was until it does.
 import { letSleep, stayAwake } from "./awake";
+import { PLAYER_ICONS, VIEW } from "./player-icons";
 import type { At, LinkTarget, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
@@ -53,6 +54,9 @@ export interface Play {
    * read from it (`?fit=own`); else as large as fits the room, at the screen's density (lift-up
    * ATTR-2). */
   fit?: "own" | null;
+  /** A single file exported without the speaker notes (lift-up 20261025 SEC-3; Jay's call,
+   * 2026-10-25): its presenter view says so, rather than an empty pane as if they were lost. */
+  unnoted?: boolean;
 }
 
 /** Paint `stage`'s frames at the size its slide fills `room` at, in device pixels, keeping its
@@ -162,7 +166,8 @@ function keys(act: Act) {
     // button, as Next is where a click left the keys.
     const control = (e.target as HTMLElement).closest("input, select, textarea, button, a");
     if (e.metaKey || e.ctrlKey || e.altKey || (control && !control.matches("button, a"))) return;
-    if (number.key(e.key) || list.key(e.key)) return e.preventDefault();
+    // The keys list first: open, it is modal, and takes every key (lift-up 20261031 USE-5).
+    if (list.key(e.key) || number.key(e.key)) return e.preventDefault();
     if (control && (e.key === "Enter" || e.key === " ")) return;
     const action = act[names[e.key]];
     if (!action) return;
@@ -266,17 +271,25 @@ function keyList(act: Act) {
   dialog.className = "keylist";
   dialog.setAttribute("aria-labelledby", "keylist-title");
   // The words are the page's own, none a deck's.
-  dialog.innerHTML = `<h2 id="keylist-title">Keys</h2><dl>${rows
+  dialog.innerHTML = `<h2 id="keylist-title" tabindex="-1">Keys</h2><dl>${rows
     .filter(([, , has]) => has)
     .map(([keys, does]) => `<dt>${keys}</dt><dd>${does}</dd>`)
     .join("")}</dl><p>A key or a click brings back a black or white screen. Past the last slide, a black screen says the show has ended. <kbd>Escape</kbd> or <kbd>?</kbd> closes this.</p>`;
   dialog.onclick = () => dialog.close();
   document.body.append(dialog);
   return {
+    /** Whether `key` was the list's: `?` opens it, modal, its heading in focus, and `?` or
+     * Escape closes it, the focus going back where it was, as the slide navigator's does; while
+     * it is open, no other key reaches the deck (lift-up 20261031 USE-5). */
     key(key: string): boolean {
-      if (key === "?") dialog.open ? dialog.close() : dialog.show();
-      else if (key === "Escape" && dialog.open) dialog.close();
-      else return false;
+      if (key === "?") {
+        if (dialog.open) dialog.close();
+        else {
+          dialog.showModal();
+          dialog.querySelector<HTMLElement>("#keylist-title")?.focus();
+        }
+      } else if (key === "Escape" && dialog.open) dialog.close();
+      else return dialog.open;
       return true;
     },
   };
@@ -326,6 +339,33 @@ const fullscreen = (status: HTMLElement) => () =>
     status.textContent = `The browser refused fullscreen: ${said(e)}`;
   });
 
+/** The bar's buttons drawn with the icons that ship (lift-up 20261031 ATTR-2): Back, Next, and
+ * Fullscreen by their icons alone, their names in their `aria-label`s and titles; Presenter and
+ * Edit by an icon and their words. A button the page lacks is passed over. */
+function dressBar() {
+  const drawn = (name: string) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", VIEW.join(" "));
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", PLAYER_ICONS[name]);
+    svg.append(path);
+    return svg;
+  };
+  for (const [id, name, words] of [
+    ["back", "caret-left", ""],
+    ["on", "caret-right", ""],
+    ["present", "presentation", "Presenter"],
+    ["full", "corners-out", ""],
+    ["edit", "pencil-simple", "Edit"],
+  ]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.replaceChildren(drawn(name), ...(words ? [Object.assign(document.createElement("span"), { textContent: words })] : []));
+    el.classList.add("tool");
+  }
+}
+
 /** The player: the deck, its controls, and its clock. */
 /** What no handler caught, said in `status` rather than lost, so a talk never freezes on a slide
  * with nothing said (lift-up STAB-5). */
@@ -341,7 +381,17 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const scrub = $<HTMLInputElement>("#scrub");
-  const stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
+  dressBar();
+  // A spinner in the slide's place until the deck opens, which the status says too (lift-up
+  // 20261031 ATTR-2).
+  const loading = document.body.appendChild(Object.assign(document.createElement("div"), { className: "loading" }));
+  loading.setAttribute("aria-hidden", "true");
+  let stage: Stage;
+  try {
+    stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
+  } finally {
+    loading.remove();
+  }
   stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
   // The slide as large as fits the room the bar leaves, and fullscreen the screen, as sharp as
   // the screen (lift-up ATTR-2); the bar's height changes as a narrow window wraps it.
@@ -418,13 +468,16 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     // pointer over it.
     const screen = blank ? `${blank} screen` : ended ? "end of the show" : "";
     if (notice && notice.index !== at.index) notice = undefined;
-    const line = notice?.words ?? [place(slots, at.index), format(), at.playing && !screen ? "playing" : "", screen].filter(Boolean).join(" · ");
-    // The status is a live region: it changes when the deck's place does, not every frame.
+    const line = notice?.words ?? [place(slots, at.index), format(), screen].filter(Boolean).join(" · ");
+    // The status is a live region: it changes when the deck's place does, not every frame, nor as
+    // each cue starts and ends, which its title says (lift-up 20261031 USE-3).
     if (status.textContent !== line) status.textContent = line;
-    status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
+    const title = `${stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU"}${at.playing && !screen ? " · playing" : ""}`;
+    if (status.title !== title) status.title = title;
     if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
-    scrub.setAttribute("aria-valuetext", slots[at.index].said ?? `${at.index + 1} of ${slots.length}`);
+    const valued = slots[at.index].said ?? `${at.index + 1} of ${slots.length}`;
+    if (scrub.getAttribute("aria-valuetext") !== valued) scrub.setAttribute("aria-valuetext", valued);
     tell({ type: "at", ...at, format: format(), blank, laser, ended });
     void read?.(slots[at.index].state, format());
   };
@@ -626,6 +679,22 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       }, 2000);
   };
   document.addEventListener("fullscreenchange", () => rest(true));
+  // The bar floats over the slide in fullscreen (lift-up 20261031 ATTR-2): a pointer over it keeps
+  // it, and a touch anywhere brings it back.
+  const bar = $(".bar");
+  let overBar = false;
+  bar.addEventListener("pointerenter", () => {
+    overBar = true;
+    clearTimeout(idling);
+    document.body.classList.remove("idle");
+  });
+  bar.addEventListener("pointerleave", () => {
+    overBar = false;
+    rest(true);
+  });
+  document.addEventListener("pointerdown", () => !overBar && rest(true), true);
+  // Tab brings it back too, for the keyboard, and lets it go again as the pointer's rest does.
+  addEventListener("keydown", (e) => e.key === "Tab" && rest(true));
   stage.canvas.addEventListener("pointermove", (e) => {
     pointer = over(e);
     if (laser) pointAt(pointer);
@@ -902,6 +971,9 @@ function slideNavigator(
       if (!canvas || !thumb.pixels || !thumb.width || !thumb.height) return;
       canvas.width = thumb.width;
       canvas.height = thumb.height;
+      // Every slide is drawn as the deck's canvas, or its format's, stands: never stretched to 16:9
+      // (lift-up 20261031 ATTR-1). The slides still waiting for theirs take its shape too.
+      list.style.setProperty("--aspect", `${thumb.width} / ${thumb.height}`);
       canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(thumb.pixels), thumb.width), 0, 0);
     });
   };
@@ -961,8 +1033,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     <main><canvas id="stage"></canvas><p id="blanked" class="blanked" hidden></p></main>
     <aside>
       <div class="next"><canvas id="upnext"></canvas><p id="nextName"></p></div>
-      <div class="clock"><span id="clock" role="timer" aria-label="Time since the show began" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="now" title="The time of day"></span></div>
+      <div class="clock"><span id="clock" role="timer" aria-label="Time since the show began" title="The time since the show began: it starts when the deck first goes on">0:00</span><button id="pause" type="button" title="Pause the timer">Pause</button><button id="reset" type="button" title="Put the timer back to 0:00">Reset</button><span id="pace" title="Against the plan: the time the talk has run beside the time its beats planned before this slide"></span><span id="now" title="The time of day"></span></div>
       <p id="where" aria-live="polite"></p>
+      <p id="story" class="story" hidden></p>
       <p class="notesize"><span>Notes</span><button id="smaller" type="button" aria-label="Smaller notes" title="Smaller notes (−)">A−</button><button id="larger" type="button" aria-label="Larger notes" title="Larger notes (+)">A+</button></p>
       <div id="notes" class="notes" role="region" aria-label="Speaker notes"></div>
       <p class="buttons"><button id="back" aria-label="Back" disabled><span aria-hidden="true">◀</span> Back</button><button id="on" aria-label="Next" disabled><span aria-hidden="true">▶</span> Next</button><button id="navigate" type="button" aria-haspopup="dialog" title="Every slide, to go to one (N)" disabled>Slides</button></p>
@@ -1113,9 +1186,20 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     if (!held) since = performance.now();
   };
   const elapsed = () => counted + (since === undefined ? 0 : performance.now() - since);
+  const minutes = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  /** The state the room sees, by its index. */
+  let up = 0;
+  /** Whether the deck plans its beats' times (lift-up FUNC-2): with none, it is never behind. */
+  const planned = () => slots.some((s) => s.story?.planned !== undefined);
   const clock = () => {
     const s = Math.floor(elapsed() / 1000);
-    $("#clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    $("#clock").textContent = minutes(s);
+    // Ahead or behind the plan: the time run beside the time planned before the state up, once
+    // the show has begun; within a few seconds of it, on plan.
+    const story = slots[up]?.story;
+    const off = story && begun && planned() ? Math.round(elapsed() / 1000 - story.before) : undefined;
+    $("#pace").textContent =
+      off === undefined ? "" : Math.abs(off) < 5 ? "On plan" : `${minutes(Math.abs(off))} ${off > 0 ? "behind" : "ahead"}`;
     $("#now").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
   const pause = $<HTMLButtonElement>("#pause");
@@ -1171,12 +1255,27 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
         latest = undefined;
         const shown = await now.show(states[at.index], at.t, at.format);
         $("#where").textContent = place(slots, at.index);
+        // Where the talk is (lift-up FUNC-2): the section and the beat's claim, as the spine says.
+        up = at.index;
+        const story = slots[at.index]?.story;
+        const told = [story?.section, story?.claim].filter(Boolean).join(" \u00b7 ");
+        $("#story").textContent = told;
+        $("#story").hidden = !told;
+        clock();
         void read(states[at.index], at.format);
         // Other notes start at their top, however far the last were scrolled; a step that keeps its
         // slide's notes keeps them where they stood. They are drawn as a speaker reads them
         // (SPEC §2.6): lines, a list, or a table, never a `- ` or a `|`.
         const written = notes[at.index];
-        if (pane.dataset.notes !== written.text) {
+        if (how.unnoted) {
+          if (pane.dataset.notes !== "unnoted") {
+            pane.dataset.notes = "unnoted";
+            const said = document.createElement("p");
+            said.className = "unnoted";
+            said.textContent = "This file was exported without the speaker notes. Export it again with them to read them here.";
+            pane.replaceChildren(said);
+          }
+        } else if (pane.dataset.notes !== written.text) {
           pane.dataset.notes = written.text;
           renderNotes(pane, written.blocks);
           pane.scrollTop = 0;
@@ -1258,6 +1357,8 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
       blanked: () => (blanked.hidden ? null : blanked.textContent),
       /** The timer as it reads, and whether it is paused (PLAN 2.121). */
       timer: () => ({ shows: $("#clock").textContent, paused: held, now: $("#now").textContent }),
+      /** Where the talk is, and how it stands against the plan (lift-up FUNC-2). */
+      story: () => ({ story: $("#story").textContent, pace: $("#pace").textContent }),
       /** Where the laser points on the slide, as the player says, or null. */
       pointed: () => (laser ? point : null),
       /** The size the next state is painted at, in the format the player shows, or null after the

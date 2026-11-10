@@ -21,7 +21,7 @@
 // - A single-file export's page carries no themes or fonts to make a deck with.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
-import { launch, serve } from "./serve.mjs";
+import { answering, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu${bundle ? `&bundle=${bundle}` : ""}`;
@@ -54,6 +54,9 @@ try {
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   page.on("dialog", (d) => d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   /** The editor once it has compiled and linted the bundle named `name`. */
   const ready = async (name) => {
     await page.waitForFunction(
@@ -78,23 +81,28 @@ try {
   const revenue = await page.locator("#stage").screenshot();
 
   // New, from its dialog.
-  const themes = await page.locator("#making-theme option").allTextContents();
+  // The themes that ship, each chosen by its title slide, drawn at build by the CPU painter
+  // (PLAN T.0c), each family a section (lift-up 10-25b ATTR-1).
+  const themes = await page.locator('#making-themes input[type="radio"]').evaluateAll((rs) => rs.map((r) => r.value));
   check(themes.join() === "Dusk,Daybreak,Ember,Salon", `New offers the themes that ship: ${themes}`);
-  const families = await page.locator("#making-theme optgroup").evaluateAll((gs) => gs.map((g) => g.label));
+  const families = await page.locator("#making-themes legend").allTextContents();
   check(families.join() === "Stage,Executive,Analyst,Editorial", `New offers them by family, each a section: ${families}`);
   await page.click("#file-open").then(() => page.click("#new-deck"));
   await page.fill("#making-name", "Field notes: what’s next");
-  await page.selectOption("#making-theme", "Daybreak");
-  // The theme chosen shown as its title slide, drawn at build by the CPU painter (PLAN T.0c).
-  await page.waitForFunction(() => document.querySelector("#making-preview")?.complete, null, { timeout: 10000 }).catch(() => {});
-  const preview = await page.evaluate(() => {
-    const img = document.querySelector("#making-preview");
-    return { src: img.getAttribute("src"), alt: img.alt, width: img.naturalWidth, height: img.naturalHeight, hidden: img.hidden };
-  });
-  check(
-    /daybreak-[^/]*\.png$/.test(preview.src ?? "") && preview.width === 480 && preview.height === 270 && !preview.hidden && preview.alt === "A title slide in Daybreak",
-    `New shows the theme chosen as its title slide: ${JSON.stringify(preview)}`,
+  const tiles = await page.locator("#making-themes .tile").evaluateAll((ts) =>
+    ts.map((t) => ({ name: t.textContent, src: t.querySelector("img").getAttribute("src"), width: t.querySelector("img").naturalWidth, height: t.querySelector("img").naturalHeight })),
   );
+  check(
+    tiles.length === 4 && tiles.every((t) => t.src.includes(`${t.name.toLowerCase()}-`) && t.src.endsWith(".png") && t.width === 480 && t.height === 270),
+    `each is its title slide: ${JSON.stringify(tiles)}`,
+  );
+  // One radio group: Tab reaches the theme chosen, the arrow keys the next.
+  await page.locator('#making-themes input[value="Dusk"]').focus();
+  await page.keyboard.press("ArrowRight");
+  check(await page.locator('#making-themes input[value="Daybreak"]').isChecked(), "→ chooses the next theme");
+  await page.click("#making-themes .tile:has(input[value=Ember])");
+  check(await page.locator('#making-themes input[value="Ember"]').isChecked(), "a click on a theme's picture chooses it");
+  await page.click("#making-themes .tile:has(input[value=Daybreak])");
   await page.click("#making-create");
   await ready("field-notes-whats-next");
   const made = await where();

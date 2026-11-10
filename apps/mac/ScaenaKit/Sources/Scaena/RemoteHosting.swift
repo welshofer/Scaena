@@ -138,6 +138,8 @@ final class RemoteHost {
         let notes = showing.notes(slot.state)
         let (editor, state, coming, began) = (showing.editor, slot.state, show.next?.state, showing.began)
         let (deck, index, count) = (deck, show.index, show.slots.count)
+        // The slide and the step, as the room's slides are counted (lift-up USE-2).
+        let counted = RemotePlace.counted(show.slots.map(\.slide), at: index)
         // What the room sees, mirrored (lift-up FUNC-5): a black or white screen, the end, and the
         // presenter's own timer, paused where it is.
         let now = Date()
@@ -155,7 +157,8 @@ final class RemoteHost {
                 RemotePlace(
                     deck: deck, showing: true, state: state, index: index, count: count,
                     ms: rest ? 0 : ms, rest: rest, notes: notes.text, read: notes.blocks,
-                    slide: slide, next: next, began: began, blank: blank, over: over, timer: timer))
+                    slide: slide, next: next, began: began, blank: blank, over: over, timer: timer,
+                    number: counted?.number, slides: counted?.slides, step: counted?.step))
         }
     }
 
@@ -214,9 +217,12 @@ struct RemoteSheet: View {
                 .toggleStyle(.switch)
                 .accessibilityIdentifier("remote-on")
             if let code = host.code {
-                Text(code)
+                // In two groups of four, as a remote reads it to type it (lift-up SEC-5).
+                Text(Remote.shown(code))
                     .font(.system(size: 56, weight: .semibold, design: .rounded))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
                     .accessibilityLabel("Code \(code.map(String.init).joined(separator: " "))")
                     .accessibilityIdentifier("remote-code")
                 Text(joined)
@@ -260,7 +266,8 @@ struct RemoteSheet: View {
         case (false, 0): nil
         case (false, 1): "A wrong code was tried."
         case (false, let tried): "\(tried) wrong codes were tried."
-        case (true, 0): "The code was changed after wrong codes were tried. Enter this one; a remote joined stays joined."
+        case (true, 0):
+            "The code was changed after wrong codes were tried. Wait a moment, then enter this one; a remote joined stays joined."
         case (true, let tried):
             "The code was changed after wrong codes were tried, and \(tried) more since. Turn the remote off if no one you know is trying."
         }

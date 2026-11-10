@@ -256,7 +256,7 @@ fn a_video_says_what_it_needs() {
     // A file of its own: `scratch` takes away what it names, and the sound track's test, run
     // beside this one, plays `tone.wav`.
     let png = Request { format: "png".into(), audio: Some(scratch("png.wav")), ..mp4(Some(scratch("pngs"))) };
-    assert!(ask(png).contains("--audio sets a video's sound track"));
+    assert!(ask(png).contains("`audio` (--audio) sets a video's sound track"));
     // A deck with no hold and no motion has nothing to play.
     let still = scaena_ops::open(Path::new("../../tests/fixtures/torture.scaena")).unwrap();
     let req = Request { states: Some(vec!["liga".into()]), ..mp4(Some(scratch("still.mp4"))) };

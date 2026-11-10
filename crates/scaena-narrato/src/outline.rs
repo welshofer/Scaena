@@ -175,10 +175,15 @@ pub fn read(text: &str, arc: &NarrativeArc, plan: &[(usize, usize, usize)]) -> R
             .unwrap_or_default()
             .to_string()
     };
-    let beats: Vec<Beat> = planned(arc, plan)
+    let mut beats: Vec<Beat> = planned(arc, plan)
         .into_iter()
         .map(|(number, name, slides)| Beat { name: name.to_string(), claim: claim(number), slides })
         .collect();
+    let mut counts: Vec<usize> = beats.iter().map(|b| b.slides).collect();
+    opened(&mut counts);
+    for (beat, count) in beats.iter_mut().zip(counts) {
+        beat.slides = count;
+    }
     if beats.is_empty() {
         return Err("the arc has no beat at this length".into());
     }
@@ -219,7 +224,9 @@ pub fn settled(outline: &Outline, target: usize, range: (usize, Option<usize>)) 
 pub fn counted(given: &[usize], target: usize, range: (usize, Option<usize>)) -> Vec<usize> {
     let n = given.len();
     if given.iter().all(|&c| c == 0) {
-        return beats::allocate(target.max(n), n);
+        let mut counts = beats::allocate(target.max(n), n);
+        opened(&mut counts);
+        return counts;
     }
     let counts: Vec<usize> = given.iter().map(|&c| c.max(1)).collect();
     let sum: usize = counts.iter().sum();
@@ -252,6 +259,19 @@ pub fn counted(given: &[usize], target: usize, range: (usize, Option<usize>)) ->
     out
 }
 
+/// `counts`, the slides each beat takes, given the cover (lift-up 10-25b FUNC-3): the deck opens on
+/// its Title slide, which is the first beat's first slide, so a first beat of one slide would
+/// spend its hook on the cover. It takes one more from the largest beat that has two, the last of
+/// them where several do; Narrato's own spread ([`beats::allocate`]) stands as it is.
+fn opened(counts: &mut [usize]) {
+    if counts.len() < 2 || counts[0] != 1 {
+        return;
+    }
+    let Some(largest) = (1..counts.len()).filter(|&i| counts[i] >= 2).max_by_key(|&i| (counts[i], i)) else { return };
+    counts[largest] -= 1;
+    counts[0] += 1;
+}
+
 /// Scaena's block for the slides' prompt, after [`crate::prompt::SLOT_SHAPES`]: the outline the
 /// person settled, which the slides follow where it and Narrato's own plan differ.
 pub fn block(outline: &Outline) -> String {
@@ -273,6 +293,11 @@ pub fn block(outline: &Outline) -> String {
         };
         cursor += beat.slides;
         out.push_str(&format!("  Beat {} \"{}\" \u{2192} {range}: {}\n", i + 1, beat.name, beat.claim));
+    }
+    // The cover is the first beat's first slide, so its hook goes on the second (lift-up 10-25b
+    // FUNC-3).
+    if outline.beats.first().is_some_and(|b| b.slides >= 2) {
+        out.push_str("The cover, the deck's Title slide, is beat 1's first slide; beat 1's second slide states the hook its claim opens the talk with.\n");
     }
     out.push_str(
         "Write the slides in this order with these counts, `beatIndex` the number of a slide's beat here less one and `beatName` that beat's name, and every slide carrying its beat's claim.\n",
@@ -319,6 +344,47 @@ mod tests {
     /// The counts a person sets stand where their sum is within the length's own range; others
     /// are scaled to its nearer end, each beat one at least; none given, the slides spread evenly
     /// (lift-up FUNC-4).
+    /// The cover is the first beat's first slide (lift-up 10-25b FUNC-3): where the plan gives
+    /// that beat one slide, it takes another from the largest beat, the last of them where
+    /// several are largest, so its hook is not spent on the cover; the block says the hook goes on
+    /// its second slide. A first beat of two or more, a deck of one slide a beat, and counts the
+    /// person set stand as they are.
+    #[test]
+    fn the_first_beat_keeps_a_slide_past_the_cover_for_its_hook() {
+        let mut eight = beats::allocate(8, 6);
+        assert_eq!(eight, [1, 1, 1, 1, 2, 2], "Narrato's own spread, unchanged");
+        opened(&mut eight);
+        assert_eq!(eight, [2, 1, 1, 1, 2, 1]);
+        for (counts, stands) in [(vec![2, 1, 3], "two already"), (vec![1, 1, 1], "one a beat"), (vec![1], "one beat")] {
+            let mut c = counts.clone();
+            opened(&mut c);
+            assert_eq!(c, counts, "{stands}");
+        }
+        // An outline the model wrote takes it from the plan's counts.
+        let arc = arcs::arc("Problem\u{2013}Solution");
+        let plan = beats::plan(arc, 8);
+        let beats: Vec<Value> = (1..=6).map(|b| json!({ "beat": b, "claim": format!("Claim {b}.") })).collect();
+        let answer = json!({ "bigIdea": "Cargo pays for its carbon.", "beats": beats }).to_string();
+        let outline = read(&answer, arc, &plan).unwrap();
+        let slides: Vec<usize> = outline.beats.iter().map(|b| b.slides).collect();
+        assert_eq!(slides.iter().sum::<usize>(), 8);
+        assert_eq!(slides[0], 2, "{slides:?}");
+        let said = block(&outline);
+        assert!(said.contains("\u{2192} slides 1\u{2013}2: Claim 1."), "{said}");
+        assert!(said.contains("beat 1's first slide; beat 1's second slide states the hook"), "{said}");
+        // A first beat of one slide: the block says nothing of a second.
+        let one = Outline { beats: vec![Beat { slides: 1, ..outline.beats[0].clone() }], ..outline.clone() };
+        assert!(!block(&one).contains("states the hook"));
+        // Counts the person set stand: [1, 4, 3] comes to the length and is kept.
+        let mut set = outline.clone();
+        set.beats.truncate(3);
+        for (beat, n) in set.beats.iter_mut().zip([1, 4, 3]) {
+            beat.slides = n;
+        }
+        let kept: Vec<usize> = settled(&set, 8, (5, Some(10))).unwrap().beats.iter().map(|b| b.slides).collect();
+        assert_eq!(kept, [1, 4, 3]);
+    }
+
     #[test]
     fn the_slides_a_person_gives_each_beat_are_kept() {
         assert_eq!(counted(&[3, 1, 1], 5, (5, Some(6))), [3, 1, 1], "kept: they come to the least");
@@ -327,8 +393,10 @@ mod tests {
         assert_eq!(counted(&[1, 1], 8, (8, Some(9))), [4, 4], "scaled up to the least");
         assert_eq!(counted(&[2, 0, 1], 4, (4, Some(5))), [2, 1, 1], "a beat given none takes one");
         assert_eq!(counted(&[9, 1, 1, 1, 1], 5, (5, Some(5))), [1, 1, 1, 1, 1], "each one at least");
-        assert_eq!(counted(&[0, 0, 0], 5, (5, Some(6))), beats::allocate(5, 3), "none given: spread evenly");
-        assert_eq!(counted(&[0, 0, 0], 5, (5, Some(6))), [1, 2, 2]);
+        // None given: spread evenly, as Narrato spreads them ([1, 2, 2]), then the first beat given
+        // its second slide, the one past the cover (lift-up 10-25b FUNC-3).
+        assert_eq!(beats::allocate(5, 3), [1, 2, 2]);
+        assert_eq!(counted(&[0, 0, 0], 5, (5, Some(6))), [2, 2, 1], "none given: spread, the cover's beat its hook");
         // Within the length's own range, not from its count on: "11-15 slides" counts 13, and
         // keeps a person's 11 and 15; 18 comes down to 15.
         let eleven_to_fifteen = (11, Some(15));

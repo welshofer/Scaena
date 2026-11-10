@@ -74,8 +74,17 @@ fn framed(text: &str, at: Value, framing: Value) -> Value {
 fn set(text: &str, width: f32, scale: f32) -> TextLayout {
     let (theme, deck) = (theme(), deck(json!({})));
     let mut spec = TextSpec::plain(theme.text_role("body").unwrap(), text);
-    spec.code =
-        Some(CodeSpec { language: "rust".into(), tab: 4, least: 24.0 / 40.0, looks: None, card: None, numbers: None });
+    spec.code = Some(CodeSpec {
+        language: "rust".into(),
+        tab: 4,
+        least: 24.0 / 40.0,
+        looks: None,
+        card: None,
+        numbers: None,
+        focus: None,
+        dimmed: None,
+        band: None,
+    });
     TextEngine::new().layout(&mut fonts(&deck), &theme, &spec.scaled(scale), width).unwrap()
 }
 
@@ -360,7 +369,17 @@ fn a_code_text_is_colored_by_its_language_in_the_themes_colors() {
     // monospaced face, each glyph stands where it stood uncolored.
     let lay = |looks: Option<Box<Looks>>| {
         let mut spec = TextSpec::plain(theme.text_role("code").unwrap(), RUST);
-        spec.code = Some(CodeSpec { language: "rust".into(), tab: 4, least: 1.0, looks, card: None, numbers: None });
+        spec.code = Some(CodeSpec {
+            language: "rust".into(),
+            tab: 4,
+            least: 1.0,
+            looks,
+            card: None,
+            numbers: None,
+            focus: None,
+            dimmed: None,
+            band: None,
+        });
         TextEngine::new().layout(&mut fonts(&d), &theme, &spec, 2000.0).unwrap()
     };
     let (plain, colored) = (lay(None), lay(Some(Box::new(looks))));
@@ -440,6 +459,9 @@ fn color_alone_keeps_shaping_whole() {
             looks: looks.map(Box::new),
             card: None,
             numbers: None,
+            focus: None,
+            dimmed: None,
+            band: None,
         });
         TextEngine::new().layout(&mut fonts(&d), &theme, &spec, 4000.0).unwrap()
     };
@@ -556,4 +578,105 @@ fn code_on_a_card_collides_by_its_card() {
         |n: Value| lint(&deck(json!({ "n": n, "label": label.clone() }))).iter().any(|(c, _, _)| c == "E101");
     assert!(collides(carded), "the label stands on the card");
     assert!(!collides(code("let x = 1;", at)), "with no card, it is clear of the words");
+}
+
+/// `node` of `deck` laid out in `theme` at rest in its one state.
+fn placed_in(deck: &Deck, theme: &Theme, node: &str) -> PlacedText {
+    let data = DataFiles::new();
+    let req = FrameRequest { deck, theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
+    Engine::new(fonts(deck)).text_layout(&req, node).unwrap()
+}
+
+/// The torture theme with `focus` as its `code.focus` (PLAN 2.140).
+fn focusing(focus: Value) -> Theme {
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    t["code"]["focus"] = focus;
+    Theme::from_json(&t.to_string()).unwrap()
+}
+
+/// The color each glyph of `layout` is drawn in, by where its cluster starts as laid out, with
+/// the line it stands on and its x.
+fn glyph_colors(layout: &TextLayout) -> Vec<(usize, usize, i32, [u8; 4])> {
+    let mut out: Vec<(usize, usize, i32, [u8; 4])> = (layout.runs.iter())
+        .flat_map(|r| {
+            r.clusters.iter().zip(&r.glyphs).map(move |(c, g)| (*c, r.line, (g.x * 64.0).round() as i32, r.color.0))
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn lines_out_of_focus_are_set_back_toward_their_ground_never_under_3_to_1() {
+    // PLAN 2.140: line 2 in focus; the rest, and their numbers, set back toward the card, fainter
+    // than they were and never under 3:1, each glyph where it stood. A theme that sets back with
+    // no band, so the line in focus keeps its colors.
+    let plain = focusing(json!({ "dim": 0.55 }));
+    let at = json!({ "rect": [100, 100, 1600, 700] });
+    let whole = placed_in(&deck(json!({ "n": framed(RUST, at.clone(), json!({ "numbers": true })) })), &plain, "n");
+    let walked =
+        placed_in(&deck(json!({ "n": framed(RUST, at, json!({ "numbers": true, "focus": [2] })) })), &plain, "n");
+    assert_eq!(walked.focus, Some(vec![(1, 1)]));
+    assert!(walked.frame.as_ref().is_some_and(|f| f.card.is_some()), "a card");
+    let [r, g, b, _] = plain.code_card().unwrap().fill;
+    let ground = [r, g, b];
+    let (was, now) = (glyph_colors(&whole.text), glyph_colors(&walked.text));
+    assert_eq!(was.len(), now.len());
+    let mut set_back = 0;
+    for ((c, line, x, before), (c2, line2, x2, after)) in was.iter().zip(&now) {
+        assert_eq!((c, line, x), (c2, line2, x2), "a change of focus shapes nothing apart");
+        let (b, a) = ([before[0], before[1], before[2]], [after[0], after[1], after[2]]);
+        if *line == 1 {
+            assert_eq!(before, after, "the line in focus is drawn as it was");
+            continue;
+        }
+        if ratio(b, ground) <= 3.0 {
+            continue;
+        }
+        assert!(ratio(a, ground) >= 3.0, "{after:?} on {ground:?}");
+        assert!(ratio(a, ground) < ratio(b, ground), "set back: {before:?} to {after:?}");
+        set_back += 1;
+    }
+    assert!(set_back > 20, "{set_back}");
+    // Its numbers with their lines.
+    let numbers = |p: &PlacedText| -> Vec<[u8; 4]> {
+        let (_, gutter) = p.frame.as_ref().unwrap().gutter.as_ref().unwrap();
+        let mut by_line: Vec<(usize, [u8; 4])> = gutter.runs.iter().map(|r| (r.line, r.color.0)).collect();
+        by_line.dedup();
+        by_line.into_iter().map(|(_, c)| c).collect()
+    };
+    let (a, b) = (numbers(&whole), numbers(&walked));
+    assert_eq!(a.len(), 4);
+    assert_eq!(a[1], b[1], "the number of the line in focus as it was");
+    for k in [0, 2, 3] {
+        assert_ne!(a[k], b[k], "line {}'s number set back", k + 1);
+        assert!(ratio([b[k][0], b[k][1], b[k][2]], ground) >= 3.0);
+    }
+}
+
+#[test]
+fn a_band_stands_behind_the_lines_in_focus_and_they_read_on_it() {
+    // PLAN 2.140: a theme that bands the lines in focus draws a band behind each run of them,
+    // over the card, as tall as its lines, and the code in focus reads 4.5:1 on it.
+    let theme = focusing(json!({ "dim": 0.55, "band": "surface" }));
+    let d =
+        deck(json!({ "n": framed(RUST, json!({ "rect": [100, 100, 1600, 700] }), json!({ "focus": [1, [3, 4]] })) }));
+    let p = placed_in(&d, &theme, "n");
+    let frame = p.frame.as_ref().expect("a frame");
+    assert_eq!(frame.bands.len(), 2, "one band for each run of lines in focus");
+    let [r, g, b, _] = theme.color("surface").unwrap().0;
+    let lines = &p.text.lines;
+    for (band, (first, last)) in frame.bands.iter().zip([(0, 0), (2, 3)]) {
+        let top = p.origin[1] + lines[first].baseline - lines[first].ascent;
+        let bottom = p.origin[1] + lines[last].baseline + lines[last].descent;
+        assert!((band.rect[1] - top).abs() < 1e-3 && (band.rect[1] + band.rect[3] - bottom).abs() < 1e-3);
+        assert!(band.rect[0] < p.origin[0] && band.rect[0] + band.rect[2] > p.origin[0] + p.text.width);
+    }
+    for run in p.text.runs.iter().filter(|r| r.line != 1) {
+        let [x, y, z, _] = run.color.0;
+        assert!(ratio([x, y, z], [r, g, b]) >= READS, "{:?} on the band", run.color);
+    }
+    // No band where nothing is in focus: every line is.
+    let d = deck(json!({ "n": framed(RUST, json!({ "rect": [100, 100, 1600, 700] }), json!({})) }));
+    assert!(placed_in(&d, &theme, "n").frame.unwrap().bands.is_empty());
 }

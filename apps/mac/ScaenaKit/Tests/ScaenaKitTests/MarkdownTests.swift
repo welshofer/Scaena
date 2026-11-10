@@ -1,3 +1,4 @@
+import Foundation
 import ScaenaKit
 import Testing
 
@@ -30,4 +31,24 @@ import Testing
         ])
     #expect(MarkdownBlocks.blocks(of: "```\nunclosed") == [.code("unclosed", language: nil)])
     #expect(MarkdownBlocks.blocks(of: "") == [])
+}
+
+/// A link says where it goes (lift-up 20261025 SEC-5): its host after words that do not name it,
+/// as `web/markdown.mjs` holds the browser's to.
+@Test func aLinkSaysWhereItGoes() throws {
+    let inline = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+    let read = try AttributedString(
+        markdown: "[Re-enter your key](https://Evil.example:8443/k?x=1) or [example.com](https://www.example.com/a).",
+        options: inline)
+    let shown = MarkdownBlocks.hosted(read)
+    #expect(String(shown.characters) == "Re-enter your key (evil.example) or example.com.")
+    let host = try #require(shown.range(of: " (evil.example)"))
+    #expect(shown[host].link == URL(string: "https://Evil.example:8443/k?x=1"))
+    #expect(MarkdownBlocks.host(of: URL(string: "scaena-state:cover")!) == nil)
+    #expect(String(MarkdownBlocks.hosted(AttributedString("no links")).characters) == "no links")
+    // Words that only hold part of the host do not hide it; words that name it whole do.
+    let part = try AttributedString(markdown: "[paypal.com](https://pal.com/)", options: inline)
+    #expect(String(MarkdownBlocks.hosted(part).characters) == "paypal.com (pal.com)")
+    #expect(MarkdownBlocks.names("See https://www.example.com/a.", "example.com"))
+    #expect(!MarkdownBlocks.names("paypal.com", "pal.com"))
 }

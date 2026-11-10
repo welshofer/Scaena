@@ -235,7 +235,15 @@ async function run(
     return answer(JSON.stringify({ message: e instanceof Error ? e.message : String(e) }), true);
   }
   if (frame) out.result.png = await png(frame.pixels, frame.width, frame.height);
-  if (changed || files.length) await edited(session.source(), files);
+  // The editor's taking of the edit failing is this call's answer, so the model hears it and the
+  // conversation goes on (lift-up 10-25b STAB-3).
+  if (changed || files.length) {
+    const why = await edited(session.source(), files).then(
+      () => undefined,
+      (e: unknown) => (e instanceof Error ? e.message : String(e)),
+    );
+    if (why !== undefined) return answer(JSON.stringify({ message: `the deck was edited, but the editor could not take the edit: ${why}` }), true);
+  }
   return out;
 }
 
@@ -340,11 +348,11 @@ async function mapFetch(
  * changed; or why it did not. */
 export async function slideWrite(session: Session, args: unknown, author: string): Promise<[string, boolean, boolean]> {
   const stop = (message: string): [string, boolean, boolean] => [JSON.stringify({ message }), true, false];
-  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; dry_run?: unknown };
-  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "dry_run"].includes(k));
+  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; beat?: unknown; dry_run?: unknown };
+  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "beat", "dry_run"].includes(k));
   const place = (v: unknown) => v === undefined || v === null || typeof v === "string";
-  if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace)) {
-    return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; and `dry_run`");
+  if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace) || !place(a.beat)) {
+    return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; `beat`, a beat of the spine; and `dry_run`");
   }
   if (a.after && a.replace) return stop("slide_write: give `after` or `replace`, not both");
   const read = session.tool("deck_read", "{}");
@@ -376,7 +384,11 @@ export async function slideWrite(session: Session, args: unknown, author: string
       return bytes ? [[source as string, bytes] as [string, Uint8Array]] : [];
     });
     const { slideBuilt } = await import("@scaena/generate");
-    const where = a.replace ? { replace: a.replace as string } : a.after ? { after: a.after as string } : {};
+    const where = {
+      ...(a.replace ? { replace: a.replace as string } : a.after ? { after: a.after as string } : {}),
+      // The beat of the spine it tells (lift-up M1).
+      ...(a.beat ? { beat: a.beat as string } : {}),
+    };
     const built = await slideBuilt(deck, (JSON.parse(held) as { text: string }).text, slide, where, found, files);
     const called = session.slidePolishing(built, a.dry_run === true, author, new Date().toISOString());
     try {

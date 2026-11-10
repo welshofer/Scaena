@@ -207,7 +207,7 @@ public struct Carets: Decodable, Equatable, Sendable {
     }
 
     /// The text's paragraphs, each without the break that ends it, as the deck counts them
-    /// (`scaena_core::lists::paragraphs`): `\n`, `\r`, `\r\n`, U+2028, and U+2029 end one.
+    /// (`scaena_core::lists::paragraphs`): `\n`, `\r`, `\r\n`, VT, FF, NEL, U+2028, and U+2029 end one.
     public var paragraphs: [NSRange] {
         let units = Array(text.utf16)
         var out: [NSRange] = []
@@ -215,7 +215,7 @@ public struct Carets: Decodable, Equatable, Sendable {
         var i = 0
         while i < units.count {
             let c = units[i]
-            if c == 0x0A || c == 0x0D || c == 0x2028 || c == 0x2029 {
+            if [0x0A, 0x0B, 0x0C, 0x0D, 0x85, 0x2028, 0x2029].contains(c) {
                 out.append(NSRange(location: start, length: i - start))
                 if c == 0x0D, i + 1 < units.count, units[i + 1] == 0x0A { i += 1 }
                 start = i + 1

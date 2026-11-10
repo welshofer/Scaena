@@ -25,6 +25,7 @@ pub(super) fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(I402OverrideCount),
         Box::new(I403UncoloredLanguage),
         Box::new(I404Haiku),
+        Box::new(W204FocusPastLast),
     ]
 }
 
@@ -520,7 +521,9 @@ impl Rule for W322Idle {
 
 /// The patch that takes `id` out of the motion at `pointer` in state `i`'s `choreography`: out of
 /// its targets where it has others, else the motion goes, and a sequence or a parallel it leaves
-/// with none goes with it.
+/// with none goes with it. Each removal first tests what it removes is as lint found it, so a fix
+/// applied after another that moved what it points at fails, and `lint --fix` passes it over
+/// rather than taking a neighbour out (lift-up 20261031 STAB-3).
 fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<Value> {
     let base = format!("/states/{i}/choreography");
     let Some(rest) = pointer.strip_prefix(&base) else { return Vec::new() };
@@ -530,7 +533,10 @@ fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<
         && targets.len() > 1
         && let Some(k) = targets.iter().position(|t| t.as_str() == Some(id))
     {
-        return vec![serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") })];
+        return vec![
+            serde_json::json!({ "op": "test", "path": format!("{pointer}/target"), "value": targets }),
+            serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") }),
+        ];
     }
     let mut steps: Vec<&str> = rest.split('/').skip(1).collect();
     while steps.len() >= 3 {
@@ -541,7 +547,12 @@ fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<
             break;
         }
     }
-    vec![serde_json::json!({ "op": "remove", "path": format!("{base}/{}", steps.join("/")) })]
+    let gone = format!("/{}", steps.join("/"));
+    let Some(was) = root.pointer(&gone) else { return Vec::new() };
+    vec![
+        serde_json::json!({ "op": "test", "path": format!("{base}{gone}"), "value": was }),
+        serde_json::json!({ "op": "remove", "path": format!("{base}{gone}") }),
+    ]
 }
 
 /// Every choreography target in `item`, with its pointer.
@@ -864,6 +875,115 @@ impl Rule for I403UncoloredLanguage {
     }
 }
 
+/// W204: a code text's lines in focus (PLAN 2.140) that name a line past its last, which nothing
+/// draws: the lines it has are set back for a line that is not there. One finding a text and the
+/// place its focus is written, in the first state it is so in, with every state it is so in. The
+/// fix is written where the focus is, so it is sized by every state that reads it there: it holds
+/// each span to the most lines any of them draws, and takes away a span past them all, and the
+/// focus where none is left. Where a state that reads it draws every line it names, no fix cuts
+/// it, and the finding says to write the focus in the state that is short.
+struct W204FocusPastLast;
+
+/// What W204 finds of one text's focus written in one place: the states that show a line past
+/// their last, with the first's lines and the line past them, and the most lines any state that
+/// reads it there draws.
+struct Focused {
+    id: String,
+    at: String,
+    ends: Vec<(u64, u64)>,
+    first: Option<(String, u64, u64)>,
+    states: Vec<String>,
+    most: u64,
+}
+
+impl Rule for W204FocusPastLast {
+    fn code(&self) -> &'static str {
+        "W204"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Context) -> Vec<Finding> {
+        use crate::tracking::{Lives, lives};
+        let mut places: Vec<Focused> = Vec::new();
+        for (i, snap) in cx.snapshots.iter().enumerate() {
+            for (id, props) in &snap.nodes {
+                if cx.deck.nodes.get(id).is_none_or(|n| n.node_type != NodeType::Text) {
+                    continue;
+                }
+                // The focus as the state shows it, the deck's overrides over it.
+                let over = cx.deck.overrides.get(id).and_then(|o| o.get("code")).and_then(|c| c.get("focus"));
+                let shown = props.get("code").and_then(|c| c.get("focus"));
+                let Some(spans) = over.or(shown).and_then(Value::as_array) else { continue };
+                let lines = crate::lists::paragraphs(&crate::reading::words(props)).len() as u64;
+                let at = match (over.is_some(), lives(cx.deck, i, id, "code", &["focus"])) {
+                    (true, _) => format!("/overrides/{}", token(id)),
+                    (false, Lives::State(j)) => format!("/states/{j}/props/{}", token(id)),
+                    (false, Lives::Node) => format!("/nodes/{}", token(id)),
+                };
+                let k = match places.iter().position(|p| p.id == *id && p.at == at) {
+                    Some(k) => k,
+                    None => {
+                        let ends = spans.iter().filter_map(span).collect();
+                        places.push(Focused { id: id.clone(), at, ends, first: None, states: vec![], most: 0 });
+                        places.len() - 1
+                    }
+                };
+                let place = &mut places[k];
+                place.most = place.most.max(lines);
+                let Some(past) = place.ends.iter().map(|&(_, b)| b).filter(|&b| b > lines).max() else { continue };
+                place.first.get_or_insert((snap.state_id.clone(), lines, past));
+                place.states.push(snap.state_id.clone());
+            }
+        }
+        let mut out = Vec::new();
+        for place in places {
+            let Some((state, lines, past)) = place.first else { continue };
+            let held: Vec<(u64, u64)> =
+                (place.ends.iter()).filter(|&&(a, _)| a <= place.most).map(|&(a, b)| (a, b.min(place.most))).collect();
+            let pointer = format!("{}/code/focus", place.at);
+            let finding = Finding::new(
+                self.code(),
+                self.severity(),
+                format!("`{}` has line {past} in focus, past its last, line {lines}: nothing draws it", place.id),
+            )
+            .at(pointer.clone())
+            .state(state)
+            .node(place.id)
+            .measure(serde_json::json!({ "line": past, "lines": lines, "states": place.states }));
+            // Another state reads the focus there and draws every line it names: cutting it
+            // there would cut what that state draws.
+            if held == place.ends {
+                out.push(
+                    finding.hint("Write the lines in focus in the state that has fewer lines, where it shows them."),
+                );
+                continue;
+            }
+            let held: Vec<Value> = (held.into_iter())
+                .map(|(a, b)| if a == b { Value::from(a) } else { Value::from(vec![a, b]) })
+                .collect();
+            let fix = match held.is_empty() {
+                true => serde_json::json!({ "op": "remove", "path": pointer }),
+                false => serde_json::json!({ "op": "replace", "path": pointer, "value": held }),
+            };
+            out.push(
+                finding.hint("Name the lines the text has, or take the focus away to show every line.").fix(vec![fix]),
+            );
+        }
+        out
+    }
+}
+
+/// A span of a code text's lines in focus as its first and last line, counted from 1: none where
+/// it names no line (0) or runs backward (E106).
+fn span(v: &Value) -> Option<(u64, u64)> {
+    let (a, b) = match v {
+        Value::Array(pair) if pair.len() == 2 => (pair[0].as_u64()?, pair[1].as_u64()?),
+        one => (one.as_u64()?, one.as_u64()?),
+    };
+    (a >= 1 && a <= b).then_some((a, b))
+}
+
 /// The language Scaena knows by a name or an alias within two letters of `name`, as edits of one
 /// letter count them, the nearest, and the first in the table's order of those as near; none where
 /// no name is that near, or as near as `name` is long.
@@ -909,5 +1029,48 @@ mod tests {
             { "text": "M" }
         ] }));
         assert_eq!((words(&text), words(&runs)), (5, 5));
+    }
+
+    /// W322's fixes applied one after another, as `lint --fix` applies them, a fix that fails
+    /// passed over: what is left of the deck's second state's choreography.
+    fn fixed(choreography: Value) -> Value {
+        let mut doc = serde_json::json!({
+            "scaena": crate::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "nodes": {
+                "a": { "type": "text", "text": "A", "at": { "in": "canvas" } },
+                "b": { "type": "text", "text": "B", "at": { "in": "canvas" } },
+                "c": { "type": "text", "text": "C", "at": { "in": "canvas" } }
+            },
+            "states": [{ "id": "one" }, { "id": "two", "props": { "c": {} }, "choreography": choreography }]
+        });
+        let deck = crate::Deck::from_value(&doc).unwrap();
+        let found: Vec<Finding> =
+            crate::lint::lint_document(&deck, None).into_iter().filter(|f| f.code == "W322").collect();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        for f in found {
+            let mut next = doc.clone();
+            if crate::patch::apply(&mut next, f.fix.as_deref().unwrap_or_default()).is_ok() {
+                doc = next;
+            }
+        }
+        doc["states"][1]["choreography"].clone()
+    }
+
+    /// Two idle targets of one motion, or two idle motions, before one that enters: their fixes
+    /// never take out the motion on `c`, which enters (lift-up 20261031 STAB-3).
+    #[test]
+    fn idle_motions_fixed_together_leave_the_one_that_moves() {
+        let targets = fixed(serde_json::json!([{ "target": ["a", "b", "c"], "enter": "fade" }]));
+        let left = targets[0]["target"].as_array().unwrap();
+        assert!(left.contains(&serde_json::json!("c")) && !left.contains(&serde_json::json!("a")), "{targets}");
+        let items = fixed(serde_json::json!([
+            { "target": "a", "enter": "fade" },
+            { "target": "b", "enter": "fade" },
+            { "target": "c", "enter": "fade" }
+        ]));
+        let items = items.as_array().unwrap();
+        assert!(items.iter().any(|i| i["target"] == "c"), "{items:?}");
+        assert!(!items.iter().any(|i| i["target"] == "a"), "{items:?}");
     }
 }

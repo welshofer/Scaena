@@ -124,17 +124,20 @@ pub fn cosine(a: &[f64], b: &[f64]) -> f64 {
     dot / (na.sqrt() * nb.sqrt())
 }
 
+/// The words [`keyword_overlap`] reads in `text`: those of more than three letters, lowercased.
+pub fn keywords(text: &str) -> BTreeSet<String> {
+    let text = text.to_lowercase();
+    text.split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit())
+        .filter(|w| w.len() > 3)
+        .map(str::to_string)
+        .collect()
+}
+
 /// The words two slides share (`keywordOverlap`), where they have no embeddings: of the words of
 /// more than three letters in each one's title and body, those both use, over the larger set;
 /// ½ where either has none.
 pub fn keyword_overlap(a: &SlideForHealth, b: &SlideForHealth) -> f64 {
-    let words = |s: &SlideForHealth| -> BTreeSet<String> {
-        let text = format!("{} {}", s.title, s.body).to_lowercase();
-        text.split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit())
-            .filter(|w| w.len() > 3)
-            .map(str::to_string)
-            .collect()
-    };
+    let words = |s: &SlideForHealth| keywords(&format!("{} {}", s.title, s.body));
     let (wa, wb) = (words(a), words(b));
     if wa.is_empty() || wb.is_empty() {
         return 0.5;

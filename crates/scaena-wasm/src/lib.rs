@@ -91,6 +91,13 @@ impl Player {
         self.0.files_edition() as f64
     }
 
+    /// The paths written or taken out since the files were at `edition` (lift-up 20261031
+    /// PERF-3): the worker copies again only these into its copy of them.
+    #[wasm_bindgen(js_name = filesChangedSince)]
+    pub fn files_changed_since(&self, edition: f64) -> Vec<String> {
+        self.0.files_changed_since(edition as u64)
+    }
+
     pub fn states(&self) -> Vec<String> {
         self.0.states()
     }
@@ -1145,6 +1152,13 @@ impl Player {
         let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
     }
+
+    /// The beats whose claim a slide said in the deck `before` compiles to (the source as a
+    /// burst of typing began) and says no longer in the deck now, each with the `replace` that
+    /// restates it (lift-up FUNC-2), as JSON.
+    pub fn restated(&self, before: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.restated(before)).map_err(js)
+    }
 }
 
 /// The bundle a page opens, edits, and saves (PLAN 2.4, SPEC §9.2).
@@ -1232,6 +1246,20 @@ impl Player {
         self.0.slides_png(width, name).map_err(js)
     }
 
+    /// The deck as a movie of `fps` frames a second, in the format shown, as JSON: `{ frames,
+    /// fps, durationMs }`, the timeline the CLI's video plays (lift-up 20261031 FUNC-2).
+    pub fn movie(&mut self, fps: u32) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.movie(fps).map_err(js)?).map_err(js)
+    }
+
+    /// Frame `k` of the movie of `fps` frames a second, `width` pixels wide: its digest, and its
+    /// pixels unless its digest is `before`, the frame the page has already (lift-up 20261031
+    /// FUNC-2).
+    #[wasm_bindgen(js_name = movieFrame)]
+    pub fn movie_frame(&mut self, fps: u32, k: u32, width: u32, before: Option<String>) -> Result<MovieFrame, JsError> {
+        Ok(MovieFrame(self.0.movie_frame(fps, u64::from(k), width, before.as_deref()).map_err(js)?))
+    }
+
     /// The deck's pages laid out for its PDF, as bytes the PDF's own module (`scaena-pdf`)
     /// draws: the PDF `scaena export --format pdf` writes (PLAN 2.54), with `notes` the one
     /// `--notes` writes, each slide with the presenter's notes under it.
@@ -1243,8 +1271,11 @@ impl Player {
     /// The deck as one HTML file that plays offline (PLAN 2.54): `page`, the single-file
     /// player's page, filled in with the bundle as `scaena export --format html` fills it, and
     /// named `name`. Its fonts are subset first, as for a save (`subsetting`, `addSubset`).
-    pub fn standalone(&self, page: &str, name: &str) -> Result<String, JsError> {
-        self.0.standalone(page, name).map_err(js)
+    /// Without `notes`, it carries none of the presenter's words, for a file sent to the room
+    /// (lift-up 20261025 SEC-3).
+    pub fn standalone(&self, page: &str, name: &str, notes: bool) -> Result<String, JsError> {
+        let notes = if notes { scaena_ops::export::Notes::Keep } else { scaena_ops::export::Notes::Drop };
+        self.0.standalone(page, name, notes).map_err(js)
     }
 
     /// Where a file dropped on the page goes in the bundle: a font under `fonts/` and a
@@ -1615,6 +1646,39 @@ impl ToolResult {
     }
 }
 
+/// One frame of a movie (lift-up 20261031 FUNC-2): its drawing's digest, and its pixels where
+/// it draws otherwise than the frame the page had.
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct MovieFrame(scaena_session::movie::MovieFrame);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl MovieFrame {
+    /// What identifies its drawing: one digest, one drawing.
+    #[wasm_bindgen(getter)]
+    pub fn digest(&self) -> String {
+        self.0.digest.clone()
+    }
+
+    /// Whether it was painted: none where it draws as the frame before it.
+    #[wasm_bindgen(getter)]
+    pub fn painted(&self) -> bool {
+        self.0.raster.is_some()
+    }
+
+    /// `[width, height]` pixels, where it was painted.
+    #[wasm_bindgen(getter)]
+    pub fn size(&self) -> Option<Vec<u32>> {
+        self.0.raster.as_ref().map(|r| vec![r.width, r.height])
+    }
+
+    /// Its pixels as straight-alpha sRGB RGBA, for a `VideoFrame`; empty where it was not painted.
+    pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
+        wasm_bindgen::Clamped(self.0.raster.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
+    }
+}
+
 /// A save, in memory: the files of the saved bundle, by their paths inside it.
 #[cfg(feature = "editor")]
 #[wasm_bindgen]
@@ -1765,6 +1829,13 @@ impl Making {
         });
         let making = scaena_session::making::Making::new(built.made, &built.arc, built.fallback, file, theme, &given);
         making.map(Making).map_err(js)
+    }
+
+    /// How many characters each slide's title place holds, JSON `[n | null]` by slide (lift-up
+    /// FUNC-2): what the generator's `Generation.seeing` gives the look to let a topic title grow
+    /// to.
+    pub fn rooms(&self) -> String {
+        serde_json::to_string(&self.0.rooms()).expect("the rooms are JSON")
     }
 
     /// The texts that still run past their place, as JSON `[{ id, text, most }]`: what the

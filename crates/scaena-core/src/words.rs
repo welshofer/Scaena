@@ -743,6 +743,7 @@ pub const LISTED: &[(&str, &str)] = &[
     ("E106", "Something in it isn't written the way the deck allows."),
     ("W200", "Its last line is left too short."),
     ("W201", "A word is too long to fit its line."),
+    ("W204", "Its code names a line in focus that it doesn't have."),
     ("W210", "This slide has more words than the theme allows."),
     ("W220", "Paragraphs on this slide are aligned more than one way."),
     ("W221", "A text style's line spacing is off the theme's baseline grid."),

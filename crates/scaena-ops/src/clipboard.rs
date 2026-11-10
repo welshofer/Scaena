@@ -102,8 +102,7 @@ pub fn copying(
     lines: &dyn Fn(&str) -> Option<Vec<[f32; 2]>>,
 ) -> Result<Clip, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     if copied.is_empty() {
         return Err(OpsError::new("nothing is copied"));
     }

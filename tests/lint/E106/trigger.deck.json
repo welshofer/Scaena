@@ -1,6 +1,6 @@
 {
-  "scaena": "0.39",
-  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, chart annotations that stand where their kinds cannot, rows that run backward, and a code text written in runs, then told to wrap.",
+  "scaena": "0.40",
+  "_comment": "E106 trigger: a text property on an image, an image's fit on text, a missing src, a key written twice, two deltas whose resolved states break their node's type, a style on an image, overrides that do the same, a node placed in a text node, two stacks inside each other, chart annotations that stand where their kinds cannot, rows that run backward, and a code text written in runs, then told to wrap and given lines in focus that run backward.",
   "canvas": { "width": 1920, "height": 1080 },
   "data": { "q": { "source": { "inline": [{ "quarter": "Q1", "rev": 12 }] }, "schema": { "rev": "number" } } },
   "nodes": {
@@ -20,7 +20,7 @@
   },
   "states": [
     { "id": "one", "props": { "headline": {}, "photo": {}, "badge": {}, "left": {}, "right": {}, "plot": {}, "late": {}, "snippet": {} } },
-    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null }, "plot": { "annotations": [{ "kind": "band", "at": { "y": 3 } }] }, "snippet": { "fit": "wrap" } },
+    { "id": "two", "props": { "headline": { "fit": "contain" }, "photo": { "src": null }, "plot": { "annotations": [{ "kind": "band", "at": { "y": 3 } }] }, "snippet": { "fit": "wrap", "code": { "focus": [1, [3, 2]] } } },
       "choreography": [
         { "target": "headline", "enter": "fade", "exit": "fade" },
         { "target": "photo", "split": "words", "enter": "fade" },

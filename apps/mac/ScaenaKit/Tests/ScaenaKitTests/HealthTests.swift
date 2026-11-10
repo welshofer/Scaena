@@ -47,3 +47,29 @@ import Testing
         self.editor = editor
     }
 }
+
+/// The Story panel leads with what to do first (lift-up S1): every error a slide's lint finds,
+/// then the warnings whose measure scores lowest, one no measure speaks to first and an unscored
+/// measure's last, five in all; the rest folded, in the slides' order, counted by kind.
+@Test func theStoryLeadsWithWhatToDoFirst() throws {
+    let findings: [(Int, String, String)] = [
+        (1, "info", "arc"), (2, "warning", "tone"), (3, "warning", "intensity"), (4, "warning", "tone"),
+        (5, "error", "layout"), (6, "warning", "story"), (7, "warning", "tone"), (8, "warning", "tone"),
+        (9, "info", "arc"), (10, "warning", "turn"),
+    ]
+    let listed = findings.map { slide, severity, kind in
+        #"{"state": "s\#(slide)", "slide": \#(slide), "severity": "\#(severity)", "kind": "\#(kind)", "says": "Slide \#(slide).", "ask": "Ask \#(slide)."}"#
+    }
+    let measure = { (score: Int?) in #"{"score": \#(score.map(String.init) ?? "null"), "says": ""}"# }
+    let json = """
+        {"score": 89, "arc": null, "pacing": \(measure(90)), "balance": \(measure(95)), "coherence": \(measure(nil)),
+         "fidelity": \(measure(85)), "intensity": \(measure(80)), "tone": \(measure(72)),
+         "slides": [], "findings": [\(listed.joined(separator: ","))]}
+        """
+    let health = try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    let triaged = health.triaged()
+    #expect(triaged.open.map(\.slide) == [5, 6, 2, 4, 7], "the error, the slide's own warning, then tone's at 72")
+    #expect(triaged.more.map(\.slide) == [1, 3, 8, 9, 10], "the rest, in the slides' order")
+    #expect(Health.moreSaid(triaged.more) == "5 more: 2 arc, 1 intensity, 1 tone, 1 turn")
+    #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
+}

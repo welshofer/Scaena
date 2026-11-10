@@ -159,7 +159,7 @@ pub type Point = [f64; 2];
 pub struct Rect(pub [f64; 4]);
 
 /// A grid index or an inclusive [start, end] range (1-based).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Range {
     Index(#[schemars(range(min = 1))] u32),

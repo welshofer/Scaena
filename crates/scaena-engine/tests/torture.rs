@@ -36,8 +36,9 @@ const GOLDEN: &str = "../../tests/golden/torture";
 /// scale from a corner, and a frame turning what it holds, each part on its own. Case 60 adds
 /// shadows that move (PLAN 2.115): one growing, one fading in, one fading out. Case 62 adds a
 /// picture's adjustments fading from one to the next (PLAN 2.117): photos over themselves, and a
-/// PNG as the other fades out.
-const MORPH: [(&str, f64); 25] = [
+/// PNG as the other fades out. Case 65 adds a walkthrough's step (PLAN 2.140): the lines out of
+/// focus setting back as the band behind those in it fades in.
+const MORPH: [(&str, f64); 26] = [
     ("chart", 0.25),
     ("chart", 0.5),
     ("chart-next", 0.25),
@@ -63,6 +64,7 @@ const MORPH: [(&str, f64); 25] = [
     ("multiples-next", 0.5),
     ("shadows-next", 0.5),
     ("adjust-next", 0.5),
+    ("code-next", 0.5),
 ];
 /// Frames in a format of the deck's (PLAN 1.13) as (state, fraction of its span, or `None`
 /// at rest), named `state~9x16` and `state@fraction~9x16`: case 43's halves stacked, and

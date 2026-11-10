@@ -114,8 +114,7 @@ pub fn diagramming(
     rows: &[[f32; 2]],
 ) -> Result<Diagrammed, OpsError> {
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
-    let snap =
-        snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::new(format!("unknown state `{state}`")))?;
+    let snap = snaps.iter().find(|s| s.state_id == state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let found = deck.nodes.get(node).ok_or_else(|| OpsError::new(format!("no node `{node}`")))?;
     let props = snap.nodes.get(node).ok_or_else(|| OpsError::new(format!("`{node}` is not on screen in `{state}`")))?;
     if found.node_type != NodeType::Text {

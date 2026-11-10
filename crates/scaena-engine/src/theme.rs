@@ -259,6 +259,32 @@ impl Theme {
         Ok(looks)
     }
 
+    /// How far a walkthrough sets back the lines out of a code text's focus (PLAN 2.140, ADR-0029):
+    /// the theme's `code.focus.dim`, else [`scaena_core::palette::DIM`].
+    pub fn code_dim(&self) -> f64 {
+        let focus = self.code.as_ref().and_then(|c| c.focus.as_ref());
+        focus.and_then(|f| f.dim).map_or(scaena_core::palette::DIM, |d| d.clamp(0.0, 1.0))
+    }
+
+    /// The band behind a code text's lines in focus (PLAN 2.140), as it lies on `ground`, where the
+    /// theme's `code.focus.band` names one.
+    pub fn code_band(&self, ground: [u8; 3]) -> Result<Option<[u8; 3]>, EngineError> {
+        let band = self.code.as_ref().and_then(|c| c.focus.as_ref()).and_then(|f| f.band.as_deref());
+        band.map(|name| Ok(over(self.color(name)?, ground))).transpose()
+    }
+
+    /// `looks`, a code text's looks on `ground`, as the lines out of its focus draw them (PLAN
+    /// 2.140, ADR-0029): each color set back toward `ground` by the theme's dim, never under 3:1,
+    /// its weight and italic kept.
+    pub fn dimmed_looks(&self, looks: &crate::code::Looks, ground: [u8; 3]) -> crate::code::Looks {
+        let dim = self.code_dim();
+        looks.map(|look| {
+            let [r, g, b, _] = look.color;
+            let [r, g, b] = scaena_core::palette::dimmed([r, g, b], ground, dim);
+            crate::code::TokenLook { color: [r, g, b, 255], ..look }
+        })
+    }
+
     /// The card a code text stands on (PLAN 2.136, ADR-0029): the theme's `code.card`, its fill
     /// taken as it lies on the surface, else `surface-2` stepped from the surface by the least
     /// lightness to stand 1.3:1 off it, so it shows on a projector.
@@ -293,7 +319,7 @@ impl Theme {
         let color = over(self.color(numbers.and_then(|n| n.color.as_deref()).unwrap_or("onSurfaceMuted"))?, ground);
         let [r, g, b] = palette::held(color, ground, palette::READS);
         let gap = numbers.and_then(|n| n.gap).map_or(crate::code::GAP, |g| g as f32);
-        Ok(crate::code::Numbers { start, color: [r, g, b, 255], gap })
+        Ok(crate::code::Numbers { start, color: [r, g, b, 255], gap, dimmed: None })
     }
 
     /// A typographic role, as text is set in it.

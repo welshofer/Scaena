@@ -27,12 +27,37 @@ public enum Remote {
     static let version = 3
     /// How many wrong codes a presenter takes before it makes its code anew.
     public static let tries = 5
+    /// The longest a presenter waits, s, after making its code anew, before a remote pairs again:
+    /// the waits double up to it, and a join does not shorten them.
+    public static let longest: Double = 60
     /// How many remotes may be pairing at once: more are refused until one is done.
     static let pairing = 16
+    /// How many digits a code has: a hundred million codes, of which a wrong code is one try and
+    /// five make the code anew, so guessing one online takes some twenty million codes made anew
+    /// on average, a minute apart once the waits have doubled: decades (lift-up SEC-5). Typed on a
+    /// phone's number pad, and read in two groups of four.
+    public static let digits = 8
 
-    /// A new code: four digits, as a presentation app's remote pairs with.
+    /// A new code: `digits` digits, each from the system's secure random numbers.
     public static func code() -> String {
-        String(format: "%04d", Int.random(in: 0..<10_000))
+        String((0..<digits).map { _ in "0123456789".randomElement()! })
+    }
+
+    /// `code` as a person reads it: in groups of four digits, `4821 0937`.
+    public static func shown(_ code: String) -> String {
+        var groups: [Substring] = []
+        var rest = Substring(code)
+        while !rest.isEmpty {
+            groups.append(rest.prefix(4))
+            rest = rest.dropFirst(4)
+        }
+        return groups.joined(separator: " ")
+    }
+
+    /// What a person typed as a code: its digits alone, at most `digits` of them, so a code typed
+    /// as it is shown, its space and all, or pasted, reads as the code.
+    public static func typed(_ text: String) -> String {
+        String(text.filter { $0.isASCII && $0.isWholeNumber }.prefix(digits))
     }
 
     /// What a presenter offers its deck as, by Bonjour: `device`'s name alone, within the 63 bytes a
@@ -162,8 +187,9 @@ struct Pairing {
 
     /// The code hashed to a point of the curve: the base both ends raise. The first x that
     /// SHA-256(`label` ‖ code ‖ counter) gives, from a counter of 0, that is a point's, the point
-    /// CryptoKit makes of it; no code of four digits needs more than 16 tries. `Trouble.hello` past
-    /// 255, which no code reaches.
+    /// CryptoKit makes of it; about half of all x are, so a code needs two tries on average, and
+    /// none of the first 200,000 codes of eight digits needs more than 23. `Trouble.hello` past
+    /// 255, which a code reaches with a chance of 2⁻²⁵⁶.
     static func base(_ code: String) throws -> P256.KeyAgreement.PublicKey {
         for counter in UInt8.min...UInt8.max {
             let x = Data(SHA256.hash(data: label + Data(code.utf8) + Data([counter])))
@@ -268,11 +294,18 @@ public struct RemotePlace: Codable, Sendable, Equatable {
     public var over: Bool
     /// The presenter's timer, paused or running, as it stood when the place was sent (PLAN 2.121).
     public var timer: RemoteTimer?
+    /// The state's slide by its number, from 1, how many slides the show has, and the state's step
+    /// on its slide, from 1, as a person counts them (lift-up USE-2); none from a presenter that
+    /// sends none, which counts states.
+    public var number: Int?
+    public var slides: Int?
+    public var step: Int?
 
     public init(
         deck: String, showing: Bool, state: String = "", index: Int = 0, count: Int = 0, ms: Double = 0,
         rest: Bool = true, notes: String = "", read: [NoteBlock] = [], slide: Data? = nil, next: Data? = nil,
-        began: Date? = nil, blank: RemoteScreen? = nil, over: Bool = false, timer: RemoteTimer? = nil
+        began: Date? = nil, blank: RemoteScreen? = nil, over: Bool = false, timer: RemoteTimer? = nil,
+        number: Int? = nil, slides: Int? = nil, step: Int? = nil
     ) {
         self.deck = deck
         self.showing = showing
@@ -289,10 +322,14 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         self.blank = blank
         self.over = over
         self.timer = timer
+        self.number = number
+        self.slides = slides
+        self.step = step
     }
 
     enum CodingKeys: String, CodingKey {
         case deck, showing, state, index, count, ms, rest, notes, read, slide, next, began, blank, over, timer
+        case number, slides, step
     }
 
     /// A place as a presenter sent it, one that sent no `read` read as lines.
@@ -314,6 +351,38 @@ public struct RemotePlace: Codable, Sendable, Equatable {
         blank = try c.decodeIfPresent(RemoteScreen.self, forKey: .blank)
         over = try c.decodeIfPresent(Bool.self, forKey: .over) ?? false
         timer = try c.decodeIfPresent(RemoteTimer.self, forKey: .timer)
+        // A presenter from before the remote counted slides sends none of them.
+        number = try c.decodeIfPresent(Int.self, forKey: .number)
+        slides = try c.decodeIfPresent(Int.self, forKey: .slides)
+        step = try c.decodeIfPresent(Int.self, forKey: .step)
+    }
+
+    /// Where the show is, as the presenter's words say it (PLAN 2.99): `Slide 3 of 12`, or `Slide 3
+    /// of 12, step 2` for a step after a slide's first; from a presenter that counts no slides, the
+    /// state among the states, `7 of 19`.
+    public var said: String {
+        guard let number, let slides else { return "\(index + 1) of \(count)" }
+        let at = "Slide \(number) of \(slides)"
+        return (step ?? 1) > 1 ? "\(at), step \(step ?? 1)" : at
+    }
+
+    /// The slide of the state at `index` among states whose slides are `of`, in order, as a person
+    /// counts them (lift-up USE-2): its number from 1, how many slides there are, and its step on
+    /// its slide from 1; none for an index past them.
+    public static func counted(_ of: [String], at index: Int) -> (number: Int, slides: Int, step: Int)? {
+        guard of.indices.contains(index) else { return nil }
+        var (number, step, slides) = (0, 0, 0)
+        var last: String?
+        for (i, slide) in of.enumerated() {
+            if slide != last {
+                slides += 1
+                if i <= index { (number, step) = (slides, 1) }
+                last = slide
+            } else if i <= index {
+                step += 1
+            }
+        }
+        return (number, slides, step)
     }
 
     /// No show plays.

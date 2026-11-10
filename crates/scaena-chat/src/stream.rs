@@ -27,6 +27,17 @@ pub fn assembled(provider: Provider, body: &str) -> Value {
     stream.finish()
 }
 
+/// The most blocks, or tool calls, an answer is assembled from: an `index` past it is no answer a
+/// provider sends, and taken as given it would have the reader fill every slot before it, without
+/// bound (lift-up 20261025b SEC-3). Such an answer ends as an error, the provider's answer did
+/// not read. `web/src/assistant/stream.ts` holds the same.
+pub const MOST_BLOCKS: usize = 256;
+
+/// The error a stream past [`MOST_BLOCKS`] ends in, as a provider's error object.
+fn unread() -> Value {
+    json!({ "type": "error", "error": { "type": "unread", "message": "the provider's answer did not read" } })
+}
+
 /// One streamed answer being assembled.
 #[derive(Debug, Clone)]
 pub struct Stream {
@@ -144,7 +155,11 @@ impl Stream {
 
     fn anthropic_event(&mut self, event: Option<&str>, v: &Value) -> String {
         let kind = event.or_else(|| v.get("type").and_then(Value::as_str)).unwrap_or_default();
-        let index = v.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let index = v.get("index").and_then(Value::as_u64).unwrap_or(0);
+        let Some(index) = usize::try_from(index).ok().filter(|&i| i < MOST_BLOCKS) else {
+            self.error = Some(unread());
+            return String::new();
+        };
         let a = &mut self.anthropic;
         match kind {
             "message_start" => {
@@ -232,13 +247,18 @@ impl Stream {
             o.finish = Some(finish.clone());
         }
         let mut said = String::new();
+        let mut unreadable = false;
         if let Some(delta) = choice.get("delta") {
             if let Some(text) = delta.get("content").and_then(Value::as_str) {
                 o.content.get_or_insert_with(String::new).push_str(text);
                 said.push_str(text);
             }
             for call in delta.get("tool_calls").and_then(Value::as_array).into_iter().flatten() {
-                let index = call.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let index = call.get("index").and_then(Value::as_u64).unwrap_or(0);
+                let Some(index) = usize::try_from(index).ok().filter(|&i| i < MOST_BLOCKS) else {
+                    unreadable = true;
+                    break;
+                };
                 while o.calls.len() <= index {
                     o.calls.push((String::new(), String::new(), String::new()));
                 }
@@ -253,6 +273,9 @@ impl Stream {
                     slot.2.push_str(args);
                 }
             }
+        }
+        if unreadable {
+            self.error = Some(unread());
         }
         said
     }
@@ -397,5 +420,21 @@ mod tests {
         let answer = stream.finish();
         assert_eq!(answer["candidates"][0]["content"]["parts"], json!([{ "text": "AB" }]));
         assert_eq!(answer["candidates"][0]["finishReason"], "STOP");
+    }
+
+    /// A block or a call numbered past [`MOST_BLOCKS`] is no answer: it ends as an error, the
+    /// slots before it never filled (lift-up 20261025b SEC-3).
+    #[test]
+    fn an_index_past_the_most_blocks_ends_the_answer_unread() {
+        let huge = "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":4000000000,\"content_block\":{\"type\":\"text\",\"text\":\"x\"}}\n\n";
+        let called = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":18446744073709551615,\"id\":\"c\",\"function\":{\"name\":\"f\",\"arguments\":\"{}\"}}]}}]}\n\n";
+        for (provider, body) in [(Provider::Anthropic, huge), (Provider::Openai, called)] {
+            let answer = assembled(provider, body);
+            assert_eq!(answer["error"]["message"], "the provider's answer did not read", "{answer}");
+        }
+        // The last block a provider may send still reads.
+        let last = huge.replace("4000000000", &(MOST_BLOCKS - 1).to_string());
+        let answer = assembled(Provider::Anthropic, &last);
+        assert_eq!(answer["content"].as_array().map(Vec::len), Some(MOST_BLOCKS), "{answer}");
     }
 }

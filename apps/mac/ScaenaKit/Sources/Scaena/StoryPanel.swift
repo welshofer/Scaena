@@ -4,9 +4,10 @@ import SwiftUI
 /// The deck's story (PLAN G.9, as the browser's Story tab): how well it tells it, as Vzestup measures
 /// a talk. Its score, and each measure with what it says; the big idea the settled outline names;
 /// the arc, its curve, the intensity each slide declares on it, and what its words read, a click on
-/// a slide's place showing it; and what to look at, a row for each slide in the order they stand,
-/// its headline beside it: what health finds there, each fix one step to undo, and its questions,
-/// which the assistant takes into its box. Read again as the deck changes.
+/// a slide's place showing it; and what to look at, what to do first open and the rest folded under
+/// one "N more" counted by kind (`Health.triaged`, lift-up S1), a row for each slide, its headline
+/// beside it: what health finds there, each fix one step to undo, and its questions, which the
+/// assistant takes into its box. Read again as the deck changes.
 struct StoryPanel: View {
     let editor: DeckEditor
     let edits: PanelEdits
@@ -49,7 +50,7 @@ struct StoryPanel: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("story-big-idea")
                     }
-                    ArcGraph(slides: health.slides) { edits.go($0) }
+                    ArcGraph(slides: health.slides, beats: health.beats ?? []) { edits.go($0) }
                         .frame(height: 110)
                     ArcLegend()
                 }
@@ -57,8 +58,18 @@ struct StoryPanel: View {
                     if health.findings.isEmpty {
                         Text("Nothing to look at: each slide tells its part.").foregroundStyle(.secondary)
                     }
-                    ForEach(Self.bySlide(health.findings), id: \.first?.slide) { run in
+                    // What to do first, open; the rest folded under one "N more" (lift-up S1).
+                    let triaged = health.triaged()
+                    ForEach(Self.bySlide(triaged.open), id: \.first?.slide) { run in
                         row(run, health)
+                    }
+                    if !triaged.more.isEmpty {
+                        DisclosureGroup(Health.moreSaid(triaged.more)) {
+                            ForEach(Self.bySlide(triaged.more), id: \.first?.slide) { run in
+                                row(run, health)
+                            }
+                        }
+                        .accessibilityIdentifier("story-more")
                     }
                 }
             } else if let why {
@@ -121,12 +132,13 @@ struct StoryPanel: View {
         .padding(.vertical, 2)
     }
 
-    /// The findings, a run for each slide, in the order the slides stand (as health gives them).
+    /// The findings a row for each slide, in the order they come: a slide's findings together,
+    /// where its first stands.
     static func bySlide(_ findings: [Health.Finding]) -> [[Health.Finding]] {
         var runs: [[Health.Finding]] = []
         for finding in findings {
-            if runs.last?.first?.slide == finding.slide {
-                runs[runs.count - 1].append(finding)
+            if let i = runs.firstIndex(where: { $0.first?.slide == finding.slide }) {
+                runs[i].append(finding)
             } else {
                 runs.append([finding])
             }
@@ -176,12 +188,30 @@ struct StoryPanel: View {
     }
 }
 
-/// The arc as the story panel draws it: the curve of the arc the deck was written to, dashed; the
-/// intensity each slide declares on it, a line; and what its words read, a ring. A slide that bends
-/// the curve is marked orange, one that drifted from its beat red. A click shows the slide nearest.
+/// The arc as the story panel draws it: the arc's beats as bands under it, each named where it has
+/// room; the curve of the arc the deck was written to, dashed; the intensity each slide declares
+/// on it, a line; what its words read, a ring; and the tone each declares, a thinner line from
+/// grave at the foot to hopeful at the top, with what its words read, a square (lift-up ATTR-4). A
+/// slide that bends the curve is marked orange, one that drifted from its beat red. A click shows
+/// the slide nearest.
 struct ArcGraph: View {
     let slides: [Health.Read]
+    let beats: [String]
     let go: (String) -> Void
+
+    /// Each run of slides written for one beat of the arc: the beat, and its first and last slide.
+    static func runs(_ slides: [Health.Read]) -> [(part: Int, from: Int, to: Int)] {
+        var runs: [(part: Int, from: Int, to: Int)] = []
+        for (i, slide) in slides.enumerated() {
+            guard let part = slide.part else { continue }
+            if let last = runs.last, last.part == part, last.to == i - 1 {
+                runs[runs.count - 1].to = i
+            } else {
+                runs.append((part, i, i))
+            }
+        }
+        return runs
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -190,7 +220,26 @@ struct ArcGraph: View {
             let step = n > 1 ? (size.width - 12) / CGFloat(n - 1) : 0
             let x = { (i: Int) -> CGFloat in n > 1 ? 6 + CGFloat(i) * step : size.width / 2 }
             let y = { (v: Double) -> CGFloat in size.height - 6 - CGFloat(v) * (size.height - 12) }
+            let toned = { (t: Double) -> CGFloat in y((t + 1) / 2) }
             ZStack {
+                ForEach(Array(Self.runs(slides).enumerated()), id: \.offset) { _, run in
+                    let half = n > 1 ? step / 2 : size.width / 2
+                    let left = max(0, x(run.from) - half)
+                    let right = min(size.width, x(run.to) + half)
+                    let name = run.part < beats.count ? beats[run.part] : ""
+                    Rectangle()
+                        .fill(.secondary.opacity(run.part % 2 == 0 ? 0.14 : 0.06))
+                        .frame(width: right - left, height: size.height)
+                        .position(x: (left + right) / 2, y: size.height / 2)
+                    Text(name)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(width: right - left)
+                        .opacity(CGFloat(name.count) * 4.6 + 6 <= right - left ? 1 : 0)
+                        .position(x: (left + right) / 2, y: 6)
+                        .accessibilityHidden(true)
+                }
                 Path { path in
                     for (i, slide) in slides.enumerated() {
                         let point = CGPoint(x: x(i), y: y(slide.curve))
@@ -208,6 +257,16 @@ struct ArcGraph: View {
                     }
                 }
                 .stroke(Color.accentColor, lineWidth: 1.5)
+                Path { path in
+                    var started = false
+                    for (i, slide) in slides.enumerated() {
+                        guard let tone = slide.tone else { continue }
+                        let point = CGPoint(x: x(i), y: toned(tone))
+                        if started { path.addLine(to: point) } else { path.move(to: point) }
+                        started = true
+                    }
+                }
+                .stroke(.primary.opacity(0.7), lineWidth: 0.75)
                 ForEach(Array(slides.enumerated()), id: \.offset) { i, slide in
                     Circle()
                         .fill(Self.color(slide.standing))
@@ -219,6 +278,12 @@ struct ArcGraph: View {
                             .frame(width: 5, height: 5)
                             .position(x: x(i), y: y(read))
                     }
+                    if let heard = slide.toneRead {
+                        Rectangle()
+                            .stroke(.primary, lineWidth: 0.75)
+                            .frame(width: 3.5, height: 3.5)
+                            .position(x: x(i), y: toned(heard))
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -229,7 +294,7 @@ struct ArcGraph: View {
             }
         }
         .accessibilityElement()
-        .accessibilityLabel("The intensity each slide declares against the curve of its arc")
+        .accessibilityLabel("The intensity and tone each slide declares against the curve of its arc, by the arc's beats")
     }
 
     static func color(_ standing: String) -> Color {
@@ -247,7 +312,7 @@ struct ArcLegend: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Rectangle().fill(Color.accentColor).frame(width: 14, height: 1.5)
-                Text("As written")
+                Text("Intensity as written")
                 Circle().stroke(.primary, lineWidth: 1).frame(width: 5, height: 5).padding(.leading, 6)
                 Text("As its words read")
                 Rectangle()
@@ -258,7 +323,15 @@ struct ArcLegend: View {
             }
             HStack(spacing: 4) {
                 Circle().fill(ArcGraph.color("bends")).frame(width: 7, height: 7)
-                Text("Off the curve. Higher is more intense.")
+                Text("Off the curve")
+                Circle().fill(ArcGraph.color("drifted")).frame(width: 7, height: 7).padding(.leading, 6)
+                Text("Out of its beat. Higher is more intense.")
+            }
+            HStack(spacing: 4) {
+                Rectangle().fill(.primary.opacity(0.7)).frame(width: 14, height: 0.75)
+                Text("Tone as written")
+                Rectangle().stroke(.primary, lineWidth: 0.75).frame(width: 4, height: 4).padding(.leading, 6)
+                Text("As its words read. Higher is more hopeful.")
             }
         }
         .font(.caption)

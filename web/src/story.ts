@@ -7,10 +7,12 @@
 // - The arc: its curve, slide by slide, the intensity each slide declares on it, and what its
 //   words read, a slide that bends the curve or has drifted from its beat marked. A press on a
 //   slide's mark shows it.
-// - What to look at, a row for each slide in the order they stand, its headline beside it: what
-//   health finds there, in a person's words; Slide N shows it; each fix, where one is safe, is
-//   one change that ⌘Z takes back; and Ask puts its questions to the assistant, its tab shown and
-//   the question in its box, to send or change.
+// - What to look at, what to do first open (every error a slide's lint finds, then the warnings
+//   whose measure scores lowest, five findings in all) and the rest folded under one "N more",
+//   counted by kind (lift-up S1); a row for each slide, its headline beside it: what health finds
+//   there, in a person's words; Slide N shows it; each fix, where one is safe, is one change that
+//   ⌘Z takes back; and Ask puts its questions to the assistant, its tab shown and the question in
+//   its box, to send or change.
 // - It is read again whenever the deck changes while the tab is shown, the last answer winning.
 import { observing } from "./life";
 import type { Health, HealthFinding } from "./protocol";
@@ -47,15 +49,65 @@ const MEASURES: [keyof Health, string][] = [
 /** How a score reads: good from 80, fair from 60. */
 const grade = (score: number) => (score >= 80 ? "good" : score >= 60 ? "fair" : "poor");
 
-/** The findings, a run for each slide, in the order the slides stand (as health gives them). */
+/** How many findings stand open before the rest fold under one disclosure: every error, then the
+ * warnings to see to first, up to this many in all (lift-up S1). */
+export const OPEN = 5;
+
+/** The measure a kind of finding speaks to, where one does: a warning there ranks by its score. */
+const MEASURE: Partial<Record<HealthFinding["kind"], keyof Health>> = {
+  tone: "tone",
+  intensity: "intensity",
+  arc: "fidelity",
+  drift: "fidelity",
+  turn: "coherence",
+  claim: "coherence",
+  bigIdea: "coherence",
+  pacing: "pacing",
+};
+
+/** Where a warning ranks among the warnings: one no measure speaks to first, as it names one
+ * slide's own trouble; then by its measure's score, lowest first; an unscored measure's last. */
+function rank(f: HealthFinding, h: Health): number {
+  const measure = MEASURE[f.kind];
+  if (!measure) return -1;
+  return (h[measure] as { score: number | null }).score ?? 101;
+}
+
+/** Health's findings as the panel leads with them (lift-up S1): what to do first open, every error
+ * a slide's lint finds, then the warnings whose measure scores lowest, `OPEN` in all; and the rest,
+ * the infos among them, folded, in the order the slides stand. Each finding once. */
+export function triage(h: Health, open = OPEN): { open: HealthFinding[]; more: HealthFinding[] } {
+  const errors = h.findings.filter((f) => f.severity === "error");
+  const warnings = h.findings
+    .map((f, i) => [f, i] as const)
+    .filter(([f]) => f.severity === "warning")
+    .sort(([a, i], [b, j]) => rank(a, h) - rank(b, h) || i - j)
+    .map(([f]) => f);
+  const first = [...errors, ...warnings.slice(0, Math.max(0, open - errors.length))];
+  return { open: first, more: h.findings.filter((f) => !first.includes(f)) };
+}
+
+/** A kind of finding as the folded count names it. */
+const KIND: Partial<Record<HealthFinding["kind"], string>> = { bigIdea: "big idea", layout: "broken slide" };
+
+/** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
+export function moreSaid(more: HealthFinding[]): string {
+  const counts = new Map<string, number>();
+  for (const f of more) counts.set(KIND[f.kind] ?? f.kind, (counts.get(KIND[f.kind] ?? f.kind) ?? 0) + 1);
+  const kinds = [...counts].sort(([, a], [, b]) => b - a).map(([k, n]) => `${n} ${k}`);
+  return `${more.length} more: ${kinds.join(", ")}`;
+}
+
+/** The findings a row for each slide, in the order they come: a slide's findings together, where
+ * its first stands. */
 function bySlide(findings: HealthFinding[]): HealthFinding[][] {
-  const runs: HealthFinding[][] = [];
+  const runs = new Map<number, HealthFinding[]>();
   for (const f of findings) {
-    const run = runs.at(-1);
-    if (run && run[0].slide === f.slide) run.push(f);
-    else runs.push([f]);
+    const run = runs.get(f.slide);
+    if (run) run.push(f);
+    else runs.set(f.slide, [f]);
   }
-  return runs;
+  return [...runs.values()];
 }
 
 /** A finding as its slide's row says it: "Slide 4 runs hotter…" as "Runs hotter…", since the row
@@ -67,8 +119,14 @@ function sentence(f: HealthFinding): string {
 
 const SEVERITY = ["info", "warning", "error"] as const;
 
-/** The arc as the graph draws it, `width` by `height`: the curve, what each slide declares, and
- * what its words read, a mark for each slide. */
+/** How long the panel waits after an edit before it reads the deck again, in ms: the Mac's
+ * Story panel's pause (lift-up PERF-1). */
+const PAUSE = 700;
+
+/** The arc as the graph draws it, `width` by `height`: the arc's beats as bands under it, each
+ * named where it has room; the curve; the intensity each slide declares and what its words read,
+ * a mark for each slide; and the tone each declares, a thinner line from grave at the foot to
+ * hopeful at the top, with what its words read (lift-up ATTR-4). */
 export function arcGraph(h: Health, width = 300, height = 120): string {
   const n = h.slides.length;
   if (!n) return "";
@@ -80,21 +138,50 @@ export function arcGraph(h: Health, width = 300, height = 120): string {
       .map((v, i) => (v === undefined ? undefined : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
       .filter((p): p is string => p !== undefined)
       .join(" ");
+  // Each run of slides written for one beat of the arc, a band half a step past its ends.
+  const step = n > 1 ? (width - 2 * pad) / (n - 1) : width - 2 * pad;
+  const runs: { part: number; from: number; to: number }[] = [];
+  h.slides.forEach((s, i) => {
+    if (s.part === undefined) return;
+    const last = runs.at(-1);
+    if (last && last.part === s.part && last.to === i - 1) last.to = i;
+    else runs.push({ part: s.part, from: i, to: i });
+  });
+  const bands = runs
+    .map((r) => {
+      const left = Math.max(0, x(r.from) - step / 2);
+      const right = Math.min(width, x(r.to) + step / 2);
+      const name = h.beats[r.part] ?? "";
+      // A name about 4.6 units a letter at the graph's size, shown where its band holds it.
+      const named = name.length * 4.6 + 6 <= right - left;
+      return (
+        `<g class="beat" data-part="${r.part}"${r.part % 2 ? " data-odd" : ""}><title>${html(name)}</title>` +
+        `<rect x="${left.toFixed(1)}" y="0" width="${(right - left).toFixed(1)}" height="${height}"/>` +
+        (named ? `<text x="${((left + right) / 2).toFixed(1)}" y="8">${html(name)}</text>` : "") +
+        `</g>`
+      );
+    })
+    .join("");
   const curve = `<polyline class="curve" points="${line(h.slides.map((s) => s.curve))}"/>`;
+  const toned = (t: number | undefined) => (t === undefined ? undefined : (t + 1) / 2);
+  const tone = `<polyline class="tone" points="${line(h.slides.map((s) => toned(s.tone)))}"/>`;
   const declared = `<polyline class="declared" points="${line(h.slides.map((s) => s.declared))}"/>`;
   const marks = h.slides
     .map((s, i) => {
       const v = s.declared ?? s.curve;
       const read = s.read === undefined ? "" : `<circle class="read" cx="${x(i).toFixed(1)}" cy="${y(s.read).toFixed(1)}" r="2.5"/>`;
+      const toneRead = toned(s.toneRead);
+      const heard =
+        toneRead === undefined ? "" : `<rect class="tone-read" x="${(x(i) - 1.75).toFixed(1)}" y="${(y(toneRead) - 1.75).toFixed(1)}" width="3.5" height="3.5"/>`;
       return (
         `<g data-slide="${i + 1}" data-state="${html(s.state)}" data-standing="${s.standing}">` +
         `<title>Slide ${i + 1}: ${html(s.title)}</title>` +
         `<rect class="hit" x="${(x(i) - (width - 2 * pad) / Math.max(n - 1, 1) / 2).toFixed(1)}" y="0" width="${((width - 2 * pad) / Math.max(n - 1, 1)).toFixed(1)}" height="${height}"/>` +
-        `<circle class="mark" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5"/>${read}</g>`
+        `<circle class="mark" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5"/>${read}${heard}</g>`
       );
     })
     .join("");
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="The intensity each slide declares against the curve of its arc">${curve}${declared}${marks}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="The intensity and tone each slide declares against the curve of its arc, by the arc's beats">${bands}${curve}${tone}${declared}${marks}</svg>`;
 }
 
 /** The panel in `into`, over `stage`. */
@@ -109,10 +196,27 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   /** Readings asked for: the last answer wins. */
   let asking = 0;
 
-  /** Read the deck's health again, and show it, while the panel is shown. */
-  async function refresh() {
+  /** Whether the panel has read the deck once, its health or why not. */
+  let read = false;
+  /** How many times it has asked the worker. */
+  let reads = 0;
+  let pausing: ReturnType<typeof setTimeout> | undefined;
+  /** Read the deck's health again: at once as the panel shows or before it has read anything,
+   * else once edits stop for `PAUSE`, so a burst of typing asks the worker once, as the Mac's
+   * Story panel waits (lift-up PERF-1). An edit made while it is read drops that answer. */
+  function refresh(now = false) {
+    clearTimeout(pausing);
     if (into.hidden) return;
     const asked = ++asking;
+    if (now || !read) void reading(asked);
+    else pausing = setTimeout(() => void reading(asked), PAUSE);
+  }
+
+  /** Read the deck's health, and show it, while the panel is shown and nothing newer is asked. */
+  async function reading(asked: number) {
+    if (asked !== asking || into.hidden) return;
+    read = true;
+    reads++;
     try {
       const got = await stage.health(editor.source());
       if (asked !== asking) return;
@@ -148,7 +252,23 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     for (const g of arc.querySelectorAll<SVGGElement>("[data-state]")) {
       g.addEventListener("click", () => void editor.show(g.dataset.state!));
     }
-    list.replaceChildren(...bySlide(h.findings).map((run) => row(run, h)));
+    // What to do first, open; the rest folded under one "N more", open again as it was left.
+    const { open, more } = triage(h);
+    const unfolded = list.querySelector<HTMLDetailsElement>("[data-more] details")?.open ?? false;
+    list.replaceChildren(...bySlide(open).map((run) => row(run, h)));
+    if (more.length) {
+      const li = document.createElement("li");
+      li.dataset.more = "";
+      const details = document.createElement("details");
+      details.open = unfolded;
+      const summary = document.createElement("summary");
+      summary.textContent = moreSaid(more);
+      const rest = document.createElement("ol");
+      rest.append(...bySlide(more).map((run) => row(run, h)));
+      details.append(summary, rest);
+      li.append(details);
+      list.append(li);
+    }
     if (!h.findings.length) {
       const none = document.createElement("li");
       none.dataset.none = "";
@@ -230,10 +350,15 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     return li;
   }
 
-  observing(new MutationObserver(() => void refresh())).observe(into, { attributes: true, attributeFilter: ["hidden"] });
+  observing(new MutationObserver(() => refresh(true))).observe(into, { attributes: true, attributeFilter: ["hidden"] });
   return {
-    refresh,
+    /** Read the deck again once edits stop. */
+    refresh: () => refresh(),
     /** What the panel last read. */
     health: () => health,
+    /** How many times it has asked the worker to read the deck. */
+    reads: () => reads,
+    /** What it leads with and what it folds, as it last drew them. */
+    triaged: () => (health ? triage(health) : undefined),
   };
 }

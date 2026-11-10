@@ -247,6 +247,7 @@ fn e106_schema_and_resolved_types() {
             "/states/1/props/headline/fit",
             "/states/1/props/photo/src",
             "/states/1/props/plot/annotations/0",
+            "/states/1/props/snippet/code/focus/1",
             "/states/1/props/snippet/fit",
         ],
     );
@@ -256,6 +257,7 @@ fn e106_schema_and_resolved_types() {
     assert!(say("/nodes/plot/annotations/1").contains("a highlight says nothing"));
     assert!(say("/states/1/props/plot/annotations/0").contains("from one value to another"));
     assert!(say("/states/1/choreography/0").contains("enter and exit"));
+    assert!(say("/states/1/props/snippet/code/focus/1").contains("lines 3 to 2 in focus, which run backward"));
     assert!(say("/states/1/choreography/1/split").contains("`photo`, an image node, into words"));
     assert!(say("/states/1/choreography/2/enter/split").contains("only a stack, grid, frame, or group"));
     assert_eq!(say("/nodes/late/at/row"), "`late` is placed in rows 4–3, which run backward: write [3, 4]");
