@@ -23,6 +23,8 @@
 //   the deck.
 // - A star from the shape library is a polygon of ten points in the accent, named Star on the menu
 //   and in the layers.
+// - On B1's slide 4, with no pointer pressed, Body inserted stands under the headline, its edge on
+//   the headline's (editor dogfood 5).
 // - A shader preset fills the canvas under the rest, and the image dropped is inserted in its own
 //   proportions, which a drag of its corner keeps, let go beside another's edge too.
 // Exits 1 on any failure.
@@ -447,6 +449,29 @@ try {
   check(JSON.stringify(listed).includes("Insert an image…"), `the palette offers Insert an image…: ${JSON.stringify(listed).slice(0, 200)}`);
   await page.keyboard.press("Escape");
   check(await page.evaluate(() => window.scaena.last().valid), "the source still compiles and validates");
+
+  // With no pointer pressed since the slide was shown, an insert stands under the slide's words,
+  // its edge on theirs (editor dogfood 5): B1's slide 4, its kicker and headline at the margin.
+  const b1 = await context.newPage();
+  b1.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+  b1.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+  await b1.goto(url("/tests/bench/b1.scaena/deck.json"));
+  await b1.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+  await b1.selectOption("#state", "belief-2");
+  await b1.waitForFunction(() => window.scaena.canvas.boxed() === "belief-2", null, { timeout: 30000 }).catch(() => {});
+  const headline = await b1.evaluate(() => window.scaena.canvas.boxes().find((b) => b.node === "headline")?.rect);
+  const before = await b1.evaluate(() => window.scaena.source());
+  await insert(b1, "Body");
+  await b1.waitForFunction((s) => window.scaena.source() !== s && window.scaena.canvas.selected(), before, { timeout: 30000 }).catch(() => {});
+  const added = await b1.evaluate(() => {
+    const id = window.scaena.canvas.selected();
+    return window.scaena.canvas.boxes()?.find((b) => b.node === id)?.rect;
+  });
+  check(
+    !!added && !!headline && Math.abs(added[0] - headline[0]) < 1 && added[1] >= headline[1] + headline[3],
+    `with no pointer pressed, Body stands under the headline, its edge on the headline's: ${JSON.stringify(added)} by ${JSON.stringify(headline)}`,
+  );
+  await b1.close();
 } finally {
   await browser.close();
   await server.close();

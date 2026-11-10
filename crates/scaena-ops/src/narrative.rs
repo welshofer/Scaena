@@ -70,6 +70,83 @@ pub struct Made {
     /// would have drawn one of their figures other than as written (DF7-1).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relisted: Vec<usize>,
+    /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<Fell>,
+}
+
+/// A slide whose `layoutSuggestion` could not be taken as asked (agent dogfood): the slide, by
+/// its number from 1, what it asked, the layout it took, and why, so an agent can ask again.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Fell {
+    pub slide: usize,
+    pub asked: String,
+    pub layout: String,
+    pub why: String,
+}
+
+/// Whether `name` names a chart without saying which (`Chart`, `Graph`, `Data`): a slide that
+/// gives `chartData` is drawn by it, a line along years, else bars (agent dogfood).
+fn chart_named(name: &str) -> bool {
+    let lower: String = name.to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { ' ' }).collect();
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    matches!(
+        words.join(" ").as_str(),
+        "chart"
+            | "graph"
+            | "data"
+            | "chart data"
+            | "data chart"
+            | "chart graph"
+            | "data visualization"
+            | "visualization"
+    )
+}
+
+/// Whether the layout `name` asked for is what the slide took all the same, by its items: `Icons`
+/// set in `icon-columns`, `Pricing` in `pricing`, by the first four letters of a word it says.
+fn taken_as(name: &str, layout: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| w.len() >= 4).any(|w| layout.contains(&w[..4]))
+}
+
+/// `slide` as Narrato's converter makes it, a chart named without saying which drawn by its data.
+fn as_asked(slide: &Slide) -> Varied {
+    let mut varied = Varied::of(slide);
+    if let Some(chart) = &slide.chart_data
+        && chart_named(&slide.layout_suggestion)
+    {
+        let layout = if years(chart) { "line-chart" } else { "bar-chart" };
+        varied.layout = layouts::Layout { layout, spec: None };
+    }
+    varied
+}
+
+/// Each slide of `narrative` whose `layoutSuggestion` could not be taken as asked, given the
+/// layouts `chosen` (agent dogfood): a name no layout is called, or a chart with no `chartData`.
+fn fell_back(narrative: &Narrative, chosen: &[String]) -> Vec<Fell> {
+    let mut fell = Vec::new();
+    for (i, (slide, layout)) in narrative.slides.iter().zip(chosen).enumerate() {
+        let name = slide.layout_suggestion.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let identity = as_asked(slide).layout.identity();
+        let why = if chart_named(name) && slide.chart_data.is_none() {
+            "it names a chart but gives no `chartData` to draw".to_string()
+        } else if matches!(identity, "bar-chart" | "line-chart") && slide.chart_data.is_none() {
+            "it is a chart but gives no `chartData` to draw".to_string()
+        } else if !chart_named(name) && !layouts::known(name) && !taken_as(name, layout) {
+            "no layout is called that; it was set as its items read. Layouts known by name include `Title`, \
+             `Bullet List`, `Big Number`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Timeline`, \
+             `Section Header`, and `Closing`"
+                .to_string()
+        } else {
+            continue;
+        };
+        fell.push(Fell { slide: i + 1, asked: name.to_string(), layout: layout.clone(), why });
+    }
+    fell
 }
 
 /// A picture made for a slide (PLAN G.10): the path the bundle keeps it at, and what it shows,
@@ -94,6 +171,9 @@ pub struct Generated {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     pub layouts: Vec<String>,
+    /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<Fell>,
     pub fixed: Vec<Finding>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fitted: Vec<String>,
@@ -991,10 +1071,14 @@ fn speak(
         }
     };
     let mut written = Vec::new();
+    let mut dropped = Vec::new();
     let mut unanswered: Option<String> = None;
     match (noting, key) {
-        (Noting::Answered(text), _) => match scaena_narrato::notes::read(text, &spoken) {
-            Ok(notes) => written = notes,
+        (Noting::Answered(text), _) => match scaena_narrato::notes::read_all(text, &spoken) {
+            Ok(read) => {
+                written = read.notes;
+                dropped = read.dropped;
+            }
             Err(why) => unanswered = Some(why),
         },
         (Noting::Asked, Some(key)) => {
@@ -1009,7 +1093,10 @@ fn speak(
             let replies = asked_again(&requests, transport, say);
             for ((round, _), reply) in asked.into_iter().zip(replies) {
                 match generation.notes_answer(reply.status, &reply.status_text, &reply.body, &spoken[round.clone()]) {
-                    Ok(notes) => written.extend(notes),
+                    Ok(read) => {
+                        written.extend(read.notes);
+                        dropped.extend(read.dropped);
+                    }
                     Err(why) => {
                         let (first, last) = (spoken[round.start].slide, spoken[round.end - 1].slide);
                         let why = match round.len() {
@@ -1028,7 +1115,13 @@ fn speak(
     if noting == Noting::Asked {
         say(Progress::Noted { slides: taken });
     }
-    made.unnoted = unanswered;
+    // Each slide whose notes were not taken, and why, after the rounds not answered (W1's
+    // dogfood 6).
+    let why = scaena_narrato::notes::said(&dropped, &spoken);
+    made.unnoted = match (unanswered, why) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    };
     Ok(write)
 }
 
@@ -2033,6 +2126,7 @@ pub fn making(
         arc: arc.to_string(),
         fallback: None,
         layouts: made.layouts,
+        fell: made.fell,
         fixed: Vec::new(),
         fitted: Vec::new(),
         unfitted: None,
@@ -2562,7 +2656,13 @@ fn assemble(
         out["data"] = Value::Object(deck.data.clone());
     }
     Ok((
-        Made { deck: out, layouts: chosen, assets: BTreeMap::new(), relisted: std::mem::take(&mut deck.relisted) },
+        Made {
+            deck: out,
+            fell: fell_back(narrative, &chosen),
+            layouts: chosen,
+            assets: BTreeMap::new(),
+            relisted: std::mem::take(&mut deck.relisted),
+        },
         deck,
     ))
 }
@@ -2623,10 +2723,10 @@ fn rebroken(
 /// talk become a plain closing (dogfood pass 10): it is a closing already, and its seeded
 /// questions, which a closing has no place for, would be set as a list on its backdrop.
 fn varied(narrative: &Narrative) -> Vec<Varied> {
-    let mut varied: Vec<Varied> = narrative.slides.iter().map(Varied::of).collect();
+    let mut varied: Vec<Varied> = narrative.slides.iter().map(as_asked).collect();
     let changes = layouts::vary(&mut varied, true);
     for c in changes.iter() {
-        let asked = Varied::of(&narrative.slides[c.index]).layout;
+        let asked = as_asked(&narrative.slides[c.index]).layout;
         let kept = match c.reason {
             layouts::Reason::SectionCap => true,
             layouts::Reason::BookendClosing => asked.identity() == "qa",
@@ -7759,6 +7859,14 @@ mod tests {
         let invented = answered.replacen("1,900", "2,400", 1);
         let (made, _) = make(Noting::Answered(&invented));
         assert_eq!(made.noted.len(), 12, "{:?}", made.noted);
+        // And say so, by its slide, and what it keeps (W1's dogfood 6).
+        let left = (1..=13).find(|k| !made.noted.contains(k)).unwrap();
+        assert_eq!(
+            made.unnoted.as_deref(),
+            Some(
+                format!("Slide {left}'s notes with a figure the slide does not write, Narrato's drafts kept").as_str()
+            )
+        );
     }
 
     #[test]
@@ -7871,6 +7979,46 @@ mod tests {
             assert!(nodes.iter().all(|(_, said)| !said.trim().is_empty()), "{wanted}: {nodes:?}");
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A slide that names a chart without saying which, `Chart` as `deck_generate`'s own schema
+    /// names one, is drawn by its `chartData`: a line along years, else bars. Each name that
+    /// could not be taken as asked is reported with why, never dropped in silence (agent dogfood).
+    #[test]
+    fn a_chart_named_alone_is_drawn_by_its_data_and_each_fallback_is_said() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let named =
+            |suggestion: &str| -> Slide { slides.iter().find(|s| s.layout_suggestion == suggestion).unwrap().clone() };
+        let made = |slide: Slide| {
+            deck(&narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]), &theme, &Pictures::new())
+                .unwrap()
+        };
+        let mut line = named("Line Chart");
+        assert!(line.chart_data.as_ref().is_some_and(years), "the catalog's line runs along years");
+        line.layout_suggestion = "Chart".into();
+        let m = made(line.clone());
+        assert_eq!((m.layouts[1].as_str(), m.fell.len()), ("line-chart", 0), "{:?}", m.fell);
+        let mut bars = named("Bar Chart");
+        bars.layout_suggestion = "chart".into();
+        if let Some(chart) = bars.chart_data.as_mut() {
+            chart.categories = (1..=chart.categories.len()).map(|k| format!("Region {k}")).collect();
+        }
+        let m = made(bars);
+        assert!(matches!(m.layouts[1].as_str(), "bar-chart" | "two-figures"), "{:?}", m.layouts);
+        assert!(m.fell.is_empty(), "{:?}", m.fell);
+        // A chart with nothing to draw, and a name no layout is called, are said.
+        let mut empty = line.clone();
+        empty.chart_data = None;
+        let m = made(empty);
+        assert_eq!((m.fell.len(), m.fell[0].slide, m.fell[0].asked.as_str()), (1, 2, "Chart"), "{:?}", m.fell);
+        assert!(m.fell[0].why.contains("no `chartData`"), "{:?}", m.fell);
+        let mut divider = named("Bullet List");
+        divider.layout_suggestion = "Section Divider".into();
+        let m = made(divider);
+        assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
+        assert!(m.fell[0].why.contains("no layout is called that") && m.fell[0].layout == m.layouts[1], "{:?}", m.fell);
+        assert!(made(named("Bullet List")).fell.is_empty());
     }
 
     /// Each figure and its unit stays on the slide, set once, at the lengths a model writes

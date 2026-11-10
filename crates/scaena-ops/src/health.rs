@@ -59,6 +59,22 @@ pub struct Health {
     /// the audience should remember, which the editors show above the curve.
     #[serde(rename = "bigIdea", skip_serializing_if = "Option::is_none")]
     pub big_idea: Option<String>,
+    /// Where slides lint finds an error on cap the score (ADR-0032 item 1): those slides, the cap,
+    /// and the score the deck would have had, so the editors can say why it fell (W1's dogfood 5).
+    /// None where nothing caps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capped: Option<Capped>,
+}
+
+/// The score held down by the slides that do not stand.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Capped {
+    /// The slides lint finds an error on, by number from 1.
+    pub slides: Vec<usize>,
+    /// The cap they set: the clean slides' share, less ten for each.
+    pub cap: u32,
+    /// The score the deck would have had without the cap, over it.
+    pub score: u32,
 }
 
 /// One measure: 0–100, and what it says.
@@ -168,7 +184,9 @@ pub enum Kind {
     Source,
     /// Its headline names a topic ("Q3 by product") where a content slide states its point: in a
     /// deck health reads in English, three to six words with no verb and no question
-    /// (lift-up 10-25b FUNC-4).
+    /// (lift-up 10-25b FUNC-4). Information, or a warning where a line under it says the claim,
+    /// which belongs in the headline, a topic of a word or two as well ("Some history"; W1's
+    /// dogfood 3).
     Label,
 }
 
@@ -833,6 +851,66 @@ fn labels(headline: &str) -> bool {
     (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
+/// The shipped themes' layouts whose headline is a figure's, or names the figures under it.
+const FIGURES: [&str; 11] = [
+    "stat",
+    "big-number",
+    "two-numbers",
+    "numbers",
+    "number-grid",
+    "four-numbers",
+    "scorecard",
+    "number-photo",
+    "kpi-dashboard",
+    "figure-numbers",
+    "status-report",
+];
+
+/// The shipped themes' layouts whose headline names what they hold, a term and its meaning, the
+/// voices quoted, the questions asked: a topic by design.
+const NAMED: [&str; 6] = ["definition", "glossary", "testimonials", "faq", "logo-wall", "buyer-persona"];
+
+/// Whether `word`, small and trimmed of its marks, reads as a verb, as [`labels`] reads one: one
+/// of [`VERBS`], a contraction of one ("isn't", "it's"), or a past form of five letters or more
+/// in "-ed".
+fn verb(word: &str) -> bool {
+    let w = word.replace('\u{2019}', "'");
+    let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase();
+    let contracted = ["n't", "'re", "'ve", "'ll", "'m", "'d", "'s"].iter().any(|c| w.ends_with(c));
+    contracted || (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w)
+}
+
+/// The line under a slide's headline that says its claim, where the headline names a topic
+/// (W1's dogfood 3): a headline [`labels`] reads as a topic, or a shorter one of a word or two
+/// with no verb, no figure, and no question ("Some history"); and under it a sentence of five
+/// words or more with a verb, not a question, a voice quoted, or a card's parts health joins with
+/// a dash. A figure's slide, and one whose headline names what it holds by design, has none.
+fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth) -> Option<String> {
+    let layout = slide.states.iter().find_map(|&k| deck.states[k].layout.as_deref()).unwrap_or_default();
+    if FIGURES.contains(&layout) || NAMED.contains(&layout) || layout.contains("quote") || layout.starts_with("team") {
+        return None;
+    }
+    let title = s.title.trim();
+    let words: Vec<&str> = title.split_whitespace().collect();
+    let short = (1..=2).contains(&words.len())
+        && !title.contains('?')
+        && !title.chars().any(|c| c.is_ascii_digit())
+        && !words.iter().any(|w| verb(w));
+    if !short && !labels(title) {
+        return None;
+    }
+    let claims = |line: &str| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let quoted = line.starts_with(['"', '\u{201c}', '\u{2018}', '\'', '\u{ab}', '\u{201e}']);
+        !line.contains(" \u{2014} ")
+            && words.len() >= 5
+            && !line.contains('?')
+            && !quoted
+            && words.iter().any(|w| verb(w))
+    };
+    (s.body.lines()).map(|l| l.trim().trim_start_matches('\u{2022}').trim()).find(|l| claims(l)).map(str::to_string)
+}
+
 /// The layouts a talk closes in (ADR-0032 item 6).
 const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
 
@@ -1053,11 +1131,33 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     };
     // A turn the next slide's notes open by carrying the slide before it across is bridged: the
     // speaker says what the slides' words do not (narrative dogfood H4).
-    let bridged: Vec<&String> = (m.coherence.weak_transitions.iter())
+    // Where the talk turns, each pair of neighbouring slides by its own words alone (W1's dogfood
+    // 5 and 6): Vzestup reads a turn against the deck's mean overlap and its spread, so an edit
+    // to the close moved them and a turn appeared at slide 3. Read by words, a pair turns where
+    // its slides share no word the overlap counts; the cover's into the first slide is the talk
+    // opening, no turn. A turn at a beat's edge is soft. Embeddings, where every slide has one,
+    // read as Vzestup reads them. Coherence's figure is Vzestup's either way.
+    let turns: Vec<(String, bool)> = match m.coherence.method {
+        health::coherence::Method::Embedding => (m.coherence.breaks.iter())
+            .map(|b| (b.slide_id.clone(), b.severity == health::coherence::Severity::Soft))
+            .collect(),
+        health::coherence::Method::Keyword => {
+            let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
+            (shown.windows(2).zip(&m.coherence.pair_similarities))
+                .filter(|(pair, sim)| pair[0] > 0 && **sim == 0.0)
+                .map(|(pair, _)| {
+                    let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|n| n.beat_index);
+                    let edge = matches!((beat(pair[0]), beat(pair[1])), (Some(a), Some(b)) if a != b);
+                    (read[pair[1]].id.clone(), edge)
+                })
+                .collect()
+        }
+    };
+    let bridged: Vec<&String> = (turns.iter().map(|(id, _)| id))
         .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
         .collect();
-    let hard = m.coherence.breaks.iter().filter(|b| b.severity == health::coherence::Severity::Hard).count();
-    let soft = m.coherence.breaks.len() - hard;
+    let soft = turns.iter().filter(|(_, edge)| *edge).count();
+    let hard = turns.len() - soft;
     // By words alone, neighbouring slides share few even where one follows from the other: no
     // number, only where the talk turns.
     let coherence = Measure {
@@ -1067,10 +1167,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         },
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
+            // Each count said only where it has one, and a turn at a beat's edge as the finding
+            // says it, a new part beginning (the coordinator's read of B1 and fleet).
             _ => format!(
-                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
-                counted(hard, "slide"),
-                soft,
+                "Read by their words: {}{}.",
+                match (hard, soft) {
+                    (0, soft) => format!("{} where a new part of the talk begins", counted(soft, "slide")),
+                    (hard, 0) => format!("{} where the talk turns sharply", counted(hard, "slide")),
+                    (hard, soft) => format!(
+                        "{} where the talk turns sharply, {soft} where a new part of the talk begins",
+                        counted(hard, "slide")
+                    ),
+                },
                 match bridged.len() {
                     0 => String::new(),
                     n => format!("; the notes bridge {n} of them"),
@@ -1237,6 +1345,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("Give slide {k} a headline that states its point in a sentence."),
                 None,
             );
+        } else if let Some(line) = (english && i > 0 && !framing(i)).then(|| buried(deck, &slides[i], s)).flatten() {
+            // A headline that names a topic over the line that says the claim (W1's dogfood 3):
+            // a made slide's beat claim is its headline, so "Some history" passes as one, its
+            // claim in a bullet. The line is the headline to say, never written for the writer.
+            let title = s.title.trim();
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Label,
+                format!(
+                    "Slide {k}'s headline names its topic, \u{201C}{title}\u{201D}; its claim is under it: \u{201C}{line}\u{201D}."
+                ),
+                format!(
+                    "Make slide {k}'s claim its headline: say \u{201C}{line}\u{201D}, or what the slide proves, in place of \u{201C}{title}\u{201D}."
+                ),
+                None,
+            );
         } else if english && i > 0 && !framing(i) && labels(&s.title) {
             // A content slide whose headline names its topic: offered its point, never rewritten.
             find(
@@ -1269,20 +1394,43 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
             .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
     };
-    for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
+    // The beat a slide opens, by the one name the settled outline gives it, else its own.
+    let beat_named = |i: usize| -> Option<String> {
+        let meta = read[i].narrative_meta.as_ref()?;
+        let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
+            .and_then(Value::as_str);
+        settled.or(meta.beat_name.as_deref()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string)
+    };
+    for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         if i > 0 && agenda(i - 1) {
             continue;
         }
         let (k, before) = (i + 1, i);
-        find(
-            id,
-            Severity::Warning,
-            Kind::Turn,
-            format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-            format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
-            None,
-        );
+        if *edge {
+            // A turn at a beat's edge opens a new part of the talk, no loss (W1's second read of
+            // fleet): information, so a sharp turn inside a beat comes first, with the same ask.
+            let part = beat_named(i).unwrap_or_else(|| "a new part of the talk".to_string());
+            find(
+                id,
+                Severity::Info,
+                Kind::Turn,
+                format!(
+                    "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
+                ),
+                format!("Open slide {k}'s notes with the line that carries the room from slide {before} into {part}."),
+                None,
+            );
+        } else {
+            find(
+                id,
+                Severity::Warning,
+                Kind::Turn,
+                format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
+                format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
+                None,
+            );
+        }
     }
     // A bend judges the intensity a slide was planned at against the arc's curve where it stands,
     // so its plan, or its place, is what moves it, never its words, which the gap below judges
@@ -1406,7 +1554,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, None);
     }
-    for g in heard_intensity {
+    // A calm close is no bend (ADR-0032 item 6), and neither are its words a gap (W1's dogfood
+    // 6): "Thank you / Questions?" is three words, its "you" and its question mark weighing a
+    // third each, so it reads at Peak. The deck's last run of closing slides is not asked to
+    // move its words to its plan; intensity's figure is Vzestup's.
+    for g in heard_intensity.iter().filter(|g| !closing.contains(&g.slide_id)) {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
@@ -1538,7 +1690,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
             continue;
         }
-        let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        // The beat is named once, in what the finding says, as a part of the talk, so a beat
+        // named as a heading ("Call to Action") never reads as a title over its claim (W1's
+        // dogfood 6); the ask says "this part".
+        let part = if name.is_empty() {
+            format!("part {} of the talk", k + 1)
+        } else {
+            format!("the {name} part of the talk")
+        };
         let claim = unstopped(claim);
         let slides = spanned(&of);
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
@@ -1548,9 +1707,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             &read[of[0]].id,
             Severity::Warning,
             Kind::Claim,
-            format!("{said} {does} nothing of the claim settled for {part}: \u{201c}{claim}\u{201d}"),
+            format!("{said} {does} nothing of the claim settled for {part}, \u{201c}{claim}\u{201d}."),
             format!(
-                "Check the claim: the outline settled that the {part} part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
+                "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
             ),
             None,
         );
@@ -1973,10 +2132,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // A slide that does not stand caps the score at the clean slides' share, less ten for each
     // that does not (ADR-0032 item 1, Jay's call, 2026-10-25).
     let broken = findings.iter().filter(|f| f.kind == Kind::Layout).count();
-    let score = match broken {
-        0 => score,
-        b => score.min(((100.0 * (n - b) as f64 / n as f64).round() as u32).saturating_sub(10 * b as u32)),
-    };
+    let cap = (broken > 0)
+        .then(|| ((100.0 * (n - broken) as f64 / n as f64).round() as u32).saturating_sub(10 * broken as u32));
+    // The cap said where it holds the score down, not where the score sits under it already.
+    let capped = cap.filter(|&c| c < score).map(|cap| Capped {
+        slides: findings.iter().filter(|f| f.kind == Kind::Layout).map(|f| f.slide).collect(),
+        cap,
+        score,
+    });
+    let score = cap.map_or(score, |c| score.min(c));
 
     Ok(Health {
         score,
@@ -1991,6 +2155,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         slides: slides_read,
         findings,
         big_idea,
+        capped,
     })
 }
 
@@ -2531,7 +2696,7 @@ mod tests {
         assert!(!found(&h), "{:#?}", h.findings);
         assert_eq!(opening("Rose 3.5% since then. Later."), "Rose 3.5% since then.");
         assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
-        let h = noted(&mut deck, format!("We turn to what comes next. Later, {carried}."));
+        let h = noted(&mut deck, format!("Plainly onward. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
         if let Some(shared) = shared {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
@@ -3212,6 +3377,108 @@ mod tests {
         assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
     }
 
+    /// A turn is its own pair's (W1's dogfood 5 and 6): read by words, a pair of slides turns where
+    /// they share no word the overlap counts, so rewriting the close finds no new turn at the
+    /// start, as reading against the deck's mean and spread did. The cover's step into the first
+    /// slide is no turn, and coherence's figure is Vzestup's.
+    #[test]
+    fn a_turn_is_its_own_pairs() {
+        let turned = |h: &Health| -> Vec<usize> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Turn).map(|f| f.slide).collect()
+        };
+        // The pitch's close rewritten to say what the slide before it says: read against the
+        // deck's mean and spread, its turns at slides 5, 6, and 12 went, and one came at 14.
+        let before = of(&dogfood("pitch", "", |_| {}));
+        let closed = |slides: &mut Vec<answer::Slide>| {
+            let n = slides.len();
+            let prev = slides[n - 2].clone();
+            let last = &mut slides[n - 1];
+            last.slide_title = prev.slide_title.clone();
+            last.key_bullets = prev.key_bullets.clone();
+        };
+        let after = of(&dogfood("pitch", "", closed));
+        let far = |t: Vec<usize>| t.into_iter().filter(|&k| k < 14).collect::<Vec<_>>();
+        assert_eq!(far(turned(&before)), [5, 6, 12]);
+        assert_eq!(far(turned(&after)), far(turned(&before)), "an edit to the close turns nothing before it");
+        assert_eq!(after.coherence.score, before.coherence.score, "coherence's figure is Vzestup's");
+        // Every pair that shares no word turns, past the cover, and no other does.
+        let deck: Deck = serde_json::from_value(dogfood("fleet", "", |_| {})).unwrap();
+        let read = readings(&deck, &slides(&deck)).unwrap().0;
+        let sims = scaena_narrato::health::metrics(&read, None).coherence.pair_similarities;
+        let bare: Vec<usize> = (1..sims.len()).filter(|&j| sims[j] == 0.0).map(|j| j + 2).collect();
+        let found = turned(&of(&dogfood("fleet", "", |_| {})));
+        assert!(!bare.is_empty() && bare.iter().all(|k| found.contains(k)), "{bare:?} {found:?}");
+        assert!(!found.contains(&2), "the cover's step into the talk is no turn");
+        // A turn at a beat's edge opens a new part, information named by its beat (W1's second
+        // read of fleet); the sharp turn inside a beat is the warning, so it comes first.
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        let by = |severity: Severity| -> Vec<usize> {
+            (fleet.findings.iter())
+                .filter(|f| f.kind == Kind::Turn && f.severity == severity)
+                .map(|f| f.slide)
+                .collect()
+        };
+        assert_eq!(by(Severity::Warning), [9]);
+        assert_eq!(by(Severity::Info), [3, 4, 5, 8, 10]);
+        let opened = fleet.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == 4).unwrap();
+        assert_eq!(
+            opened.says,
+            "Slide 4 opens Existing Approaches with nothing from slide 3: say the line that carries the room across."
+        );
+        assert_eq!(
+            opened.ask,
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
+        );
+        assert_eq!(fleet.coherence.score, None, "no figure moves");
+        assert_eq!(
+            fleet.coherence.says,
+            "Read by their words: 1 slide where the talk turns sharply, 5 where a new part of the talk begins."
+        );
+        // A count of none is not said.
+        let keynote = of(&dogfood("keynote", "", |_| {}));
+        assert!(!keynote.coherence.says.contains("turns sharply"), "{}", keynote.coherence.says);
+    }
+
+    /// A headline that names a topic over the line that says its claim is a warning of its own
+    /// kind, `label` (W1's dogfood 3): the keynote's third slide weakened to "Some history", its
+    /// claim in a bullet, is asked for that line as its headline, with no patch; the keynote as
+    /// written, and a topic with no claim under it, are not.
+    #[test]
+    fn a_topic_headline_over_its_claim_is_found() {
+        let claim = "Port Alder had lost power four times in ten years before anyone acted";
+        let buried = |slides: &mut Vec<answer::Slide>| {
+            let third = &mut slides[2];
+            third.slide_title = "Some history".into();
+            third.layout_suggestion = "Bullets".into();
+            third.key_bullets = vec![claim.into(), "Each time, the town waited on the utility".into()];
+        };
+        let topics = |h: &Health| -> Vec<Finding> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Label && f.severity == Severity::Warning).cloned().collect()
+        };
+        let weak = of(&dogfood("keynote", "", buried));
+        let found = topics(&weak);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].slide, 3);
+        assert!(
+            found[0]
+                .says
+                .starts_with("Slide 3's headline names its topic, \u{201C}Some history\u{201D}; its claim is under it"),
+            "{}",
+            found[0].says
+        );
+        assert!(found[0].ask.contains(claim), "{}", found[0].ask);
+        assert!(found[0].fix.is_none(), "the slide's words are the writer's to change (ADR-0032)");
+        assert!(topics(&of(&dogfood("keynote", "", |_| {}))).is_empty(), "each slide is headed by its claim");
+        // A topic with no line that says a claim under it is asked nothing of the kind.
+        let bare = |slides: &mut Vec<answer::Slide>| {
+            buried(slides);
+            slides[2].key_bullets = vec!["Four outages".into(), "Ten years".into()];
+        };
+        assert!(topics(&of(&dogfood("keynote", "", bare))).is_empty());
+        // One finding a slide: the label the plain topic headline gets is the warning here.
+        assert_eq!(weak.findings.iter().filter(|f| f.kind == Kind::Label && f.slide == 3).count(), 1);
+    }
+
     /// Where no slide balance counts lists a point, balance says which slides it counted rather
     /// than "0 points each" (W1's dogfood 5): the grant renewal's content slides are big numbers
     /// and statements, which make one point by design, and its cover, chart, and close list none.
@@ -3229,6 +3496,26 @@ mod tests {
         // A deck whose counted slides list points says how many, as before.
         let fleet = of(&dogfood("fleet", "", |_| {}));
         assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
+    }
+
+    /// The close's words are not asked to carry its plan's intensity (W1's dogfood 6): the
+    /// keynote's close weakened to "Thank you / Questions?" and planned calm reads far hotter by
+    /// its few words, and is asked nothing of it; intensity's figure is as before.
+    #[test]
+    fn a_bare_thanks_is_not_asked_to_calm() {
+        let thanked = |slides: &mut Vec<answer::Slide>| {
+            let last = slides.last_mut().unwrap();
+            last.slide_title = "Thank you".into();
+            last.key_bullets = vec!["Questions?".into()];
+            last.speaker_notes = "Thank you. Questions?".into();
+            // Planned calm, as a thanks is.
+            last.expected_intensity = Some(0.4);
+        };
+        let h = of(&dogfood("keynote", "", thanked));
+        let n = h.slides.len();
+        let read = h.slides[n - 1].read.expect("the lexicon reads the thanks");
+        assert!(read - 0.4 > INTENSITY_GAP_THRESHOLD, "the thanks reads {read}, far from its plan");
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Intensity && f.slide == n), "{:#?}", h.findings);
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
@@ -3320,12 +3607,16 @@ mod tests {
             missed.findings
         );
         let claim = missed.findings.iter().find(|f| f.kind == Kind::Claim).unwrap();
+        // The beat named once, as a part of the talk, never as a heading over its claim.
         assert!(
-            claim.says.contains(&second) && claim.says.ends_with("\u{201c}Penguins juggle marmalade quietly\u{201d}"),
+            claim.says.ends_with(&format!(
+                "settled for the {second} part of the talk, \u{201c}Penguins juggle marmalade quietly\u{201d}."
+            )),
             "{}",
             claim.says
         );
-        assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        assert!(claim.ask.starts_with("Check the claim: the outline settled that this part"), "{}", claim.ask);
+        assert!(!claim.ask.contains(&second), "{}", claim.ask);
         // A claim settled with its stop is quoted without it, so no sentence ends twice.
         assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
@@ -3684,10 +3975,17 @@ mod tests {
         let one = [Linted::new("E100", Severity::Error, "text overflows").state(id(6))];
         // 24 of 25 stand: a cap of 86, over the score's 84.
         assert_eq!(health_in(&d, &one).unwrap().score, 84);
+        // A cap over the score holds nothing down, and says nothing.
+        assert_eq!(health_in(&d, &one).unwrap().capped, None);
         let two = [one[0].clone(), Linted::new("E100", Severity::Error, "text overflows").state(id(9))];
-        assert_eq!(health_in(&d, &two).unwrap().score, 72);
+        let held = health_in(&d, &two).unwrap();
+        assert_eq!(held.score, 72);
+        // Held down, it says by which slides, to what, and from what (W1's dogfood 5).
+        let broken: Vec<usize> = held.findings.iter().filter(|f| f.kind == Kind::Layout).map(|f| f.slide).collect();
+        assert_eq!(held.capped, Some(Capped { slides: broken, cap: 72, score: 84 }));
         let warned = [Linted::new("W210", Severity::Warning, "too many words").state(id(6))];
         assert_eq!(health_in(&d, &warned).unwrap().score, 84);
+        assert_eq!(health_in(&d, &warned).unwrap().capped, None);
         let every: Vec<Linted> = (0..deck["states"].as_array().unwrap().len())
             .map(|k| Linted::new("E100", Severity::Error, "text overflows").state(id(k)))
             .collect();

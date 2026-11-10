@@ -19,7 +19,7 @@
 //   where the text lives, one step to undo.
 import { type Key, MOD, SHIFT } from "./commands";
 import { listen } from "./life";
-import type { CaretLine, Carets, CodeKey, Edited, LinkTarget, ListMark, Map6, Rect } from "./protocol";
+import type { CaretLine, Carets, CodeKey, Edited, LinkTarget, ListMark, Map6, Rect, Unquoted } from "./protocol";
 import { askWords } from "./notes";
 import type { Stage } from "./stage";
 import { quote, reaching, sentence } from "./words";
@@ -48,6 +48,9 @@ export interface Around {
   /** Take `source` as typed: one step to undo with what was typed just before it (`joins`), or
    * the first of a burst of typing. */
   typed(source: string, edited: Edited, joins: boolean): void;
+  /** Say that the figures `gone`, typed over in `state`, quote their data no more (dogfood-5
+   * item 13). */
+  unquoted?(state: string, gone: Unquoted[]): void;
   undo(): void;
   redo(): void;
   say(text: string): void;
@@ -690,6 +693,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const typed = await stage.type(source, [op], { index: now.index, state: now.state, node: now.node }, around.format());
       ours = typed.source;
       around.typed(typed.source, typed.edited, joins);
+      if (typed.unquoted.length) around.unquoted?.(now.state, typed.unquoted);
       if (finishing?.now === now && typed.carets) [finishing.text, finishing.read] = [typed.carets.text, typed.source];
       if (open !== now) return;
       if (!typed.carets) return leave();
@@ -765,6 +769,7 @@ export function typing(stage: Stage, overlay: HTMLElement, around: Around) {
       const joins = ours !== undefined && ours === source;
       ours = typed.source;
       around.typed(typed.source, typed.edited, joins);
+      if (typed.unquoted.length) around.unquoted?.(now.state, typed.unquoted);
     } catch (e) {
       around.say(`Not typed: ${said(e)}`);
     } finally {
