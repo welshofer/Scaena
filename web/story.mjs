@@ -94,6 +94,22 @@ try {
   await page.waitForFunction(() => document.querySelector("#question").value !== "My own question first.", null, { timeout: 10000 }).catch(() => {});
   const drafted = await page.inputValue("#question");
   check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
+  // With no key kept, Ask says what to do: the key's field takes the focus and the status says
+  // so, the question waiting; pressing Ask then says the same, keeping it (editor dogfood 5).
+  check(await page.evaluate(() => !document.querySelector("#key").value), "no key is kept here");
+  check(await page.evaluate(() => document.activeElement?.id === "key"), `the key's field takes the focus: ${await page.evaluate(() => document.activeElement?.id)}`);
+  check(
+    await page.evaluate(() => document.querySelector("#status").textContent.startsWith("Paste a key to ask this")),
+    `the status says what to do: ${await page.evaluate(() => document.querySelector("#status").textContent)}`,
+  );
+  await page.click("#ask");
+  const failed = await page
+    .waitForFunction(() => document.querySelector("#transcript li.failed:last-child")?.textContent, null, { timeout: 10000 })
+    .then((h) => h.jsonValue())
+    .catch(() => "");
+  check(/^Paste a key to ask this: paste \w+'s above\.$/.test(failed), `pressing Ask with no key says the same: ${failed}`);
+  check((await page.inputValue("#question")) === drafted, "and keeps the question");
+  check(await page.evaluate(() => document.activeElement?.id === "key"), "the key's field in focus");
   await page.fill("#question", "");
   await tab(page, "story");
 

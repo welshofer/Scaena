@@ -258,6 +258,13 @@ pub fn spec(name: &str) -> Option<&'static str> {
     ids.chain(names).chain(narrato).chain(aliases).find(|(t, _)| token(t) == wanted).map(|(_, id)| id)
 }
 
+/// Whether `name` is a layout Narrato knows by that name: one its table maps, or a rich layout it
+/// names. Any other comes to `body`, which a client reports as a fallback (agent dogfood).
+pub fn known(name: &str) -> bool {
+    let key = crate::js::trim(name).to_lowercase();
+    BY_SUGGESTION.iter().any(|(k, _)| *k == key) || spec(name).is_some()
+}
+
 /// What a name maps to (`narratoSlidesToVzestup`).
 pub fn of(name: &str) -> Layout {
     Layout { layout: structural(name), spec: spec(name) }
