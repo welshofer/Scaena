@@ -17,14 +17,32 @@ struct FindingsPanel: View {
     /// CLI, the MCP server, and the browser still say it.
     static let freely: Set<String> = ["W301", "W302"]
 
+    /// The finding the list's selection is on: the arrows move it, and each finding it comes to
+    /// shows its slide, as a click does (lift-up 20261110 USE-5).
+    @State private var picked: Int?
+
     var body: some View {
         let found = ordered(editor.findings.filter { !Self.freely.contains($0.code) })
-        List {
+        List(selection: $picked) {
             ForEach(found.indices, id: \.self) { i in
                 FindingRow(finding: found[i], about: about(found[i]), explain: explain, fix: fix)
                     .contentShape(Rectangle())
-                    .onTapGesture { go(found[i]) }
+                    .onTapGesture {
+                        picked = i
+                        go(found[i])
+                    }
+                    .tag(i)
+                    // VoiceOver's way to the slide a finding is about, as a click's.
+                    .accessibilityAction(named: "Show") { go(found[i]) }
             }
+        }
+        .onChange(of: picked) { _, now in
+            if let now, found.indices.contains(now) { go(found[now]) }
+        }
+        .onKeyPress(.return) {
+            guard let picked, found.indices.contains(picked) else { return .ignored }
+            go(found[picked])
+            return .handled
         }
         .listStyle(.inset)
         .overlay {
@@ -68,6 +86,8 @@ private struct FindingRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: symbol).foregroundStyle(tint)
+                // Its kind in words, never by its colour alone (WCAG 1.4.1).
+                .accessibilityLabel(Self.kind(finding.severity))
             VStack(alignment: .leading, spacing: 2) {
                 Text(finding.message).lineLimit(3)
                 Text(about).font(.caption).foregroundStyle(.secondary)
@@ -89,6 +109,15 @@ private struct FindingRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// A finding's kind as a person says it.
+    static func kind(_ severity: Severity) -> String {
+        switch severity {
+        case .error: "Error"
+        case .warning: "Warning"
+        case .info: "Suggestion"
+        }
     }
 
     private var symbol: String {
