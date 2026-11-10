@@ -335,11 +335,15 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding = undefined;
         return;
       case "outlineAgain":
-        deciding?.({ arc: data.arc });
+        deciding?.({ arc: data.arc, kept: data.kept });
         deciding = undefined;
         return;
       case "outlinePassed":
         deciding?.({ without: true });
+        deciding = undefined;
+        return;
+      case "claimAgain":
+        deciding?.({ again: { beat: data.beat, outline: data.outline } });
         deciding = undefined;
         return;
       // A deck made that would not open, as a `.scaena` to download (lift-up 20261110 REL-1).
@@ -493,8 +497,18 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         layOut(data.format);
         player.setMoving([], 0, 0);
         player.preview(undefined);
+        player.previewTheme(undefined);
         const start = performance.now();
         await paint(data.state, Infinity);
+        return answerShown(data.id, start);
+      }
+      case "previewTheme": {
+        latest++;
+        layOut(data.format);
+        player.previewTheme(data.ops?.length ? JSON.stringify(data.ops) : undefined);
+        const start = performance.now();
+        // The formats beside show the theme as it is: nothing is made.
+        await paint(data.state, Infinity, "keep");
         return answerShown(data.id, start);
       }
       case "make":
@@ -963,6 +977,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return asking?.abort();
       case "forget":
         return (await import("@scaena/assistant")).forget();
+      case "conversation":
+        return post({ type: "conversation", id: data.id, messages: (await import("@scaena/assistant")).kept() });
+      case "resume": {
+        const { resume } = await import("@scaena/assistant");
+        return resume(data.messages as Parameters<typeof resume>[0]);
+      }
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
@@ -1366,8 +1386,9 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   const theme = await shipped(job.theme);
   // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
   // of it: `settled` or `outlineAgain`, which the page sends.
-  const settle = (outlined: Outlined) => {
-    post({ type: "storyOutlined", ...outlined });
+  // Without `outlined`, the outline shown stays: a beat asked again waits on the next decision.
+  const settle = (outlined?: Outlined) => {
+    if (outlined) post({ type: "storyOutlined", ...outlined });
     return new Promise<Decision>((resolve) => {
       deciding = resolve;
     });

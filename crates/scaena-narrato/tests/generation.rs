@@ -149,6 +149,79 @@ fn an_outline_is_asked_settled_and_written_to() {
     assert_eq!(plain.step(), Step::Slides);
 }
 
+/// Outline again keeps the claims the person typed (lift-up 20261110 FUNC-2): named to the model
+/// as theirs, and held word for word in the beats of their names whatever the model wrote; and one
+/// beat's claim is asked again alone, every other claim fixed, the step left where it was.
+#[test]
+fn an_outline_asked_again_keeps_the_claims_typed_and_one_beat_is_asked_alone() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+    let names: Vec<String> = g.plan().unwrap().into_iter().map(|b| b.name).collect();
+    let typed = "Every container already carries a carbon price, unpaid.";
+    let beat =
+        |name: &str, claim: &str| scaena_narrato::outline::Beat { name: name.into(), claim: claim.into(), slides: 0 };
+    g.keep_claims(vec![beat(&names[1], typed), beat("A beat of mine", "Ports are ready."), beat(&names[2], " ")]);
+    g.outline_first().unwrap();
+    let ask = g.request("sk-test", &[]).unwrap();
+    let prompt = ask.body.unwrap()["messages"][0]["content"][0]["text"].as_str().unwrap().to_string();
+    assert!(prompt.contains("The user has written these claims themselves. Keep each word for word"), "{prompt}");
+    assert!(prompt.contains(&format!("  \"{}\": {typed}", names[1])), "{prompt}");
+    assert!(prompt.contains("  \"A beat of mine\": Ports are ready."), "{prompt}");
+    assert!(!prompt.contains(&format!("  \"{}\":", names[2])), "a blank claim is no claim kept");
+    let written = serde_json::json!({ "bigIdea": "Cargo can pay for its carbon.",
+        "beats": (1..=6).map(|n| serde_json::json!({ "beat": n, "claim": format!("Claim {n}.") })).collect::<Vec<_>>() });
+    let anthropic =
+        serde_json::json!({ "content": [{ "type": "text", "text": written.to_string() }], "stop_reason": "end_turn" });
+    g.answer(200, "OK", &anthropic.to_string(), None).unwrap();
+    let outline = g.outline().unwrap().clone();
+    assert_eq!(outline.beats[1].claim, typed, "the person's claim stands, not the model's");
+    assert_eq!(outline.beats[0].claim, "Claim 1.");
+
+    // One beat asked again: its prompt holds the others fixed, and its answer is that beat's claim.
+    let step = g.step();
+    let ask = g.claim_request("sk-test", &outline, 2).unwrap();
+    let body = ask.body.unwrap();
+    assert_eq!(body["system"][0]["text"].as_str().unwrap(), scaena_narrato::outline::CLAIM_SYSTEM);
+    let prompt = body["messages"][0]["content"][0]["text"].as_str().unwrap();
+    assert!(prompt.contains(&format!("Beat 3 \"{}\": (to write again)", names[2])), "{prompt}");
+    assert!(prompt.contains(&format!("Beat 2 \"{}\": {typed}", names[1])), "{prompt}");
+    assert!(prompt.contains("a different take from \"Claim 3.\""), "{prompt}");
+    let claimed = serde_json::json!({ "content": [{ "type": "text", "text": "{\"claim\": \" Carriers cannot cut it alone. \"}" }], "stop_reason": "end_turn" });
+    assert_eq!(g.claim_answer(200, "OK", &claimed.to_string()).unwrap(), "Carriers cannot cut it alone.");
+    assert_eq!(g.step(), step, "asking one beat again leaves the step where it was");
+    let backwards = serde_json::json!({ "content": [{ "type": "text", "text": "} no {" }], "stop_reason": "end_turn" });
+    assert!(
+        g.claim_answer(200, "OK", &backwards.to_string()).is_err(),
+        "an answer that does not read is an error, not a panic"
+    );
+    assert!(g.claim_request("sk-test", &outline, 9).is_none(), "no beat past the outline's");
+}
+
+/// Once an outline is settled, the slides are asked for as many as its beats take in all, not the
+/// length's count (lift-up 20261110 USE-3): five settled under "5-10 slides" asks for five, and
+/// what the page holds the sum to is the length's range.
+#[test]
+fn the_slides_are_asked_for_as_many_as_the_outline_settled() {
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+    assert_eq!((g.target(), g.slides_asked(), g.slides_range()), (8, 8, (5, Some(10))));
+    let beats = g.plan().unwrap().into_iter().take(5);
+    let settled = scaena_narrato::Outline {
+        big_idea: "Cargo can pay for its carbon.".into(),
+        beats: beats
+            .map(|b| scaena_narrato::outline::Beat { claim: format!("{} matters.", b.name), slides: 1, ..b })
+            .collect(),
+    };
+    g.settle(&settled).unwrap();
+    assert_eq!(g.slides_asked(), 5, "the outline's five, not the length's eight");
+    let prompt = g.request("sk-test", &[]).unwrap().body.unwrap()["messages"][0]["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prompt.contains("You MUST generate AT LEAST 5 slides"), "{}", &prompt[..400.min(prompt.len())]);
+    assert!(!prompt.contains("AT LEAST 8 slides"));
+}
+
 /// An outline that comes back but does not read is asked once more, at once; the second stands
 /// as `unread`, the arc paid for kept, and the person writes the slides without one (lift-up
 /// REL-3).

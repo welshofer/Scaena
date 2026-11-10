@@ -347,7 +347,7 @@ impl Generating {
                     // The slides written so far, where the rest is asked for (lift-up 10-25 REL-2).
                     Some(r) => json!({
                         "step": step,
-                        "slides": w.generation.target(),
+                        "slides": w.generation.slides_asked(),
                         "partial": w.generation.partial(),
                         "request": request(r),
                     }),
@@ -857,7 +857,7 @@ fn where_it_stands(g: &Generation) -> Value {
     let step: Step = g.step();
     json!({
         "step": step,
-        "slides": g.target(),
+        "slides": g.slides_asked(),
         "arc": g.arc().map(|a| a.selection.clone()),
         "reasoning": g.arc().map(|a| a.reasoning.clone()),
         "fallback": g.fallback(),

@@ -411,17 +411,39 @@ fn listed(words: &str, items: &[Option<ListItem>], say: &dyn Fn(Range<usize>) ->
 }
 
 /// What heads a state: the words of its first text that makes its claim or is set in a heading's
-/// role (`display`, `headline`, `title`), on one line; none where no text heads it. What an
-/// exported SVG is titled by, and a slide list's row is read by (lift-up 10-24b USE-4).
+/// role (`display`, `headline`, `title`), on one line; none where no text heads it. A big number's
+/// or a figure's slide, one text alone set in a figure's role (`numeral`, `hero`, `figure`), reads
+/// that figure as written before its meaning ("$1.4M to set up the pilot, once"), where the words
+/// do not say it already (editor dogfood 2). What an exported SVG is titled by, the PDF's outline
+/// names a page by, and a slide list's row, the light table, and the presenter's navigator are read
+/// by (lift-up 10-24b USE-4).
 pub fn headline(deck: &Deck, snap: &Snapshot) -> Option<String> {
-    (snap.nodes.iter())
-        .filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
+    let texts = || {
+        (snap.nodes.iter()).filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
+    };
+    let said = |p: &Props| words(p).split_whitespace().collect::<Vec<_>>().join(" ");
+    let head = texts()
         .find(|(_, p)| {
             p.get("semantic").and_then(Value::as_str) == Some("claim")
                 || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
         })
-        .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|h| !h.is_empty())
+        .map(|(_, p)| said(p))
+        .filter(|h| !h.is_empty())?;
+    let mut figures = texts()
+        .filter(|(_, p)| matches!(p.get("role").and_then(Value::as_str), Some("numeral" | "hero" | "figure")))
+        .map(|(_, p)| said(p))
+        .filter(|f| !f.is_empty());
+    match (figures.next(), figures.next()) {
+        (Some(figure), None) if !head.contains(&figure) => Some(figured(&figure, &head)),
+        _ => Some(head),
+    }
+}
+
+/// A figure before the words that say what it means: run on where they go on from it in the
+/// middle of a sentence ("18,900 trips in December"), else set apart ("6x: Hilltop trips").
+fn figured(figure: &str, meaning: &str) -> String {
+    let runs_on = meaning.chars().next().is_some_and(|c| !c.is_uppercase() && c.is_alphabetic());
+    if runs_on { format!("{figure} {meaning}") } else { format!("{figure}: {meaning}") }
 }
 
 /// A text node's words: its `text`, or its runs' texts in turn.
@@ -673,6 +695,52 @@ mod tests {
                 ("meaning".into(), Kind::Paragraph),
                 ("title".into(), Kind::Heading(1)),
                 ("under".into(), Kind::Paragraph)
+            ]
+        );
+    }
+
+    /// A big number's slide is headed by its figure and its meaning, not the meaning alone; a slide
+    /// of several figures, one whose headline says its figure, or one with no figure, by its words
+    /// as they are (editor dogfood 2).
+    #[test]
+    fn a_figure_slide_is_headed_by_its_figure_and_its_meaning() {
+        let deck = Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION,
+                "canvas": { "width": 1920, "height": 1080 },
+                "theme": "theme.json",
+                "nodes": {
+                    "number": { "type": "text", "role": "numeral", "text": "$1.4M" },
+                    "meaning": { "type": "text", "role": "title", "semantic": "claim", "text": "to set up the  pilot, once" },
+                    "times": { "type": "text", "role": "hero", "text": "6x" },
+                    "trips": { "type": "text", "role": "title", "text": "Hilltop trips, May to December" },
+                    "said": { "type": "text", "role": "headline", "text": "Trips grew 6x" },
+                    "a": { "type": "text", "role": "figure", "text": "4.5x" },
+                    "b": { "type": "text", "role": "figure", "text": "$1.20" },
+                    "head": { "type": "text", "role": "headline", "text": "The evidence says expand" },
+                    "plain": { "type": "text", "role": "headline", "text": "E-bikes lifted Hilltop" }
+                },
+                "states": [
+                    { "id": "setup", "mode": "absolute", "layout": "big-number", "props": { "number": {}, "meaning": {} } },
+                    { "id": "sixfold", "mode": "absolute", "layout": "big-number", "props": { "times": {}, "trips": {} } },
+                    { "id": "says", "mode": "absolute", "layout": "big-number", "props": { "times": {}, "said": {} } },
+                    { "id": "recap", "mode": "absolute", "layout": "title", "props": { "a": {}, "b": {}, "head": {} } },
+                    { "id": "chart", "mode": "absolute", "layout": "title", "props": { "plain": {} } }
+                ]
+            })
+            .to_string(),
+        )
+        .expect("a deck");
+        let snaps = crate::resolve_states(&deck).expect("snapshots");
+        let heads: Vec<Option<String>> = snaps.iter().map(|s| headline(&deck, s)).collect();
+        assert_eq!(
+            heads,
+            [
+                Some("$1.4M to set up the pilot, once".into()),
+                Some("6x: Hilltop trips, May to December".into()),
+                Some("Trips grew 6x".into()),
+                Some("The evidence says expand".into()),
+                Some("E-bikes lifted Hilltop".into()),
             ]
         );
     }

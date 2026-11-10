@@ -28,6 +28,8 @@ export function said(event: GeneratingEvent): string {
       return event.doing;
     case "researched":
       return `Researched: ${event.sources} sources${event.cut ? ", cut short" : ""}`;
+    case "unresearched":
+      return `Research stopped: ${event.why.replace(/\.$/, "")}. The deck is grounded in what you gave.`;
     case "choosing":
       return "Choosing the arc…";
     case "chose":
@@ -38,6 +40,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "claimed":
+      return event.claim ? `Beat ${event.beat + 1} asked again` : `Beat ${event.beat + 1} was not asked again: ${event.why ?? "no claim came back"}`;
     case "unoutlined":
       return "Writing the slides without an outline";
     case "writing":
@@ -179,6 +183,9 @@ export function prompting(
   const bigIdea = $<HTMLTextAreaElement>("#prompting-big-idea");
   const beats = $<HTMLOListElement>("#prompting-beats");
   const outlineArcs = $<HTMLSelectElement>("#prompting-outline-arcs");
+  // The slides the beats take in all, against the length asked (lift-up 20261110 USE-3).
+  const total = $<HTMLParagraphElement>("#prompting-total");
+  let range: [number, number | null] | undefined;
   // The outline twice unreadable (lift-up REL-3): why, and a choice to write without one or stop.
   const unreadPane = $<HTMLElement>("#prompting-unread");
   const unreadWhy = $<HTMLParagraphElement>("#prompting-unread-why");
@@ -207,6 +214,8 @@ export function prompting(
     claim.value = beat.claim;
     claim.placeholder = "What its slides leave the audience believing";
     claim.setAttribute("aria-label", "The beat's claim");
+    // A claim the person typed is theirs: Outline again keeps it (lift-up 20261110 FUNC-2).
+    claim.oninput = () => (li.dataset.typed = "1");
     const acts = document.createElement("div");
     acts.className = "acts";
     const act = (label: string, aria: string, on: () => void) => {
@@ -219,10 +228,18 @@ export function prompting(
     };
     act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
     act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
-    act("Remove", "Remove the beat", () => li.remove());
+    act("Remove", "Remove the beat", () => {
+      li.remove();
+      totalled();
+    });
+    // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
+    act("Ask again", "Ask for this beat's claim again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
     return li;
   };
+
+  /** Asks for one beat's claim again, while the deck is being made and its outline shown. */
+  let askAgain: ((li: HTMLLIElement) => void) | undefined;
 
   /** The outline as the pane holds it now, as the person settled it. */
   const settledOutline = (): StoryOutline => ({
@@ -234,9 +251,30 @@ export function prompting(
     })),
   });
 
+  /** The slides the beats take in all, said against the length asked, and flagged where outside
+   * it, since a sum outside it is scaled to its nearer end (lift-up 20261110 USE-3). */
+  const totalled = () => {
+    const sum = settledOutline().beats.reduce((n, b) => n + Math.max(1, b.slides), 0);
+    const all = `${sum} ${sum === 1 ? "slide" : "slides"} in all`;
+    if (!range) return void (total.textContent = all);
+    const [least, most] = range;
+    const asked = most == null ? `${least} or more` : least === most ? `${least}` : `${least}\u2013${most}`;
+    const end = sum < least ? least : most != null && sum > most ? most : undefined;
+    total.textContent = `${all} \u00b7 the length asked: ${asked}${end == null ? "" : `. They will be scaled to ${end}.`}`;
+    total.classList.toggle("over", end != null);
+  };
+  beats.addEventListener("input", totalled);
+
   /** The outline shown, to settle: the arc and why, the big idea, and the beats; or, where it did
    * not read, why, to write without one or stop. */
-  const showOutlined = (outlined: { outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }) => {
+  const showOutlined = (outlined: {
+    outline: StoryOutline;
+    arc: string;
+    reasoning: string;
+    fallback?: string;
+    unread?: string;
+    range?: [number, number | null];
+  }) => {
     if (outlined.unread) {
       // The count said once, by the sentence: the reason's own "(asked 2 times)" is the CLI's.
       const why = outlined.unread.replace(/ \(asked \d+ times\)$/, "").replace(/^./, (c) => c.toLowerCase());
@@ -251,6 +289,8 @@ export function prompting(
       : `Arc: ${outlined.arc}. ${outlined.reasoning}`.trim();
     bigIdea.value = outlined.outline.bigIdea;
     beats.replaceChildren(...outlined.outline.beats.map(beatRow));
+    range = outlined.range;
+    totalled();
     outlineArcs.replaceChildren(
       ...[...arc.options].map((o) => new Option(o.textContent ?? "", o.value, false, o.value === outlined.arc)),
     );
@@ -259,9 +299,26 @@ export function prompting(
     bigIdea.focus();
   };
 
+  /** A beat's claim asked again, come back: set in its row, which is the model's again. */
+  const claimedBeat = (event: Extract<GeneratingEvent, { kind: "claimed" }>) => {
+    const li = beats.querySelectorAll("li")[event.beat];
+    if (li) {
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      const claim = li.querySelector<HTMLTextAreaElement>(".claim")!;
+      claim.removeAttribute("aria-busy");
+      if (event.claim) {
+        claim.value = event.claim;
+        delete li.dataset.typed;
+        claim.focus();
+      }
+    }
+    step(said(event), !event.claim);
+  };
+
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
     const li = beatRow({ name: "", claim: "", slides: 0 });
     beats.append(li);
+    totalled();
     li.querySelector<HTMLInputElement>(".name")!.focus();
   };
 
@@ -598,7 +655,8 @@ export function prompting(
     const making = worker;
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
-        if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
+        if (data.type === "generating" && data.event.kind === "claimed") claimedBeat(data.event);
+        else if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
         else if (data.type === "paid") paid = { ...paid, ...data.paid };
@@ -613,9 +671,20 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "storySettled", outline: settled } satisfies ToWorker);
     };
+    // Outlined again, the claims the person typed kept, each in the beat of its name (lift-up
+    // 20261110 FUNC-2).
     $<HTMLButtonElement>("#prompting-outline-again").onclick = () => {
+      const now = settledOutline();
+      const kept = [...beats.querySelectorAll("li")].flatMap((li, i) => (li.dataset.typed && now.beats[i].claim.trim() ? [now.beats[i]] : []));
       outlinePane.hidden = true;
-      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
+      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined, kept } satisfies ToWorker);
+    };
+    askAgain = (li) => {
+      const at = [...beats.querySelectorAll("li")].indexOf(li);
+      if (at < 0) return;
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      li.querySelector<HTMLTextAreaElement>(".claim")!.setAttribute("aria-busy", "true");
+      making.postMessage({ type: "claimAgain", beat: at, outline: settledOutline() } satisfies ToWorker);
     };
     // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
     $<HTMLButtonElement>("#prompting-without").onclick = () => {
