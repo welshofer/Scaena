@@ -200,6 +200,25 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(throws: ScaenaError.self) { try session.viewVersion("9") }
 }
 
+/// A version is shown away from the window (lift-up 20261110 PERF-3): replayed, compared, and drawn
+/// on a snapshot's session of its own, as the session itself shows it, the deck's own session
+/// left showing no version.
+@Test func aVersionIsShownOnASnapshotAsTheSessionShowsIt() async throws {
+    let session = try ScaenaSession(directory: b1)
+    try session.keepHistory()
+    let editor = DeckEditor(session: session)
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_000), subset: false))
+    try editor.typed([["op": "replace_text", "node": "title", "state": "cover", "from": 6, "to": 6, "text": " anew"]])
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_300), subset: false))
+
+    let shown = try await VersionShown.opened("1", from: try session.snapshot())
+    #expect(shown.states == (try session.viewVersion("1")))
+    #expect(shown.slides == (try session.versionSlides()))
+    #expect(shown.compared.states.map(\.state) == (try session.compareVersions(from: "1")).states.map(\.state))
+    #expect(try await shown.png("cover", width: 320) == (try session.versionPNG("cover", width: 320)))
+    await #expect(throws: ScaenaError.self) { try await VersionShown.opened("9", from: try session.snapshot()) }
+}
+
 /// A panel's number field (PLAN 3.28): a number shown as a person writes it, read from what they
 /// typed, and stepped without the noise of a binary fraction.
 @Test func aFieldShowsReadsAndStepsANumberAsAPersonWritesIt() {
