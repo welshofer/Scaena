@@ -1160,7 +1160,9 @@ try {
         const r = document.querySelector("#stage").getBoundingClientRect();
         return Math.abs(r.width - 2560) <= 1 && Math.abs(r.height - 1440) <= 1 && [r.width, r.height, document.querySelector("#stage").width];
       }, null, { timeout: 2000, polling: "raf" }).then((h) => h.jsonValue(), () => null);
-      check(early !== null, `${paints}: shown at the screen's size as soon as the bar has gone, the frames following: ${JSON.stringify(early)}`);
+      // WebGPU's frames are painted at the new size a frame or more later: the size shown has led.
+      const led = early !== null && (paints !== "webgpu" || early[2] === windowed.backing[0]);
+      check(led, `${paints}: shown at the screen's size as soon as the bar has gone, before the frames painted for it: ${JSON.stringify(early)}, painted ${windowed.backing[0]} wide before`);
       await page
         .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
         .catch(() => {});
