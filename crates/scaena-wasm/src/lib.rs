@@ -900,21 +900,23 @@ impl Player {
     }
 
     /// The patch that inserts what `inserts` offers `n`th in `state`, about `x`, `y` (canvas
-    /// units), or in the room nearest it where that is taken (PLAN 2.79), as JSON: `{ id, cell,
-    /// patch }` (PLAN 2.34). `named`, a dropped file's name, names it, and `with` (a JSON object)
+    /// units), or with none under the slide's words (editor dogfood 5), or in the room nearest it
+    /// where that is taken (PLAN 2.79), as JSON: `{ id, cell, patch }` (PLAN 2.34). `named`, a dropped file's name, names it, and `with` (a JSON object)
     /// sets properties of its own on it: a pasted sheet's table its columns (PLAN 2.96).
     pub fn inserting(
         &mut self,
         state: &str,
         n: usize,
-        x: f32,
-        y: f32,
+        x: Option<f32>,
+        y: Option<f32>,
         named: Option<String>,
         with: Option<String>,
     ) -> Result<String, JsError> {
         let with: Option<serde_json::Map<String, serde_json::Value>> =
             with.as_deref().map(serde_json::from_str).transpose().map_err(js)?;
-        let added = self.0.inserting_with(state, n, [x, y], named.as_deref(), with.as_ref()).map_err(js)?;
+        // With no point, none was pressed: it is aimed at the slide's words (editor dogfood 5).
+        let at = x.zip(y).map(|(x, y)| [x, y]);
+        let added = self.0.inserting_aimed(state, n, at, named.as_deref(), with.as_ref()).map_err(js)?;
         serde_json::to_string(&added).map_err(js)
     }
 
@@ -1175,6 +1177,12 @@ impl Player {
     pub fn typed(&mut self, ops: &str, at: Option<String>) -> Result<bool, JsError> {
         let ops: serde_json::Value = serde_json::from_str(ops).map_err(js)?;
         self.0.typed(&ops, at.as_deref().and_then(store::seconds)).map_err(js)
+    }
+
+    /// The figures the last text typed made words, each quoting its data no more (dogfood-5
+    /// item 13), as JSON: `[{ node, figure, data, column }]`.
+    pub fn unquoted(&self) -> Result<String, JsError> {
+        serde_json::to_string(self.0.unquoted()).map_err(js)
     }
 
     /// The beats whose claim a slide said in the deck `before` compiles to (the source as a

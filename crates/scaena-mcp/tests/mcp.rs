@@ -1233,3 +1233,64 @@ async fn slide_write_reports_its_patch_as_deck_patch_does() {
     assert!(said.contains(r#""op": "set_state", "id": STATE, "prop": "notes""#), "{said}");
     client.cancel().await.unwrap();
 }
+
+/// Every layout `deck_generate`'s description names is one it takes, `Chart` drawn by its
+/// `chartData`, and a name no layout is called is in the result's `fell`, with why, never dropped
+/// in silence (agent dogfood).
+#[tokio::test(flavor = "multi_thread")]
+async fn every_layout_the_description_names_is_taken() {
+    let root = scratch("layouts-named");
+    let client = connect_in(&root).await;
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let by = |name: &str| -> Value {
+        catalog["slides"].as_array().unwrap().iter().find(|s| s["layoutSuggestion"] == name).unwrap().clone()
+    };
+    let tools = client.list_all_tools().await.unwrap();
+    let generate = tools.iter().find(|t| t.name == "deck_generate").unwrap();
+    let schema = serde_json::to_value(&generate.input_schema).unwrap();
+    let said = schema["properties"]["slides"]["description"].as_str().unwrap();
+    let listed = said.split("`layoutSuggestion` (").nth(1).unwrap().split(", …").next().unwrap();
+    let names: Vec<&str> = listed.split(',').map(|n| n.trim().trim_matches('`')).collect();
+    assert!(names.contains(&"Chart") && names.len() >= 8, "{names:?}");
+    // A slide for each, its content one the catalog writes for a layout of its kind.
+    let slides: Vec<Value> = names
+        .iter()
+        .map(|name| {
+            let mut slide = match *name {
+                "Chart" => by("Line Chart"),
+                "Two Column" => by("Two-Column"),
+                other => by(other),
+            };
+            slide["layoutSuggestion"] = json!(name);
+            slide
+        })
+        .collect();
+    let deck = json!({ "executiveSummary": "Tidewater", "slides": slides });
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&root.join("named")), "slides": deck, "theme": "ember", "length": "5-10 slides" }),
+    )
+    .await;
+    assert!(made.get("fell").is_none(), "{:#}", made["fell"]);
+    let chart = names.iter().position(|n| *n == "Chart").unwrap();
+    assert_eq!(made["layouts"][chart], "line-chart", "{:#}", made["layouts"]);
+    // A name no layout is called is said, with the layout it took and why.
+    let mut odd = deck.clone();
+    odd["slides"][1]["layoutSuggestion"] = json!("Section Divider");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&root.join("odd")), "slides": odd, "theme": "ember", "length": "5-10 slides" }),
+    )
+    .await;
+    let fell = made["fell"].as_array().unwrap();
+    assert_eq!(
+        (fell.len(), fell[0]["slide"].clone(), fell[0]["asked"].clone()),
+        (1, json!(2), json!("Section Divider"))
+    );
+    assert!(fell[0]["why"].as_str().unwrap().contains("no layout is called that"), "{fell:#?}");
+    client.cancel().await.unwrap();
+}

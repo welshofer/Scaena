@@ -7,7 +7,8 @@
 //   quote it, one `style_text` of `quote`, its figure set from the data, its row found by the
 //   columns of text that tell it apart; typing goes on, and one undo takes it back.
 // - The cell set: the figure is set again in the same change, and the status says so.
-// - Typing into the figure makes it words: it quotes nothing.
+// - Typing into the figure makes it words: it quotes nothing, which the status says, by the
+//   source and column, and ⌘Z brings the quote back (dogfood-5 item 13).
 // - axe-core finds nothing with the Data tab shown.
 // Exits 1 on any failure.
 import { axeInto, launch, serve, tab } from "./serve.mjs";
@@ -110,6 +111,15 @@ try {
   await typeIn(9, 10);
   await page.keyboard.type("9");
   check(await comes('\\{text: "?29\\.5"?\\}'), `typed into, the figure is words that quote nothing: ${(await source()).match(/runs:\[[^\n]*20?9?\.5[^\n]*/)?.[0]}`);
+  // And the editor says so, by the source and column as the Data tab names them, with the undo
+  // that brings the quote back (dogfood-5 item 13).
+  check(
+    await says("20.5” no longer quotes revenue in the data “Q3 Revenue”"),
+    `the status says the figure quotes its data no more: ${await status()}`,
+  );
+  check(await says("Z brings it back"), `with the undo that brings it back: ${await status()}`);
+  await page.keyboard.press("Control+z");
+  check(await comes('text: "?20\\.5"?, quote: \\{data: @q3'), `⌘Z brings the quote back: ${(await source()).match(/runs:\[[^\n]*20?9?\.5[^\n]*/)?.[0]}`);
 } finally {
   await browser.close();
   await site.close();

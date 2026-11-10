@@ -188,9 +188,20 @@
           }
         },
         "required": ["beat", "state", "path", "claim"]
+      },
+      "Fell": {
+        "description": "A slide whose `layoutSuggestion` could not be taken as asked (agent dogfood): the slide, by\nits number from 1, what it asked, the layout it took, and why, so an agent can ask again.",
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer", "minimum": 0 },
+          "asked": { "type": "string" },
+          "layout": { "type": "string" },
+          "why": { "type": "string" }
+        },
+        "required": ["slide", "asked", "layout", "why"]
       }
     },
-    "required": ["slide", "layout", "beat", "fixed", "left"],
+    "required": ["slide", "layout", "beat", "fixed", "left", "fell"],
     "type": "object",
     "properties": {
       "applied": {
@@ -233,7 +244,12 @@
       "layout": { "type": "string" },
       "beat": { "type": "string" },
       "fixed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
-      "left": { "type": "array", "items": { "$ref": "#/$defs/Finding" } }
+      "left": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "fell": {
+        "description": "Its `layoutSuggestion`, where it could not be taken as asked: the slide, by its number in\nthe deck, what it asked, the layout it took, and why (agent dogfood).",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Fell" }
+      }
     }
   }
 }
