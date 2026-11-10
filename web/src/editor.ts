@@ -1507,8 +1507,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     issues: (slide) => {
       const slots = (taken?.edited ?? last)?.slots ?? [];
       const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
-      // Health names the step it read a finding at, any step of the slide (W2's editor dogfood).
-      return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === of(slide));
+      return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
     },
     findings: () => last?.findings ?? [],
     fix: (f) => fix(f),

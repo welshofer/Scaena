@@ -81,10 +81,7 @@
         "description": "Something to look at on one slide: what it says, what to ask the assistant, and, where one\nis safe, a fix.",
         "type": "object",
         "properties": {
-          "state": {
-            "description": "The step it was read at, which an editor shows: the slide's first state for a finding about\nits notes or its plan, or that it does not stand, else its last, built whole.",
-            "type": "string"
-          },
+          "state": { "description": "The slide's first state.", "type": "string" },
           "slide": { "description": "The slide's number, from 1.", "type": "integer", "minimum": 0 },
           "severity": { "$ref": "#/$defs/Severity" },
           "kind": { "$ref": "#/$defs/Kind" },
