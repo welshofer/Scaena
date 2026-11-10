@@ -571,13 +571,17 @@ public final class Assistant {
     }
 
     /// Why an answer stopped, in a person's words, where it did not simply end: `stopped`,
-    /// `steps`, `length`, or the provider's own reason. None where it ended as answers do.
+    /// `steps`, `length`, `refused`, or the provider's own reason. None where it ended as answers
+    /// do.
     nonisolated public static func stopped(_ why: String) -> String? {
         switch why {
         case "end", "tools": nil
         case "stopped": "Stopped."
         case "steps": "Stopped after 32 rounds of calls: ask again to go on."
         case "length": "The answer ran out of room."
+        // Said as what it is, as the browser says it, so the same ask is not paid for again
+        // (lift-up 20261025c REL-1).
+        case "refused": "The model declined to answer that. Ask in other words."
         // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
         default: "The model stopped."
         }
