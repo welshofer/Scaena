@@ -31,6 +31,8 @@ export interface StoryEditor {
    * the headline rewritten to carry it (narrative FUNC-4). */
   check(state: string): void;
   say(text: string): void;
+  /** The words the editor shows for the state shown, the plan's ladders among them. */
+  words(): Ladders | undefined;
 }
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -110,11 +112,31 @@ function bySlide(findings: HealthFinding[]): HealthFinding[][] {
   return [...runs.values()];
 }
 
-/** A finding's question as its row says what to do, in a person's words: without the figures
- * health gives the assistant, which reads the deck's (`scaena health` prints them too), so
- * "plan it calmer (0.44)" reads "plan it calmer" and "they read −0.19" goes. The assistant is
- * asked the question whole. */
-export function spoken(ask: string): string {
+/** How a plan's intensity and tone are said, each word from the least it says (the session's
+ * `Lexicon`, `scaena_core::words::INTENSITIES` and `TONES`). */
+export interface Ladders {
+  intensities: [number, string][];
+  tones: [number, string][];
+}
+
+/** `value` said by `ladder`: the last word whose least it reaches. */
+const worded = (ladder: [number, string][], value: number) =>
+  [...ladder].reverse().find(([least]) => value >= least)?.[1] ?? ladder[0]?.[1] ?? "";
+
+/** A finding's question as its row says what to do, in a person's words: each figure health gives
+ * the assistant, which reads the deck's (`scaena health` prints them too), said by its word, a
+ * tone (signed, −1 grave to +1 hopeful) by `ladders.tones` and an intensity (0 calm to 1 intense)
+ * by `ladders.intensities`, so "carry the intensity it declares (0.90)" reads "… (Peak)" and
+ * "they read −0.19" reads "they read Even" (editor dogfood 3). Without the ladders, the figures
+ * go. The assistant is asked the question whole. */
+export function spoken(ask: string, ladders?: Ladders): string {
+  if (ladders?.intensities.length && ladders.tones.length) {
+    return ask.replace(/[+−-]?\d\.\d\d/g, (figure) => {
+      const signed = /^[+−-]/.test(figure);
+      const value = Number(figure.replace("−", "-"));
+      return worded(signed ? ladders.tones : ladders.intensities, value);
+    });
+  }
   return ask
     .replace(/\s*\([+−-]?\d\.\d\d(?:–[+−-]?\d\.\d\d)?\)/g, "")
     .replace(/;\s*they read [+−-]?\d\.\d\d/g, "")
@@ -334,7 +356,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
         todo.dataset.todo = f.kind;
         const label = document.createElement("span");
         label.textContent = "To do: ";
-        todo.append(label, spoken(f.ask));
+        todo.append(label, spoken(f.ask, editor.words()));
         li.append(todo);
       }
     }
@@ -387,6 +409,8 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     health: () => health,
     /** How many times it has asked the worker to read the deck. */
     reads: () => reads,
+    /** A finding's question as its row says what to do (editor dogfood 3). */
+    spoken: (ask: string) => spoken(ask, editor.words()),
     /** What it leads with and what it folds, as it last drew them. */
     triaged: () => (health ? triage(health) : undefined),
   };
