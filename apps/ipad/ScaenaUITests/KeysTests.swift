@@ -398,9 +398,14 @@ final class KeysTests: XCTestCase {
             XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⌘Z says \(said())")
             XCTAssertEqual(
                 title.frame.minX, nudged.minX, accuracy: 0.5, "⌘Z took a nudge back while the assistant worked")
+            // The hint stands six seconds, and ⇧⌘Z says the same words, which keep it standing no
+            // longer: so ⇧⌘Z is pressed once ⌘Z's words have gone, and must bring them back. Pressed
+            // within those seconds, as the first run of this test did, it was held (the keys log
+            // says so) but its words went with ⌘Z's before they were read.
+            XCTAssertTrue(wait(10) { !hint.exists }, "⌘Z's words stand: \(said())")
             app.typeKey("z", modifierFlags: [.command, .shift])
+            XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⇧⌘Z says \(said())")
             settle(1)
-            XCTAssertTrue(said().hasPrefix("The assistant is at work on the deck"), "⇧⌘Z says \(said())")
             XCTAssertEqual(
                 title.frame.minX, nudged.minX, accuracy: 0.5, "⇧⌘Z changed the title while the assistant worked")
         }
