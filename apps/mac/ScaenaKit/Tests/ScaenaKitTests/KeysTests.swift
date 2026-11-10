@@ -156,6 +156,21 @@ private func box(_ boxes: [NodeBox], _ node: String) -> CGRect? {
     #expect(heard == [UIKeyCommand.inputEscape, "\r", "⌥\r"])
 }
 
+/// While no text is typed in, the keys the canvas holds bring no input assistant: no shortcuts
+/// bar, whose glass would sit over the canvas animating with nothing for it to do (lift-up
+/// 20261110). Its groups stay empty whatever is put in them.
+@MainActor
+@Test func theIPadCanvassOwnKeysBringNoShortcutsBar() {
+    let presses = CanvasPresses()
+    let item = presses.inputAssistantItem
+    let group = UIBarButtonItemGroup(barButtonItems: [UIBarButtonItem(systemItem: .undo)], representativeItem: nil)
+    item.leadingBarButtonGroups = [group]
+    item.trailingBarButtonGroups = [group]
+    #expect(presses.inputAssistantItem.leadingBarButtonGroups.isEmpty)
+    #expect(presses.inputAssistantItem.trailingBarButtonGroups.isEmpty)
+    #expect(presses.inputAssistantItem === item, "one assistant, the same each time it is asked for")
+}
+
 /// PageDown and PageUp come to the iPad's canvas as key commands of its own too (PLAN 4.12), alone
 /// or with Shift, as the Mac's canvas takes them: each ahead of the system's own behavior, and each
 /// going to the canvas.

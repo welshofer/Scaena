@@ -2176,7 +2176,8 @@ struct RestateBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: Capsule())
+        // Glass, as the canvas's hint and the code chip beside it are (lift-up 20261110 ATTR-3).
+        .floating(in: Capsule())
         .padding(.top, 8)
         .padding(.horizontal, 16)
     }

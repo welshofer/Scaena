@@ -134,9 +134,11 @@ struct RehearsedSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Your Rehearsal").font(.headline)
-            Text(
-                "\(readable(rehearsal.total())) in all. Keep makes each slide advance by itself after the time you "
-                    + "spent on it.")
+            // The time taken against the time the talk planned, where its beats plan one (lift-up
+            // 20261110 FUNC-1).
+            Text(againstPlan)
+                .accessibilityIdentifier("rehearsal-against-plan")
+            Text("Keep makes each slide advance by itself after the time you spent on it.")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             ScrollView {
@@ -144,15 +146,28 @@ struct RehearsedSheet: View {
                     GridRow {
                         Text("Slide")
                         Text("You Took")
+                        if planned {
+                            Text("Planned")
+                            Text("Over")
+                        }
                         Text("Animation")
                         Text("Advances After")
                         Text("Now")
                     }
                     .font(.caption.bold())
                     ForEach(Array(rehearsal.kept.enumerated()), id: \.offset) { _, row in
+                        let far = furthest.contains(row.state)
+                        let farSaid: String = far ? "Among the furthest over its plan" : ""
                         GridRow {
                             Text(Words.slide(row.state, in: rehearsal.slots))
+                                .fontWeight(far ? .semibold : nil)
+                                .accessibilityValue(farSaid)
                             Text(row.spent > 0 ? readable(row.spent) : "Not reached")
+                            if planned {
+                                Text(row.planned.map(readable) ?? "—")
+                                Text(row.over.map(signed) ?? "")
+                                    .foregroundStyle(far ? Color.orange : (row.over ?? 0) > 0 ? Color.primary : Color.secondary)
+                            }
                             Text(readable(row.span))
                             Text(row.keeps.map(readable) ?? "As it is")
                             Text(row.hold > 0 ? readable(row.hold) : "On click")
@@ -175,6 +190,26 @@ struct RehearsedSheet: View {
         .padding()
         .frame(minWidth: 480, minHeight: 360)
     }
+
+    /// Whether any slide reached has a planned time.
+    private var planned: Bool { rehearsal.againstPlan != nil }
+
+    /// The slides that ran furthest past their plan.
+    private var furthest: [String] { rehearsal.furthestOver }
+
+    /// "18:40 taken against a 15:00 plan", or the time alone where no slide has a plan.
+    private var againstPlan: String {
+        guard let plan = rehearsal.againstPlan else {
+            return "\(readable(rehearsal.total())) in all. No slide rehearsed has a planned time, so times alone are shown."
+        }
+        return "\(readable(plan.taken)) taken against a \(readable(plan.planned)) plan, "
+            + "\(signed(plan.taken - plan.planned)) · \(readable(rehearsal.total())) in all."
+    }
+}
+
+/// `ms` past a plan, or short of it, as a rehearsal says it: `+1:05`, `−4.2 s`.
+func signed(_ ms: Double) -> String {
+    (ms < 0 ? "\u{2212}" : "+") + readable(abs(ms))
 }
 
 /// `ms` as a rehearsal says it: `1:05`, or `4.2 s` under a minute.

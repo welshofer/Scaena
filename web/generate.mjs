@@ -108,7 +108,9 @@ const provider = createServer(async (req, res) => {
   const system = (body.system ?? []).map((s) => s.text).join("\n");
   const asked = system.includes("tightening the words")
     ? "fit"
-    : system.includes("art director")
+    : system.includes("speechwriter")
+      ? "notes"
+      : system.includes("art director")
       ? "look"
       : system.includes("revising one beat")
         ? "claim"
@@ -139,6 +141,12 @@ const provider = createServer(async (req, res) => {
   // The rest of slides cut short (lift-up REL-2), asked with the slides' own prompt.
   if (asked === "slides" && state.rest && prompt.includes("CONTINUATION")) return reply(200, state.rest);
   if (asked === "slides") return reply(200, state.slides ?? SLIDES);
+  // Each slide's notes for the talk (lift-up 10-25 ATTR-2): the first slide's, at the words asked.
+  if (asked === "notes") {
+    const words = Number(/Slide 1 of \d+: about (\d+) words\./.exec(prompt)?.[1] ?? 0);
+    const notes = words ? [{ slide: 1, notes: Array(words).fill("cargo").join(" ") }] : [];
+    return reply(200, { content: [{ type: "text", text: JSON.stringify({ notes }) }], stop_reason: "end_turn" });
+  }
   if (asked === "look") {
     const look = { slides: [{ slide: 1, layout: "", title: "Carbon-negative cargo, ready to scale", subtitle: "", bullets: [], why: "One idea, one line." }] };
     return reply(200, { content: [{ type: "text", text: JSON.stringify(look) }], stop_reason: "end_turn" });
@@ -528,6 +536,11 @@ try {
     film.length === 5 && film.every((src) => src.startsWith("data:image/jpeg;base64,/9j/")),
     `the dialog shows each slide as drawn: ${film.length}`,
   );
+  // Then each slide's notes written for the talk, after the look (lift-up 10-25 ATTR-2).
+  const noted = requests.find((r) => r.asked === "notes");
+  check(noted?.prompt.startsWith("Write the speaker notes for the 5 slides of a talk"), `the notes are asked for the talk: ${noted?.prompt.slice(0, 80)}`);
+  check(requests.findIndex((r) => r.asked === "notes") > requests.findIndex((r) => r.asked === "look"), "after the look");
+  check((await lines()).some((l) => l === "1 slide's notes written for the talk"), `the progress says the notes were written: ${(await lines()).at(-3)}`);
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
@@ -605,6 +618,25 @@ try {
   await fixable.locator("[data-show]").click();
   await page.waitForFunction((n) => window.scaena.shown() === n - 1, slide, { timeout: 30000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.shown())) === slide - 1, `its slide is shown: slide ${slide}`);
+  // Pressed while the assistant is at work on the deck, the fix says why it waits and makes
+  // nothing (lift-up 20261110 deferred): the assistant held at work by an answer slow to come.
+  state.slow = 8000;
+  await page.evaluate(() => void window.scaena.assistant.ask("Hold the deck a moment."));
+  await page.waitForFunction(() => document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  const working = await page.evaluate(() => window.scaena.source());
+  await fixable.locator("[data-fix]").first().click();
+  await page
+    .waitForFunction(() => document.querySelector("#status").textContent.startsWith("Not fixed: the assistant is at work on the deck"), null, { timeout: 10000 })
+    .catch(() => {});
+  const waits = await page.textContent("#status");
+  check(
+    waits.startsWith("Not fixed: the assistant is at work on the deck") && (await page.evaluate(() => window.scaena.source())) === working,
+    `a fix pressed while the assistant works says why it waits: ${waits}`,
+  );
+  await page.evaluate(() => document.querySelector("#stop").click());
+  await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
+  state.slow = 0;
+  await page.evaluate(() => (document.querySelector("#question").value = ""));
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
   await fixable.locator("[data-fix]").first().click();
@@ -910,8 +942,8 @@ try {
   check((await page.evaluate(() => window.scaena.source())) !== unoutlinedWas, "and the deck is made");
   state.unreadable = false;
   // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
-  // for an audience in the person's own words, pictures made with high care, and the slides not
-  // shown to the model.
+  // for an audience in the person's own words, pictures made with high care, the slides not
+  // shown to the model, and the speaker's notes left as Narrato drafted them (lift-up 10-25 ATTR-2).
   requests.length = 0;
   painted.length = 0;
   // The copy the editor kept of the deck before is offered as the last one opened, a modal over the
@@ -930,6 +962,7 @@ try {
   await page.click("#prompting details > summary");
   await page.selectOption("#prompting-quality", "high");
   await page.uncheck("#prompting-see");
+  await page.uncheck("#prompting-notes");
   const unbriefed = await page.evaluate(() => window.scaena.source());
   await page.click("#prompting-go");
   await page
@@ -939,6 +972,7 @@ try {
   check(briefed.includes("presentation for: Students & Educators"), `the slides are written for the persona chosen: ${briefed.match(/presentation for: [^\n]*/)?.[0]}`);
   check(painted.length > 0 && painted.every((p) => p.body.quality === "high"), `each picture asked for with high care: ${painted.map((p) => p.body.quality)}`);
   check(!requests.some((r) => r.asked === "look"), `the slides are not shown to the model: ${requests.map((r) => r.asked)}`);
+  check(!requests.some((r) => r.asked === "notes"), `the speaker's notes are not asked for: ${requests.map((r) => r.asked)}`);
   // Still drawn for the person as the deck comes together (lift-up 20261110 ATTR-1).
   check((await page.locator("#prompting-film li.drawn").count()) > 0, `with no look, the slides are still drawn in the strip: ${await page.locator("#prompting-film li.drawn").count()}`);
 } catch (e) {

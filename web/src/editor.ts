@@ -1493,21 +1493,36 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   });
   /** The deck's story (PLAN G.9): its narrative health, read by the generator's module, each finding
    * a slide to show, a fix that is one change to undo, and a question for the assistant. */
+  /** Show the state `state`, the cursor on where the source writes it. */
+  async function showState(state: string) {
+    const index = last?.states.findIndex(([id]) => id === state) ?? -1;
+    const start = last?.states[index]?.[1];
+    if (start === undefined) return;
+    view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
+    await show(index);
+  }
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
+    issues: (slide) => {
+      const slots = (taken?.edited ?? last)?.slots ?? [];
+      const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
+      return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
+    },
+    fix: (f) => fix(f),
+    mark: async (f) => {
+      board.showMark(f);
+      if (f.state !== undefined) await showState(f.state);
+    },
     words: () => lexicon,
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });
     },
-    show: async (state) => {
-      const index = last?.states.findIndex(([id]) => id === state) ?? -1;
-      const start = last?.states[index]?.[1];
-      if (start === undefined) return;
-      view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
-      await show(index);
-    },
+    show: showState,
     make: async (ops, done) => {
+      // Held while the assistant has the deck, saying why, as the Mac's Story says it (lift-up
+      // 20261110 deferred): the fix is not lost, only not made yet.
+      if (assisting) throw new Error("the assistant is at work on the deck");
       const now = showing();
       if (!now) return;
       const { source, edited } = await stage.make(() => view.state.doc.toString(), ops, now.index, format());
@@ -1517,7 +1532,10 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     ask: (question) => {
       $<HTMLButtonElement>("#tab-assistant").click();
       const box = $<HTMLTextAreaElement>("#question");
-      box.value = question;
+      // A question already drafted in the box is kept, the finding's after it (lift-up 20261110
+      // deferred), and one already there is not put there again.
+      const draft = box.value.trimEnd();
+      box.value = !draft ? question : draft.includes(question) ? draft : `${draft}\n\n${question}`;
       box.focus();
     },
     say,
