@@ -3539,6 +3539,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
        * they print. */
       reading: (state?: string) => stage.reading(state ?? last?.states[shown]?.[0] ?? stage.opened.states[shown], format()),
       at: () => stage.at,
+      /** The notes a presenter reads for `state` (SPEC §2.6). */
+      notes: (state: string) => stage.notes(state),
       /** The assistant: ask it something, and read the conversation. */
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */
