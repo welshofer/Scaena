@@ -597,13 +597,23 @@ impl Generation {
         Ok(request.map(|r| serde_json::to_string(&r).expect("a request is JSON")))
     }
 
-    /// The notes an answer to `notesRequest` gives, JSON `[[slide, notes]]`: what `Making.noted`
-    /// takes.
+    /// The notes an answer to `notesRequest` gives, JSON `{ notes: [[slide, notes]], dropped?:
+    /// [[slide, why]] }`: the notes what `Making.noted` takes, and each slide whose notes were
+    /// not taken, with why, which `notesSaid` says (W1's dogfood 6).
     #[wasm_bindgen(js_name = notesAnswer)]
     pub fn notes_answer(&self, status: u16, status_text: &str, body: &str, spoken: &str) -> Result<String, JsError> {
         let spoken: Vec<scaena_narrato::notes::Spoken> = serde_json::from_str(spoken).map_err(error)?;
-        let notes = self.inner.notes_answer(status, status_text, body, &spoken).map_err(error)?;
-        Ok(serde_json::to_string(&notes).expect("notes are JSON"))
+        let read = self.inner.notes_answer(status, status_text, body, &spoken).map_err(error)?;
+        Ok(serde_json::to_string(&read).expect("notes are JSON"))
+    }
+
+    /// The slides `dropped` (JSON `[[slide, why]]`, every round's) says were not taken, in a
+    /// sentence, with what each keeps of `spoken` (`Making.speaking`'s); none where none was.
+    #[wasm_bindgen(js_name = notesSaid)]
+    pub fn notes_said(&self, dropped: &str, spoken: &str) -> Result<Option<String>, JsError> {
+        let dropped: Vec<(usize, scaena_narrato::notes::Dropped)> = serde_json::from_str(dropped).map_err(error)?;
+        let spoken: Vec<scaena_narrato::notes::Spoken> = serde_json::from_str(spoken).map_err(error)?;
+        Ok(scaena_narrato::notes::said(&dropped, &spoken))
     }
 
     /// The rewrites an answer to `fitRequest` gives, JSON `[[id, text]]`, each shorter than the
