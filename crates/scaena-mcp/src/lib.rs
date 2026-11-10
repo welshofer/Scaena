@@ -955,7 +955,9 @@ pub struct DeckGenerate {
     pub bundle: String,
     /// The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
-    /// `Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,
+    /// `Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;
+    /// `Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name
+    /// that could not be taken is in the result's `fell`, with why), `keyBullets`,
     /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
     /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
     /// `chartData` where a chart is drawn.
@@ -1084,6 +1086,10 @@ pub struct DeckGenerated {
     pub fallback: Option<String>,
     /// Each slide's layout, in order.
     pub layouts: Vec<String>,
+    /// Each slide whose `layoutSuggestion` could not be taken as asked: the slide, by its number
+    /// from 1, what it asked, the layout it took, and why.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<scaena_ops::narrative::Fell>,
     /// The findings whose fixes were applied, each checked by laying its state out again.
     pub fixed: Vec<Finding>,
 }
@@ -1744,6 +1750,7 @@ impl Scaena {
                 arc: made.arc,
                 fallback: made.fallback,
                 layouts: made.layouts,
+                fell: made.fell,
                 fixed: made.fixed,
             })
         })

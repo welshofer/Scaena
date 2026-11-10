@@ -37,6 +37,9 @@ pub struct Written {
     pub layout: String,
     pub beat: String,
     pub what: String,
+    /// Its `layoutSuggestion`, where it could not be taken as asked, and why (agent dogfood).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<super::Fell>,
 }
 
 /// `slide` built for the deck `doc`, in `theme`, as the deck's generator builds a slide: its
@@ -220,6 +223,8 @@ pub fn slide_into(
     };
     let (made, built) = assemble(&narrative, theme, &pictures, &BTreeMap::new(), seed, index, total)?;
     let layout = made.layouts.first().cloned().unwrap_or_default();
+    // Said by the slide's number in the deck.
+    let fell: Vec<super::Fell> = made.fell.iter().map(|f| super::Fell { slide: index + 1, ..f.clone() }).collect();
     let mut new_states: Vec<Value> = built.states[states_before..].to_vec();
     let states: Vec<String> = new_states.iter().filter_map(|s| s["id"].as_str().map(str::to_string)).collect();
     let begun = made.deck.pointer("/spine/sections/0").cloned();
@@ -399,7 +404,7 @@ pub fn slide_into(
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }
-    Ok(Written { patch, states, layout, beat: beat_id, what })
+    Ok(Written { patch, states, layout, beat: beat_id, what, fell })
 }
 
 /// Each run's link in `value` (a deck's nodes, its overrides, or its states) to one of `from`
@@ -483,6 +488,10 @@ pub struct SlideWritten {
     pub beat: String,
     pub fixed: Vec<Finding>,
     pub left: Vec<Finding>,
+    /// Its `layoutSuggestion`, where it could not be taken as asked: the slide, by its number in
+    /// the deck, what it asked, the layout it took, and why (agent dogfood).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<super::Fell>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -517,6 +526,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             slide: written.states,
             layout: written.layout,
             beat: written.beat,
+            fell: written.fell.clone(),
             fixed: Vec::new(),
             left,
         };
@@ -558,7 +568,15 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     };
     let mut left: Vec<Finding> = left;
     scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
-    let out = SlideWritten { patched, slide: written.states, layout: written.layout, beat: written.beat, fixed, left };
+    let out = SlideWritten {
+        patched,
+        slide: written.states,
+        layout: written.layout,
+        beat: written.beat,
+        fixed,
+        left,
+        fell: written.fell,
+    };
     Ok((out, write))
 }
 

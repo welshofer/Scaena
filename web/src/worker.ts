@@ -38,6 +38,7 @@ import type {
   AssistantEvent,
   Attached,
   Carets,
+  Unquoted,
   Cells,
   Choices,
   DataEdited,
@@ -592,7 +593,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return post({
           type: "adding",
           id: data.id,
-          added: JSON.parse(player.inserting(data.state, data.n, ...data.at, data.named, data.with && JSON.stringify(data.with))) as Added,
+          added: JSON.parse(player.inserting(data.state, data.n, data.at?.[0], data.at?.[1], data.named, data.with && JSON.stringify(data.with))) as Added,
         });
       case "insertingIcon":
         current(data.source);
@@ -2130,11 +2131,12 @@ async function type(
   at: string | undefined,
   state: string,
   node: string,
-): Promise<{ source: string; edited: Edited; carets: Carets | null }> {
+): Promise<{ source: string; edited: Edited; carets: Carets | null; unquoted: Unquoted[] }> {
   saveable(source);
   player.setMoving([], 0, 0);
   player.preview(undefined);
   if (!player.typed(JSON.stringify(ops), new Date().toISOString())) throw new Error("it reads so already");
+  const unquoted = JSON.parse(player.unquoted()) as Unquoted[];
   latest++;
   shown = { index, format: at };
   const next = player.source();
@@ -2143,7 +2145,7 @@ async function type(
   // on these.
   let carets: Carets | null = null;
   const edited = await edit(next, index, at, () => (carets = JSON.parse(player.carets(state, node)) as Carets | null));
-  return { source: next, edited, carets };
+  return { source: next, edited, carets, unquoted };
 }
 
 /** What the preview last painted: what a new view paints again (PLAN 2.46). */
