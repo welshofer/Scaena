@@ -5451,7 +5451,12 @@ impl Builder {
                         // Of two figures, the one the slide is not about stands back.
                         ("two-figures", Some((k, "figure")))
                             if s.slide.chart_data.as_ref().and_then(|c| {
-                                signal(c, Some(s.slide.slide_title.as_str()), s.item(0).map(|i| i.whole.as_str()))
+                                signal(
+                                    c,
+                                    Some(s.slide.slide_title.as_str()),
+                                    s.item(0).map(|i| i.whole.as_str()),
+                                    s.lang,
+                                )
                             }) != Some(k) =>
                         {
                             node["style"] = json!({ "color": "onSurfaceMuted" })
@@ -6296,6 +6301,44 @@ fn decimals(chart: &ChartData) -> usize {
     chart.series.iter().flat_map(|s| s.values.iter().flatten()).map(|v| places(*v)).max().unwrap_or(0)
 }
 
+/// `text` with its figures written in English's marks, as [`figures`] reads them: in a language
+/// whose decimal mark is a comma ("2,4 %", "1.200,5 €"), each mark between two digits its own,
+/// the group dropped and the decimal a point (dogfood pass 10).
+fn marked(text: &str, lang: &str) -> String {
+    let locale = scaena_core::format::Locale::of(Some(lang));
+    let (Some(decimal), Some(group)) = (locale.decimal.chars().next(), locale.group.chars().next()) else {
+        return text.to_string();
+    };
+    if decimal == '.' {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let between =
+        |i: usize| i > 0 && chars[i - 1].is_ascii_digit() && chars.get(i + 1).is_some_and(char::is_ascii_digit);
+    (chars.iter().enumerate())
+        .filter_map(|(i, &c)| match c {
+            c if c == decimal && between(i) => Some('.'),
+            c if c == group && between(i) => None,
+            c => Some(c),
+        })
+        .collect()
+}
+
+/// The words a sentence in `lang` lands on its figure with, as English's "fell to 1.8" does:
+/// "von 2,4 % auf 0,6 %", "de 2,4 à 0,6" (dogfood pass 10). English's " to " is read in any deck.
+fn landing(lang: &str) -> &'static [&'static str] {
+    match lang.split('-').next().unwrap_or(lang) {
+        "de" => &[" auf ", " bis "],
+        "fr" => &[" \u{e0} "],
+        "es" | "it" => &[" a "],
+        "pt" => &[" a ", " para "],
+        "nl" => &[" naar ", " tot "],
+        "pl" => &[" do "],
+        "cs" => &[" na "],
+        _ => &[],
+    }
+}
+
 /// Which of a single series' categories the slide is about, by index: the one its takeaway
 /// names; else the one whose value its headline, then its takeaway, lands on: the figure after its
 /// last "to", else its first, that is one bar's alone ("p99 fell from 900 ms to 120 ms" lights
@@ -6304,7 +6347,7 @@ fn decimals(chart: &ChartData) -> usize {
 /// the largest. A category the takeaway runs on from ("since 2022", "since Q3 FY25", "after",
 /// "from") is where the story starts, not where it lands, where the categories have an order of
 /// their own: the latest is lit, as a line's band runs from that year to the last (dogfood pass 7).
-fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>) -> Option<usize> {
+fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: &str) -> Option<usize> {
     let named: Vec<usize> = (0..chart.categories.len())
         .filter(|i| takeaway.is_some_and(|t| t.to_lowercase().contains(&chart.categories[*i].to_lowercase())))
         .collect();
@@ -6340,10 +6383,12 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>) -> Opt
         }
     };
     let lands = |text: &str| {
-        let after = text.as_bytes().windows(4).rposition(|w| w.eq_ignore_ascii_case(b" to ")).map(|at| &text[at + 4..]);
+        let to = text.as_bytes().windows(4).rposition(|w| w.eq_ignore_ascii_case(b" to ")).map(|at| at + 4);
+        let own = landing(lang).iter().filter_map(|w| text.rfind(w).map(|at| at + w.len())).max();
+        let after = to.max(own).map(|at| &text[at..]);
         after
-            .and_then(|rest| figures(rest).into_iter().find_map(bar))
-            .or_else(|| figures(text).into_iter().find_map(bar))
+            .and_then(|rest| figures(&marked(rest, lang)).into_iter().find_map(bar))
+            .or_else(|| figures(&marked(text, lang)).into_iter().find_map(bar))
     };
     if let Some(i) = [title, takeaway].into_iter().flatten().find_map(lands) {
         return Some(i);
@@ -6417,7 +6462,7 @@ fn chart_node(
     if kind == "bar"
         && !several
         && let Some(x) =
-            signal(chart, Some(title).filter(|t| !t.is_empty()), takeaway).and_then(|i| chart.categories.get(i))
+            signal(chart, Some(title).filter(|t| !t.is_empty()), takeaway, lang).and_then(|i| chart.categories.get(i))
     {
         node["annotations"] = json!([{ "kind": "highlight", "at": { "x": x } }]);
     }
@@ -6832,13 +6877,13 @@ mod tests {
             series: vec![answer::Series { name: None, values: vec![Some(11.0), Some(17.0), Some(26.0), Some(34.0)] }],
             ..Default::default()
         };
-        assert_eq!(signal(&wait, None, Some("The wait has tripled since 2022")), Some(3));
-        assert_eq!(signal(&wait, None, Some("From 2023, it climbed")), Some(3));
-        assert_eq!(signal(&wait, None, Some("2023 was the turn")), Some(1));
-        assert_eq!(signal(&wait, None, Some("Longer every year")), Some(3));
+        assert_eq!(signal(&wait, None, Some("The wait has tripled since 2022"), "en"), Some(3));
+        assert_eq!(signal(&wait, None, Some("From 2023, it climbed"), "en"), Some(3));
+        assert_eq!(signal(&wait, None, Some("2023 was the turn"), "en"), Some(1));
+        assert_eq!(signal(&wait, None, Some("Longer every year"), "en"), Some(3));
         // Categories that are no years keep the one named.
         let stages = ChartData { categories: ["Gateway", "Pricing"].map(String::from).to_vec(), ..wait.clone() };
-        assert_eq!(signal(&stages, None, Some("Since Pricing fell")), Some(1));
+        assert_eq!(signal(&stages, None, Some("Since Pricing fell"), "en"), Some(1));
     }
 
     fn typeset_en(text: &str) -> String {
@@ -7653,38 +7698,56 @@ mod tests {
             ..Default::default()
         };
         // The takeaway runs on from the first quarter: the story lands on the last.
-        assert_eq!(signal(&burn, None, Some("Burn is down 42% since Q3 FY25")), Some(4));
+        assert_eq!(signal(&burn, None, Some("Burn is down 42% since Q3 FY25"), "en"), Some(4));
         // A quarter named bare is lit as named.
-        assert_eq!(signal(&burn, None, Some("Q1 FY26 was the turn")), Some(2));
+        assert_eq!(signal(&burn, None, Some("Q1 FY26 was the turn"), "en"), Some(2));
         // The headline's figure, not the tallest bar.
-        assert_eq!(signal(&burn, Some("Burn fell to $1.8M, the lowest in two years"), None), Some(4));
+        assert_eq!(signal(&burn, Some("Burn fell to $1.8M, the lowest in two years"), None, "en"), Some(4));
         // Words whose lowercase is longer than they are: " to " is found where it stands, never
         // a place in the lowercase that falls inside a letter or past the figure.
-        assert_eq!(signal(&burn, Some("İ ağır 2.9 düştü to ölçüde 1.8"), None), Some(4));
-        assert_eq!(signal(&burn, Some("İİİ fell from 2.9 to 1.8"), None), Some(4));
+        assert_eq!(signal(&burn, Some("İ ağır 2.9 düştü to ölçüde 1.8"), None, "en"), Some(4));
+        assert_eq!(signal(&burn, Some("İİİ fell from 2.9 to 1.8"), None, "en"), Some(4));
         let p99 = ChartData {
             categories: ["Before", "After batching", "After cache"].map(String::from).to_vec(),
             series: vec![answer::Series { name: None, values: [900.0, 210.0, 120.0].map(Some).to_vec() }],
             ..Default::default()
         };
-        assert_eq!(signal(&p99, Some("p99 fell from 900 ms to 120 ms"), Some("An 87% cut")), Some(2));
+        assert_eq!(signal(&p99, Some("p99 fell from 900 ms to 120 ms"), Some("An 87% cut"), "en"), Some(2));
         // Two set against each other: the first, which the sentence is about.
-        assert_eq!(signal(&p99, None, Some("210 ms against 120 ms")), Some(1));
+        assert_eq!(signal(&p99, None, Some("210 ms against 120 ms"), "en"), Some(1));
         // No figure the bars hold, nor one two of them share: the largest, as before.
-        assert_eq!(signal(&p99, Some("Faster checkout"), Some("An 87% cut")), Some(0));
+        assert_eq!(signal(&p99, Some("Faster checkout"), Some("An 87% cut"), "en"), Some(0));
         let tied = ChartData {
             series: vec![answer::Series { name: None, values: [5.0, 5.0, 2.0].map(Some).to_vec() }],
             ..p99.clone()
         };
         // Two bars at 5: the figure picks neither, and the largest is lit as before, the last of them.
-        assert_eq!(signal(&tied, Some("Down to 5 from 5"), None), Some(1));
+        assert_eq!(signal(&tied, Some("Down to 5 from 5"), None, "en"), Some(1));
         // A figure in a category's own name is no figure of the bars.
         let revenue = ChartData {
             categories: quarters,
             series: vec![answer::Series { name: None, values: [9.8, 10.6, 11.9, 3.0, 14.4].map(Some).to_vec() }],
             ..Default::default()
         };
-        assert_eq!(signal(&revenue, Some("Q3 FY26 grew"), None), Some(4));
+        assert_eq!(signal(&revenue, Some("Q3 FY26 grew"), None, "en"), Some(4));
+        // A sentence in the deck's own language lands on its figure as English's "to" does
+        // (dogfood pass 10): the month a loss fell to, never the month it fell from.
+        let months = ["Okt.", "Nov.", "Dez.", "Jan.", "Feb.", "M\u{e4}rz"].map(String::from).to_vec();
+        let loss = ChartData {
+            categories: months,
+            series: vec![answer::Series { name: None, values: [2.4, 1.9, 1.4, 1.0, 0.8, 0.6].map(Some).to_vec() }],
+            ..Default::default()
+        };
+        let pilot = Some("Im Pilot: Verluste um 75 % gesenkt");
+        assert_eq!(signal(&loss, pilot, Some("Von 2,4 % auf 0,6 % in sechs Monaten"), "de"), Some(5));
+        assert_eq!(signal(&loss, None, Some("De 2,4 % \u{e0} 0,6 % en six mois"), "fr"), Some(5));
+        assert_eq!(signal(&loss, None, Some("De 2,4 % a 0,6 % en seis meses"), "es"), Some(5));
+        assert_eq!(signal(&loss, None, Some("Verluste sanken von 2,4 % bis 0,6 %"), "de"), Some(5));
+        // A language's words and its decimal comma are read only in its own deck: in an English
+        // one, "2,4" is no figure the bars hold, and the largest is lit, as before.
+        assert_eq!(signal(&loss, None, Some("Von 2,4 % auf 0,6 %"), "en"), Some(0));
+        assert_eq!(marked("1.200,5 € und 2,4 %", "de"), "1200.5 € und 2.4 %");
+        assert_eq!(marked("1,200.5 and 2.4%", "en"), "1,200.5 and 2.4%");
     }
 
     /// A team by name fills its place: its names grow toward three-quarters of the headline and
