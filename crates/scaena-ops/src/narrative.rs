@@ -2549,6 +2549,10 @@ fn assemble(
             meta["narrative"]["brief"][key] = json!(value);
         }
     }
+    // Its minutes, the slot health paces the talk against (agent dogfood).
+    if let Some(minutes) = brief.minutes {
+        meta["narrative"]["brief"]["minutes"] = json!(minutes);
+    }
     // Its language too, by the name Narrato knows it by, so health, the assistant, and the
     // notes read the deck in it (lift-up 10-25b STAB-2).
     if let Some(language) = brief.language.as_deref().map(str::trim).filter(|l| !l.is_empty()) {

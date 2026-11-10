@@ -1200,3 +1200,37 @@ async fn an_agents_edits_are_its_own_in_a_bundles_history() {
         client.cancel().await.unwrap();
     }
 }
+
+/// `deck_generate`'s `minutes` gives the deck its length where none is given, and the brief keeps
+/// it, the slot health paces the talk against; a length given wins (agent dogfood).
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generate_takes_the_talks_minutes() {
+    let root = scratch("minutes");
+    let client = connect_in(&root).await;
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let six = json!({ "executiveSummary": "Tidewater", "slides": slides["slides"].as_array().unwrap()[..6] });
+    let brief = |dir: &Path| -> Value {
+        let deck: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+        deck["meta"]["narrative"]["brief"].clone()
+    };
+    let ten = root.join("ten");
+    ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
+    let b = brief(&ten);
+    assert_eq!((b["minutes"].clone(), b["length"].clone()), (json!(10), json!("5-10 slides")), "{b:#}");
+    // A length given wins, the minutes kept beside it.
+    let both = root.join("both");
+    ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&both), "slides": six, "minutes": 10, "length": "5-10 slides" }),
+    )
+    .await;
+    assert_eq!(brief(&both)["minutes"], json!(10));
+    // A brief with none keeps none.
+    let none = root.join("none");
+    ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
+    assert!(brief(&none).get("minutes").is_none());
+    client.cancel().await.unwrap();
+}

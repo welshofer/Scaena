@@ -972,9 +972,14 @@ pub struct DeckGenerate {
     /// `Inform`, `Persuade`, `Inspire`, `Sell`, `Educate`, or `Update Status`.
     #[serde(default)]
     pub goal: Option<String>,
-    /// `5-10 slides`, `11-15 slides`, `16-25 slides`, `26-40 slides`, or `41+ slides`.
+    /// `5-10 slides`, `11-15 slides`, `16-25 slides`, `26-40 slides`, or `41+ slides`; from
+    /// `minutes` without it.
     #[serde(default)]
     pub length: Option<String>,
+    /// The minutes the talk is given ("ten minutes" is 10): the length, where none is given, and
+    /// the slot `deck_health` paces the talk against, kept in the brief.
+    #[serde(default)]
+    pub minutes: Option<u32>,
     /// The language the slides are written in, by its English name; English without it.
     #[serde(default)]
     pub language: Option<String>,
@@ -1707,6 +1712,7 @@ impl Scaena {
             audience: a.audience.unwrap_or_default(),
             goal: a.goal.unwrap_or_default(),
             length: a.length.unwrap_or_default(),
+            minutes: a.minutes,
             language: a.language,
             modality: a.modality.as_deref().map(scaena_ops::narrative::modality).transpose()?,
             desired_outcomes: a.desired_outcomes,
