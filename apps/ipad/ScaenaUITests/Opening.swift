@@ -191,6 +191,10 @@ extension XCTestCase {
     /// for fails the test that looks for it.
     @MainActor
     func pressForMenu(_ element: XCUIElement, in app: XCUIApplication) {
+        // The count is there in every build the tests run, debug: without it, every press would be
+        // made twice and no one would see it.
+        let asks = app.descendants(matching: .any).matching(identifier: "canvas-menu-asks").firstMatch
+        XCTAssertTrue(asks.waitForExistence(timeout: 5), "the canvas shows no count of its long presses")
         let before = menuAsks(in: app)
         element.press(forDuration: 1.2)
         guard !wait(3, { self.menuAsks(in: app) > before }) else { return }
