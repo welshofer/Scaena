@@ -1154,6 +1154,13 @@ try {
     const fullDense = await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5000 }).then(() => true, () => false);
     if (fullDense) {
       await page.waitForFunction(() => document.querySelector(".bar").offsetParent === null, null, { timeout: 5000 }).catch(() => {});
+      // Shown at the screen's size as soon as the room is the screen, before the frames painted
+      // for it come: the canvas shown and its frames never change on different frames.
+      const early = await page.waitForFunction(() => {
+        const r = document.querySelector("#stage").getBoundingClientRect();
+        return Math.abs(r.width - 2560) <= 1 && Math.abs(r.height - 1440) <= 1 && [r.width, r.height, document.querySelector("#stage").width];
+      }, null, { timeout: 2000, polling: "raf" }).then((h) => h.jsonValue(), () => null);
+      check(early !== null, `${paints}: shown at the screen's size as soon as the bar has gone, the frames following: ${JSON.stringify(early)}`);
       await page
         .waitForFunction((was) => document.querySelector("#stage").width !== was, windowed.backing[0], { timeout: 60000 })
         .catch(() => {});
