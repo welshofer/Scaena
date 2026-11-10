@@ -8,6 +8,7 @@
 import type { Edited, SlidePlace } from "./protocol";
 import type { Stage } from "./stage";
 import type { Who } from "./writing";
+import { type Key, MOD } from "./commands";
 import { unasked, unwritten } from "./words";
 
 /** What the dialog asks of the editor around it. */
@@ -27,6 +28,11 @@ export interface SlideAskHost {
   /** `state` as a person counts it: `Slide 3`. */
   slide(state: string): string;
 }
+
+/** What the dialog answers (lift-up 20261110 deferred), as the keys sheet lists it. */
+export const slideAskKeys = (): Key[] => [
+  { keys: `${MOD}Enter`, label: "In Write this slide again… or Add a slide about…: write it", group: "Make and write" },
+];
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -138,6 +144,13 @@ export function slideAsker(stage: Stage, host: SlideAskHost) {
   go.addEventListener("click", (e) => {
     e.preventDefault();
     settled = write();
+  });
+  // ⌘Enter (Ctrl+Enter) writes the slide from its field, as the button does while it may be
+  // pressed (lift-up 20261110 deferred).
+  dialog.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
+    e.preventDefault();
+    if (!go.disabled) go.click();
   });
   key.addEventListener("click", () => {
     dialog.close();
