@@ -921,13 +921,15 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         describes,
         drawSelection(),
         highlightActiveLine(),
-        // With nothing left to undo or redo, the source pane says so, as the canvas does: the
-        // history's own keys, each as CodeMirror binds it, running `back`, which answers as the
-        // history's own command does. CodeMirror tries ⌘Z's binding for ⇧⌘Z too, and goes on to
-        // ⇧⌘Z's redo only where that undo took nothing back (editor dogfood 5).
+        // The history's own keys, each as CodeMirror binds it, running `back`, which says what it
+        // did, "Nothing to undo" or "Nothing to redo" among it: each key said once (editor dogfood
+        // 5). CodeMirror tries ⌘Z's binding for ⇧⌘Z first, which declines while Shift is held, so
+        // ⇧⌘Z goes on to the redo and never undoes, nor says it undid nothing.
         keymap.of([
           ...defaultKeymap,
-          ...historyKeymap.map((b) => (b.run === undo ? { ...b, run: () => back() } : b.run === redo ? { ...b, run: () => back(true) } : b)),
+          ...historyKeymap.map((b) =>
+            b.run === undo ? { ...b, run: () => !shifted && (back(), true) } : b.run === redo ? { ...b, run: () => (back(true), true) } : b,
+          ),
           ...findingKeys,
           indentWithTab,
         ]),
@@ -1141,6 +1143,9 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   };
   /** Undo the last step, or with `again` redo the last undone, the canvas showing it at once;
    * with none left, say so, never the step before again (editor dogfood 5). Whether it did. */
+  /** Whether Shift is held with the key pressed now: heard before the source pane's keymap. */
+  let shifted = false;
+  document.addEventListener("keydown", (e) => (shifted = e.shiftKey), { capture: true });
   const back = (again = false): boolean => {
     if ((again ? redo : undo)(view)) {
       forceLinting(view);
