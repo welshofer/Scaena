@@ -1124,11 +1124,33 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     };
     // A turn the next slide's notes open by carrying the slide before it across is bridged: the
     // speaker says what the slides' words do not (narrative dogfood H4).
-    let bridged: Vec<&String> = (m.coherence.weak_transitions.iter())
+    // Where the talk turns, each pair of neighbouring slides by its own words alone (W1's dogfood
+    // 5 and 6): Vzestup reads a turn against the deck's mean overlap and its spread, so an edit
+    // to the close moved them and a turn appeared at slide 3. Read by words, a pair turns where
+    // its slides share no word the overlap counts; the cover's into the first slide is the talk
+    // opening, no turn. A turn at a beat's edge is soft. Embeddings, where every slide has one,
+    // read as Vzestup reads them. Coherence's figure is Vzestup's either way.
+    let turns: Vec<(String, bool)> = match m.coherence.method {
+        health::coherence::Method::Embedding => (m.coherence.breaks.iter())
+            .map(|b| (b.slide_id.clone(), b.severity == health::coherence::Severity::Soft))
+            .collect(),
+        health::coherence::Method::Keyword => {
+            let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
+            (shown.windows(2).zip(&m.coherence.pair_similarities))
+                .filter(|(pair, sim)| pair[0] > 0 && **sim == 0.0)
+                .map(|(pair, _)| {
+                    let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|n| n.beat_index);
+                    let edge = matches!((beat(pair[0]), beat(pair[1])), (Some(a), Some(b)) if a != b);
+                    (read[pair[1]].id.clone(), edge)
+                })
+                .collect()
+        }
+    };
+    let bridged: Vec<&String> = (turns.iter().map(|(id, _)| id))
         .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
         .collect();
-    let hard = m.coherence.breaks.iter().filter(|b| b.severity == health::coherence::Severity::Hard).count();
-    let soft = m.coherence.breaks.len() - hard;
+    let soft = turns.iter().filter(|(_, edge)| *edge).count();
+    let hard = turns.len() - soft;
     // By words alone, neighbouring slides share few even where one follows from the other: no
     // number, only where the talk turns.
     let coherence = Measure {
@@ -1138,10 +1160,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         },
         says: match (hard, soft) {
             (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
+            // Each count said only where it has one, and a turn at a beat's edge as the finding
+            // says it, a new part beginning (the coordinator's read of B1 and fleet).
             _ => format!(
-                "Read by their words: {} where the talk turns sharply, {} at a beat's turn{}.",
-                counted(hard, "slide"),
-                soft,
+                "Read by their words: {}{}.",
+                match (hard, soft) {
+                    (0, soft) => format!("{} where a new part of the talk begins", counted(soft, "slide")),
+                    (hard, 0) => format!("{} where the talk turns sharply", counted(hard, "slide")),
+                    (hard, soft) => format!(
+                        "{} where the talk turns sharply, {soft} where a new part of the talk begins",
+                        counted(hard, "slide")
+                    ),
+                },
                 match bridged.len() {
                     0 => String::new(),
                     n => format!("; the notes bridge {n} of them"),
@@ -1357,20 +1387,43 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
             .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
     };
-    for id in m.coherence.weak_transitions.iter().filter(|id| !bridged.contains(id)) {
+    // The beat a slide opens, by the one name the settled outline gives it, else its own.
+    let beat_named = |i: usize| -> Option<String> {
+        let meta = read[i].narrative_meta.as_ref()?;
+        let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
+            .and_then(Value::as_str);
+        settled.or(meta.beat_name.as_deref()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string)
+    };
+    for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         if i > 0 && agenda(i - 1) {
             continue;
         }
         let (k, before) = (i + 1, i);
-        find(
-            id,
-            Severity::Warning,
-            Kind::Turn,
-            format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-            format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
-            None,
-        );
+        if *edge {
+            // A turn at a beat's edge opens a new part of the talk, no loss (W1's second read of
+            // fleet): information, so a sharp turn inside a beat comes first, with the same ask.
+            let part = beat_named(i).unwrap_or_else(|| "a new part of the talk".to_string());
+            find(
+                id,
+                Severity::Info,
+                Kind::Turn,
+                format!(
+                    "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
+                ),
+                format!("Open slide {k}'s notes with the line that carries the room from slide {before} into {part}."),
+                None,
+            );
+        } else {
+            find(
+                id,
+                Severity::Warning,
+                Kind::Turn,
+                format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
+                format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
+                None,
+            );
+        }
     }
     // A bend judges the intensity a slide was planned at against the arc's curve where it stands,
     // so its plan, or its place, is what moves it, never its words, which the gap below judges
@@ -2636,7 +2689,7 @@ mod tests {
         assert!(!found(&h), "{:#?}", h.findings);
         assert_eq!(opening("Rose 3.5% since then. Later."), "Rose 3.5% since then.");
         assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
-        let h = noted(&mut deck, format!("We turn to what comes next. Later, {carried}."));
+        let h = noted(&mut deck, format!("Plainly onward. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
         if let Some(shared) = shared {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
@@ -3309,6 +3362,68 @@ mod tests {
         };
         let both = says(&of(&dogfood("fleet", idea, joined)));
         assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
+    }
+
+    /// A turn is its own pair's (W1's dogfood 5 and 6): read by words, a pair of slides turns where
+    /// they share no word the overlap counts, so rewriting the close finds no new turn at the
+    /// start, as reading against the deck's mean and spread did. The cover's step into the first
+    /// slide is no turn, and coherence's figure is Vzestup's.
+    #[test]
+    fn a_turn_is_its_own_pairs() {
+        let turned = |h: &Health| -> Vec<usize> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Turn).map(|f| f.slide).collect()
+        };
+        // The pitch's close rewritten to say what the slide before it says: read against the
+        // deck's mean and spread, its turns at slides 5, 6, and 12 went, and one came at 14.
+        let before = of(&dogfood("pitch", "", |_| {}));
+        let closed = |slides: &mut Vec<answer::Slide>| {
+            let n = slides.len();
+            let prev = slides[n - 2].clone();
+            let last = &mut slides[n - 1];
+            last.slide_title = prev.slide_title.clone();
+            last.key_bullets = prev.key_bullets.clone();
+        };
+        let after = of(&dogfood("pitch", "", closed));
+        let far = |t: Vec<usize>| t.into_iter().filter(|&k| k < 14).collect::<Vec<_>>();
+        assert_eq!(far(turned(&before)), [5, 6, 12]);
+        assert_eq!(far(turned(&after)), far(turned(&before)), "an edit to the close turns nothing before it");
+        assert_eq!(after.coherence.score, before.coherence.score, "coherence's figure is Vzestup's");
+        // Every pair that shares no word turns, past the cover, and no other does.
+        let deck: Deck = serde_json::from_value(dogfood("fleet", "", |_| {})).unwrap();
+        let read = readings(&deck, &slides(&deck)).unwrap().0;
+        let sims = scaena_narrato::health::metrics(&read, None).coherence.pair_similarities;
+        let bare: Vec<usize> = (1..sims.len()).filter(|&j| sims[j] == 0.0).map(|j| j + 2).collect();
+        let found = turned(&of(&dogfood("fleet", "", |_| {})));
+        assert!(!bare.is_empty() && bare.iter().all(|k| found.contains(k)), "{bare:?} {found:?}");
+        assert!(!found.contains(&2), "the cover's step into the talk is no turn");
+        // A turn at a beat's edge opens a new part, information named by its beat (W1's second
+        // read of fleet); the sharp turn inside a beat is the warning, so it comes first.
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        let by = |severity: Severity| -> Vec<usize> {
+            (fleet.findings.iter())
+                .filter(|f| f.kind == Kind::Turn && f.severity == severity)
+                .map(|f| f.slide)
+                .collect()
+        };
+        assert_eq!(by(Severity::Warning), [9]);
+        assert_eq!(by(Severity::Info), [3, 4, 5, 8, 10]);
+        let opened = fleet.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == 4).unwrap();
+        assert_eq!(
+            opened.says,
+            "Slide 4 opens Existing Approaches with nothing from slide 3: say the line that carries the room across."
+        );
+        assert_eq!(
+            opened.ask,
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
+        );
+        assert_eq!(fleet.coherence.score, None, "no figure moves");
+        assert_eq!(
+            fleet.coherence.says,
+            "Read by their words: 1 slide where the talk turns sharply, 5 where a new part of the talk begins."
+        );
+        // A count of none is not said.
+        let keynote = of(&dogfood("keynote", "", |_| {}));
+        assert!(!keynote.coherence.says.contains("turns sharply"), "{}", keynote.coherence.says);
     }
 
     /// A headline that names a topic over the line that says its claim is a warning of its own
