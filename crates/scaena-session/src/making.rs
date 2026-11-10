@@ -251,8 +251,11 @@ impl Making {
     pub fn keep(&mut self, tables: &[Table]) -> Result<(), Error> {
         let Some(write) = self.write.take() else { return Ok(()) };
         let (write, kept) = keeping(write, tables).map_err(ops)?;
+        // Each chart that names one of them drawn from it, as the CLI's are (agent dogfood).
+        let (write, unbound) = scaena_ops::narrative::binding(write).map_err(ops)?;
         self.write = Some(write);
         self.kept.extend(kept);
+        self.made.unbound.extend(unbound);
         Ok(())
     }
 

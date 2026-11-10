@@ -1261,3 +1261,117 @@ async fn every_layout_the_description_names_is_taken() {
     assert!(fell[0]["why"].as_str().unwrap().contains("no layout is called that"), "{fell:#?}");
     client.cancel().await.unwrap();
 }
+
+/// A made chart whose slide's `chartData.sourceId` names a data source draws from it (agent
+/// dogfood): `deck_generate`'s `data` attached, the chart reading `@id` by the columns that hold
+/// its categories and its series, several folded, its own rows gone. One the file says otherwise,
+/// or whose categories no column holds, keeps its own rows and is in `unbound` with why; and
+/// `slide_write` binds a slide's chart to a source `data_attach` gave the deck.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chart_that_names_a_data_source_draws_from_it() {
+    let root = scratch("chart-source");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("budget.csv"),
+        "year,budget,visitors\n2022,1.2,180000\n2023,1.4,214000\n2024,1.5,251000\n2025,1.9,296000\n2026,2.3,340000\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let years = json!(["2022", "2023", "2024", "2025", "2026"]);
+    let chart = |series: Value, source: &str| {
+        let mut slide = catalog["slides"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["layoutSuggestion"] == "Line Chart")
+            .unwrap()
+            .clone();
+        slide["chartData"] = json!({ "categories": years, "series": series, "sourceId": source });
+        slide
+    };
+    let deck = |slide: Value| {
+        let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+        slides[2] = slide;
+        json!({ "executiveSummary": "Harbor Trails", "slides": slides })
+    };
+    let read = |dir: &Path| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap()
+    };
+    let charted = |d: &Value| -> Value {
+        d["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap()
+    };
+    let data = json!([{ "id": "trails", "file": "budget.csv" }]);
+    let visitors = json!([{ "name": "Visitors", "values": [180000, 214000, 251000, 296000, 340000] }]);
+    let one = root.join("one");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&one), "slides": deck(chart(visitors.clone(), "budget.csv")), "data": data }),
+    )
+    .await;
+    assert_eq!(made["attached"], json!(["trails"]), "{made:#}");
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let d = read(&one);
+    let node = charted(&d);
+    assert_eq!(
+        (node["data"].clone(), node["x"]["field"].clone(), node["y"]["field"].clone()),
+        (json!("@trails"), json!("year"), json!("visitors"))
+    );
+    assert_eq!(d["data"].as_object().unwrap().keys().collect::<Vec<_>>(), ["trails"], "its own rows go");
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&one) })).await["errors"], json!(0));
+    // Several series, each named for its column, folded.
+    let both = json!([
+        { "name": "Budget", "values": [1.2, 1.4, 1.5, 1.9, 2.3] },
+        { "name": "Visitors", "values": [180000, 214000, 251000, 296000, 340000] },
+    ]);
+    let several = root.join("several");
+    ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&several), "slides": deck(chart(both, "trails")), "data": data }),
+    )
+    .await;
+    let node = charted(&read(&several));
+    assert_eq!(node["data"], json!("@trails"));
+    assert_eq!(
+        node["dataTransform"][0],
+        json!({ "fold": ["budget", "visitors"], "as": ["series", "value"] }),
+        "{node:#}"
+    );
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&several) })).await["errors"], json!(0));
+    // A figure the file says otherwise, and categories no column holds, keep the chart's own rows.
+    let mut off = visitors.clone();
+    off[0]["values"][4] = json!(350000);
+    let wrong = root.join("wrong");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&wrong), "slides": deck(chart(off, "trails")), "data": data }),
+    )
+    .await;
+    let why = made["unbound"][0]["why"].as_str().unwrap();
+    assert!(why.contains("350000") && why.contains("340000"), "{why}");
+    assert_ne!(charted(&read(&wrong))["data"], json!("@trails"));
+    let mut quarters = chart(visitors.clone(), "trails");
+    quarters["chartData"]["categories"] = json!(["Q1", "Q2", "Q3", "Q4", "Q5"]);
+    let elsewhere = root.join("elsewhere");
+    let made =
+        ok(&client, "deck_generate", json!({ "bundle": path(&elsewhere), "slides": deck(quarters), "data": data }))
+            .await;
+    assert!(made["unbound"][0]["why"].as_str().unwrap().contains("holds the slide's categories"), "{made:#}");
+    // slide_write binds to a source data_attach gave the deck.
+    let plain = root.join("plain");
+    ok(&client, "deck_generate", json!({ "bundle": path(&plain), "slides": deck(catalog["slides"][1].clone()) })).await;
+    ok(&client, "data_attach", json!({ "bundle": path(&plain), "id": "trails", "file": "budget.csv" })).await;
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors, "trails") })).await;
+    assert!(w.get("unbound").is_none(), "{w:#}");
+    let d = read(&plain);
+    assert!(
+        d["nodes"].as_object().unwrap().values().any(|n| n["type"] == "chart" && n["data"] == "@trails"),
+        "{:#}",
+        d["nodes"]
+    );
+    client.cancel().await.unwrap();
+}

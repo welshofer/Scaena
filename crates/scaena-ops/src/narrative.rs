@@ -39,6 +39,7 @@ use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+mod binding;
 mod one;
 pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
 mod notes;
@@ -50,6 +51,7 @@ pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
     scaena_narrato::answer::one(raw).map_err(OpsError::new)
 }
 mod quoting;
+pub use binding::Unbound;
 pub use notes::{noted, speaking};
 
 /// The canvas a made deck draws on.
@@ -174,6 +176,12 @@ pub struct Generated {
     /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<Fell>,
+    /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attached: Vec<String>,
+    /// Each chart that names a data source and was not drawn from it, and why (agent dogfood).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unbound: Vec<Unbound>,
     pub fixed: Vec<Finding>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fitted: Vec<String>,
@@ -697,6 +705,119 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
     Ok((write, kept))
 }
 
+/// `write`, a deck not yet written, with each made chart whose beat names the source its slide
+/// was written from (`media.narrato.chartSource`) drawn from the data source of that name the
+/// deck holds (agent dogfood): the chart's own rows dropped where nothing else reads them. Each
+/// chart that names a source and is not bound, and why, is in what comes back; one that names
+/// none is drawn from its own rows, as before, and not said. A deck with no data source but its
+/// charts' own is left as it is.
+pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
+    let mut doc = write.deck.to_value().context("the deck")?;
+    let slides = write.deck.slides();
+    let deck = &write.deck;
+    // The sources a chart may be bound to: those no made chart's own rows are.
+    let owned: Vec<String> = (doc["nodes"].as_object().into_iter().flat_map(|n| n.values()))
+        .filter(|n| n["type"] == "chart")
+        .filter_map(|n| n["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string))
+        .filter(|id| {
+            deck.data
+                .get(id)
+                .is_some_and(|decl| serde_json::to_value(decl).is_ok_and(|v| v["source"].get("inline").is_some()))
+        })
+        .collect();
+    if deck.data.keys().all(|id| owned.contains(id)) {
+        return Ok((write, Vec::new()));
+    }
+    let named_of = |state: &str| {
+        let media = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
+            .find(|b| b.states.iter().any(|s| s == state))
+            .and_then(|b| serde_json::to_value(&b.media).ok())?;
+        let named = media.pointer("/narrato/chartSource").and_then(Value::as_str)?.to_string();
+        let series: Vec<String> = (media.pointer("/narrato/chartSeries").and_then(Value::as_array).into_iter())
+            .flatten()
+            .map(|n| n.as_str().unwrap_or_default().to_string())
+            .collect();
+        Some((named, series))
+    };
+    let mut unbound = Vec::new();
+    let mut dropped = Vec::new();
+    for (i, states) in slides.iter().enumerate() {
+        let Some(first) = states.first() else { continue };
+        let state = &deck.states[*first];
+        let Some((named, series)) = named_of(&state.id) else { continue };
+        let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
+            continue;
+        };
+        let mut node = doc["nodes"][&node_id].clone();
+        let Some(own) = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string) else { continue };
+        if !owned.contains(&own) {
+            continue;
+        }
+        let Some(mut chart) = charted_from(&doc, &own) else { continue };
+        // One series' own rows carry no name: the slide's gives it.
+        if let ([one], [name]) = (chart.series.as_mut_slice(), series.as_slice())
+            && one.name.is_none()
+            && !name.is_empty()
+        {
+            one.name = Some(name.clone());
+        }
+        let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+            let ids: Vec<&str> = deck.data.keys().filter(|id| !owned.contains(id)).map(String::as_str).collect();
+            unbound.push(Unbound {
+                slide: i + 1,
+                source: named,
+                why: format!("no data source of the deck is called that; it holds {}", ids.join(", ")),
+            });
+            continue;
+        };
+        match binding::bind(&mut node, &chart, deck, &write.files, &id) {
+            Ok(()) => {
+                doc["nodes"][&node_id] = node;
+                dropped.push(own);
+            }
+            Err(why) => unbound.push(Unbound { slide: i + 1, source: named, why }),
+        }
+    }
+    // A chart's own rows, drawn by nothing now, go.
+    let text = doc["nodes"].to_string();
+    for own in dropped {
+        if !text.contains(&format!("\"@{own}\"")) {
+            doc["data"].as_object_mut().map(|d| d.remove(&own));
+        }
+    }
+    write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
+    Ok((write, unbound))
+}
+
+/// The chart a made chart's own rows (`source()`'s) draw: its categories in order, and a series
+/// for each, by its name.
+fn charted_from(doc: &Value, own: &str) -> Option<ChartData> {
+    let rows = doc["data"][own]["source"]["inline"].as_array()?;
+    let mut categories: Vec<String> = Vec::new();
+    let mut names: Vec<Option<String>> = Vec::new();
+    for row in rows {
+        let c = row["category"].as_str().map(str::to_string).unwrap_or_else(|| row["category"].to_string());
+        if !categories.contains(&c) {
+            categories.push(c);
+        }
+        let n = row["series"].as_str().map(str::to_string);
+        if !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    let mut series: Vec<scaena_narrato::Series> = names
+        .iter()
+        .map(|n| scaena_narrato::Series { name: n.clone(), values: vec![None; categories.len()] })
+        .collect();
+    for row in rows {
+        let c = row["category"].as_str().map(str::to_string).unwrap_or_else(|| row["category"].to_string());
+        let k = categories.iter().position(|x| *x == c)?;
+        let s = names.iter().position(|n| *n == row["series"].as_str().map(str::to_string))?;
+        series[s].values[k] = row["value"].as_f64();
+    }
+    Some(ChartData { categories, series, unit: None, source_id: None })
+}
+
 /// The bundle `write` makes, before it is written: its deck, and the files beside it.
 fn unwritten(write: &Write) -> crate::Bundle {
     let theme_json = match &write.deck.theme {
@@ -986,6 +1107,7 @@ pub fn from_slides(
     brief: Brief,
     arc: Option<&str>,
     outline: Option<&Outline>,
+    data: &[(Attach, Vec<u8>)],
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
@@ -1040,7 +1162,26 @@ pub fn from_slides(
         &mut never,
         &mut |_| {},
     )?;
-    if let Some(write) = write {
+    let mut made = made;
+    if let Some(mut write) = write {
+        // Each data file given, attached as `data_attach` attaches one; then each chart that
+        // names one drawn from it (agent dogfood).
+        for (req, bytes) in data {
+            let (attached, w) = attaching(&unwritten(&write), req, bytes.clone())?;
+            match w.filter(|_| attached.attached) {
+                Some(w) => {
+                    write.deck = w.deck;
+                    write.files.extend(w.files);
+                    made.attached.push(attached.id);
+                }
+                None => {
+                    let why = attached.added.first().map_or("it would not validate".into(), |f| f.message.clone());
+                    return Err(OpsError::new(format!("the data file `{}`: {why}", req.id)));
+                }
+            }
+        }
+        let (write, unbound) = binding(write)?;
+        made.unbound = unbound;
         crate::create::make(dir, write)?;
     }
     Ok(made)
@@ -2127,6 +2268,8 @@ pub fn making(
         fallback: None,
         layouts: made.layouts,
         fell: made.fell,
+        attached: Vec::new(),
+        unbound: Vec::new(),
         fixed: Vec::new(),
         fitted: Vec::new(),
         unfitted: None,
@@ -2860,6 +3003,14 @@ fn media(slide: &Slide) -> Value {
     put("fact", slide.supporting_facts.as_ref().filter(|v| !v.is_empty()).map(|v| json!(v)));
     // The subtitle, kept where no place of the slide's layout sets it (dogfood: 15 of 32 did not).
     put("subtitle", Some(&slide.subtitle).filter(|v| !v.is_empty()).map(|v| json!(v)));
+    // The source its chart names, which binds the chart to the data source of that name the deck
+    // is given (agent dogfood, [`binding`]).
+    let named = slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()).map(str::trim);
+    put("chartSource", named.filter(|v| !v.is_empty()).map(|v| json!(v)));
+    // And its series' names, which pick the source's columns ([`binding`]).
+    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty())))
+        .map(|c| c.series.iter().map(|s| s.name.clone().unwrap_or_default()).collect::<Vec<_>>());
+    put("chartSeries", series.map(|names| json!(names)));
     Value::Object(m)
 }
 

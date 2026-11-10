@@ -924,7 +924,10 @@ pub struct SlideWrite {
     pub bundle: String,
     /// One slide, as Narrato writes each of `deck_generate`'s `slides`: `slideTitle`, `subtitle`,
     /// `layoutSuggestion`, `keyBullets`, `speakerNotes`, and `chartData`, `icons`, `beatName`,
-    /// `purpose`, `intent`, `expectedIntensity`, and `expectedValence` where it has them.
+    /// `purpose`, `intent`, `expectedIntensity`, and `expectedValence` where it has them. A
+    /// `chartData.sourceId` that names one of the deck's data sources (`data_attach`), by its id
+    /// or its file's name, draws the chart from it where the file holds the slide's categories and
+    /// figures; else the chart keeps its own rows, and `unbound` says why.
     pub slide: Map<String, Value>,
     /// The slide goes after the slide that holds this state.
     #[serde(default)]
@@ -1005,6 +1008,12 @@ pub struct DeckGenerate {
     /// Keep a history, as `deck_create` does: on unless `false`.
     #[serde(default = "yes")]
     pub history: bool,
+    /// Data files to attach, as `data_attach` attaches them, each as a source by its `id`: a
+    /// slide whose `chartData.sourceId` names one, by its id or its file's name, draws its chart
+    /// from it where the file holds the slide's categories and figures, and the result's
+    /// `unbound` says why of each that does not.
+    #[serde(default)]
+    pub data: Vec<scaena_ops::create::Attach>,
 }
 
 /// An outline written beside the slides (lift-up 10-25c FUNC-1).
@@ -1089,6 +1098,13 @@ pub struct DeckGenerated {
     /// from 1, what it asked, the layout it took, and why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<scaena_ops::narrative::Fell>,
+    /// Each data file given, attached as a source by its id.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attached: Vec<String>,
+    /// Each chart that names a data source and was not drawn from it: the slide, the source it
+    /// named, and why it kept its own rows.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unbound: Vec<scaena_ops::narrative::Unbound>,
     /// The findings whose fixes were applied, each checked by laying its state out again.
     pub fixed: Vec<Finding>,
 }
@@ -1730,8 +1746,20 @@ impl Scaena {
         // deck_create reads one.
         let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
         let (theme, within) = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
+        // Each data file is held as `deck_create` holds one (lift-up 20261025b SEC-1).
+        let mut data = a.data;
+        for d in &mut data {
+            d.file = self.readable(&d.file, &a.bundle).map_err(failure)?;
+        }
         blocking(move || {
             let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
+            let data = (data.into_iter())
+                .map(|d| {
+                    let bytes = std::fs::read(&d.file)
+                        .map_err(|e| OpsError::new(format!("reading {}: {e}", d.file.display())))?;
+                    Ok((d, bytes))
+                })
+                .collect::<Result<Vec<_>, OpsError>>()?;
             let made = scaena_ops::narrative::from_slides(
                 &bundle,
                 theme,
@@ -1739,6 +1767,7 @@ impl Scaena {
                 brief,
                 a.arc.as_deref(),
                 outline.as_ref(),
+                &data,
             )?;
             if made.created.created && a.history {
                 scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;
@@ -1749,6 +1778,8 @@ impl Scaena {
                 fallback: made.fallback,
                 layouts: made.layouts,
                 fell: made.fell,
+                attached: made.attached,
+                unbound: made.unbound,
                 fixed: made.fixed,
             })
         })

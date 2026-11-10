@@ -35,6 +35,26 @@
         },
         "additionalProperties": false,
         "required": ["claim"]
+      },
+      "Attach": {
+        "description": "A data file to attach: copied into the bundle's `data/`, declared as a source.",
+        "type": "object",
+        "properties": {
+          "id": { "description": "The source's id, which charts and tables name as `@id`.", "type": "string" },
+          "file": { "description": "The CSV or JSON file (an array of objects) to copy in.", "type": "string" },
+          "schema": {
+            "description": "Each column's type: `number`, `string`, `date`, or `boolean`. Without it, each is\ntyped as narrowly as all its values allow, a date in ISO 8601.",
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "string" }
+          },
+          "parse": {
+            "description": "A date column's format, for dates not in ISO 8601 (`docs/spec/format.md`).",
+            "type": ["object", "null"],
+            "additionalProperties": { "type": "string" }
+          }
+        },
+        "additionalProperties": false,
+        "required": ["id", "file"]
       }
     },
     "type": "object",
@@ -111,6 +131,12 @@
         "description": "Keep a history, as `deck_create` does: on unless `false`.",
         "type": "boolean",
         "default": true
+      },
+      "data": {
+        "description": "Data files to attach, as `data_attach` attaches them, each as a source by its `id`: a\nslide whose `chartData.sourceId` names one, by its id or its file's name, draws its chart\nfrom it where the file holds the slide's categories and figures, and the result's\n`unbound` says why of each that does not.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Attach" },
+        "default": []
       }
     },
     "additionalProperties": false,
@@ -181,9 +207,19 @@
           "why": { "type": "string" }
         },
         "required": ["slide", "asked", "layout", "why"]
+      },
+      "Unbound": {
+        "description": "A chart that names a data source and was not bound to it, and why (agent dogfood): the slide,\nby its number from 1, the source it named, and what kept it on its own rows.",
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer", "minimum": 0 },
+          "source": { "type": "string" },
+          "why": { "type": "string" }
+        },
+        "required": ["slide", "source", "why"]
       }
     },
-    "required": ["created", "arc", "layouts", "fell", "fixed"],
+    "required": ["created", "arc", "layouts", "fell", "attached", "unbound", "fixed"],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -197,6 +233,16 @@
         "description": "Each slide whose `layoutSuggestion` could not be taken as asked: the slide, by its number\nfrom 1, what it asked, the layout it took, and why.",
         "type": "array",
         "items": { "$ref": "#/$defs/Fell" }
+      },
+      "attached": {
+        "description": "Each data file given, attached as a source by its id.",
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "unbound": {
+        "description": "Each chart that names a data source and was not drawn from it: the slide, the source it\nnamed, and why it kept its own rows.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Unbound" }
       },
       "fixed": {
         "description": "The findings whose fixes were applied, each checked by laying its state out again.",

@@ -1015,13 +1015,15 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let mut sheets = Vec::new();
     if let Some(write) = write {
         // Each sheet given, a data source of the deck's, which a chart can plot.
+        // Each chart that names one of them drawn from it (agent dogfood).
         let written = scaena_ops::narrative::keeping(write, &scaena_sources::tables(&read))
+            .and_then(|(write, sheets)| scaena_ops::narrative::binding(write).map(|(w, unbound)| (w, sheets, unbound)))
             .map_err(|e| kept.resumable(e.into(), &a, dir))
-            .and_then(|(write, sheets)| {
+            .and_then(|(write, sheets, unbound)| {
                 scaena_ops::create::make(dir, write).map_err(|e| kept.resumable(e.into(), &a, dir))?;
-                Ok(sheets)
+                Ok((sheets, unbound))
             })?;
-        sheets = written;
+        (sheets, made.unbound) = written;
         kept.remove();
     }
     let resume = kept.resume(&a, dir);
@@ -1081,6 +1083,12 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         for why in &made.unpictured {
             println!("  picture not made: {why}");
+        }
+        for f in &made.fell {
+            println!("  slide {}: \u{201c}{}\u{201d} set as {}: {}", f.slide, f.asked, f.layout, f.why);
+        }
+        for u in &made.unbound {
+            println!("  slide {}: its chart keeps its own rows, not {}'s: {}", u.slide, u.source, u.why);
         }
         if let Some(why) = &unresearched {
             println!("  {why}");
