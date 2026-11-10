@@ -3187,9 +3187,9 @@ fn numeric(text: &str) -> bool {
 
 /// What a big number means, said apart from it: the detail of a figure that leads its item
 /// ("1.55\u{b0}C: above pre-industrial"), else the second item, as Scaena's slot shapes ask.
-fn meaning(items: &[Item]) -> Option<String> {
+fn meaning(items: &[Item], lang: &str) -> Option<String> {
     match items.first() {
-        Some(first) if first.figure_first() && !first.detail.is_empty() => Some(sentence(&first.detail)),
+        Some(first) if first.figure_first() && !first.detail.is_empty() => Some(sentence_as(&first.detail, lang)),
         _ => items.get(1).map(|i| i.whole.clone()),
     }
 }
@@ -3276,7 +3276,7 @@ fn layout_for(
         "risk-matrix" => "quadrants",
         "quadrant" => "quadrants",
         // A system's parts in tiers, each joined to what it calls (dogfood pass 7).
-        "architecture" if tiers(items).is_some() => "architecture",
+        "architecture" if tiers(items, "en").is_some() => "architecture",
         // A decision put to the room: its items the brief's parts, else what they are. With no
         // bottom line (`supportingFacts`), its band under the headline would stand empty: its four
         // parts go on four cards, each titled by its label (dogfood 8a F2).
@@ -3580,18 +3580,18 @@ struct Tiers {
 /// store, the three before it services, and those before them clients, each named by its label
 /// ("Pricing service: one call per line item" → "Pricing service"). None for fewer than two parts,
 /// or more than the layout has places for.
-fn tiers(items: &[Item]) -> Option<Tiers> {
+fn tiers(items: &[Item], lang: &str) -> Option<Tiers> {
     let tier = |label: &str| match label.trim().to_lowercase().as_str() {
         "client" | "clients" | "frontend" | "front end" | "edge" | "user" | "users" => Some(0),
         "service" | "services" | "backend" | "back end" | "api" | "server" => Some(1),
         "data" | "database" | "store" | "storage" | "data store" => Some(2),
         _ => None,
     };
-    let name = |i: &Item| sentence(i.label.as_deref().unwrap_or(&i.whole));
+    let name = |i: &Item| sentence_as(i.label.as_deref().unwrap_or(&i.whole), lang);
     let mut out = Tiers::default();
     if items.iter().all(|i| i.label.as_deref().and_then(tier).is_some()) {
         for i in items {
-            let part = sentence(&i.detail);
+            let part = sentence_as(&i.detail, lang);
             match i.label.as_deref().and_then(tier) {
                 Some(0) => out.clients.push(part),
                 Some(1) => out.services.push(part),
@@ -3941,6 +3941,16 @@ fn sentence(text: &str) -> String {
     }
 }
 
+/// [`sentence`], but in German (`lang` `de`), whose capitals are its grammar: a label or a
+/// lead-in its writer began in lower case ("der Eilbestellungen", "bis ein Fehlbestand auffällt")
+/// is kept as written (dogfood pass 10).
+fn sentence_as(text: &str, lang: &str) -> String {
+    match lang.split('-').next() {
+        Some("de") => text.to_string(),
+        _ => sentence(text),
+    }
+}
+
 /// Whether `word` is an identifier, not a word of a sentence: it holds an underscore, a dot
 /// inside it, a bracket, a backtick, or a digit ("snake_case", "pricing.GetMany", "p99", "k8s").
 fn identifier(word: &str) -> bool {
@@ -4254,7 +4264,7 @@ fn versus(text: &str) -> Vec<String> {
 /// says what it counts after it, what it counts goes to the criterion, so that both sides read
 /// as figures: "Extreme heat: 14% of people exposed, versus 37%" → "Extreme heat: people
 /// exposed", "14%", "37%".
-fn row(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
+fn row(item: &Item, lang: &str) -> (Option<String>, Option<String>, Option<String>) {
     let sides = versus(&item.detail);
     let (mut left, mut right) = (sides.first().cloned(), sides.get(1).cloned());
     let mut criterion = item.label.clone();
@@ -4279,11 +4289,11 @@ fn row(item: &Item) -> (Option<String>, Option<String>, Option<String>) {
             }
             criterion = Some(match criterion {
                 Some(c) => format!("{c}: {counts}"),
-                None => sentence(&counts),
+                None => sentence_as(&counts, lang),
             });
         }
     }
-    (criterion, left.map(|s| sentence(&s)), right.map(|s| sentence(&s)))
+    (criterion, left.map(|s| sentence_as(&s, lang)), right.map(|s| sentence_as(&s, lang)))
 }
 
 /// The latest figure a chart plots, in its unit and the deck's language (`lang`): its first
@@ -4343,6 +4353,12 @@ fn after_figure(text: &str) -> Option<String> {
 }
 
 impl Slots<'_> {
+    /// [`sentence`] in the deck's language: German's case is its grammar, so a card's label or
+    /// a lead-in its writer began in lower case stays so there (dogfood pass 10).
+    fn sentence(&self, text: &str) -> String {
+        sentence_as(text, self.lang)
+    }
+
     fn title(&self) -> Option<String> {
         Some(self.slide.slide_title.clone()).filter(|t| !t.is_empty())
     }
@@ -4453,7 +4469,7 @@ impl Slots<'_> {
     /// else ("$46", "400", "18%"), so that its rows compare figures (dogfood pass 9).
     fn compares_figures(&self) -> bool {
         let only = |cell: Option<String>| cell.is_some_and(|c| figure(&c).is_some_and(|f| f == c.trim()));
-        let rows: Vec<_> = self.items.iter().skip(1).map(row).collect();
+        let rows: Vec<_> = self.items.iter().skip(1).map(|i| row(i, self.lang)).collect();
         !rows.is_empty() && rows.into_iter().all(|(_, left, right)| only(left) && only(right))
     }
 
@@ -4670,7 +4686,7 @@ impl Slots<'_> {
                 // What the item's figure and name places leave of it, as a text place takes it.
                 let role = slot.role.as_deref().unwrap_or_default();
                 let rest = self.part(k, item, "", role).unwrap_or_else(|| item.detail.clone());
-                let points: Vec<String> = listed(&rest).iter().map(|p| sentence(p)).collect();
+                let points: Vec<String> = listed(&rest).iter().map(|p| self.sentence(p)).collect();
                 // One point is words, not a list of one.
                 return Some(match <[String; 1]>::try_from(points) {
                     Ok([one]) => Fill::Text(one),
@@ -4768,7 +4784,7 @@ impl Slots<'_> {
         let shape = matches!(slot.prompt, Some(Prompt::Shape(_)));
         match self.layout {
             "architecture" => {
-                let tiers = tiers(self.items)?;
+                let tiers = tiers(self.items, self.lang)?;
                 let nth =
                     |of: &[String], o: &str| ORDINALS.iter().position(|x| *x == o).and_then(|k| of.get(k).cloned());
                 let in_tier = |rest: &str| {
@@ -4837,7 +4853,7 @@ impl Slots<'_> {
                         None => self.prompted(slot),
                     })),
                     (_, Some((k, ""))) => Some(self.item(k).map(|i| match &i.label {
-                        Some(_) => Fill::Text(sentence(&i.detail)),
+                        Some(_) => Fill::Text(self.sentence(&i.detail)),
                         None => Fill::Text(i.whole.clone()),
                     })),
                     _ => None,
@@ -4854,7 +4870,7 @@ impl Slots<'_> {
                 // the legend beside the matrix, in that order.
                 (_, Some((_, ""))) => Some(None),
                 ("takeaway", _) => {
-                    Some(Some(Fill::List(self.items.iter().map(|i| sentence(&i.detail)).collect(), "number")))
+                    Some(Some(Fill::List(self.items.iter().map(|i| self.sentence(&i.detail)).collect(), "number")))
                 }
                 _ if name.starts_with("likely-") || name.starts_with("impact-") => Some(Some(self.prompted(slot))),
                 _ => None,
@@ -4884,8 +4900,8 @@ impl Slots<'_> {
         match part {
             "title" if figure_role(role) && dated => item.label.clone().or_else(|| figure(&item.whole)),
             "title" if figure_role(role) => item.figure().or_else(|| item.label.clone()),
-            "title" if item.figure_first() && !sibling("") => Some(sentence(&item.detail)),
-            "title" | "item" | "task" if item.figure_first() && figure_apart => item.name().map(|n| sentence(&n)),
+            "title" if item.figure_first() && !sibling("") => Some(self.sentence(&item.detail)),
+            "title" | "item" | "task" if item.figure_first() && figure_apart => item.name().map(|n| self.sentence(&n)),
             // Its figure shown nowhere else: the figure titles it, its words under it.
             "title" | "item" | "task" if item.figure_first() => item.label.clone(),
             "title" | "item" | "task" => item.name(),
@@ -4896,18 +4912,18 @@ impl Slots<'_> {
             "note" => said(item).1,
             "" => Some(match (&item.label, figure_apart, name_apart) {
                 // "$4.1M: Q3 revenue, up 12%" with its figure and its name apart: "Up 12%".
-                (Some(_), true, true) if item.figure_first() => sentence(&change(&item.detail).1),
-                (Some(_), true, _) if item.figure_first() => sentence(&item.detail),
+                (Some(_), true, true) if item.figure_first() => self.sentence(&change(&item.detail).1),
+                (Some(_), true, _) if item.figure_first() => self.sentence(&item.detail),
                 // "Leads: 1,200, 28% go on" with its figure apart: "28% go on".
                 // "Leads: 2,400 a month from inbound" with its figure apart: "A month from inbound".
                 (Some(_), true, true) => {
-                    sentence(&after_figure(&item.detail).unwrap_or_else(|| without_figure(&item.detail)))
+                    self.sentence(&after_figure(&item.detail).unwrap_or_else(|| without_figure(&item.detail)))
                 }
-                (Some(_), _, true) => sentence(&item.detail),
+                (Some(_), _, true) => self.sentence(&item.detail),
                 // Its figure apart, its name here: "Houston: 41% of volume" → "Houston";
                 // "Revenue: $4.1M, up 12%" → "Revenue, up 12%".
                 // A timeline's moment under its date: "Jan 2025: Permit denied" → "Permit denied".
-                (Some(_), true, false) if dated => sentence(&item.detail),
+                (Some(_), true, false) if dated => self.sentence(&item.detail),
                 (Some(label), true, false) => match after_figure(&item.detail) {
                     Some(rest) if !rest.is_empty() => format!("{label}, {rest}"),
                     _ => label.clone(),
@@ -4943,7 +4959,9 @@ impl Slots<'_> {
             ("two-figures", "note", _) => text(self.subtitle().or_else(|| {
                 (self.slide.chart_data.as_ref()).and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s))
             })),
-            ("big-number" | "number-photo", "claim", _) => text(meaning(self.items).or_else(|| self.title())),
+            ("big-number" | "number-photo", "claim", _) => {
+                text(meaning(self.items, self.lang).or_else(|| self.title()))
+            }
             ("big-number" | "number-photo", "under", _) => text(self.fact().or_else(|| {
                 self.item(0)
                     .filter(|i| i.figure_first() && !i.detail.is_empty())
@@ -4962,7 +4980,7 @@ impl Slots<'_> {
             // and when, from the chart's own data: "without power in 2026".
             ("line-chart", "note", _) => {
                 let item = self.item(0);
-                let said = item.map(|i| if i.figure_first() { sentence(&i.detail) } else { i.whole.clone() });
+                let said = item.map(|i| if i.figure_first() { self.sentence(&i.detail) } else { i.whole.clone() });
                 let takeaway = match said {
                     Some(t) if self.title().is_some_and(|h| restates(&h, &t)) => {
                         // The latest figure is the callout's only where no takeaway leads with its own.
@@ -4993,7 +5011,7 @@ impl Slots<'_> {
                 text(sides.get(usize::from(name == "second-title")).cloned().filter(|_| sides.len() == 2))
             }
             ("head-to-head", _, Some((k, part))) => {
-                let (criterion, left, right) = row(self.item(k + 1)?);
+                let (criterion, left, right) = row(self.item(k + 1)?, self.lang);
                 match part {
                     "criterion" => text(criterion),
                     "left" => text(left),
@@ -5004,7 +5022,7 @@ impl Slots<'_> {
             // "Strengths: a; b" — each a quadrant's list; a roadmap's phase likewise.
             ("swot" | "roadmap", _, Some((k, ""))) => {
                 let item = self.item(k)?;
-                let points = listed(&item.detail).iter().map(|p| sentence(p)).collect();
+                let points = listed(&item.detail).iter().map(|p| self.sentence(p)).collect();
                 Some(Some(Fill::List(points, list_kind.unwrap_or("bullet"))))
             }
             // "Pro: …" on one side, "Con: …" on the other.
@@ -5049,7 +5067,7 @@ impl Slots<'_> {
                     "" => {
                         let detail = item.label.as_ref().map(|_| item.detail.clone()).filter(|d| !d.is_empty());
                         match (role, detail) {
-                            (Some(r), Some(d)) => Some(format!("{r} \u{b7} {}", sentence(&d))),
+                            (Some(r), Some(d)) => Some(format!("{r} \u{b7} {}", self.sentence(&d))),
                             (r, d) => r.or(d),
                         }
                     }
@@ -5099,7 +5117,7 @@ impl Slots<'_> {
                 let item = self.item(k)?;
                 let p: Vec<String> = item.detail.split(" / ").map(|s| s.trim().to_string()).collect();
                 let at = ["does", "thinks", "feels"].iter().position(|l| *l == lane)?;
-                text(p.get(at).filter(|s| !s.is_empty()).map(|s| sentence(s)))
+                text(p.get(at).filter(|s| !s.is_empty()).map(|s| self.sentence(s)))
             }
             // "key result: target", the objective the header.
             ("okrs", _, Some((k, part))) => {
@@ -5116,7 +5134,7 @@ impl Slots<'_> {
                 let status = item.label.as_deref().filter(|l| l.split_whitespace().count() <= 2);
                 text(match part {
                     "state" => status.map(str::to_string),
-                    "" => Some(if status.is_some() { sentence(&item.detail) } else { item.whole.clone() }),
+                    "" => Some(if status.is_some() { self.sentence(&item.detail) } else { item.whole.clone() }),
                     _ => None,
                 })
             }
@@ -5137,8 +5155,8 @@ impl Slots<'_> {
                 };
                 let (needs, method): (Vec<String>, Vec<String>) = if self.items.iter().any(needed) {
                     (
-                        self.items.iter().filter(|i| needed(i)).map(|i| sentence(&i.detail)).collect(),
-                        self.items.iter().filter(|i| !needed(i)).map(|i| sentence(&i.detail)).collect(),
+                        self.items.iter().filter(|i| needed(i)).map(|i| self.sentence(&i.detail)).collect(),
+                        self.items.iter().filter(|i| !needed(i)).map(|i| self.sentence(&i.detail)).collect(),
                     )
                 } else {
                     let half = self.items.len().div_ceil(2);
@@ -5213,7 +5231,7 @@ impl Slots<'_> {
             let (a, b): (Vec<&Item>, Vec<&Item>) = self.items.iter().partition(|i| is_pro(i));
             // A side's points written on one line, "a; b; c", are each a point.
             let details =
-                |side: Vec<&Item>| side.iter().flat_map(|i| listed(&i.detail)).map(|p| sentence(&p)).collect();
+                |side: Vec<&Item>| side.iter().flat_map(|i| listed(&i.detail)).map(|p| self.sentence(&p)).collect();
             return (details(a), details(b));
         }
         let half = self.items.len().div_ceil(2);
@@ -8592,6 +8610,19 @@ mod tests {
             );
             assert_ne!(layout, "decision-brief", "{name}");
         }
+        // German keeps the case its writer chose (dogfood pass 10): a label that runs on from its
+        // figure stays in lower case, as its grammar asks; English capitalizes it, as before.
+        let costs = serde_json::json!({ "slideTitle": "Was das kostet", "layoutSuggestion": "Scorecard",
+            "keyBullets": ["192.000 \u{20ac}: Verlust pro Jahr", "11 Tage: bis ein Fehlbestand auff\u{e4}llt",
+                "34 %: der Eilbestellungen wegen falscher Best\u{e4}nde"] });
+        let said_in = |lang: &str| made(costs.clone(), lang).1;
+        let german = said_in("de");
+        assert!(german.iter().any(|(_, w)| w == "bis ein Fehlbestand auff\u{e4}llt"), "{german:#?}");
+        assert!(german.iter().any(|(_, w)| w == "der Eilbestellungen wegen falscher Best\u{e4}nde"), "{german:#?}");
+        let english = said_in("en");
+        assert!(english.iter().any(|(_, w)| w == "Bis ein Fehlbestand auff\u{e4}llt"), "{english:#?}");
+        assert_eq!(sentence_as("der Eilbestellungen", "de-AT"), "der Eilbestellungen");
+        assert_eq!(sentence_as("cuts emissions 80%", "fr"), "Cuts emissions 80%");
         // A quiz: one question, its answers under their letters.
         let (layout, said) = made(
             serde_json::json!({ "slideTitle": "Which is a root cause?", "layoutSuggestion": "Quiz",
