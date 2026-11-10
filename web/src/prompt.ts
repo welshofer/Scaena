@@ -7,8 +7,14 @@ import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
 import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Paid, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
+import { type Key, MOD } from "./commands";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
+
+/** What the dialog answers (lift-up 20261110 deferred), as the keys sheet lists it. */
+export const promptKeys = (): Key[] => [
+  { keys: `${MOD}Enter`, label: "In From a prompt…: generate the deck, from any field", group: "The editor" },
+];
 
 /** How far the deck has come, in words, as `scaena generate` says it. */
 export function said(event: GeneratingEvent): string {
@@ -163,7 +169,7 @@ export function prompting(
   const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
   const outcome = $<HTMLInputElement>("#prompting-outcome");
-  const language = $<HTMLInputElement>("#prompting-language");
+  const language = $<HTMLSelectElement>("#prompting-language");
   const voice = $<HTMLInputElement>("#prompting-voice");
   const persona = $<HTMLSelectElement>("#prompting-persona");
   const see = $<HTMLInputElement>("#prompting-see");
@@ -456,6 +462,9 @@ export function prompting(
     // A persona chosen where the audience is in the person's own words; by default the one the
     // audience names (lift-up FUNC-5).
     options(persona, [["", "As the audience suggests"], ...choices.personas.map((p): [string, string] => [p.id, p.name])], "");
+    // A language Scaena sets, never free text a deck's tag and its health cannot read
+    // (lift-up 10-25b STAB-2).
+    options(language, choices.languages.map((l): [string, string] => [l, l]), "English");
     audience.placeholder = choices.defaults.audience;
     $<HTMLDataListElement>("#prompting-audiences").replaceChildren(...choices.audiences.map((a) => new Option(a)));
   };
@@ -699,6 +708,14 @@ export function prompting(
     busy(false);
   };
 
+  // ⌘Enter (Ctrl+Enter) generates from any field, a brief's line breaks kept for Enter, while
+  // Generate may be pressed; while a deck is being made it does nothing (lift-up 20261110 deferred).
+  form.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.isComposing) return;
+    e.preventDefault();
+    if (!running && !go.disabled && !go.hidden) go.click();
+  });
+
   form.onsubmit = async (e) => {
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
     if (submitter?.value !== "generate" && submitter?.value !== "goOn") return;
@@ -719,7 +736,8 @@ export function prompting(
         length: length.value || undefined,
         modality: modality.value || undefined,
         desiredOutcomes: outcome.value.trim() || undefined,
-        language: language.value.trim() || undefined,
+        // English is Narrato's default, sent as none, so its prompt reads as it did.
+        language: language.value === "English" ? undefined : language.value || undefined,
         voice: voice.value.trim() || undefined,
         personaId: persona.value || undefined,
       },

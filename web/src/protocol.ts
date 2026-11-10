@@ -941,10 +941,12 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "source" | "label";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
+  /** The figure a `source` finding found no source for, as the slide writes it. */
+  figure?: string;
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
@@ -1563,7 +1565,8 @@ export interface Brief {
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,
- * the audiences its personas name, each persona by its id, its arcs, and the defaults. */
+ * the audiences its personas name, each persona by its id, its arcs, the languages it writes, and the
+ * defaults. */
 export interface Choices {
   goals: string[];
   lengths: string[];
@@ -1571,6 +1574,8 @@ export interface Choices {
   audiences: string[];
   personas: { id: string; name: string }[];
   arcs: string[];
+  /** The languages Narrato writes, by their English names (lift-up 10-25b STAB-2). */
+  languages: string[];
   defaults: { audience: string; goal: string; length: string };
 }
 

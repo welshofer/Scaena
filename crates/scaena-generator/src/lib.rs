@@ -743,6 +743,25 @@ mod tests {
     const BRIEF: &str = r#"{ "topic": "Pitch a Series A round for our carbon-negative cargo platform.", "audience": "Investors", "goal": "Persuade" }"#;
     const ASKING: &str = r#"{ "provider": "anthropic", "model": "a-model" }"#;
 
+    /// What the page asks for one slide is the request ops makes, the one the session the Mac
+    /// edits sends too (lift-up FUNC-1), so the two cannot drift apart.
+    #[test]
+    fn one_slide_is_asked_by_the_request_ops_makes() {
+        let deck = std::fs::read_to_string(root().join("tests/bench/b1.scaena/deck.json")).unwrap();
+        let doc: Value = serde_json::from_str(&deck).unwrap();
+        let first = doc["states"][0]["id"].as_str().unwrap().to_string();
+        let writing = SlideWriting::new();
+        for (place, placed) in [
+            (json!({ "replace": first }).to_string(), scaena_ops::narrative::Place::Replace(first.clone())),
+            (json!({ "after": first }).to_string(), scaena_ops::narrative::Place::After(first.clone())),
+        ] {
+            let asked: Value = serde_json::from_str(&writing.asked(&deck, &place, "Shorter").unwrap()).unwrap();
+            let files: std::collections::BTreeMap<String, Vec<u8>> = Default::default();
+            let ops = scaena_ops::narrative::one_request(&doc, &placed, "Shorter", &files).unwrap();
+            assert_eq!(asked, serde_json::to_value(&ops).unwrap(), "{place}");
+        }
+    }
+
     #[test]
     fn the_choices_are_narratos() {
         let c: Value = serde_json::from_str(&choices()).unwrap();
@@ -754,6 +773,8 @@ mod tests {
         );
         assert!(c["arcs"].as_array().unwrap().iter().any(|a| a == "Problem\u{2013}Solution"));
         assert!(c["audiences"].as_array().unwrap().iter().any(|a| a == "Investors"));
+        assert_eq!(c["languages"][0], "English");
+        assert!(c["languages"].as_array().unwrap().iter().any(|l| l == "German"));
         assert_eq!(c["defaults"]["length"], "5-10 slides");
     }
 
@@ -951,10 +972,9 @@ impl SlideWriting {
     /// `{ system, prompt }`, the request's two halves.
     pub fn asked(&self, deck: &str, place_json: &str, ask: &str) -> Result<String, JsError> {
         let doc: Value = serde_json::from_str(deck).map_err(error)?;
-        let one = scaena_ops::narrative::one_asked(&doc, &place(place_json)?, ask, &self.files).map_err(error)?;
-        let asked =
-            json!({ "system": scaena_narrato::one::ONE_SLIDE_SYSTEM, "prompt": scaena_narrato::one::prompt(&one) });
-        Ok(asked.to_string())
+        // The one request the session the Mac edits sends too (`scaena_ops::narrative::one_request`).
+        let asked = scaena_ops::narrative::one_request(&doc, &place(place_json)?, ask, &self.files).map_err(error)?;
+        serde_json::to_string(&asked).map_err(error)
     }
 
     /// `slide` (a slide as Narrato writes one, as `oneAnswered` reads it) built for `deck` in

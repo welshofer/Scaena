@@ -162,6 +162,14 @@ pub enum Kind {
     /// A change the model asked once it saw the slide drawn was not kept, lint having found the
     /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
     Look,
+    /// A deck made from sources writes a figure on this slide that it names no source for: its
+    /// beat cites none, its words name none, and no slide before it sourced the figure (W1's
+    /// dogfood 4 and 5). The finding says the figure.
+    Source,
+    /// Its headline names a topic ("Q3 by product") where a content slide states its point: in a
+    /// deck health reads in English, three to six words with no verb and no question
+    /// (lift-up 10-25b FUNC-4).
+    Label,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -179,6 +187,9 @@ pub struct Finding {
     pub ask: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<Fix>,
+    /// The figure a `source` finding found no source for, as the slide writes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub figure: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -352,6 +363,103 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
         most.push(points);
     }
     Ok((out, most))
+}
+
+/// A figure a slide writes: as written, its value with its marks between digits taken out
+/// ("184,000" is 184000), and its unit, a currency's sign, a percent, a scale, or the word it
+/// counts, singular ("$184,000" and "184,000 dollars" are one; "40-mile" and "40 miles" too).
+#[derive(Debug, Clone, PartialEq)]
+struct Figure {
+    shown: String,
+    value: String,
+    unit: String,
+}
+
+/// The unit a word names, singular and in one spelling: "dollars" is `$`, "miles" `mile`.
+fn unit_of(word: &str) -> String {
+    let word = word.to_lowercase();
+    match word.as_str() {
+        "dollar" | "dollars" | "usd" => "$".into(),
+        "euro" | "euros" | "eur" => "€".into(),
+        "pound" | "pounds" | "gbp" => "£".into(),
+        "percent" | "per cent" => "%".into(),
+        w if w.len() > 3 && w.ends_with('s') && !w.ends_with("ss") => w[..w.len() - 1].to_string(),
+        w => w.to_string(),
+    }
+}
+
+/// The figures `text` writes, in order: each a word with a digit that no letter begins ("38%",
+/// "$1.4M", "2.5×", "40-mile"), not a year ("2026") and not a count under ten standing alone
+/// ("Week 1", "3 steps"), so a name's digits ("Q3", "p99") and a slide's numbering are no figure.
+/// A figure's unit is its sign, its scale, the word joined to it ("40-mile"), or the word after it.
+fn figures(text: &str) -> Vec<Figure> {
+    let words: Vec<&str> = text
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))))
+        .collect();
+    let mut out = Vec::new();
+    for (k, w) in words.iter().enumerate() {
+        let starts = w.chars().next().is_some_and(|c| !c.is_alphabetic());
+        if !starts || !w.chars().any(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
+        let count = w.parse::<u32>().is_ok_and(|n| n < 10);
+        if year || count {
+            continue;
+        }
+        let (number, joined) = match w.split_once('-') {
+            Some((n, rest)) if n.chars().any(|c| c.is_ascii_digit()) && rest.chars().all(char::is_alphabetic) => {
+                (n, Some(rest))
+            }
+            _ => (*w, None),
+        };
+        let sign: String = number.chars().take_while(|c| "$€£¥".contains(*c)).collect();
+        let digits: String =
+            number.chars().skip(sign.chars().count()).take_while(|c| c.is_ascii_digit() || ".,".contains(*c)).collect();
+        let tail: String = number.chars().skip(sign.chars().count() + digits.chars().count()).collect();
+        let value = digits.replace(',', "").trim_end_matches('.').to_string();
+        let after = words.get(k + 1).filter(|n| n.chars().all(char::is_alphabetic) && !n.is_empty());
+        let unit = if !sign.is_empty() {
+            unit_of(&sign)
+        } else if !tail.is_empty() {
+            unit_of(&tail)
+        } else if let Some(word) = joined {
+            unit_of(word)
+        } else {
+            after.map(|a| unit_of(a)).unwrap_or_default()
+        };
+        let shown = match joined {
+            Some(word) => {
+                format!("{number} {}", if word.ends_with('s') { word.to_string() } else { format!("{word}s") })
+            }
+            None => w.to_string(),
+        };
+        out.push(Figure { shown, value, unit });
+    }
+    out
+}
+
+/// Whether `text` names one of `sources` by its name's words, its extension aside, in their order
+/// ("the season report" names `season-report.pdf`), as a panel reads a slide that says where a
+/// figure is from.
+fn names_source(text: &str, sources: &[Vec<String>]) -> bool {
+    let words: Vec<String> = text
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect();
+    sources.iter().filter(|name| !name.is_empty()).any(|name| words.windows(name.len()).any(|w| w == name.as_slice()))
+}
+
+/// A source's name as the words a slide would say it in: "season-report.pdf" is "season report".
+fn source_words(name: &str) -> Vec<String> {
+    let stem = match name.rsplit_once('.') {
+        Some((stem, ext)) if (1..=5).contains(&ext.len()) && ext.chars().all(char::is_alphanumeric) => stem,
+        _ => name,
+    };
+    stem.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_string).collect()
 }
 
 /// A slide of a deck as its talk speaks it (lift-up 10-25 ATTR-2): its headline, the words it
@@ -625,6 +733,99 @@ fn language_named(language: &str) -> Option<String> {
     Some(named.to_string())
 }
 
+/// The layouts that frame a talk rather than make one of its points: covers, dividers, and agendas.
+const FRAMING: [&str; 10] = [
+    "title",
+    "photo-title",
+    "title-center",
+    "title-split",
+    "paper-title",
+    "section",
+    "section-photo",
+    "section-number",
+    "agenda",
+    "agenda-photo",
+];
+
+/// The verbs a headline that states its point carries, each form spelled out, base, -s, past,
+/// and -ing, with the contractions that hold one (lift-up 10-25b FUNC-4), apart by spaces, as
+/// [`labels`] reads it. A word here that is also a noun ("plan", "report") keeps a headline
+/// from being found, which errs toward saying nothing.
+const VERBS: &str = "\
+    add added adding adds allow allowed allowing allows am appear appeared appearing appears are aren't ask asked \
+    asking asks be beat beaten beating beats became become becomes becoming been began begin beginning \
+    begins begun being believe believed believes believing boost boosted boosting boosts bought break breaking \
+    breaks bring bringing brings broke broken brought build building builds built buy buying buys call called \
+    calling calls came can can't cannot change changed changes changing check checked checking checks choose \
+    chooses choosing chose chosen climb climbed climbing climbs close closed closes closing come comes coming \
+    compare compared compares comparing continue continued continues continuing cost costing costs could couldn't \
+    count counted counting counts create created creates creating cross crossed crosses crossing cut cuts cutting \
+    decide decided decides deciding decline declined declines declining deliver delivered delivering delivers \
+    depend depended depending depends did didn't dip dipped dipping dips do does doesn't doing don't done double \
+    doubled doubles doubling drag dragged dragging drags draw drawing drawn draws drew drive driven drives \
+    driving drop dropped dropping drops drove earn earned earning earns end ended ending ends exceed exceeded \
+    exceeding exceeds expect expected expecting expects explain explained explaining explains face faced faces \
+    facing fail failed failing fails fall fallen falling falls feel feeling feels fell felt find finding finds \
+    fix fixed fixes fixing flew flies flown fly flying follow followed following follows forget forgets \
+    forgetting forgot forgotten found gain gained gaining gains gave get gets getting give given gives giving go \
+    goes going gone got gotten grew grow growing grown grows had hadn't halve halved halves halving happen \
+    happened happening happens has hasn't have haven't having held help helped helping helps here's hid hidden \
+    hide hides hiding hit hits hitting hold holding holds i'm improve improved improves improving include \
+    included includes including increase increased increases increasing is isn't it's jump jumped jumping jumps \
+    keep keeping keeps kept knew know knowing known knows lag lagged lagging lags last lasted lasting lasts \
+    launch launched launches launching lead leading leads learn learned learning learns leave leaves \
+    leaving led left let let's lets letting lift lifted lifting lifts like liked likes liking live lived lives \
+    living look looked looking looks lose loses losing lost love loved loves loving lower lowered lowering \
+    lowers made make makes making matter mattered mattering matters may mean meaning means meant meet meeting \
+    meets met might miss missed misses missing move moved moves moving must mustn't need needed needing needs \
+    offer offered offering offers open opened opening opens outgrew outgrow outgrowing outgrown \
+    outgrows outpace outpaced outpaces outpacing outperform outperformed outperforming outperforms outsell \
+    outselling outsells outsold overtake overtaken overtakes overtaking overtook own owned owning owns paid \
+    pass passed passes passing pay paying pays peak peaked peaking peaks plan planned planning plans play played \
+    playing plays plunge plunged plunges plunging point pointed pointing points prove proved proves proving pull \
+    pulled pulling pulls push pushed pushes pushing put puts putting raise raised raises raising ran reach \
+    reached reaches reaching rebound rebounded rebounding rebounds recover recovered recovering recovers reduce \
+    reduced reduces reducing remain remained remaining remains remember remembered remembering remembers replace \
+    replaced replaces replacing report reported reporting reports require required requires requiring return \
+    returned returning returns rise risen rises rising rose run running runs said sank sat save saved saves \
+    saving saw say saying says see seeing seem seemed seeming seems seen sees sell selling sells send sending \
+    sends sent serve served serves serving set sets setting shall shift shifted shifting shifts ship shipped \
+    shipping ships should shouldn't show showed showing shown shows shrank shrink shrinking shrinks \
+    shrunk sink sinking sinks sit sits sitting slid slide slides sliding slip slipped slipping slips slow \
+    slowed slowing slows slump slumped slumping slumps soar soared soaring soars sold solve solved solves solving \
+    speak speaking speaks spend spending spends spent spike spiked spikes spiking spoke spoken spread spreading \
+    spreads stall stalled stalling stalls stand standing stands start started starting starts stay stayed staying \
+    stays stick sticking sticks stood stop stopped stopping stops strike strikes striking struck stuck suggest \
+    suggested suggesting suggests sunk support supported supporting supports surge surged surges surging take \
+    taken takes taking talk talked talking talks taught teach teaches teaching tell telling tells tend tended \
+    tending tends that's there's they'd they'll they're they've think thinking thinks thought told took top \
+    topped topping tops trail trailed trailing trails tried tries triple tripled triples tripling trust trusted \
+    trusting trusts try trying turn turned turning turns understand understanding understands understood use used \
+    uses using wait waited waiting waits want wanted wanting wants was wasn't watch watched watches watching we'd \
+    we'll we're we've went were weren't what's will win winning wins won won't work worked working works worried \
+    worries worry worrying would wouldn't write writes writing written wrote you'll you're you've";
+
+/// Whether `headline` names a topic rather than stating a point (lift-up 10-25b FUNC-4): three
+/// to six words, no question, none of [`VERBS`], and no word of five letters or more in "-ed".
+/// "Q3 by product" names one; "Revenue grew
+/// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
+/// so such a label is missed rather than a point found wanting.
+fn labels(headline: &str) -> bool {
+    let headline = headline.trim();
+    if headline.ends_with('?') {
+        return false;
+    }
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
+    // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
+    let verb =
+        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
+    (3..=6).contains(&words.len()) && !words.iter().any(verb)
+}
+
 /// The layouts a talk closes in (ADR-0032 item 6).
 const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
 
@@ -775,6 +976,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // a closing, a call to action, takeaways, a poster, or thanks or questions, come down from
     // the climax as a talk does, so a plan cooler than the curve there is not found.
     let closing = closing(deck, &slides, &read);
+    // A slide that frames the talk, a cover, a divider, an agenda, or its close, makes no point of
+    // its own to state.
+    let framing = |i: usize| {
+        let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
+        layout.is_some_and(|l| FRAMING.contains(&l) || CLOSING.contains(&l)) || closing.contains(&read[i].id)
+    };
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
@@ -983,7 +1190,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let mut findings = Vec::new();
     let mut find = |id: &str, severity: Severity, kind: Kind, says: String, ask: String, fix: Option<Fix>| {
         if let Some(&i) = place.get(id) {
-            findings.push(Finding { state: id.to_string(), slide: i + 1, severity, kind, says, ask, fix });
+            findings.push(Finding {
+                state: id.to_string(),
+                slide: i + 1,
+                severity,
+                kind,
+                says,
+                ask,
+                fix,
+                figure: None,
+            });
         }
     };
     // Where in the spine a slide's narrative is declared.
@@ -1000,6 +1216,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Title,
                 format!("Slide {k} has no headline."),
                 format!("Give slide {k} a headline that states its point in a sentence."),
+                None,
+            );
+        } else if english && i > 0 && !framing(i) && labels(&s.title) {
+            // A content slide whose headline names its topic: offered its point, never rewritten.
+            find(
+                &s.id,
+                Severity::Info,
+                Kind::Label,
+                format!(
+                    "Slide {k}'s headline names its topic, \u{201C}{}\u{201D}, where it could state its point.",
+                    s.title.trim()
+                ),
+                format!("Restate slide {k}'s headline as the point it makes: what should the room believe after it?"),
                 None,
             );
         }
@@ -1309,13 +1538,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     if let Some(idea) = &big_idea {
         // The close is the deck's last run of closing slides, as the calm close reads it, with the
-        // slide just before it, where a talk lands its idea before the thanks (its thesis, its ask,
-        // its steps); else its last slide. A beat that ends the deck may begin well before its
-        // close, and a word or two of the idea a slide says in passing lands nothing (W1's dogfood 3).
+        // slide just before it where that slide is in the run's beat, where a talk lands its idea
+        // before the thanks (its thesis, its ask, its steps); else its last slide. A beat that ends
+        // the deck may begin well before its close, and a word or two of the idea a slide says in
+        // passing lands nothing (W1's dogfood 3); a slide of an earlier beat is that beat's, not
+        // the close's (dogfood 4).
         let last = read.len().checked_sub(1);
+        let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index);
         let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
         if let Some(&first) = run.first()
             && first > 0
+            && beat(first - 1) == beat(first)
         {
             run.insert(0, first - 1);
         }
@@ -1514,6 +1747,50 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
+    // A figure a slide writes in a deck made from its sources, where the slide names none of them
+    // (W1's dogfood 4): its beat cites no source, no address, and no data the deck keeps, so the
+    // figure was the model's word alone, or a source's the slide never says.
+    let sources: Vec<Vec<String>> = (narrative.and_then(|n| n.get("sources")).and_then(Value::as_array))
+        .map(|all| {
+            (all.iter())
+                .flat_map(|s| ["name", "title"].map(|k| s.get(k).and_then(Value::as_str).map(source_words)))
+                .flatten()
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut unsourced: Vec<(String, String)> = Vec::new();
+    if !sources.is_empty() {
+        // The figures a slide that cites a source writes, by value and unit: one an earlier slide
+        // sourced is sourced where it is said again (W1's dogfood 5).
+        let mut known: Vec<(String, String)> = Vec::new();
+        for (i, s) in read.iter().enumerate() {
+            let shown = format!("{}\n{}", s.title, s.body);
+            let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
+                || names_source(&shown, &sources);
+            let written = figures(&shown);
+            if cited {
+                known.extend(written.into_iter().map(|f| (f.value, f.unit)));
+                continue;
+            }
+            let Some(figure) = written.into_iter().find(|f| !known.contains(&(f.value.clone(), f.unit.clone()))) else {
+                continue;
+            };
+            let (k, figure) = (i + 1, figure.shown);
+            unsourced.push((s.id.clone(), figure.clone()));
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Source,
+                format!(
+                    "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
+                ),
+                format!(
+                    "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
+                ),
+                None,
+            );
+        }
+    }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
     if let (Some((seconds, beats)), Some((count, (lo, hi)))) = (&talk, &given) {
@@ -1620,6 +1897,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
             Some(fix),
         );
+    }
+    // Each `source` finding says the figure it found no source for.
+    for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
+        f.figure = unsourced.iter().find(|(id, _)| *id == f.state).map(|(_, figure)| figure.clone());
     }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
@@ -2202,6 +2483,99 @@ mod tests {
         }
     }
 
+    /// A content slide's headline that names its topic is offered its point (lift-up 10-25b
+    /// FUNC-4): an info finding with no fix, in an English deck, never on the cover, a divider,
+    /// or the close, and never on a question. The cases measured on the dogfood decks and the
+    /// examples hold the heuristic to precision: a false "your headline is a topic" costs more
+    /// than a label missed.
+    #[test]
+    fn a_headline_that_names_its_topic_is_offered_its_point() {
+        // Labels, as the charts example and the deepdive deck wrote them.
+        assert!(labels("Q3 by product"));
+        assert!(labels("Faster checkout, cheaper database, more orders"));
+        // Points, each with its verb: the appeal's, the training's imperative, the charts'.
+        assert!(!labels("Families wait longer every year"));
+        assert!(!labels("Before you publish, check these"));
+        assert!(!labels("Revenue grew every quarter"));
+        assert!(!labels("It\u{2019}s a record quarter"));
+        // A question, a word or two, and a long line are not judged.
+        assert!(!labels("Why did churn rise this year?"));
+        assert!(!labels("Results"));
+        assert!(!labels("A wet start to the week, then sun"));
+        // A documented miss: a verb inside a clause reads as a point stated.
+        assert!(!labels("What families tell us"));
+        // Points stated in a past the list need not spell out, or an irregular one it does.
+        for stated in [
+            "Margins expanded in every region",
+            "Gap widened every year",
+            "Prices lowered across regions",
+            "Rivals outsold us twice",
+            "Share slid in Q3",
+            "Churn collapsed after onboarding",
+        ] {
+            assert!(!labels(stated), "{stated}");
+        }
+        // A gerund names a topic.
+        assert!(labels("Pricing by region"));
+
+        let deck = climate();
+        let h = of(&deck);
+        let layout = |id: &str| {
+            (deck["states"].as_array().unwrap().iter())
+                .find(|s| s["id"] == id)
+                .and_then(|s| s["layout"].as_str())
+                .map(str::to_string)
+        };
+        let labelled = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::Label).cloned().collect::<Vec<_>>();
+        // The climate deck as Narrato wrote it: the headlines it names a topic by, and none else.
+        let base = labelled(&h);
+        let named: Vec<&str> = base.iter().map(|f| h.slides[f.slide - 1].title.as_str()).collect();
+        assert_eq!(
+            named,
+            [
+                "Who Emits: History Versus Today",
+                "Four Years of Records",
+                "The Path to Net Zero",
+                "Pledges Versus the 1.5°C Path",
+                "Next Steps for Our Team"
+            ],
+            "{base:#?}"
+        );
+        let content = (1..h.slides.len() - 1)
+            .find(|&i| {
+                layout(&h.slides[i].state)
+                    .is_none_or(|l| !FRAMING.contains(&l.as_str()) && !CLOSING.contains(&l.as_str()))
+                    && !base.iter().any(|f| f.slide == i + 1)
+            })
+            .expect("a content slide");
+        let retitled = |deck: &Value, i: usize, to: &str| -> Value {
+            let text = serde_json::to_string(deck).unwrap();
+            let was = serde_json::to_string(&h.slides[i].title).unwrap();
+            serde_json::from_str(&text.replace(&was, &serde_json::to_string(to).unwrap())).unwrap()
+        };
+
+        let titled = retitled(&deck, content, "Emissions by sector");
+        let found: Vec<Finding> = labelled(&of(&titled)).into_iter().filter(|f| !base.contains(f)).collect();
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let k = content + 1;
+        assert_eq!((found[0].slide, found[0].severity, found[0].fix.clone()), (k, Severity::Info, None));
+        assert_eq!(
+            found[0].says,
+            format!(
+                "Slide {k}'s headline names its topic, \u{201C}Emissions by sector\u{201D}, where it could state its point."
+            )
+        );
+        assert_eq!(
+            found[0].ask,
+            format!("Restate slide {k}'s headline as the point it makes: what should the room believe after it?")
+        );
+        // The cover frames the talk, and a deck in another language is not read for it.
+        assert_eq!(labelled(&of(&retitled(&deck, 0, "Emissions by sector"))), base);
+        let mut german = titled.clone();
+        german["meta"]["narrative"]["brief"]["language"] = json!("German");
+        assert!(labelled(&of(&german)).is_empty());
+    }
+
     /// The spine's beat that tells the state `id`: its place, as a JSON pointer.
     fn beat_of(deck: &Value, id: &str) -> String {
         for (i, section) in deck["spine"]["sections"].as_array().unwrap().iter().enumerate() {
@@ -2342,6 +2716,17 @@ mod tests {
     /// by `change`, made in Dusk, and its outline the arc's beats as its slides name them, no
     /// claim settled, and `big_idea`.
     fn dogfood(name: &str, big_idea: &str, change: impl FnOnce(&mut Vec<answer::Slide>)) -> Value {
+        grounded_dogfood(name, big_idea, Vec::new(), change)
+    }
+
+    /// `dogfood`, the deck made from `sources`, so each slide's `sourceRef` is cited in its beat's
+    /// evidence as a made deck cites it.
+    fn grounded_dogfood(
+        name: &str,
+        big_idea: &str,
+        sources: Vec<scaena_narrato::Provenance>,
+        change: impl FnOnce(&mut Vec<answer::Slide>),
+    ) -> Value {
         let path = root().join(format!("tests/fixtures/dogfood/{name}.slides.json"));
         let mut written = answer::slides(&std::fs::read_to_string(path).unwrap()).unwrap();
         change(&mut written.slides);
@@ -2360,7 +2745,7 @@ mod tests {
             slides: written.slides,
             truncated: false,
             icons: Default::default(),
-            sources: Vec::new(),
+            sources,
             outline: None,
             brief: Brief { topic: name.into(), length: "11-15 slides".into(), ..Brief::default() },
         };
@@ -2458,17 +2843,124 @@ mod tests {
         let steps = &weak.slides[n - 2];
         assert!(!content_words(&steps.title).is_disjoint(&content_words(idea)), "{}", steps.title);
 
-        // The thesis that stands just before the close lands it, the steps between them taken out.
+        // The thesis that stands just before the close, in its beat, lands it, the steps between
+        // them taken out; left in the beat before, it is that beat's (dogfood 4).
         let fine = "Resilience is built by neighbors, not delivered to them";
         let found = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::BigIdea).count();
         let stepless = |slides: &mut Vec<answer::Slide>| {
             let at = slides.len() - 2;
             slides.remove(at);
         };
-        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 0, "the thesis before the close lands it");
+        let closed = |slides: &mut Vec<answer::Slide>| {
+            stepless(slides);
+            let at = slides.len() - 2;
+            slides[at].beat_index = slides[at + 1].beat_index;
+            slides[at].beat_name = slides[at + 1].beat_name.clone();
+        };
+        assert_eq!(found(&of(&dogfood("keynote", fine, closed))), 0, "the thesis before the close lands it");
+        assert_eq!(found(&of(&dogfood("keynote", fine, stepless))), 1, "a thesis of the beat before is not the close");
         assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
         let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// A figure a slide writes in a deck made from its sources, where the slide names none, is
+    /// asked where it comes from (W1's dogfood 4): the fleet pitch's "38%" fuel cut cites nothing,
+    /// though the deck was made from the pilot's sheet. The slides that cite it, the cover's date,
+    /// and a deck made from no sources are not found; cited, slide 8 is not either.
+    #[test]
+    fn a_figure_no_source_backs_in_a_sourced_deck_is_asked_where_it_comes_from() {
+        let pilot = || {
+            vec![scaena_narrato::Provenance {
+                name: "pilot.csv".into(),
+                kind: "csv".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+            }]
+        };
+        let unsourced = |deck: &Value| -> Vec<(usize, String, String)> {
+            (of(deck).findings.into_iter())
+                .filter(|f| f.kind == Kind::Source)
+                .map(|f| (f.slide, f.says, f.ask))
+                .collect()
+        };
+        // Made from the pilot's sheet, each slide that names it cited in its beat (`source:NAME`).
+        let made = grounded_dogfood("fleet", "", pilot(), |_| {});
+        let cited = |k: usize| {
+            (made["spine"]["sections"].as_array().unwrap().iter())
+                .flat_map(|s| s["beats"].as_array().unwrap().iter())
+                .nth(k)
+                .is_some_and(|b| b["evidence"].as_array().is_some_and(|e| !e.is_empty()))
+        };
+        assert!(cited(1) && !cited(7), "slide 2 names the sheet, slide 8 nothing");
+        let found = unsourced(&made);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let (slide, says, ask) = &found[0];
+        assert_eq!(*slide, 8);
+        assert_eq!(says, "Slide 8 writes 38%, and names no source for it, though the deck was made from its sources.");
+        assert_eq!(ask, "Say on slide 8 where 38% comes from, naming the source, or cite the source it is from.");
+        let figured = of(&made).findings.into_iter().find(|f| f.kind == Kind::Source).and_then(|f| f.figure);
+        assert_eq!(figured.as_deref(), Some("38%"), "the finding says its figure");
+        // Its `sourceRef` given, slide 8 is cited and found sourced.
+        let named = |slides: &mut Vec<answer::Slide>| slides[7].source_ref = Some("pilot.csv".into());
+        assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), named)).is_empty());
+        // A chart's figures are its data's, which its beat cites as `@data`, `sourceRef` or none.
+        let charted = |slides: &mut Vec<answer::Slide>| {
+            let weeks: Vec<String> = (1..=6).map(|w| format!("Week {w}")).collect();
+            slides[8].source_ref = None;
+            slides[8].chart_data = Some(answer::ChartData {
+                categories: weeks,
+                series: vec![answer::Series {
+                    name: Some("Late deliveries".into()),
+                    values: [38.0, 35.0, 22.0, 18.0, 15.0, 14.0].map(Some).to_vec(),
+                }],
+                unit: None,
+                source_id: None,
+            });
+        };
+        let charts = grounded_dogfood("fleet", "", pilot(), charted);
+        assert!(!unsourced(&charts).iter().any(|(k, ..)| *k == 9), "{:?}", unsourced(&charts));
+        assert!(unsourced(&dogfood("fleet", "", |_| {})).is_empty(), "a deck made from no sources");
+        // Doing what the ask says (W1's dogfood 5): slide 8's own words name the pilot it is from.
+        let said = |slides: &mut Vec<answer::Slide>| {
+            slides[7].key_bullets = vec!["less fuel spend, from the pilot".into()];
+        };
+        assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), said)).is_empty(), "the slide names its source");
+        // A figure an earlier slide sourced, the same value and unit, is sourced where it is said
+        // again: slide 2 cites the sheet for its 6.5 hours.
+        let again = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "Dispatchers win back 6.5 hours a day".into();
+            slides[7].key_bullets = vec![];
+        };
+        assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), again)).is_empty(), "6.5 hours, as slide 2 cites it");
+        let shown = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<_>>();
+        assert!(shown("Q3 by product, p99 latency, Week 1, 3 steps, November 2026").is_empty());
+        assert_eq!(shown("Costs fell to $1.4M (2.5x less)")[0], ("$1.4M".into(), "1.4".into(), "$".into()));
+        // "40-mile" is the figure 40 with its unit, as "40 miles" is; dollars are "$".
+        assert_eq!(shown("the 40-mile goal")[0], ("40 miles".into(), "40".into(), "mile".into()));
+        assert_eq!(shown("40 miles")[0], ("40".into(), "40".into(), "mile".into()));
+        assert_eq!(&shown("184,000 dollars")[0].1, &shown("$184,000")[0].1);
+        assert_eq!(&shown("184,000 dollars")[0].2, &shown("$184,000")[0].2);
+        assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
+        assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
+    }
+
+    /// The close takes the slide before its run only where that slide is in the run's beat
+    /// (W1's dogfood 4): the fleet pitch's proof chart, beat 4, stands before its closing, beat 5,
+    /// and is not read as the close; moved into the closing beat, it is.
+    #[test]
+    fn the_close_takes_the_slide_before_it_only_in_its_beat() {
+        let idea = "Ridgefleet pays for itself in a quarter by planning Northline's routes overnight.";
+        let says = |h: &Health| h.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("a bare close").says.clone();
+        let alone = says(&of(&dogfood("fleet", idea, |_| {})));
+        assert!(alone.starts_with("The close, slide 10, never lands"), "{alone}");
+        let joined = |slides: &mut Vec<answer::Slide>| {
+            slides[8].beat_index = slides[9].beat_index;
+            slides[8].beat_name = slides[9].beat_name.clone();
+        };
+        let both = says(&of(&dogfood("fleet", idea, joined)));
+        assert!(both.starts_with("The close, slides 9\u{2013}10, never lands"), "{both}");
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's

@@ -18,6 +18,8 @@
 //   Story tab's first row is that slide's error, the disclosure left open as it was; the row
 //   offers lint's fix and Show it, which opens the slide's mark on the canvas, in focus, and the
 //   fix taken mends the slide (editor dogfood 4).
+// - A row names its slide by the headline the deck has now: retyped, the row says it, though
+//   health still names the slide by its beat's claim (editor dogfood 4).
 // - On the revenue example: a new headline typed over the cover's, which says the opening beat's
 //   claim, is offered beside the status once the burst of typing ends ("Slide 1's story still says
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
@@ -90,6 +92,54 @@ try {
   check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
   await page.fill("#question", "");
   await tab(page, "story");
+
+  // Read again with nothing changed, the score's live region is left as it was, so nothing is
+  // said again (lift-up 20261110 deferred).
+  await page.evaluate(() => {
+    window.__said = 0;
+    new MutationObserver(() => window.__said++).observe(document.querySelector("#story [data-score]"), { childList: true, subtree: true, characterData: true });
+  });
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      window.__read = window.scaena.story.health();
+      window.scaena.story.refresh();
+    });
+    await page.waitForFunction(() => window.scaena.story.health() !== window.__read, null, { timeout: 30000 }).catch(() => {});
+  }
+  check((await page.evaluate(() => window.__said)) === 0, `read again unchanged, the score is not said again: ${await page.evaluate(() => window.__said)} changes`);
+
+  // A source that does not compile for a moment keeps the story as last read, said to be so
+  // (lift-up 20261110 deferred); generate.mjs holds its fixes, on a deck that offers one.
+  const compiled = await page.evaluate(() => window.scaena.source());
+  const moved = compiled;
+  const shown = await page.locator("#story [data-findings] li[data-slide]").count();
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), moved);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  // Shown again, the Story reads the source at once, as it does a pause after a burst of typing
+  // that ends mid-word.
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const asRead = await page.evaluate(() => ({
+    said: document.querySelector("#story > p[data-stale]").textContent,
+    rows: document.querySelectorAll("#story [data-findings] li[data-slide]").length,
+    curve: !!document.querySelector("#story [data-arc] svg"),
+    label: document.querySelector("#story [data-findings]").getAttribute("aria-label"),
+  }));
+  check(
+    asRead.said === "Showing the story as last read: the source has an error to fix" && asRead.rows === shown && asRead.curve && asRead.label.endsWith(", as last read"),
+    `a source that does not compile keeps the story as last read, and says so: ${JSON.stringify(asRead)}`,
+  );
+  await page.evaluate((s) => window.scaena.type(s), compiled);
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  check(await page.evaluate(() => document.querySelector("#story > p[data-stale]").hidden), "compiled again, it reads anew");
+  await page.evaluate(() => {
+    const more = document.querySelector("#story [data-more] details");
+    if (more) more.open = true;
+  });
+  await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
   const todos = await page.evaluate(() =>
@@ -128,12 +178,42 @@ try {
   await page.waitForFunction((t) => window.scaena.notes(t.state).then((n) => n.text.startsWith(t.bridge)), { state: turn.state, bridge }, { timeout: 30000 }).catch(() => {});
   const after = await page.evaluate((s) => window.scaena.notes(s), turn.state);
   check(after.text === `${bridge}\n${read.text}`, `the presenter reads the bridge, then the beat's notes: ${after.text.slice(0, 60)}`);
+  // Notes draw on no slide: the status says the edit is this slide's, never "on 0 slides" (W1's
+  // dogfood 5).
+  const noted = await page.textContent("#status");
+  check(/on this slide/.test(noted) && !/on 0 /.test(noted), `the notes edit is said as this slide's: ${noted}`);
   await tab(page, "story");
   await page
     .waitForFunction((s) => !window.scaena.story.health()?.findings.some((f) => f.kind === "turn" && f.state === s), turn.state, { timeout: 60000 })
     .catch(() => {});
   const still = await page.evaluate((s) => window.scaena.story.health().findings.filter((f) => f.kind === "turn" && f.state === s), turn.state);
   check(still.length === 0, `and the turn is answered: ${JSON.stringify(still.map((f) => f.says))}`);
+
+  // A row names its slide by its headline as the deck reads now, not by its beat's claim, which
+  // health names it by: a headline retyped is the row's at once (editor dogfood 4).
+  const named = await page.evaluate(() => {
+    const row = document.querySelector("#story [data-findings] li[data-slide]");
+    const slide = Number(row.dataset.slide);
+    const state = window.scaena.story.health().slides[slide - 1].state;
+    return { slide, headline: window.scaena.last().slots.find((s) => s.state === state)?.headline, shown: row.querySelector(".headline").textContent };
+  });
+  check(named.headline && named.shown === named.headline, `a row is named by its slide's headline: ${JSON.stringify(named)}`);
+  const retitled = `${named.headline} Today`;
+  const was = await page.evaluate(() => window.scaena.source());
+  const at = was.indexOf(JSON.stringify(named.headline));
+  check(at >= 0, `the headline is found in the source: ${named.headline}`);
+  await page.evaluate((s) => window.scaena.type(s), was.slice(0, at) + JSON.stringify(retitled) + was.slice(at + JSON.stringify(named.headline).length));
+  const renamed = await page
+    .waitForFunction(
+      ([slide, words]) => document.querySelector(`#story [data-findings] li[data-slide="${slide}"] .headline`)?.textContent === words,
+      [named.slide, retitled],
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  check(renamed, `the headline retyped, its row says it: ${retitled}`);
+  await page.evaluate((s) => window.scaena.type(s), was);
+  await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, was, { timeout: 60000 }).catch(() => {});
 
   // A slide that lint finds broken leads.
   const source = await page.evaluate(() => window.scaena.source());
@@ -179,6 +259,35 @@ try {
     };
   });
   check(offers.fixes.length > 0 && offers.show, `the broken slide's row offers lint's fix and Show it: ${JSON.stringify(offers)}`);
+  // A source that stops compiling holds lint's fix with the rest, the story kept as last read.
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), broken);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const heldFix = await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled);
+  check(heldFix === true, `while the source does not compile, lint's fix is held: ${heldFix}`);
+  // Taken back by ⌘Z, the deck is as it was, its fix offered again.
+  await page.focus("#overlay");
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((s) => window.scaena.source() === s, broken, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  // Shown again once every state is linted: the Story's read may come before that lint, and is
+  // not read again after it (its own item).
+  await page
+    .waitForFunction(() => window.scaena.last()?.whole && window.scaena.last().findings.some((f) => f.severity === "error" && f.fixable), null, { timeout: 120000 })
+    .catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page
+    .waitForFunction(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false, null, { timeout: 120000 })
+    .catch(() => {});
+  check(
+    await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false),
+    "taken back, lint's fix is offered again",
+  );
   await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
   const popped = await page
     .waitForFunction(() => document.querySelector("#marked")?.matches(":popover-open") && document.querySelector("#marked").textContent, null, { timeout: 30000 })

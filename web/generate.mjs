@@ -321,7 +321,7 @@ try {
   });
   requests.length = 0;
   await page.click("#prompting details > summary");
-  await page.fill("#prompting-language", "Japanese");
+  await page.selectOption("#prompting-language", "Japanese");
   await page.click("#prompting-go");
   const unfetched = await failed();
   check(
@@ -331,7 +331,7 @@ try {
   check(requests.length === 0, `nothing is asked of the provider: ${requests.length}`);
   // Hindi's is fetched and checked, then the provider is asked, which refuses the key here.
   state.fail = true;
-  await page.fill("#prompting-language", "Hindi");
+  await page.selectOption("#prompting-language", "Hindi");
   await page.click("#prompting-go");
   const hindi = await failed();
   const fetching = (await lines()).find((l) => l.startsWith("Fetching"));
@@ -345,7 +345,7 @@ try {
   await failed();
   check(devanagari() === 1 && !(await lines()).some((l) => l.startsWith("Fetching")), "kept, it is not fetched for the next deck");
   state.fail = false;
-  await page.fill("#prompting-language", "");
+  await page.selectOption("#prompting-language", "English");
   await page.click("#prompting details > summary");
 
   // A provider that refuses the key says so in a person's words, as the pictures do (lift-up
@@ -372,7 +372,12 @@ try {
     });
   check(!(await leaving()), "before a deck is made, leaving the page asks nothing of it");
   state.slow = 4000;
-  await page.click("#prompting-go");
+  // ⌘Enter (Ctrl+Enter) in a field generates, as Generate does (lift-up 20261110 deferred).
+  await page.locator("#prompting-topic").press("Control+Enter");
+  const began = await page
+    .waitForFunction(() => document.querySelector("#prompting-go").textContent === "Generating…", null, { timeout: 10000 })
+    .then(() => true, () => false);
+  check(began, "Ctrl+Enter in the brief generates");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
   // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
@@ -590,6 +595,9 @@ try {
   // What to do first open, the rest folded (lift-up S1): a row for each slide in each, every
   // finding in one of them once.
   const rows = await page.evaluate(() => [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => li.querySelectorAll("p[data-kind]").length));
+  // Every kind of finding folded is said by a name a person reads (lift-up 10-25b FUNC-4).
+  const kinds = await page.evaluate(() => window.scaena.story.said(["look", "label", "look", "bigIdea"]));
+  check(kinds === "4 more: 2 change let go, 1 topic headline, 1 big idea", `the folded kinds named: ${kinds}`);
   const looked = await page.evaluate(() => window.scaena.story.health().findings.length);
   check(rows.reduce((a, b) => a + b, 0) === looked, `every finding has its row once: ${rows} of ${looked}`);
   // Opened, so a fix or a question folded with the rest can be reached.
@@ -637,6 +645,25 @@ try {
   await page.waitForFunction(() => !document.querySelector("#code .cm-content[contenteditable=false]"), null, { timeout: 30000 }).catch(() => {});
   state.slow = 0;
   await page.evaluate(() => (document.querySelector("#question").value = ""));
+  // With the source not compiling for a moment, the Story shows the read before, its fixes held:
+  // each was made against a deck that no longer compiles (lift-up 20261110 deferred).
+  const whole = await page.evaluate(() => window.scaena.source());
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), whole);
+  // The editor's own compile of it lands first, as it does on a slower machine: the worker then
+  // holds the source among those compiled, and must still read no story of it.
+  await page.waitForFunction(() => window.scaena.last()?.valid === false, null, { timeout: 30000 }).catch(() => {});
+  await tab(page, "inspector");
+  await tab(page, "story");
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const held = await fixable.locator("[data-fix]").first().isDisabled();
+  const unready = await page.evaluate(() => window.scaena.source());
+  await page.evaluate(() => document.querySelector("#story [data-findings] [data-fix]")?.click());
+  check(held && (await page.evaluate(() => window.scaena.source())) === unready, `as last read, its fix is held, and pressed makes nothing: ${held}`);
+  // Taken back by ⌘Z, the walk's own break leaves the deck's history as it was.
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((w) => window.scaena.source() === w, whole, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const kind = await fixable.locator("[data-fix]").first().getAttribute("data-kind");
   const unfixed = await page.evaluate(() => window.scaena.source());
   await fixable.locator("[data-fix]").first().click();
