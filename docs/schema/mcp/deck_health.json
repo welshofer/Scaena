@@ -116,7 +116,7 @@
             "const": "layout"
           },
           {
-            "description": "The beat of the settled outline it opens says nothing of the claim the person settled for\nit (`meta.narrative.outline`).",
+            "description": "The beat of the settled outline it opens says nothing of the claim the person settled for\nit (`meta.narrative.outline`); or its headline names a topic, and a line under it says the\nclaim, which belongs in the headline.",
             "type": "string",
             "const": "claim"
           },

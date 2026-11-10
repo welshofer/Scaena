@@ -140,7 +140,8 @@ pub enum Kind {
     /// A state of it has an error lint finds: it does not stand as it is to be read.
     Layout,
     /// The beat of the settled outline it opens says nothing of the claim the person settled for
-    /// it (`meta.narrative.outline`).
+    /// it (`meta.narrative.outline`); or its headline names a topic, and a line under it says the
+    /// claim, which belongs in the headline.
     Claim,
     /// The closing it opens never lands the big idea the outline settled.
     #[serde(rename = "bigIdea")]
@@ -1249,6 +1250,45 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             None,
         );
     }
+    // A headline that names a topic over a line that says the claim (W1's dogfood 3): a made
+    // slide's beat claim is its headline, so "Some history" passes as one, its claim in a bullet.
+    // Read in English alone, as the look pass rewrites such a title (lift-up ATTR-2), and never
+    // on the cover, a divider, the agenda, a figure, or the close, which name their part.
+    if english {
+        for (i, s) in read.iter().enumerate() {
+            let layout = slides.get(i).and_then(|sl| sl.states.iter().find_map(|&k| deck.states[k].layout.as_deref()));
+            let framing = layout.is_some_and(|l| {
+                l.starts_with("section")
+                    || l.starts_with("agenda")
+                    || l.contains("title")
+                    || l.contains("quote")
+                    || l.starts_with("team")
+                    || FIGURES.contains(&l)
+                    || NAMED.contains(&l)
+            });
+            if i == 0 || framing || closing.contains(&s.id) || !topical(&s.title) {
+                continue;
+            }
+            let Some(line) =
+                (s.body.lines()).map(|l| l.trim().trim_start_matches('\u{2022}').trim()).find(|l| claims(l))
+            else {
+                continue;
+            };
+            let (k, title) = (i + 1, s.title.trim());
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Claim,
+                format!(
+                    "Slide {k}'s headline, \u{201c}{title}\u{201d}, names a topic; its claim is under it: \u{201c}{line}\u{201d}"
+                ),
+                format!(
+                    "Make slide {k}'s claim its headline: say \u{201c}{line}\u{201d}, or what the slide proves, in place of \u{201c}{title}\u{201d}."
+                ),
+                None,
+            );
+        }
+    }
     if let Some(idea) = &big_idea {
         // The close is the deck's last run of closing slides, as the calm close reads it, with the
         // slide just before it, where a talk lands its idea before the thanks (its thesis, its ask,
@@ -1562,6 +1602,70 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
 
 /// The words of `text` that coherence reads a slide by: lowercased, past three letters, Latin
 /// letters and figures alone, as `scaena_narrato::health::coherence::keyword_overlap` splits them.
+/// The shipped themes' layouts whose headline is a figure's, or names the figures under it.
+const FIGURES: [&str; 11] = [
+    "stat",
+    "big-number",
+    "two-numbers",
+    "numbers",
+    "number-grid",
+    "four-numbers",
+    "scorecard",
+    "number-photo",
+    "kpi-dashboard",
+    "figure-numbers",
+    "status-report",
+];
+
+/// The shipped themes' layouts whose headline names what they hold, a term and its meaning, the
+/// voices quoted, the questions asked: a topic by design.
+const NAMED: [&str; 6] = ["definition", "glossary", "testimonials", "faq", "logo-wall", "buyer-persona"];
+
+/// English verbs a headline or a line that says something takes, by the forms a slide writes:
+/// the ones that say what is, and the commonest that say what is done.
+const VERBS: [&str; 102] = [
+    "am", "is", "are", "was", "were", "be", "been", "being", "has", "have", "had", "do", "does", "did", "can", "could",
+    "will", "would", "shall", "should", "may", "might", "must", "won", "cut", "cuts", "fell", "fall", "falls", "rose",
+    "rise", "rises", "grew", "grow", "grows", "make", "makes", "get", "gets", "got", "go", "goes", "went", "take",
+    "takes", "took", "give", "gives", "gave", "keep", "keeps", "kept", "need", "needs", "mean", "means", "meant",
+    "show", "shows", "work", "works", "win", "wins", "lose", "loses", "lost", "pay", "pays", "paid", "build", "builds",
+    "built", "run", "runs", "ran", "let", "lets", "become", "becomes", "became", "come", "comes", "came", "drive",
+    "drives", "drove", "beat", "beats", "hold", "holds", "held", "leave", "matter", "matters", "count", "counts",
+    "wait", "waits", "start", "starts", "change", "changes",
+];
+
+/// Whether `word`, lowercased and trimmed of punctuation, reads as a verb: one of [`VERBS`], a
+/// contraction of one ("isn't", "they're", "it's"), or a past form past four letters ("raised").
+fn verb(word: &str) -> bool {
+    let w = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'' && c != '\u{2019}').to_lowercase();
+    let w = w.replace('\u{2019}', "'");
+    let contracted = ["n't", "'re", "'ve", "'ll", "'m", "'d"].iter().any(|c| w.ends_with(c))
+        || matches!(w.as_str(), "it's" | "that's" | "there's" | "here's" | "what's" | "who's" | "he's" | "she's");
+    let past = w.len() > 4 && w.ends_with("ed") && !matches!(w.as_str(), "hundred" | "sacred" | "kindred" | "naked");
+    contracted || past || VERBS.contains(&w.as_str())
+}
+
+/// Whether a headline names a topic rather than a claim: four words at most, none a verb, no
+/// figure, and no question ("Some history", "Our approach").
+fn topical(title: &str) -> bool {
+    let words: Vec<&str> = title.split_whitespace().collect();
+    (1..=4).contains(&words.len())
+        && !title.contains('?')
+        && !title.chars().any(|c| c.is_ascii_digit())
+        && !words.iter().any(|w| verb(w))
+}
+
+/// Whether a line under a headline says a claim: a sentence of five words or more with a verb,
+/// not a question, nor a voice quoted, nor the parts of a card health reads joined by a dash.
+fn claims(line: &str) -> bool {
+    if line.contains(" \u{2014} ") {
+        return false;
+    }
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let quoted = line.starts_with(['"', '\u{201c}', '\u{2018}', '\'', '\u{ab}', '\u{201e}']);
+    words.len() >= 5 && !line.contains('?') && !quoted && words.iter().any(|w| verb(w))
+}
+
 fn content_words(text: &str) -> std::collections::BTreeSet<String> {
     (text.to_lowercase().split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()))
         .filter(|w| w.len() > 3)
@@ -2111,6 +2215,47 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// A headline that names a topic over the line that says its claim is found (W1's dogfood 3):
+    /// the keynote's third slide weakened to "Some history", its claim in a bullet, is asked for
+    /// that line as its headline, with no patch; the keynote as written, and its cover, its
+    /// figures, and its close, are not.
+    #[test]
+    fn a_topic_headline_over_its_claim_is_found() {
+        let claim = "Port Alder had lost power four times in ten years before anyone acted";
+        let buried = |slides: &mut Vec<answer::Slide>| {
+            let third = &mut slides[2];
+            third.slide_title = "Some history".into();
+            third.layout_suggestion = "Bullets".into();
+            third.key_bullets = vec![claim.into(), "Each time, the town waited on the utility".into()];
+        };
+        let topics = |h: &Health| -> Vec<(usize, String, String)> {
+            (h.findings.iter())
+                .filter(|f| f.kind == Kind::Claim)
+                .map(|f| (f.slide, f.says.clone(), f.ask.clone()))
+                .collect()
+        };
+        let weak = of(&dogfood("keynote", "", buried));
+        let found = topics(&weak);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let (slide, says, ask) = &found[0];
+        assert_eq!(*slide, 3);
+        assert!(says.starts_with("Slide 3's headline, \u{201c}Some history\u{201d}, names a topic"), "{says}");
+        assert!(ask.contains(claim), "{ask}");
+        let fix = weak.findings.iter().find(|f| f.kind == Kind::Claim).and_then(|f| f.fix.as_ref());
+        assert!(fix.is_none(), "the slide's words are the writer's to change (ADR-0032)");
+        assert_eq!(
+            topics(&of(&dogfood("keynote", "", |_| {}))),
+            [],
+            "the keynote as written heads each slide with its claim"
+        );
+        // A topic with no line that says a claim under it is asked nothing here.
+        let bare = |slides: &mut Vec<answer::Slide>| {
+            buried(slides);
+            slides[2].key_bullets = vec!["Four outages".into(), "Ten years".into()];
+        };
+        assert_eq!(topics(&of(&dogfood("keynote", "", bare))), []);
     }
 
     /// A close lands the big idea by what it is about, not by a word it says in passing (W1's
