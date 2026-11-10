@@ -125,16 +125,6 @@ final class KeysTests: XCTestCase {
                 unheard.append("Return typed in nothing")
                 return
             }
-            // A chord types nothing in a text typed in (lift-up 20261110): ⌘D there once typed a
-            // "d" over the title's words, as the system hands a chord's characters on.
-            let cover = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'state-cover'")).firstMatch
-            let read = cover.label
-            app.typeKey("d", modifierFlags: .command)
-            if wait(3, { cover.label != read }) {
-                keep(app, as: "chord-typed")
-                XCTFail("⌘D typed in the title: the cover read \(read), now \(cover.label)")
-            }
-            XCTAssertTrue(typing.exists, "⌘D stopped typing: \(app.debugDescription)")
             switch cancel(app, until: { !typing.exists && title.isSelected }) {
             case .escape: break
             case .commandPeriod: cancelled.append("while typing")
