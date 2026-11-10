@@ -138,8 +138,11 @@ fn grounded(out: &mut String, one: &OneSlide) {
 
 /// The one slide the model's answer holds: the object itself, or the first of its `slides`.
 pub fn answer(text: &str) -> Result<Slide, String> {
-    let parsed: Value =
-        serde_json::from_str(unfenced(text)).map_err(|e| format!("the model's answer is not one slide: {e}"))?;
+    // Read as written, else as the JSON a sentence holds around it, as the arc reads its answer
+    // (lift-up 20261110 STAB-1).
+    let parsed: Value = serde_json::from_str(unfenced(text))
+        .or_else(|e| crate::answer::json_within(text).map_or(Err(e), serde_json::from_str))
+        .map_err(|e| format!("the model's answer is not one slide: {e}"))?;
     let raw = match parsed.get("slides").and_then(Value::as_array) {
         Some(slides) => slides.first().cloned().ok_or("the model wrote no slide")?,
         None => parsed,

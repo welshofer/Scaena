@@ -628,12 +628,15 @@ const THANKS: [&str; 16] = [
 ];
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// or headed with thanks or questions (ADR-0032 item 6).
+/// next steps, or questions, or headed with thanks or questions (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
-        layout.is_some_and(|l| CLOSING.contains(&l)) || THANKS.iter().any(|t| title.starts_with(t))
+        // Next steps and the floor opened belong to a close too, before or after its last word
+        // (dogfood pass 9).
+        layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
+            || THANKS.iter().any(|t| title.starts_with(t))
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -1247,8 +1250,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     if let Some(idea) = &big_idea {
-        let closing = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
-        if let Some(of) = closing.filter(|of| shares(idea, of) == Some(false)) {
+        // The close is the last outlined beat's slides only where they end the deck; else the
+        // deck's last run of closing slides, as `closing` reads it; else its last slide. A model
+        // may write the slides' beats otherwise than the outline did (W2's dogfood).
+        let last = read.len().checked_sub(1);
+        let beat = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
+        let ending = beat.filter(|of| of.last().copied() == last);
+        let run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
+        let closes = ending.or_else(|| (!run.is_empty()).then_some(run)).or_else(|| last.map(|l| vec![l]));
+        if let Some(of) = closes.filter(|of| shares(idea, of) == Some(false)) {
             let slides = spanned(&of);
             find(
                 &read[of[0]].id,
@@ -1990,6 +2000,44 @@ mod tests {
         assert!(paced[0].slide > 1 && paced[0].slide < 25);
     }
 
+    /// The close is the slides that end the deck (W2's dogfood): where a model wrote the slides'
+    /// beats otherwise than the outline, and the last outlined beat's slides stand before the end,
+    /// the big idea's finding names the deck's last run of closing slides, not that beat's.
+    #[test]
+    fn the_close_is_the_slides_that_end_the_deck() {
+        let mut deck = climate();
+        let h = of(&deck);
+        let n = h.slides.len();
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let last_beat = h.beats.len() - 1;
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] =
+            json!({ "bigIdea": "Zebras orchestrate symphonies underwater", "beats": beats });
+        // Each slide of the last beat but the first moved to the first beat: the last beat's slides
+        // now stand before the end.
+        let of_last: Vec<usize> = (0..n).filter(|&i| written[i] == last_beat).collect();
+        assert!(of_last.contains(&(n - 1)), "the climate deck's last beat ends it");
+        for &i in &of_last[1..] {
+            let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &h.slides[i].state));
+            *deck.pointer_mut(&at).unwrap() = json!(0);
+        }
+        let found = of(&deck);
+        let big = found.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("the big idea is not landed");
+        // The deck's last run of closing slides, Questions then Closing, ends at its last slide.
+        assert!(
+            big.says.starts_with(&format!("The close, slides {}\u{2013}{n}, never lands", big.slide)),
+            "{}",
+            big.says
+        );
+        assert_ne!(big.slide, of_last[0] + 1, "not the last outlined beat's first slide, which stands before the end");
+    }
+
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
     /// and whose close says its big idea is found carrying both, and the big idea is given for the
     /// editors to show; a claim no slide of its beat says, and a big idea the close never says,
@@ -2208,6 +2256,32 @@ mod tests {
             assert!(cooler(&open, &last), "the same plan away from a close bends: {:#?}", open.findings);
         }
         assert_eq!(closed.fidelity.score, open.fidelity.score, "no figure moves");
+        // Next steps before the Closing, planned at rest, are part of the close; the floor opened
+        // too (dogfood pass 9). A slide before them that closes nothing still bends.
+        let thanks = |i: usize| THANKS.iter().any(|t| before.slides[i].title.to_lowercase().starts_with(t));
+        let n = before.slides.len();
+        let k = (2..n - 1).rev().find(|&k| !thanks(k) && !thanks(k - 1)).unwrap();
+        let [steps, ask] = [k, k - 1].map(|i| before.slides[i].state.clone());
+        let layouts = |deck: &mut Value, step: &str| {
+            for (i, slide) in before.slides.iter().enumerate().skip(k - 1) {
+                let layout = match i {
+                    i if i == k - 1 => "statement",
+                    i if i == k => step,
+                    _ => "closing",
+                };
+                let at =
+                    (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
+                deck["states"][at]["layout"] = json!(layout);
+                declare(deck, &slide.state, "intensity", 0.0);
+            }
+        };
+        for step in ["next-steps", "qa"] {
+            let mut deck = climate();
+            layouts(&mut deck, step);
+            let h = of(&deck);
+            assert!(!cooler(&h, &steps), "{step} before the close is no bend: {:#?}", h.findings);
+            assert!(cooler(&h, &ask), "a slide before the close that closes nothing bends: {:#?}", h.findings);
+        }
     }
 
     /// A slide planned hotter than its place in the story is asked to change its plan, or its

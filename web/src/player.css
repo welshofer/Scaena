@@ -20,6 +20,8 @@ button, select { font: inherit; }
 .bar select { height: 30px; padding: 0 6px; border: 1px solid #45433e; border-radius: 6px; background: #2b2a27; color: inherit; }
 .bar input[type="range"] { accent-color: #8ab4f8; }
 #update { border-color: #45433e; }
+/* What the bar holds hidden stays so: its controls' own `display` would show it (editor dogfood 1). */
+.bar [hidden] { display: none !important; }
 /* Until the deck opens: a spinner in the middle of the slide's room. */
 .loading { position: fixed; top: calc(50% - var(--bar) / 2); left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; border: 3px solid #45433e; border-top-color: #ddd; border-radius: 50%; animation: spin 0.9s linear infinite; pointer-events: none; }
 @keyframes spin { to { transform: rotate(360deg); } }

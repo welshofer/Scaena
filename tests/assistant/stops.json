@@ -1,0 +1,17 @@
+{
+  "about": "Answers that end short of a whole one (lift-up 20261031 REL-5): each provider's, and why it stopped as both the browser's adapters (web/exchanges.mjs) and scaena-chat (tests/exchanges.rs) read it. A writing tool takes neither a `length` nor a `refused` answer.",
+  "cases": [
+    { "provider": "anthropic", "stop": "refused", "body": { "content": [{ "type": "text", "text": "I can't help" }], "stop_reason": "refusal" } },
+    { "provider": "anthropic", "stop": "length", "body": { "content": [{ "type": "text", "text": "The first half of" }], "stop_reason": "max_tokens" } },
+    { "provider": "anthropic", "stop": "refused", "body": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"role\":\"assistant\"}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"I can't\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"refusal\"}}\n\n" },
+    { "provider": "openai", "stop": "refused", "body": { "choices": [{ "index": 0, "finish_reason": "content_filter", "message": { "role": "assistant", "content": "" } }] } },
+    { "provider": "openai", "stop": "refused", "body": { "choices": [{ "index": 0, "finish_reason": "stop", "message": { "role": "assistant", "content": null, "refusal": "I can't help with that." } }] } },
+    { "provider": "openai", "stop": "length", "body": { "choices": [{ "index": 0, "finish_reason": "length", "message": { "role": "assistant", "content": "The first half of" } }] } },
+    { "provider": "gemini", "stop": "refused", "body": { "candidates": [{ "content": { "role": "model", "parts": [] }, "finishReason": "SAFETY" }] } },
+    { "provider": "gemini", "stop": "refused", "body": { "candidates": [{ "content": { "role": "model", "parts": [{ "text": "As the song goes" }] }, "finishReason": "RECITATION" }] } },
+    { "provider": "gemini", "stop": "refused", "body": { "promptFeedback": { "blockReason": "PROHIBITED_CONTENT" } } },
+    { "provider": "gemini", "stop": "refused", "body": "data: {\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}\n\n" },
+    { "provider": "gemini", "stop": "length", "body": { "candidates": [{ "content": { "role": "model", "parts": [{ "text": "The first half of" }] }, "finishReason": "MAX_TOKENS" }] } },
+    { "provider": "gemini", "stop": "end", "body": { "candidates": [{ "content": { "role": "model", "parts": [{ "text": "Whole." }] }, "finishReason": "STOP" }] } }
+  ]
+}

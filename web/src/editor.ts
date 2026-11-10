@@ -1231,6 +1231,7 @@ async function edit(source: Source, opened?: Stage) {
         void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
       // The tab a finding's field stands in (lift-up ATTR-4), and the timeline under the canvas.
       reveal: (on) => tab(on === "animate" ? "animate" : "inspector"),
+      focus: (node, said) => board.focusLines(node, said),
       timeline: (show) => {
         if (show !== undefined) hiding("cue", !show);
         return !hidden("cue");
@@ -1793,7 +1794,7 @@ async function edit(source: Source, opened?: Stage) {
   /** Each theme the dialog offers: its value (`path:…` for one the deck holds, `ships:…` for one
    * that ships, none for the deck's own), what it is called, its section, and whether the deck
    * is in it now. */
-  let themeChoices: { value: string; label: string; family: string; current: boolean }[] = [];
+  let themeChoices: { value: string; label: string; family: string; current: boolean; thumbnail?: string }[] = [];
   let themesOffered = "";
   /** Whether the dialog's list is the themes offered now. */
   let themesListed = false;
@@ -1807,7 +1808,12 @@ async function edit(source: Source, opened?: Stage) {
     if (held.current === "(inline)") themeChoices.push({ value: "", label: "The deck’s own", family: "In this deck", current: true });
     // The themes that ship, by family, each family a section (PLAN T.0d), each with its title
     // slide drawn at build (PLAN T.0c).
-    for (const [name, { family }] of Object.entries(themes)) themeChoices.push({ value: `ships:${name}`, label: name, family, current: false });
+    // One the deck holds a copy of is said apart from that copy (editor dogfood 1): taking it is
+    // taking the theme as it ships, any edit to the deck's copy left out, and two choices named
+    // alike in the dialog, or two "Re-theme in Dusk" in the palette, said nothing of which is which.
+    const inDeck = new Set(themeChoices.map((c) => c.label));
+    for (const [name, { family, thumbnail }] of Object.entries(themes))
+      themeChoices.push({ value: `ships:${name}`, label: inDeck.has(name) ? `${name} as it ships` : name, family, current: false, thumbnail });
     const current = themeChoices.find((c) => c.current);
     // The words under the toolbar's icon, which the toolbar keeps in its label.
     (themeButton.querySelector(".label") ?? themeButton).textContent = current ? `Theme: ${current.label}` : "Theme…";
@@ -1827,7 +1833,7 @@ async function edit(source: Source, opened?: Stage) {
           `<fieldset><legend>${html(family)}</legend>${themeChoices
             .filter((c) => c.family === family)
             .map((c) => {
-              const thumbnail = c.value.startsWith("ships:") ? themes[c.label]?.thumbnail : undefined;
+              const thumbnail = c.thumbnail;
               return `<label><input type="radio" name="theme" value="${html(c.value)}"${c.current ? " checked" : ""} />${
                 thumbnail ? `<img src="${html(thumbnail)}" alt="" width="96" height="54" />` : ""
               }<span>${html(c.label)}</span>${c.current ? '<span class="now">Now</span>' : ""}</label>`;
@@ -2707,6 +2713,17 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Make Code", group: "Type", where: ["node"], applies: () => prose(), run: () => board.coded(picked()[0], "code") },
       { label: "Not Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "prose") },
       { label: "Tidy Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "tidy") },
+      // A walkthrough (PLAN 2.140): the lines a step is about, the rest set back, each one patch
+      // that leaves the states after it as they were.
+      {
+        label: "Focus on These Lines",
+        group: "Type",
+        where: ["node"],
+        applies: () => isCode() && board.caretIn(picked()[0]),
+        run: () => board.focusTouched(picked()[0]),
+      },
+      { label: "Clear Focus", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.focusLines(picked()[0], "") },
+      { label: "Walk Through Lines…", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.walk(picked()[0]) },
       // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
       ...(["proofread", "tighten", "rewrite"] as const).map(
         (kind): Command => ({

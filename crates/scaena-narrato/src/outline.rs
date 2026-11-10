@@ -160,10 +160,9 @@ pub fn schema_gemini() -> Value {
 /// the answer wrote for it, or none where it wrote none (which the person sees empty, and
 /// [`settled`] passes over).
 pub fn read(text: &str, arc: &NarrativeArc, plan: &[(usize, usize, usize)]) -> Result<Outline, String> {
-    let start = text.find('{').ok_or("the answer holds no JSON object")?;
-    let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
+    let within = crate::answer::json_within(text).ok_or("the answer holds no JSON object")?;
     let value: Value =
-        serde_json::from_str(&text[start..=end]).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
+        serde_json::from_str(within).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
     let big_idea = value.get("bigIdea").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
     let answered = value.get("beats").and_then(Value::as_array).ok_or("the answer has no `beats`")?;
     let claim = |number: usize| {
