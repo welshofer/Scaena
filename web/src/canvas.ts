@@ -4055,6 +4055,19 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       editor.say("Not drawn: the stroke was cancelled");
     }
     if (drag) void still("The drag was cancelled");
+    // A turn or a slot dragged, the pointer taken (a pen out of range, a touch the system took):
+    // let go of as Escape lets go of it, so a pointer that only hovers turns nothing after (lift-up
+    // 20261110 STAB-5).
+    if (turning) {
+      turning = undefined;
+      draw();
+      editor.say("The turn was cancelled");
+    }
+    if (slotDrag) {
+      slotDrag = undefined;
+      draw();
+      editor.say("The slot drag was cancelled: the slot stays where it was");
+    }
   };
 
   // A press on the desk around the slide selects nothing, as a click off the slide does in a
