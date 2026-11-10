@@ -354,6 +354,21 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
     Ok((out, most))
 }
 
+/// The first figure `text` writes: a word with a digit that no letter begins ("38%", "$1.4M",
+/// "2.5×"), not a year ("2026") and not a count under ten standing alone ("Week 1", "3 steps"), so
+/// a name's digits ("Q3", "p99") and a slide's numbering are no figure.
+fn figure(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))))
+        .find(|w| {
+            let starts = w.chars().next().is_some_and(|c| !c.is_alphabetic());
+            let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
+            let count = w.parse::<u32>().is_ok_and(|n| n < 10);
+            starts && w.chars().any(|c| c.is_ascii_digit()) && !year && !count
+        })
+        .map(str::to_string)
+}
+
 /// The slides whose beat breaks the order the deck's beats run in: each outside the longest run
 /// of slides, in the deck's order, whose beats never go back, with the beat it was written for and
 /// the beat it now stands in, the run's slide before it, else after it. A deck as Narrato writes
@@ -1487,6 +1502,29 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
+    // A figure a slide writes in a deck made from its sources, where the slide names none of them
+    // (W1's dogfood 4): its beat cites no source, no address, and no data the deck keeps, so the
+    // figure was the model's word alone, or a source's the slide never says.
+    let sourced = narrative.and_then(|n| n.get("sources")).and_then(Value::as_array).is_some_and(|s| !s.is_empty());
+    if sourced {
+        for (i, s) in read.iter().enumerate() {
+            let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty());
+            let Some(figure) = (!cited).then(|| figure(&format!("{}\n{}", s.title, s.body))).flatten() else {
+                continue;
+            };
+            let k = i + 1;
+            find(
+                &s.id,
+                Severity::Warning,
+                Kind::Story,
+                format!(
+                    "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
+                ),
+                format!("Say on slide {k} where {figure} comes from, or cite the source it is from."),
+                None,
+            );
+        }
+    }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
     if let (Some((seconds, beats)), Some((count, (lo, hi)))) = (&talk, &given) {
@@ -2365,6 +2403,51 @@ mod tests {
         assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
         let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// A figure a slide writes in a deck made from its sources, where the slide names none, is
+    /// asked where it comes from (W1's dogfood 4): the fleet pitch's "38%" fuel cut cites nothing,
+    /// though the deck was made from the pilot's sheet. The slides that cite it, the cover's date,
+    /// and a deck made from no sources are not found; cited, slide 8 is not either.
+    #[test]
+    fn a_figure_no_source_backs_in_a_sourced_deck_is_asked_where_it_comes_from() {
+        let written: Value = serde_json::from_str(
+            &std::fs::read_to_string(root().join("tests/fixtures/dogfood/fleet.slides.json")).unwrap(),
+        )
+        .unwrap();
+        let named: Vec<bool> =
+            (written["slides"].as_array().unwrap().iter()).map(|s| s.get("sourceRef").is_some()).collect();
+        let grounded = |also: &[usize]| {
+            let mut deck = dogfood("fleet", "", |_| {});
+            deck["meta"]["narrative"]["sources"] =
+                json!([{ "name": "pilot.csv", "kind": "csv", "bytes": 1, "truncated": false }]);
+            let mut k = 0;
+            for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+                for beat in section["beats"].as_array_mut().unwrap() {
+                    if named[k] || also.contains(&k) {
+                        beat["evidence"] = json!(["source:pilot.csv"]);
+                    }
+                    k += 1;
+                }
+            }
+            deck
+        };
+        let unsourced = |deck: &Value| -> Vec<(usize, String, String)> {
+            (of(deck).findings.into_iter())
+                .filter(|f| f.kind == Kind::Story && f.says.contains("names no source"))
+                .map(|f| (f.slide, f.says, f.ask))
+                .collect()
+        };
+        let found = unsourced(&grounded(&[]));
+        assert_eq!(found.len(), 1, "{found:?}");
+        let (slide, says, ask) = &found[0];
+        assert_eq!(*slide, 8);
+        assert_eq!(says, "Slide 8 writes 38%, and names no source for it, though the deck was made from its sources.");
+        assert_eq!(ask, "Say on slide 8 where 38% comes from, or cite the source it is from.");
+        assert!(unsourced(&grounded(&[7])).is_empty(), "cited, slide 8 is sourced");
+        assert!(unsourced(&dogfood("fleet", "", |_| {})).is_empty(), "a deck made from no sources");
+        assert_eq!(figure("Q3 by product, p99 latency, Week 1, 3 steps, November 2026"), None);
+        assert_eq!(figure("Costs fell to $1.4M (2.5x less)").as_deref(), Some("$1.4M"));
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
