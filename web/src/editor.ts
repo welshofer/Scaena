@@ -921,6 +921,12 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         describes,
         drawSelection(),
         highlightActiveLine(),
+        // With nothing left to undo or redo, the source pane says so, as the canvas does.
+        keymap.of([
+          { key: "Mod-z", run: () => (back(), true), preventDefault: true },
+          { key: "Mod-y", mac: "Mod-Shift-z", run: () => (back(true), true), preventDefault: true },
+          { linux: "Ctrl-Shift-z", run: () => (back(true), true), preventDefault: true },
+        ]),
         keymap.of([...defaultKeymap, ...historyKeymap, ...findingKeys, indentWithTab]),
         // Named for a screen reader, and in the tab order by its own attribute: Tab indents,
         // so Escape then Tab leaves it.
@@ -1130,6 +1136,16 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     toldOf = view.state.doc.toString();
     status.textContent = text;
   };
+  /** Undo the last step, or with `again` redo the last undone, the canvas showing it at once;
+   * with none left, say so, never the step before again (editor dogfood 5). Whether it did. */
+  const back = (again = false): boolean => {
+    if ((again ? redo : undo)(view)) {
+      forceLinting(view);
+      return true;
+    }
+    say(again ? "Nothing to redo" : "Nothing to undo");
+    return false;
+  };
   /** Take back `text`, if the status still says it: `instead` in its place, or what lint said. */
   const unsay = (text: string, instead?: string) => {
     if (told !== text) return;
@@ -1309,12 +1325,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       );
     },
     // The canvas shows what an undo made at once, not once the editor would lint.
-    undo: () => {
-      if (undo(view)) forceLinting(view);
-    },
-    redo: () => {
-      if (redo(view)) forceLinting(view);
-    },
+    undo: () => void back(),
+    redo: () => void back(true),
     say,
     selected: (node, also) => {
       chosen = node;
@@ -1423,8 +1435,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     source: () => view.state.doc.toString(),
     apply: made,
     took: wrote,
-    undo: () => void undo(view),
-    redo: () => void redo(view),
+    undo: () => void back(),
+    redo: () => void back(true),
     say,
     words: () => lexicon,
     chose: (source, rows) => {
@@ -1466,12 +1478,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       view.dispatch({ effects: fileTaken.of({ path, out: true }), annotations: isolateHistory.of("full") });
       wrote(edited);
     },
-    undo: () => {
-      if (undo(view)) forceLinting(view);
-    },
-    redo: () => {
-      if (redo(view)) forceLinting(view);
-    },
+    undo: () => void back(),
+    redo: () => void back(true),
     // The cursor goes into the state, as the strip puts it there: the preview stays on it.
     show: async (state, node) => {
       const index = last?.states.findIndex(([id]) => id === state) ?? -1;
@@ -1779,9 +1787,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     if (at?.closest('input, textarea, [contenteditable="true"], .cm-editor, #overlay, #data, #files')) return;
     e.preventDefault();
     if (assisting) return say("The assistant is at work on the deck: undo once it is done");
-    if (key === "y" || e.shiftKey) {
-      if (redo(view)) forceLinting(view);
-    } else if (undo(view)) forceLinting(view);
+    back(key === "y" || e.shiftKey);
   });
   /** Insert › Image… (the QA pass's J3): a PNG or a JPEG picked from the disk, put on the slide
    * as one dropped there is. */

@@ -126,6 +126,21 @@ try {
   const redoing = await palette("redo");
   check(redoing[0] === `Redo ${did}`, `and Redo says what it makes again: ${redoing[0]}`);
   await page.keyboard.press("Escape");
+  // With nothing left to undo, an undo says so, not the step before again; so too in the
+  // source, and a redo with nothing left (editor dogfood 5).
+  await undo();
+  check(await says("Nothing to undo"), `with nothing left, an undo says so: ${await status()}`);
+  check((await source()) === original, "and changes nothing");
+  await page.locator(".cm-content").focus();
+  await page.keyboard.press("Control+z");
+  check(await says("Nothing to undo"), `so does one in the source: ${await status()}`);
+  await page.locator("#overlay").focus();
+  await page.keyboard.press("Control+Shift+z");
+  check(await says(`Made again: ${did}`), `a redo makes it again: ${await status()}`);
+  await page.keyboard.press("Control+Shift+z");
+  check(await says("Nothing to redo"), `and with nothing left, a redo says so: ${await status()}`);
+  await undo();
+  check(await back(original), "an undo takes it back again");
 
   // Zoom.
   await palette("zoom in");
