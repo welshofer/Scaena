@@ -736,6 +736,29 @@ fn a_state_offers_its_beats_plan_where_it_declares_one() {
     assert_eq!(said, ["Grave", "Grave", "Sober", "Even", "Warm", "Hopeful"]);
 }
 
+/// What a slide's beat cites (W1's dogfood 5): where an editor adds a source the deck was
+/// grounded in, `source:NAME`, by JSON Patch, one patch, at the beat's `evidence` or its end.
+#[test]
+fn a_state_offers_what_its_beat_cites() {
+    let doc = example();
+    let cites = state(&doc, "mix").cites.expect("the beat `doubled` tells it");
+    assert_eq!((cites.beat.as_str(), cites.at.as_str()), ("doubled", "/spine/sections/1/beats/0/evidence"));
+    assert_eq!(cites.evidence, ["@q3"]);
+    let more = json!([{ "op": "add", "path": format!("{}/-", cites.at), "value": "source:pilot.csv" }]);
+    let doc = compile(&doc, more.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(state(&doc, "revenue").cites.unwrap().evidence, ["@q3", "source:pilot.csv"]);
+    // A beat that cites nothing yet takes the list whole.
+    let none = state(&doc, "intro").cites.expect("the beat `opening` tells it");
+    assert!(none.evidence.is_empty());
+    let first = json!([{ "op": "add", "path": none.at, "value": ["source:pilot.csv"] }]);
+    let doc = compile(&doc, first.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(state(&doc, "intro").cites.unwrap().evidence, ["source:pilot.csv"]);
+    // No beat tells a state the spine leaves out.
+    let ops = json!([{ "op": "add_state", "state": { "id": "aside", "mode": "absolute" }, "after": "close" }]);
+    let doc = compile(&doc, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(state(&doc, "aside").cites, None);
+}
+
 /// The notes edited are those the presenter reads (SPEC §2.6, editor dogfood 3): `set_state`
 /// writes a state's own where it has them, its beat's where it has none and opens the beat, and
 /// its own where it has none and the beat named it before; the field shows what was written.

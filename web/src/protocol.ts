@@ -400,6 +400,16 @@ export interface StateChoices {
   furniture: FurnitureChoice;
   /** The plan of the beat that tells it, where it declares one (editor dogfood 3). */
   plan?: PlanChoice;
+  /** What the beat that tells it cites, where one does (W1's dogfood 5). */
+  cites?: CiteChoice;
+}
+
+/** What a slide's beat cites as its evidence (W1's dogfood 5): `source:NAME` adds a source the
+ * deck was grounded in, by JSON Patch at `at`, or at `at/-` where it cites something already. */
+export interface CiteChoice {
+  beat: string;
+  at: string;
+  evidence: string[];
 }
 
 /** What the inspector offers of the plan a beat declares for its slide (editor dogfood 3): its
@@ -941,7 +951,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "source";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "source" | "label";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
