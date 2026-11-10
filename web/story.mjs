@@ -83,19 +83,14 @@ try {
       return { slide: p.closest("li").dataset.slide, kind: p.dataset.kind, todo: next?.matches("p[data-todo]") ? next.textContent : null, shown: !!next?.checkVisibility?.() };
     }),
   );
-  // In a person's words: the figures health gives the assistant taken out, as the row says it.
-  const spoken = (ask) =>
-    ask
-      .replace(/\s*\([+\u2212-]?\d\.\d\d(?:\u2013[+\u2212-]?\d\.\d\d)?\)/g, "")
-      .replace(/;\s*they read [+\u2212-]?\d\.\d\d/g, "")
-      .replace(/ (at|read) [+\u2212-]?\d\.\d\d,/g, (_, w) => (w === "read" ? " read" : ""))
-      .replace(/\s?[+\u2212-]?\d\.\d\d/g, "");
-  const asks = findings.map((f) => `${f.slide} ${f.kind} To do: ${spoken(f.ask)}`).sort();
+  // In a person's words: each figure health gives the assistant said by its word, as the row says it.
+  const spoken = await page.evaluate((fs) => fs.map((f) => window.scaena.story.spoken(f.ask)), findings);
+  const asks = findings.map((f, i) => `${f.slide} ${f.kind} To do: ${spoken[i]}`).sort();
   check(todos.every((t) => !/\d\.\d\d/.test(t.todo ?? "")), "each in a person's words, no figure");
   check(todos.every((t) => t.todo && t.shown), `each finding says what to do under it: ${JSON.stringify(todos.filter((t) => !t.todo || !t.shown).slice(0, 2))}`);
   check(
     JSON.stringify(todos.map((t) => `${t.slide} ${t.kind} ${t.todo}`).sort()) === JSON.stringify(asks),
-    `what it says to do is each finding's ask, without its figures, once: ${todos.length} of ${findings.length}`,
+    `what it says to do is each finding's ask, its figures said by their words, once: ${todos.length} of ${findings.length}`,
   );
 
   // A turn's bridge, written in the Format tab's Notes field as its finding asks: the field shows
@@ -299,6 +294,9 @@ try {
     await page.waitForFunction(() => window.scaena.story.health(), null, { timeout: 120000 });
     const bend = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "arc" && f.says.includes("planned hotter")));
     check(!!bend && bend.ask.includes("by its Intensity"), `a slide planned hotter than its place, asked by its Intensity: ${bend?.ask}`);
+    // Its row says the plan, and the place's call, by the ladder's words, never a figure.
+    const todo = await page.evaluate((a) => window.scaena.story.spoken(a), bend.ask);
+    check(todo.includes("planned at Peak") && /\((Calm|Steady|Building|Intense|Peak)\)/.test(todo) && !/\d\.\d\d/.test(todo), `its to-do says the plan by its word: ${todo}`);
     const place = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].curve, bend.slide);
     await page.click("#story [data-more] summary").catch(() => {});
     await page.click(`#story [data-findings] li[data-slide="${bend.slide}"] [data-show]`);
