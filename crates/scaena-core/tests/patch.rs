@@ -2321,8 +2321,8 @@ fn typing_in_a_list_built_by_bullet_keeps_its_steps_in_step() {
 }
 
 /// A build of six bullets retyped whole into five lines on its last step keeps a step for each
-/// line: each draws one more as it did, the fifth and the last all five, never every step all
-/// of them (editor dogfood 4).
+/// line, in one patch or a key at a time: each draws one more as it did, the fifth and the last
+/// all five, never every step all of them (editor dogfood 4).
 #[test]
 fn a_build_retyped_whole_keeps_a_step_for_each_line() {
     let mut doc = example();
@@ -2376,6 +2376,23 @@ fn a_build_retyped_whole_keeps_a_step_for_each_line() {
         repeats(&retyped),
         [(last.clone(), format!("state `{last}` draws the same paragraphs as `{last_but_one}`"))]
     );
+    // Typed over a key at a time, as the canvas types (each key a patch): all of it selected and
+    // a key typed over it leaves one paragraph, then each key goes at the end. The build still
+    // keeps a step for each line.
+    let mut typed = patch(
+        &built,
+        json!([{ "op": "replace_text", "node": "list", "from": 0, "to": written, "text": "W", "state": last }]),
+    )
+    .unwrap()
+    .doc;
+    for (k, key) in "eek 1\nWeek 2\nWeek 3\nWeek 4\nWeek 5".chars().enumerate() {
+        let at = k + 1;
+        let op = json!([{ "op": "replace_text", "node": "list", "from": at, "to": at, "text": key.to_string(), "state": last }]);
+        typed = patch(&typed, op).unwrap().doc;
+    }
+    assert_eq!(typed["nodes"]["list"]["text"], json!("Week 1\nWeek 2\nWeek 3\nWeek 4\nWeek 5"));
+    assert_eq!(spans(&steps(&typed)), built_spans, "each key a patch");
+    assert_eq!(errors(&typed), Vec::<String>::new());
 }
 
 /// A node or a state the deck does not have is refused with the id meant, where one is near it:
