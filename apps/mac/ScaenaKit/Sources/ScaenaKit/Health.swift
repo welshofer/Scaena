@@ -47,8 +47,9 @@ public struct Health: Decodable, Sendable {
         /// `title`, `empty`, `turn`, `arc`, `intensity`, `tone`, `drift`, `layout`, `claim` (a beat of
         /// the settled outline its slides do not carry), `bigIdea` (a close that never lands it),
         /// `story` (a narrative warning lint finds), `dense`, `notes` (none to speak from),
-        /// `pacing` (the first slide to cut where the deck runs past its brief), or `look` (a change
-        /// the model asked once it saw the slide, let go: lint found it worse).
+        /// `pacing` (the first slide to cut where the deck runs past its brief), `look` (a change
+        /// the model asked once it saw the slide, let go: lint found it worse), or `label` (a
+        /// content slide's headline that names its topic where it could state its point).
         public let kind: String
         public let says: String
         public let ask: String
@@ -108,16 +109,24 @@ extension Health {
         return (first.map(\.element), indexed.filter { !kept.contains($0.offset) }.map(\.element))
     }
 
+    /// A kind of finding as the folded count names it, in the browser's Story's words
+    /// (`story.ts`'s `KIND`): never an identifier, "source" or "label", where a person reads it.
+    public static func kindSaid(_ kind: String) -> String {
+        switch kind {
+        case "bigIdea": "big idea"
+        case "layout": "broken slide"
+        case "source": "unsourced figure"
+        case "label": "topic headline"
+        case "look": "change let go"
+        default: kind
+        }
+    }
+
     /// What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc".
     public static func moreSaid(_ more: [Finding]) -> String {
         var counts: [(kind: String, count: Int)] = []
         for finding in more {
-            let kind =
-                switch finding.kind {
-                case "bigIdea": "big idea"
-                case "layout": "broken slide"
-                default: finding.kind
-                }
+            let kind = kindSaid(finding.kind)
             if let i = counts.firstIndex(where: { $0.kind == kind }) {
                 counts[i].count += 1
             } else {

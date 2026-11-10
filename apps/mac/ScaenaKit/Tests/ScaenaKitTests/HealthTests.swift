@@ -71,6 +71,12 @@ import Testing
     #expect(triaged.open.map(\.slide) == [5, 6, 2, 4, 7], "the error, the slide's own warning, then tone's at 72")
     #expect(triaged.more.map(\.slide) == [1, 3, 8, 9, 10], "the rest, in the slides' order")
     #expect(Health.moreSaid(triaged.more) == "5 more: 2 arc, 1 intensity, 1 tone, 1 turn")
+    // Every kind is said by a name a person reads (lift-up 10-25b FUNC-4).
+    let named = ["look", "label", "look"].map { kind in
+        try! JSONDecoder().decode(Health.Finding.self, from: Data(
+            #"{"state": "s1", "slide": 1, "severity": "info", "kind": "\#(kind)", "says": "", "ask": ""}"#.utf8))
+    }
+    #expect(Health.moreSaid(named) == "3 more: 2 change let go, 1 topic headline")
     #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
 }
 
@@ -97,4 +103,19 @@ import Testing
     #expect(editor.compiles)
     let again = try #require(try await editor.story(after: kept.health))
     #expect(!again.asLastRead, "the mended source's story is still shown as last read")
+}
+
+/// The folded count names each kind in a person's words, as the browser's Story does: an
+/// unsourced figure, a topic headline, a change let go, a broken slide, and the big idea, never
+/// the identifier a finding carries.
+@Test func theFoldedCountNamesEachKindInWords() throws {
+    let kinds = ["source", "source", "label", "look", "layout", "bigIdea", "tone"]
+    let listed = kinds.enumerated().map { i, kind in
+        #"{"state": "s\#(i)", "slide": \#(i + 1), "severity": "info", "kind": "\#(kind)", "says": "", "ask": ""}"#
+    }
+    let findings = try JSONDecoder().decode([Health.Finding].self, from: Data("[\(listed.joined(separator: ","))]".utf8))
+    #expect(
+        Health.moreSaid(findings)
+            == "7 more: 2 unsourced figure, 1 topic headline, 1 change let go, 1 broken slide, 1 big idea, 1 tone")
+    #expect(Health.kindSaid("arc") == "arc", "a kind with no words of its own is said as it is")
 }
