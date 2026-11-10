@@ -49,6 +49,7 @@ import type {
   FromHelper,
   FromWorker,
   Generate,
+  Paid,
   Insert,
   Keyed,
   Layer,
@@ -341,6 +342,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding?.({ without: true });
         deciding = undefined;
         return;
+      // A deck made that would not open, as a `.scaena` to download (lift-up 20261110 REL-1).
+      case "zipFiles": {
+        const { zipped } = await import("@scaena/generate");
+        const bytes = zipped(data.files).buffer as ArrayBuffer;
+        return post({ type: "filesZipped", id: data.id, bytes }, [bytes]);
+      }
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
@@ -1365,7 +1372,9 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
       deciding = resolve;
     });
   };
-  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle);
+  // Each part paid for, kept by the page to go on from should a later step fail (lift-up 20261110 REL-1).
+  const keep = (paid: Paid) => post({ type: "paid", paid });
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle, keep);
   const out: Record<string, ArrayBuffer> = {};
   for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
   post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));

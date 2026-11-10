@@ -81,7 +81,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, rest: undefined, unreadable: false, looking: 0 };
+const state = { slow: 0, fail: false, refuse: undefined, slides: undefined, rest: undefined, unreadable: false, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -118,7 +118,7 @@ const provider = createServer(async (req, res) => {
   requests.push({ headers: req.headers, body, prompt, asked });
   if (state.slow) await new Promise((ok) => setTimeout(ok, state.slow));
   if (asked === "look" && state.looking) await new Promise((ok) => setTimeout(ok, state.looking));
-  if (state.fail) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
+  if (state.fail || state.refuse === asked) return reply(401, { type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } });
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
   // arc's six beats.
@@ -721,6 +721,43 @@ try {
   check(restLines.some((l) => l.startsWith("The answer was cut short after 3 slides: asking for the rest of")), `the progress says the rest is asked for: ${restLines.join(" | ")}`);
   check(restLines.some((l) => l === "5 slides written"), `and the slides written whole: ${restLines.join(" | ")}`);
   state.slides = state.rest = undefined;
+
+  // A run that fails once the outline is settled keeps what it paid for (lift-up 20261110 REL-1):
+  // Go on from what was made writes the slides to the outline as the person settled it, asking for
+  // neither the arc nor the outline again.
+  await page
+    .waitForSelector("#recovering[open]", { timeout: 5000 })
+    .then(() => page.click("#recovering [value=discard]"))
+    .catch(() => {});
+  await opened();
+  await page.check("#prompting-show-outline");
+  state.refuse = "slides";
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const typed = "Freight carbon is a cost a shipper can price";
+  await page.locator("#prompting-beats li .claim").first().fill(typed);
+  await page.click("#prompting-write");
+  const unwritten = await failed();
+  check(unwritten.includes("didn't accept your key"), `the slides are refused: ${unwritten}`);
+  const keptLine = (await page.textContent("#prompting-kept")) ?? "";
+  check(
+    (await page.isVisible("#prompting-go-on")) && keptLine.includes("the outline as you settled it") && keptLine.includes("Problem–Solution"),
+    `what was paid for is kept, and Go on is offered: ${keptLine}`,
+  );
+  state.refuse = undefined;
+  const goingFrom = requests.length;
+  const unGoneOn = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-go-on");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unGoneOn, { timeout: 180000 })
+    .catch(() => {});
+  const goneOn = requests.slice(goingFrom);
+  check(
+    !goneOn.some((r) => r.asked === "arc" || r.asked === "outline") && goneOn.filter((r) => r.asked === "slides").length === 1,
+    `going on asks for the slides alone: ${goneOn.map((r) => r.asked)}`,
+  );
+  check(goneOn.find((r) => r.asked === "slides")?.prompt.includes(typed), "the slides are written to the claim the person typed");
+  check((await page.evaluate(() => window.scaena.source())) !== unGoneOn, "and the deck is made");
 
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.

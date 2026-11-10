@@ -1073,6 +1073,8 @@ export type ToWorker =
   | { type: "outlineAgain"; arc?: string }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { type: "outlinePassed" }
+  /** `files` as one `.scaena` zip, unchanged (lift-up 20261110 REL-1): `filesZipped`. */
+  | { type: "zipFiles"; id: number; files: Record<string, ArrayBuffer> }
   /** Paint `state` `t` ms into its cue, or at rest without `t`. */
   | { type: "show"; id: number; state: string; t?: number; format?: string }
   /** The deck's timeline. */
@@ -1494,6 +1496,20 @@ export interface Generate {
   /** Whether the outline is shown first (narrative FUNC-1): the arc, the big idea, and each beat's
    * claim, which the person settles before the slides are written; the slides at once where not. */
   outline?: boolean;
+  /** What a run that failed had paid for, which this one goes on from with no call made for it
+   * again (lift-up 20261110 REL-1). */
+  paid?: Paid;
+}
+
+/** What a deck being made from a prompt has paid for so far, kept by the page while the dialog
+ * is open, as the CLI keeps `.generating` (lift-up 20261110 REL-1): deep research's report, as
+ * the source it became; the arc chosen; the outline as the person settled it; and the slides as
+ * the model wrote them. A run given them asks for none of them again. */
+export interface Paid {
+  researched?: { name: string; text: string };
+  arc?: string;
+  settled?: StoryOutline;
+  slides?: string;
 }
 
 /** Narrato's brief (`scaena_narrato::Brief`): what the deck is about, in the user's words, and
@@ -2090,6 +2106,12 @@ export type FromWorker =
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
+  /** What the deck being made has paid for, as each part arrives (lift-up 20261110 REL-1): what
+   * the page keeps to go on from should a later step fail. */
+  | { type: "paid"; paid: Paid }
+  /** A bundle's files as one `.scaena` zip, as `zipFiles` asked: a deck made that would not open,
+   * to download (lift-up 20261110 REL-1). */
+  | { type: "filesZipped"; id: number; bytes: ArrayBuffer }
   /** The bundle as `reload` read it again. */
   | ({ type: "reloaded"; id: number } & Opened)
   /** The frame request `id` asked for is on the canvas, `size` pixels, painted in `ms`. */
