@@ -793,11 +793,12 @@ pub fn compile_alone(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Res
     let mut work = doc.clone();
     let mut patch = Vec::new();
     let mut renamed = Vec::new();
+    let mut budget = Budget::of(doc);
     for (index, raw) in ops.iter().enumerate() {
         let fail = |message: String| PatchError { index, message };
         match Op::from_value(raw.clone()).map_err(fail)? {
             Op::Json(op) => {
-                one(&mut work, &op).map_err(fail)?;
+                budget.one(&mut work, &op).map_err(fail)?;
                 patch.push(op);
             }
             Op::Semantic(op) => {
@@ -806,7 +807,8 @@ pub fn compile_alone(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Res
                 for json in out.ops {
                     // A semantic op compiles against the deck it applies to: a failure here
                     // is a bug in the compiler, reported as such.
-                    one(&mut work, &json)
+                    budget
+                        .one(&mut work, &json)
                         .map_err(|m| fail(format!("`{name}` compiled to {json:?}, which failed: {m}")))?;
                     patch.push(json);
                 }
@@ -820,16 +822,53 @@ pub fn compile_alone(doc: &Value, ops: &[Value], files: &dyn BundleFiles) -> Res
 /// Apply RFC 6902 `ops` to `doc`, all or none.
 pub fn apply(doc: &mut Value, ops: &[Value]) -> Result<(), PatchError> {
     let mut work = doc.clone();
+    let mut budget = Budget::of(doc);
     for (index, op) in ops.iter().enumerate() {
         let fail = |message: String| PatchError { index, message };
         let op: JsonOp = match op.get("op").and_then(Value::as_str) {
             Some(name) if !JSON_OPS.contains(&name) => return Err(fail(format!("`{name}` is not a JSON Patch op"))),
             _ => serde_json::from_value(op.clone()).map_err(|e| fail(e.to_string()))?,
         };
-        one(&mut work, &op).map_err(fail)?;
+        budget.one(&mut work, &op).map_err(fail)?;
     }
     *doc = work;
     Ok(())
+}
+
+/// How far one patch may grow a deck: four times its weight and 64 KiB more. A `copy` can
+/// double a value each op, so thirty in one patch would outgrow any memory before validation
+/// reads the deck; each copy's value is charged against it (lift-up 20261031 SEC-4). An `add`
+/// is not: its value is the patch's own, as large as the patch.
+struct Budget(usize);
+
+impl Budget {
+    fn of(doc: &Value) -> Budget {
+        Budget(weight(doc).saturating_mul(4).saturating_add(64 * 1024))
+    }
+
+    /// `op` applied to `doc` with what it copies charged, or why not.
+    fn one(&mut self, doc: &mut Value, op: &JsonOp) -> Result<(), String> {
+        if let JsonOp::Copy { from, .. } = op {
+            let cost = doc.pointer(from).map(weight).unwrap_or_default();
+            self.0 = self.0.checked_sub(cost).ok_or_else(|| {
+                format!(
+                    "copying `{from}` would grow the deck past what one patch may: copy less, or in patches of its own"
+                )
+            })?;
+        }
+        one(doc, op)
+    }
+}
+
+/// About how many bytes `v` takes written out: a byte for each value and the bytes of each
+/// string and key.
+fn weight(v: &Value) -> usize {
+    match v {
+        Value::String(s) => s.len() + 1,
+        Value::Array(a) => a.iter().map(weight).fold(1, usize::saturating_add),
+        Value::Object(m) => m.iter().map(|(k, v)| k.len() + weight(v)).fold(1, usize::saturating_add),
+        _ => 1,
+    }
 }
 
 pub(super) fn one(doc: &mut Value, op: &JsonOp) -> Result<(), String> {
@@ -855,6 +894,9 @@ pub(super) fn one(doc: &mut Value, op: &JsonOp) -> Result<(), String> {
             add(doc, path, v)
         }
         JsonOp::Copy { from, path } => {
+            if path.starts_with(&format!("{from}/")) {
+                return Err(format!("cannot copy `{from}` into itself"));
+            }
             let v = doc.pointer(from).cloned().ok_or_else(|| format!("`{from}` is not there"))?;
             add(doc, path, v)
         }
@@ -950,6 +992,46 @@ fn esc(key: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A patch of copies that doubles a value each op is refused before it outgrows memory,
+    /// whether it copies a value into itself, the deck's root into it, or between two places
+    /// (lift-up 20261031 SEC-4).
+    #[test]
+    fn a_patch_of_copies_cannot_grow_the_deck_without_end() {
+        let doc = json!({ "a": { "words": "x".repeat(64) }, "b": {} });
+        let into = [json!({ "op": "copy", "from": "/a", "path": "/a/x" })];
+        let err = apply(&mut doc.clone(), &into).unwrap_err();
+        assert!(err.message.contains("into itself"), "{err:?}");
+        let root = [json!({ "op": "copy", "from": "", "path": "/b/all" })];
+        let err = apply(&mut doc.clone(), &root).unwrap_err();
+        assert!(err.message.contains("into itself"), "{err:?}");
+        // `/a` into `/b`, then `/b` into `/a`'s place, each doubling it: refused, all or none.
+        let doubling: Vec<Value> = (0..40)
+            .flat_map(|i| {
+                [
+                    json!({ "op": "copy", "from": "/a", "path": format!("/b/{i}") }),
+                    json!({ "op": "copy", "from": "/b", "path": "/a" }),
+                ]
+            })
+            .collect();
+        let mut work = doc.clone();
+        let err = apply(&mut work, &doubling).unwrap_err();
+        assert!(err.message.contains("past what one patch may"), "{err:?}");
+        assert_eq!(work, doc);
+        struct Bare;
+        impl BundleFiles for Bare {
+            fn exists(&self, _: &str) -> bool {
+                false
+            }
+            fn read_text(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
+        let compiled = compile_alone(&doc, &doubling, &Bare);
+        assert!(compiled.is_err_and(|e| e.message.contains("past what one patch may")));
+        // A copy or two, as a patch makes them, is no such patch.
+        apply(&mut doc.clone(), &doubling[..4]).unwrap();
+    }
 
     #[test]
     fn every_op_applies_as_rfc_6902_says() {

@@ -12,7 +12,7 @@
 // - opening another deck over it asks first, and declined, leaves it open;
 // - leaving the page asks first.
 // Exits 1 on any failure.
-import { launch, serve } from "./serve.mjs";
+import { answering, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -35,6 +35,9 @@ try {
     asked.push({ type: d.type(), message: d.message() });
     void (decline && d.type() === "confirm" ? d.dismiss() : d.accept());
   });
+  // Opening another deck over changes not saved is asked in the editor's own dialog (lift-up
+  // 20261031 ATTR-3): declined, Cancel.
+  await answering(page, (a) => (asked.push({ type: "unsaved", message: a.message }), decline ? "cancel" : "discard"));
   /** The editor once it has compiled and linted the bundle named `name`. */
   const ready = async (name) => {
     await page.waitForFunction(
@@ -84,7 +87,7 @@ try {
   decline = true;
   asked.length = 0;
   await page.evaluate(() => window.scaena.open({ url: "/docs/examples/revenue.deck.json" }));
-  const confirmed = asked.find((a) => a.type === "confirm");
+  const confirmed = asked.find((a) => a.type === "unsaved");
   check(Boolean(confirmed), `opening another deck over it asks first: ${confirmed?.message ?? JSON.stringify(asked)}`);
   const stays = await page.locator("#where").textContent();
   check(stays === "Kept nowhere · Not saved yet", `declined, the deck kept nowhere stays open: ${stays}`);

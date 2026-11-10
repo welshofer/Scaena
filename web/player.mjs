@@ -151,6 +151,11 @@ try {
   // Each drawn with an icon of the set that ships, not a character of a font (lift-up 20261031 ATTR-2).
   const drawn = await player.evaluate(() => ["back", "on", "full", "present"].every((id) => document.querySelector(`#${id} > svg path`)?.getAttribute("d")?.startsWith("M")));
   check(drawn && !(await player.evaluate(() => document.querySelector(".loading"))), "its buttons are drawn with the icons that ship, and the spinner has gone once the deck opened");
+  // What the bar holds hidden stays hidden: the bar's own look for its controls is no reason to
+  // show one, "A new version is ready" least of all, which a page with no new version showed
+  // (editor dogfood 1).
+  const unhidden = await player.evaluate(() => [...document.querySelectorAll(".bar [hidden]")].filter((e) => e.checkVisibility()).map((e) => e.id || e.textContent));
+  check(unhidden.length === 0, `nothing the bar holds hidden shows: ${JSON.stringify(unhidden)}`);
   /** Where the slide stands, and the room the bar at the window's foot leaves it: the window's
    * height in fullscreen. */
   const standing = (page) =>
@@ -645,6 +650,33 @@ try {
   await presenter.keyboard.press("Enter");
   at = await until(player, (k) => window.scaena.at().index === k, "the navigator's last slide", slideAt(count), 2000);
   check(at.index === slideAt(count), `its Slides button opens it too, and End then Return goes to slide ${count}`);
+  // In a format of another shape, 9:16, each slide is drawn in it, never stretched to 16:9 (lift-up
+  // 20261031 ATTR-1).
+  await turnTo("9:16");
+  await presenter.keyboard.press("n");
+  // Each picture drawn in it, taller than wide (a canvas not yet drawn is 300 × 150).
+  await presenter
+    .waitForFunction(
+      (n) => {
+        const all = [...document.querySelectorAll(".navigator li canvas")];
+        return all.length === n && all.every((c) => c.height > c.width);
+      },
+      count,
+      { timeout: 20000 },
+    )
+    .catch(() => {});
+  const shapes = await presenter.evaluate(() =>
+    [...document.querySelectorAll(".navigator li canvas")].map((c) => {
+      const box = c.getBoundingClientRect();
+      return { shown: box.width / box.height, drawn: c.width / c.height };
+    }),
+  );
+  check(
+    shapes.length === count && shapes.every((s) => s.drawn < 1 && Math.abs(s.shown - s.drawn) < 0.02),
+    `in 9:16, each slide is shown in the shape it is drawn: ${JSON.stringify(shapes.map((s) => [s.shown.toFixed(3), s.drawn.toFixed(3)]))}`,
+  );
+  await presenter.keyboard.press("Escape");
+  await turnTo("");
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});

@@ -109,9 +109,50 @@ pub struct Generated {
     /// Why the model did not look at the deck drawn, or what it asked was not kept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unlooked: Option<String>,
+    /// Each address the deck links, with the slide that shows it, so a client says where the
+    /// deck sends its audience (lift-up 20261025 SEC-4).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<Linked>,
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
+}
+
+/// An address a made deck links: the slide that first shows it, from 1, and where it goes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Linked {
+    pub slide: usize,
+    pub href: String,
+}
+
+/// Each web address and email `deck` links in its texts, once for each slide that first shows
+/// it, in the order the slides stand; a link to a state of the deck is none (lift-up 20261025
+/// SEC-4).
+pub fn links(deck: &Deck) -> Vec<Linked> {
+    let Ok(doc) = deck.to_value() else { return Vec::new() };
+    let mut out: Vec<Linked> = Vec::new();
+    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    let hrefs = |props: &Value| -> Vec<String> {
+        (props["runs"].as_array().into_iter().flatten())
+            .filter_map(|r| r["link"]["href"].as_str())
+            .map(str::to_string)
+            .collect()
+    };
+    for (k, states) in deck.slides().into_iter().enumerate() {
+        for &i in &states {
+            let Some(shown) = doc["states"][i]["props"].as_object() else { continue };
+            for (id, delta) in shown {
+                for href in hrefs(&doc["nodes"][id]).into_iter().chain(hrefs(delta)) {
+                    if seen.insert((id.clone(), href.clone()))
+                        && !out.iter().any(|l| l.href == href && l.slide == k + 1)
+                    {
+                        out.push(Linked { slide: k + 1, href });
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A change the model asked on a slide it saw, which lint found the slide worse for and which was
@@ -900,6 +941,7 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
     write.deck = settled.deck;
+    made.links = links(&write.deck);
     Ok(write)
 }
 
@@ -1881,6 +1923,7 @@ pub fn making(
         unpictured: Vec::new(),
         looked: Vec::new(),
         unlooked: None,
+        links: Vec::new(),
         refused: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
@@ -1926,6 +1969,7 @@ pub fn making(
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
     write.deck = settled.deck;
+    made.links = links(&write.deck);
     Ok((made, Some(write)))
 }
 
@@ -2725,7 +2769,8 @@ pub fn icons_found(words: &[String]) -> BTreeMap<String, Icon> {
             return None;
         }
         let found = crate::icons::find(word, crate::icons::Weight::Regular, 1).icons.into_iter().next()?;
-        Some((word.clone(), Icon { name: found.name, path: found.icon.path, view: found.icon.view }))
+        let icon = found.icon?;
+        Some((word.clone(), Icon { name: found.name, path: icon.path, view: icon.view }))
     }))
 }
 
@@ -4388,6 +4433,14 @@ impl Slots<'_> {
         !self.items.is_empty() && self.items.iter().all(Item::figure_first)
     }
 
+    /// Whether a head-to-head's every answer, on both sides of each row, is a figure and nothing
+    /// else ("$46", "400", "18%"), so that its rows compare figures (dogfood pass 9).
+    fn compares_figures(&self) -> bool {
+        let only = |cell: Option<String>| cell.is_some_and(|c| figure(&c).is_some_and(|f| f == c.trim()));
+        let rows: Vec<_> = self.items.iter().skip(1).map(row).collect();
+        !rows.is_empty() && rows.into_iter().all(|(_, left, right)| only(left) && only(right))
+    }
+
     /// Whether the layout has a slot of this name.
     fn has(&self, slot: &str) -> bool {
         self.template().is_some_and(|l| l.slots.contains_key(slot))
@@ -4412,6 +4465,11 @@ impl Slots<'_> {
         match (ordinal(name), role) {
             // A card's or a step's own number keeps its size.
             (Some((_, "number")), _) => None,
+            // A head-to-head whose every answer is a figure ("$46" against "$11") compares figures:
+            // they lead its rows, toward a scorecard's size, the set held to one (dogfood pass 9).
+            (Some((_, "left" | "right")), "body") if self.layout == "head-to-head" && self.compares_figures() => {
+                at_least("numeral")
+            }
             (Some(_), "body") => at_least("lede"),
             // A card's statement, as large as three-quarters of the slide's headline; one of two
             // cards side by side, nine-tenths of it, so each fills its card and the slide's own
@@ -5649,8 +5707,9 @@ fn href(word: &str, bare: bool) -> Option<String> {
             && labels.iter().all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
             && TOP.contains(&labels[labels.len() - 1].to_ascii_lowercase().as_str())
     };
+    // A web address over `https:`, whatever the model wrote (lift-up 20261025 SEC-4).
     if let Some(rest) = word.strip_prefix("https://").or_else(|| word.strip_prefix("http://")) {
-        return host(rest).then(|| word.to_string());
+        return host(rest).then(|| format!("https://{rest}"));
     }
     if let Some((user, domain)) = word.split_once('@') {
         let user = !user.is_empty() && user.chars().all(|c| c.is_ascii_alphanumeric() || "._%+-".contains(c));
@@ -7635,6 +7694,53 @@ mod tests {
         assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
     }
 
+    /// A head-to-head whose every answer is a figure compares figures: they grow toward a
+    /// scorecard's size, the set held to one; one whose answers are words keeps them at the lede
+    /// (dogfood pass 9).
+    #[test]
+    fn a_head_to_head_of_figures_sets_them_as_figures() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "VS").unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let lede = theme.typography.roles["lede"].size;
+        let (layout, deck, state) = made(&[
+            "Branch model: Laundromat model",
+            "Cost per new card: $46 | $11",
+            "New cardholders a month: 60 | 400",
+            "First-time cardholders: 18% | 71%",
+        ]);
+        assert_eq!(layout, "head-to-head");
+        let first = node(&deck, &state, "first-left");
+        assert_eq!(first["text"], "$46");
+        for slot in ["first-left", "first-right", "second-left", "third-right"] {
+            let n = node(&deck, &state, slot);
+            assert_eq!(n["fit"], "grow", "{slot}: {n:#}");
+            assert!(n["maxSize"].as_f64().unwrap() > lede, "{slot} grows past the lede: {n:#}");
+        }
+        // Words on either side keep every answer at the lede.
+        let (_, deck, state) = made(&[
+            "Branch model: Laundromat model",
+            "Speed: slow to open | open in a week",
+            "Cost per new card: $46 | $11",
+        ]);
+        for slot in ["first-left", "second-left"] {
+            let n = node(&deck, &state, slot);
+            assert!(n["maxSize"].as_f64().is_none_or(|most| most <= lede), "{slot}: {n:#}");
+        }
+    }
+
     /// A few short lines of words alone in a large place grow toward three-quarters of the
     /// headline (dogfood pass 4): a term's meaning, and a set of cards' answers, held to one size.
     #[test]
@@ -9178,6 +9284,26 @@ mod tests {
                 .values()
                 .all(|n| n.get("runs").is_none() || n.get("text").is_none())
         );
+    }
+
+    /// A web address written over `http:` links over `https:`, and a made deck says each address it
+    /// links with the slide that shows it (lift-up 20261025 SEC-4).
+    #[test]
+    fn a_made_deck_says_where_it_links_over_https() {
+        assert_eq!(
+            linked("Read http://example.com/a now", true).unwrap()[1],
+            json!({ "text": "http://example.com/a", "link": { "href": "https://example.com/a" } })
+        );
+        let mut talk = climate();
+        let last = talk.slides.len() - 1;
+        talk.slides[last].subtitle = "priya@manifest.dev \u{b7} portalderpower.org/playbook".into();
+        let (made, write) = generating(&talk, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let deck = write.unwrap().deck;
+        let n = deck.slides().len();
+        let at = |href: &str| Linked { slide: n, href: href.into() };
+        assert_eq!(made.links, [at("mailto:priya@manifest.dev"), at("https://portalderpower.org/playbook")]);
+        assert_eq!(links(&deck), made.links);
+        assert!(serde_json::to_value(&made).unwrap()["links"].is_array());
     }
 
     /// A deck in another language keeps no English word of the theme's or the generator's own: no
