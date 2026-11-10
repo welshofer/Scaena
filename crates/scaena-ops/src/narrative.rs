@@ -6679,8 +6679,10 @@ fn chart_node(
     let y_title = match (on_axis(subtitle), chart.series.first().and_then(|s| s.name.as_deref())) {
         (Some(subtitle), _) => Some(titled(subtitle)),
         (None, Some(name)) if !several && !name.trim().is_empty() => Some(titled(name)),
-        // A unit alone titles nothing: "$" over values that carry none says less than no title
-        // (W1 dogfood 5).
+        // Several series' unit alone says the scale where nothing else on the chart does, and
+        // their names would make a long title; one series with no name is titled by nothing,
+        // "$" over values that carry none saying less than no title (W1 dogfood 5).
+        _ if several => chart.unit.clone(),
         _ => None,
     };
     let mut y = json!({ "field": "value", "type": "quantitative", "format": format!(",.{decimals}f") });
@@ -9767,8 +9769,9 @@ mod tests {
         assert_eq!(node["annotations"][1]["text"], "286", "{node:#}");
     }
 
-    /// A value axis is titled by what it plots, with its unit, never by its unit alone: "$"
-    /// over values that carry none says nothing (W1 dogfood 5).
+    /// A value axis is titled by what it plots, with its unit: one series with no name by
+    /// nothing, never "$" alone, and several series by their unit alone, which is all that says
+    /// their scale (W1 dogfood 5).
     #[test]
     fn a_value_axis_is_never_titled_by_its_unit_alone() {
         let budget = |series: Value| -> Value {
@@ -9779,14 +9782,13 @@ mod tests {
             chart_node(&chart, "d", "bar-chart", ["Trail budget", ""], None, "en", json!({}))
         };
         assert_eq!(budget(json!([{ "name": "Budget", "values": [120, 140, 180] }]))["y"]["title"], "Budget ($)");
-        for series in [
-            json!([{ "values": [120, 140, 180] }]),
-            json!([{ "name": " ", "values": [120, 140, 180] }]),
-            json!([{ "name": "Asked", "values": [1, 2, 3] }, { "name": "Granted", "values": [1, 2, 2] }]),
-        ] {
+        for series in [json!([{ "values": [120, 140, 180] }]), json!([{ "name": " ", "values": [120, 140, 180] }])] {
             let node = budget(series);
             assert!(node["y"].get("title").is_none(), "{node:#}");
         }
+        // Several series with no subtitle keep their unit alone: it is all that says the scale.
+        let several = json!([{ "name": "Asked", "values": [1, 2, 3] }, { "name": "Granted", "values": [1, 2, 2] }]);
+        assert_eq!(budget(several)["y"]["title"], "$");
     }
 
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".
