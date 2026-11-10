@@ -134,6 +134,18 @@ private func streaming(_ text: String) -> [String] {
     #expect(await seen.kept == ["The"], "the first word shows before the rest is written")
     #expect(said(assistant) == ["The cover is clean."], "the answer whole, in its place")
     #expect(assistant.usage == Usage(input: 10, output: 2))
+    // Each piece heard bumps what the panel follows the answer by, the entry growing in place
+    // (lift-up 10-25c ATTR-3).
+    #expect(assistant.spoken >= 4, "\(assistant.spoken) pieces followed")
+}
+
+/// Why an answer stopped, in a person's words: none where it simply ended; what VoiceOver hears
+/// once it is done (lift-up 10-25c USE-1).
+@Test func anAnswerStoppedSaysWhy() {
+    #expect(Assistant.stopped("end") == nil && Assistant.stopped("tools") == nil)
+    #expect(Assistant.stopped("stopped") == "Stopped.")
+    #expect(Assistant.stopped("length") == "The answer ran out of room.")
+    #expect(Assistant.stopped("max_tokens_reason") == "The model stopped.")
 }
 
 /// While the assistant is at work on the deck, the deck is its own (lift-up STAB-5): a patch the
@@ -586,6 +598,33 @@ private actor Answers {
         return
     }
     #expect(why == "Anthropic couldn't answer just now. Try again in a moment.", "\(why)")
+}
+
+/// An answer is one step of undo however many calls edited (lift-up 10-25 FUNC-4): the window is
+/// handed the source as the question found it once, when the answer ends, and the panel offers to
+/// take the answer back.
+@MainActor
+@Test(.timeLimit(.minutes(2))) func anAnswerOfSeveralEditsIsOneStepOfUndo() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let louder = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Loudly: "}]}"#
+    let more = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Very "}]}"#
+    let answers = Answers([
+        calling("First.", [("t1", "deck_patch", louder)]), calling("Then.", [("t2", "deck_patch", more)]),
+        answering("Done."),
+    ])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    var undone: [String] = []
+    assistant.edited = { before, _ in undone.append(before) }
+    let was = editor.source
+
+    assistant.ask("Say it louder, twice.", provider: .anthropic, model: "a-model", key: "sk-test")
+    #expect(!assistant.answered)
+    await assistant.asking?.value
+    #expect(editor.source.contains("Very Loudly: "), "both edits were taken")
+    #expect(undone == [was], "one step, from the source as the question found it")
+    #expect(assistant.answered, "the answer may be taken back")
+    assistant.answerUndone()
+    #expect(!assistant.answered)
 }
 
 /// Whether this Mac lets a test write the Keychain: a runner without a login keychain does not.

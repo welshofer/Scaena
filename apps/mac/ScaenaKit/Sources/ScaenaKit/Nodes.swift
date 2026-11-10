@@ -248,3 +248,9 @@ extension ScaenaSession {
         try call("diagramming", ["state": .string(state), "node": .string(node), "kind": .string(kind.rawValue)])
     }
 }
+
+/// A `choose` of `prop` as `value` on each of `nodes` in `state`: one patch, as the inspector's
+/// choices for several make it and the Format menu's alignment (lift-up 20261031 USE-2).
+public func choosing(_ nodes: [String], _ prop: String, _ value: JSONValue, in state: String) -> [JSONValue] {
+    nodes.map { ["op": "choose", "node": .string($0), "prop": .string(prop), "value": value, "state": .string(state)] }
+}

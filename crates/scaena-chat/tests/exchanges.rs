@@ -408,3 +408,29 @@ fn a_call_cut_off_by_the_token_limit_is_not_run_but_answered() {
         Next::Done { text: "So much".into(), stop: Stop::Length, usage: None }
     );
 }
+
+/// An answer cut off by its token limit, or declined by the model or its provider's safety system,
+/// stops as the browser's adapters read it (`tests/assistant/stops.json`), and a writing tool's
+/// [`scaena_chat::answered`] takes neither as words (lift-up 20261031 REL-5).
+#[test]
+fn an_answer_cut_off_or_declined_is_no_answer_to_take() {
+    let stops = read("stops.json");
+    for (i, case) in stops["cases"].as_array().unwrap().iter().enumerate() {
+        let provider: Provider = serde_json::from_value(case["provider"].clone()).unwrap();
+        let stop: Stop = serde_json::from_value(case["stop"].clone()).unwrap();
+        let said = body(&case["body"]);
+        let turn = provider.read_turn(200, "OK", &said).unwrap();
+        assert_eq!(turn.stop, stop, "answer {}", i + 1);
+        let written = scaena_chat::answered(provider, 200, "OK", &said);
+        match stop {
+            Stop::Length => {
+                assert_eq!(written.unwrap_err().to_string(), scaena_chat::LENGTH, "answer {}", i + 1);
+            }
+            Stop::Refused => {
+                let why = written.unwrap_err().to_string();
+                assert!(why.contains("declined to write it"), "answer {}: {why}", i + 1);
+            }
+            _ => assert!(written.is_ok(), "answer {}", i + 1),
+        }
+    }
+}

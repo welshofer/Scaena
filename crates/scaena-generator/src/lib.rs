@@ -126,16 +126,22 @@ impl Sources {
     }
 
     /// Deep research's report and its sources, as a source of their own (PLAN G.8):
-    /// `{ name, kind }`.
+    /// `{ name, kind, text }`, `text` the source as kept, which a page keeps to go on from with
+    /// no research paid for again (`researched`, lift-up 20261110 REL-1).
     pub fn research(&mut self, research: &Research) -> Result<String, JsError> {
         let report = research.report.as_ref().ok_or_else(|| error("the research has written no report yet"))?;
-        let source = Source {
-            name: scaena_narrato::research::source_name(&research.topic),
-            kind: Kind::Research,
-            text: report.source_text(),
-            sheets: Vec::new(),
-            pdf: None,
-        };
+        let name = scaena_narrato::research::source_name(&research.topic);
+        let text = report.source_text();
+        self.researched(&name, &text)?;
+        Ok(json!({ "name": name, "kind": Kind::Research.name(), "text": text }).to_string())
+    }
+
+    /// Deep research's report as `research` kept it, `name` and `text` as it said them: the
+    /// source a run that failed after the research goes on from, packed first as the research
+    /// is (lift-up 20261110 REL-1). `{ name, kind }`.
+    pub fn researched(&mut self, name: &str, text: &str) -> Result<String, JsError> {
+        let source =
+            Source { name: name.into(), kind: Kind::Research, text: text.into(), sheets: Vec::new(), pdf: None };
         self.keep(source)
     }
 
@@ -340,12 +346,14 @@ impl Generation {
     }
 
     /// Where it stands, as `answer` says it, with no answer read: JSON `{ step, slides, arc?,
-    /// reasoning?, fallback?, written?, truncated?, outline?, unread? }`.
+    /// reasoning?, fallback?, written?, truncated?, outline?, unread?, partial?, unrested? }`,
+    /// `partial` the slides written so far where the rest is asked for (lift-up REL-2), and
+    /// `unrested` why it did not come back.
     pub fn standing(&self) -> String {
         self.said()
     }
 
-    /// Where it stands: `arc`, `outline`, `slides`, or `done`.
+    /// Where it stands: `arc`, `outline`, `slides`, `rest`, or `done`.
     pub fn step(&self) -> String {
         serde_json::to_value(self.inner.step()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
     }
@@ -384,6 +392,14 @@ impl Generation {
         Ok(self.said())
     }
 
+    /// The slides as the model wrote them, once it has, the text `written` takes: what a page
+    /// keeps so a run that fails after them goes on from it with no call paid for again, as the
+    /// CLI's `--slides` does (lift-up 20261110 REL-1).
+    #[wasm_bindgen(js_name = writtenText)]
+    pub fn written_text(&self) -> Option<String> {
+        self.inner.written_text().map(str::to_string)
+    }
+
     fn said(&self) -> String {
         let narrative = self.inner.narrative();
         json!({
@@ -394,6 +410,8 @@ impl Generation {
             "fallback": self.inner.fallback(),
             "written": narrative.map(|n| n.slides.len()),
             "truncated": narrative.map(|n| n.truncated),
+            "partial": self.inner.partial(),
+            "unrested": self.inner.unrested(),
             "outline": self.inner.outline(),
             "unread": self.inner.unread(),
             "wait": self.inner.again(),

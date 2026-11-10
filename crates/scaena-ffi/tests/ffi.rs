@@ -673,11 +673,14 @@ fn the_assistant_is_given_each_tool_its_prompt_names() {
         }
     }
     let s = open(B1);
-    let found = tool(s, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2 }));
+    let found = tool(s, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2, "paths": true }));
     let icons = found["ok"]["icons"].as_array().unwrap_or_else(|| panic!("{found}"));
     assert_eq!((icons.len(), icons[0]["name"].as_str()), (2, Some("rocket")), "{found}");
     assert_eq!(icons[0]["icon"]["view"], json!([0.0, 0.0, 256.0, 256.0]), "{found}");
     assert_eq!(found["edited"], false);
+    let named = tool(s, "icon_find", json!({ "query": "rocket", "limit": 2 }));
+    assert_eq!(named["ok"]["icons"][0]["name"], "rocket", "{named}");
+    assert!(named["ok"]["icons"][0].get("icon").is_none(), "names alone without `paths`: {named}");
     unsafe { scaena_session_free(s) };
 }
 
@@ -1902,6 +1905,20 @@ fn an_export_is_the_bytes_scaena_export_writes() {
         slides.starts_with(b"PK\x03\x04") && named("B1 - Slide 1.png") && named("B1 - Slide 2.png"),
         "a zip of the slides"
     );
+
+    // One file that plays offline, where this library carries the web player, else said why
+    // (lift-up 20261031 FUNC-3).
+    let mut error = null_mut();
+    let html = bytes_of(unsafe {
+        scaena_export(s, c("html").as_ptr(), c(r#"{"name":"B1","notes":false}"#).as_ptr(), &mut error)
+    });
+    if scaena_carries_player() {
+        let html = String::from_utf8(html.expect("a single file")).unwrap();
+        assert!(html.to_ascii_lowercase().starts_with("<!doctype html"), "an HTML page");
+    } else {
+        assert!(html.is_none(), "no page without the web player");
+        assert!(took(error).contains("web player"), "said why");
+    }
 
     for (format, args) in [
         ("png", r#"{"state":"cover","width":0}"#),

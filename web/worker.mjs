@@ -116,6 +116,95 @@ try {
   check(!result.lintedOver, `the linter's edit of the source before a patch leaves the patch's deck, its step read: ${result.lintedOver || "it reads"}`);
   check(result.staleKept, "a request older than the deck held is answered from it, the patch kept");
   check(result.stepped === "made", `a step added, with a request of the source before it taken meanwhile, is made: ${result.step} ${result.stepped}`);
+
+  // A deck that names a file of another origin, or out of its folder, opens to an error naming it,
+  // and nothing is asked of that host, the serve token least of all (the 20261031 plan's SEC-1).
+  const torture = JSON.parse(await (await fetch(`${server.origin}/tests/fixtures/torture.scaena/deck.json`)).text());
+  const strays = [];
+  await page.context().route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname === "evil.example") {
+      strays.push(`${url} ${route.request().headers()["x-scaena-token"] ?? ""}`.trim());
+      return route.fulfill({ status: 200, body: "" });
+    }
+    const named = /\/tests\/fixtures\/torture\.scaena\/stray-(\d)\.json$/.exec(url.pathname);
+    if (!named) return route.fallback();
+    const font = ["https://evil.example/x.ttf", "//evil.example/x.ttf", "../../x.ttf"][Number(named[1])];
+    const deck = { ...torture, fonts: [{ ...torture.fonts[0], file: font }, ...torture.fonts.slice(1)] };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(deck) });
+  });
+  const strayed = await page.evaluate(
+    async ({ script, decks }) => {
+      const said = [];
+      for (const deck of decks) {
+        const worker = new Worker(script, { type: "module" });
+        const first = await new Promise((resolve) => {
+          worker.onmessage = ({ data }) => (data.type === "ready" || data.type === "error") && resolve(data);
+          const canvas = document.createElement("canvas").transferControlToOffscreen();
+          const serve = { token: "the-token", client: "stray" };
+          worker.postMessage({ type: "open", source: { url: deck, serve }, painter: "cpu", canvas }, [canvas]);
+        });
+        worker.terminate();
+        said.push(first.type === "error" ? first.message : "opened");
+      }
+      return said;
+    },
+    { script, decks: [0, 1, 2].map((n) => `${server.origin}/tests/fixtures/torture.scaena/stray-${n}.json`) },
+  );
+  for (const [n, font] of ["https://evil.example/x.ttf", "//evil.example/x.ttf", "../../x.ttf"].entries())
+    check(strayed[n]?.includes(font), `a deck naming the font ${font} is refused, naming it: ${strayed[n]}`);
+  check(strays.length === 0, `nothing is fetched from another origin, nor the token sent there: ${strays.join(", ") || "none"}`);
+
+  // The whole-deck lint is laid out a slice at a time (the 20261110 plan's PERF-1): left alone it
+  // lays every state out and finds what lint finds; an edit that comes while it is laid out is
+  // answered, and the lint is dropped, finding nothing that stands, rather than holding the edit.
+  const sliced = await page.evaluate(
+    async ({ script, deck }) => {
+      const worker = new Worker(script, { type: "module" });
+      let n = 0;
+      const waiting = new Map();
+      let ready;
+      const opened = new Promise((resolve) => (ready = resolve));
+      worker.onmessage = ({ data }) => {
+        if (data.type === "ready" || data.type === "error") ready(data);
+        if (data.id !== undefined) waiting.get(data.id)?.(data);
+      };
+      const ask = (message) =>
+        new Promise((resolve) => {
+          const id = ++n;
+          waiting.set(id, resolve);
+          worker.postMessage({ ...message, id });
+        });
+      const canvas = document.createElement("canvas").transferControlToOffscreen();
+      worker.postMessage({ type: "open", source: { url: deck }, painter: "cpu", canvas }, [canvas]);
+      const first = await opened;
+      if (first.type !== "ready") return { error: first.message };
+      const { source } = await ask({ type: "source" });
+      await ask({ type: "edit", source, index: 0 });
+      const whole = await ask({ type: "lint" });
+      const order = [];
+      const linting = ask({ type: "lint" }).then((r) => (order.push("lint"), r));
+      const editing = ask({ type: "edit", source: `${source}\n`, index: 0 }).then((r) => (order.push("edit"), r));
+      const [again, edited] = await Promise.all([linting, editing]);
+      worker.terminate();
+      return {
+        whole: { type: whole.type, laid: whole.laid, whole: whole.whole, found: whole.findings?.length ?? -1, dropped: Boolean(whole.dropped) },
+        again: { type: again.type, dropped: Boolean(again.dropped), found: again.findings?.length ?? -1 },
+        edited: edited.type,
+        order,
+      };
+    },
+    { script, deck: `${server.origin}/tests/fixtures/torture.scaena/deck.json` },
+  );
+  if (sliced.error) throw new Error(`the worker did not open the deck: ${sliced.error}`);
+  check(
+    sliced.whole.type === "linted" && sliced.whole.laid && sliced.whole.whole && !sliced.whole.dropped && sliced.whole.found > 0,
+    `the whole-deck lint, laid out a slice at a time, lays every state out and finds what lint finds: ${JSON.stringify(sliced.whole)}`,
+  );
+  check(
+    sliced.edited === "edited" && sliced.again.type === "linted" && sliced.again.dropped && sliced.again.found === 0,
+    `an edit that comes while it is laid out is answered, and the lint dropped, finding nothing that stands: ${JSON.stringify(sliced)}`,
+  );
 } finally {
   await browser.close();
   server.close();

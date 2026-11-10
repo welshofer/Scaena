@@ -160,6 +160,10 @@ public enum GeneratingStep: Equatable, Sendable {
     /// The outline, twice unreadable, passed over (lift-up REL-3).
     case unoutlined
     case writing(slides: Int)
+    /// The answer was cut short after `written` slides: the rest is asked for (lift-up REL-2).
+    case continuing(written: Int, slides: Int)
+    /// The rest did not come back, and why: the deck is made of the slides written before it.
+    case unrested(why: String)
     case retrying(seconds: Double, tried: Int)
     case wrote(slides: Int, truncated: Bool)
     case painting(pictures: Int, model: String)
@@ -196,6 +200,9 @@ public enum GeneratingStep: Equatable, Sendable {
         case .settled(let beats): "Outline settled: \(beats) beats"
         case .unoutlined: "Writing the slides without an outline"
         case .writing(let slides): "Writing the slides, at least \(slides)…"
+        case .continuing(let written, let slides):
+            "The answer was cut short after \(written) slides: asking for the rest of \(slides)…"
+        case .unrested(let why): "The rest of the slides did not come back: \(why)"
         case .retrying(let seconds, let tried):
             "The provider is busy or did not answer: asking again in \(Int(seconds.rounded())) s (try \(tried + 1) of 6)…"
         case .wrote(let slides, let truncated): "\(slides) slides written\(truncated ? ", the answer cut short" : "")"
@@ -234,6 +241,15 @@ public struct Generated: Decodable, Sendable {
     /// What the model changed on the deck it saw drawn (PLAN G.13), slide by slide, or why not.
     public let looked: [Looked]?
     public let unlooked: String?
+    /// Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4).
+    public let links: [Linked]?
+
+    /// An address the deck links: the slide that first shows it, and where it goes.
+    public struct Linked: Decodable, Sendable {
+        public let slide: Int
+        public let href: String
+    }
+
     /// Each change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     public let refused: [Refused]?
 
@@ -257,7 +273,13 @@ public struct Generated: Decodable, Sendable {
         let made = pictures.map { $0 == 0 ? "" : ", \($0) \($0 == 1 ? "picture" : "pictures")" } ?? ""
         let seen = (looked?.count).map { $0 == 0 ? "" : ", \($0) changed by what the model saw" } ?? ""
         let letGo = (refused?.count).map { $0 == 0 ? "" : ", \($0) of its changes let go" } ?? ""
-        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(letGo)\(errors)"
+        let linked = (links ?? []).map { link in
+            let shown = link.href.replacingOccurrences(of: "mailto:", with: "")
+                .replacingOccurrences(of: "https://", with: "")
+            return "\(shown) on slide \(link.slide)"
+        }
+        let said = linked.isEmpty ? "" : ". Linked: " + linked.joined(separator: "; ")
+        return "Made \(layouts.count) slides on the arc \(arc)\(made)\(seen)\(letGo)\(errors)\(said)"
     }
 }
 
@@ -817,6 +839,10 @@ public final class Generator {
         let fallback: String?
         let written: Int?
         let truncated: Bool?
+        /// The slides written so far, where the answer that wrote them was cut short and the rest
+        /// is asked for, and why the rest did not come back, where it did not (lift-up REL-2).
+        let partial: Int?
+        let unrested: String?
         /// The outline, once the model wrote it or the person settled one (narrative FUNC-1).
         let outline: StoryOutline?
         /// Why the outline did not read, once asked twice (lift-up REL-3).
@@ -1125,7 +1151,12 @@ public final class Generator {
         while true {
             let standing: Standing = try step("request", ["key": .string(key)])
             guard let request = standing.request else { break }
-            hear(standing.step == "arc" ? .choosing : standing.step == "outline" ? .outlining : .writing(slides: standing.slides ?? 0))
+            switch standing.step {
+            case "arc": hear(.choosing)
+            case "outline": hear(.outlining)
+            case "rest": hear(.continuing(written: standing.partial ?? 0, slides: standing.slides ?? 0))
+            default: hear(.writing(slides: standing.slides ?? 0))
+            }
             let reply = await send(request)
             var answered: [String: JSONValue] = [
                 "status": .number(Double(reply.status)),
@@ -1174,6 +1205,9 @@ public final class Generator {
                     let _: Standing = try step("outline")
                 }
             default:
+                // Cut short: the rest is the next request.
+                guard now.step != "rest" else { break }
+                if let why = now.unrested { hear(.unrested(why: why)) }
                 hear(.wrote(slides: now.written ?? 0, truncated: now.truncated ?? false))
             }
         }
