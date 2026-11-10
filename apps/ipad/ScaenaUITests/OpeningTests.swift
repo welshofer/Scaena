@@ -176,7 +176,7 @@ final class OpeningTests: XCTestCase {
         // canvas's: ⌘V from XCUITest's keyboard reached no paste on the simulator.
         let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
-        title.press(forDuration: 1.2)
+        pressForMenu(title, in: app)
         let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
         guard paste.waitForExistence(timeout: 10) else {
             keep(app, as: "no-paste-offered")
@@ -208,7 +208,7 @@ final class OpeningTests: XCTestCase {
         let subtitle = canvas.descendants(matching: .any)
             .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
         XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "no subtitle on the canvas: \(app.debugDescription)")
-        subtitle.press(forDuration: 1.2)
+        pressForMenu(subtitle, in: app)
         let listed = NSPredicate(
             format: "elementType == %lu OR elementType == %lu",
             XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)

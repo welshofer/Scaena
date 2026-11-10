@@ -253,9 +253,31 @@ export function arcGraph(h: Health, width = 300, height = 120): string {
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="The intensity and tone each slide declares against the curve of its arc, by the arc's beats">${bands}${curve}${tone}${declared}${marks}</svg>`;
 }
 
+/** What holds the score down, where a slide lint finds broken caps it (W1's dogfood 5): "Capped at
+ * 72 while slides 7 and 10 have an error; 84 without", each slide a button that shows it. */
+function cappedSaid(h: Health): string {
+  const c = h.capped;
+  if (!c?.slides.length) return "";
+  const slide = (n: number) => {
+    const state = h.slides[n - 1]?.state;
+    const said = `slide ${n}`;
+    return state ? `<button type="button" data-capped-slide="${html(state)}">${said}</button>` : said;
+  };
+  const named = c.slides.map(slide);
+  const listed = named.length < 3 ? named.join(" and ") : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+  const have = c.slides.length === 1 ? "has" : "have";
+  return `<span data-capped>Capped at ${c.cap} while ${listed} ${have} an error; ${c.score} without.</span>`;
+}
+
 /** The panel in `into`, over `stage`. */
 export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor) {
   const score = into.querySelector<HTMLElement>("[data-score]")!;
+  // A slide the cap names shows it (W1's dogfood 5): the score's line is drawn anew as it changes,
+  // so its buttons are heard here.
+  score.addEventListener("click", (e) => {
+    const state = (e.target as Element).closest<HTMLElement>("[data-capped-slide]")?.dataset.cappedSlide;
+    if (state) void editor.show(state);
+  });
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
@@ -342,7 +364,8 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     // Said again only where it changed: the live region speaks each change once.
     const scoring =
       `<b class="${grade(h.score)}">${h.score}</b> of 100, ` +
-      (h.arc ? `written to the ${html(h.arc)} arc` : "no arc named: read against a talk's curve");
+      (h.arc ? `written to the ${html(h.arc)} arc` : "no arc named: read against a talk's curve") +
+      cappedSaid(h);
     if (scoring !== scored) score.innerHTML = scored = scoring;
     measures.innerHTML = MEASURES.map(([key, name]) => {
       const m = h[key] as { score: number | null; says: string };

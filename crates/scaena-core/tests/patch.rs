@@ -2011,6 +2011,43 @@ fn a_quote_sets_its_figure_from_the_data_and_every_patch_sets_it_again() {
     assert_eq!(sum["states"][1]["props"]["title"]["runs"][1]["text"], json!("$57.6"));
 }
 
+/// A quoted figure typed over keeps its quote where the words typed still carry it, the words
+/// around it a run of their own in its look, joined as `style_text` joins runs; a figure changed
+/// is the person's own number, and quotes nothing (dogfood-5 item 13).
+#[test]
+fn a_figure_typed_over_keeps_its_quote_where_the_words_still_carry_it() {
+    let quote = json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+    let op = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "quote": quote } });
+    let doc = patch(&example(), json!([op])).unwrap().doc;
+    let runs = |doc: &Value| doc["states"][1]["props"]["title"]["runs"].clone();
+    let typed = |doc: &Value, from: usize, to: usize, text: &str| {
+        let op =
+            json!({ "op": "replace_text", "node": "title", "state": "revenue", "from": from, "to": to, "text": text });
+        patch(doc, json!([op])).unwrap().doc
+    };
+    // Typed a key at a time after it, as an editor types: one run of words.
+    let mut burst = doc.clone();
+    for (k, key) in " in Q3".chars().enumerate() {
+        burst = typed(&burst, 13 + k, 13 + k, &key.to_string());
+    }
+    assert_eq!(
+        runs(&burst),
+        json!([{ "text": "Revenue " }, { "text": "$19.4", "quote": quote }, { "text": " in Q3" }])
+    );
+    // Typed over with words that still say it: the figure keeps its run and its quote.
+    let about = typed(&doc, 8, 13, "about $19.4");
+    assert_eq!(runs(&about), json!([{ "text": "Revenue about " }, { "text": "$19.4", "quote": quote }]));
+    let pasted = typed(&doc, 8, 13, "$19.4 in Q3");
+    assert_eq!(
+        runs(&pasted),
+        json!([{ "text": "Revenue " }, { "text": "$19.4", "quote": quote }, { "text": " in Q3" }])
+    );
+    assert_eq!(errors(&pasted), Vec::<String>::new());
+    // A figure changed is words: it quotes nothing, nor does a figure inside a longer one.
+    assert_eq!(runs(&typed(&doc, 8, 13, "$19.5")), json!([{ "text": "Revenue " }, { "text": "$19.5" }]));
+    assert_eq!(runs(&typed(&doc, 8, 13, "$19.45")), json!([{ "text": "Revenue " }, { "text": "$19.45" }]));
+}
+
 /// `place` in a format (ADR-0020): into the node's own layout there where it has one, or one
 /// made for it with `anew`; else as without the format.
 #[test]
