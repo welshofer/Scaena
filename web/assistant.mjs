@@ -82,7 +82,7 @@ const SCRIPT = [
   { name: "deck_lint", args: {} },
   { name: "deck_render", args: { state: "start", size: "960x540" } },
   { name: "theme_edit", args: { ops: [{ op: "replace", path: "/tokens/color/accent", value: "#2E86E4" }] } },
-  { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2 } },
+  { name: "icon_find", args: { query: "rocket", weight: "fill", limit: 2, paths: true } },
   // A patch the deck refuses: a layout the theme has not.
   { name: "deck_patch", args: { ops: [{ op: "set_state", id: "start", prop: "layout", value: "no-such-layout" }] } },
   // The deck's story, read by the generator's module (narrative FUNC-2).

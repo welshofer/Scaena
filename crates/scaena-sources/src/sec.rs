@@ -256,8 +256,9 @@ pub fn filing_text(html: &str) -> String {
             i = lower[i..].find("-->").map_or(s.len(), |e| i + e + 3);
             continue;
         }
-        let end = lower[i..].find('>').map_or(s.len(), |e| i + e + 1);
-        let tag = &lower[i + 1..end.saturating_sub(1).max(i + 1)];
+        // A tag never closed ends the filing, as it ends a page (lift-up 20261110 STAB-2).
+        let Some(end) = lower[i..].find('>').map(|e| i + e + 1) else { break };
+        let tag = &lower[i + 1..end - 1];
         let closing = tag.starts_with('/');
         let name: String = tag.trim_start_matches('/').chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
         if let Some(skip) = skipping {
@@ -318,7 +319,8 @@ fn table(inner: &str) -> String {
                 at = start + 2;
                 continue;
             }
-            let open_end = lower[start..].find('>').map_or(row_end, |e| start + e + 1);
+            // A cell left open before its row closes ends at the row (lift-up 20261110 STAB-2).
+            let open_end = lower[start..].find('>').map_or(row_end, |e| start + e + 1).min(row_end);
             let close = lower[open_end..row_end].find("</t").map_or(row_end, |e| open_end + e);
             let text = strip(&inner[open_end..close]);
             cells.push(text.split_whitespace().collect::<Vec<_>>().join(" "));
@@ -481,6 +483,15 @@ fn cut(text: &str, most: usize) -> (String, bool) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A filing that ends inside a tag, or a table cell left open before its row closes, reads
+    /// what it holds, never a slice inside a letter or one run backward (lift-up 20261110 STAB-2).
+    #[test]
+    fn a_tag_never_closed_ends_the_filing() {
+        assert!(filing_text("<p>Revenue rose</p><a title=é").contains("Revenue rose"));
+        let rows = table("<tr><td</tr><tr><td>Revenue</td><td>12</td></tr>");
+        assert!(rows.contains("Revenue\t12"), "{rows:?}");
+    }
 
     fn listed() -> Vec<Company> {
         companies(&json!({

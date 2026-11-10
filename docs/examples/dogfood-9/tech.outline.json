@@ -1,0 +1,26 @@
+{
+ "arc": "PARL (Problem, Action, Result, Learning)",
+ "bigIdea": "Trace one slow request before you guess: our 900 ms p99 was a single loop.",
+ "beats": [
+  {
+   "name": "Problem",
+   "claim": "Checkout's tail latency doubled while its median stayed flat.",
+   "slides": 3
+  },
+  {
+   "name": "Action",
+   "claim": "One loop made forty pricing calls, and batching it was a twelve-line fix.",
+   "slides": 4
+  },
+  {
+   "name": "Result",
+   "claim": "p99 fell 87% and conversion rose 3.1%.",
+   "slides": 2
+  },
+  {
+   "name": "Learning",
+   "claim": "Trace one slow request end to end, then make the fix a rule.",
+   "slides": 3
+  }
+ ]
+}
