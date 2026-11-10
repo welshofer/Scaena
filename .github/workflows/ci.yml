@@ -764,3 +764,5 @@ jobs:
       - run: node --experimental-strip-types web/most.mjs
       # Every call the model makes is answered, an error included (the 20261025b plan's STAB-3).
       - run: node --experimental-strip-types web/answered.mjs
+      # The web loader fetches only the bundle's own files (the 20261031 plan's SEC-1).
+      - run: node --experimental-strip-types web/within.mjs
