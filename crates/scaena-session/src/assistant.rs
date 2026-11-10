@@ -757,12 +757,29 @@ impl Session {
         Ok(Called { edited, ..Called::of(written)? })
     }
 
+    /// `slide_write`'s second half (lift-up FUNC-1), by `by`: `written`, a slide the browser's
+    /// generator module built for this deck (`scaena_ops::narrative::Written`, as JSON), made one
+    /// patch with its set held to one size and set clear and lint's fixes on its own states taken,
+    /// and written unless `dry_run`. What `slide_write` returns.
+    pub fn slide_polishing(&mut self, written: Value, dry_run: bool, by: Caller) -> Result<Called, Error> {
+        let written: scaena_ops::narrative::Written =
+            serde_json::from_value(written).map_err(|e| ops(format!("slide_write: the slide built: {e}")))?;
+        let b = self.bundle();
+        let (mut out, write) = scaena_ops::narrative::slide_polishing(&b, written)?;
+        out.patched.applied &= !dry_run;
+        let edited = self.write(write.filter(|_| !dry_run), by)?;
+        Ok(Called { edited, ..Called::of(out)? })
+    }
+}
+
+// After the rest, so what the browser's editor module carries of this file stands where it stood.
+#[cfg(feature = "slides")]
+impl Session {
     /// What to ask a model for one slide (lift-up FUNC-1), as the Mac's and the iPad's Write This
     /// Slide Again… and Add a Slide About… ask it: `place` `{ "replace": STATE }` or
     /// `{ "after": STATE }`, `ask` the person's words, `{ system, prompt }` the request's two
     /// halves, the bytes the browser's generator module sends (`scaena_ops::narrative::one_request`).
     /// The editor's module carries none of it: the browser asks from the generator's.
-    #[cfg(feature = "slides")]
     pub fn slide_asked(&self, place: Value, ask: &str) -> Result<Value, Error> {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -786,24 +803,9 @@ impl Session {
 
     /// The one slide a model's `answer` to [`Session::slide_asked`] holds, as Narrato writes a
     /// slide: what `slide_write` takes as its `slide`; or why it is none.
-    #[cfg(feature = "slides")]
     pub fn slide_read(answer: &str) -> Result<Value, Error> {
         let slide = scaena_narrato::one::answer(answer).map_err(|e| ops(format!("slideRead: {e}")))?;
         serde_json::to_value(slide).map_err(|e| ops(format!("slideRead: {e}")))
-    }
-
-    /// `slide_write`'s second half (lift-up FUNC-1), by `by`: `written`, a slide the browser's
-    /// generator module built for this deck (`scaena_ops::narrative::Written`, as JSON), made one
-    /// patch with its set held to one size and set clear and lint's fixes on its own states taken,
-    /// and written unless `dry_run`. What `slide_write` returns.
-    pub fn slide_polishing(&mut self, written: Value, dry_run: bool, by: Caller) -> Result<Called, Error> {
-        let written: scaena_ops::narrative::Written =
-            serde_json::from_value(written).map_err(|e| ops(format!("slide_write: the slide built: {e}")))?;
-        let b = self.bundle();
-        let (mut out, write) = scaena_ops::narrative::slide_polishing(&b, written)?;
-        out.patched.applied &= !dry_run;
-        let edited = self.write(write.filter(|_| !dry_run), by)?;
-        Ok(Called { edited, ..Called::of(out)? })
     }
 }
 

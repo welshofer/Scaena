@@ -40,10 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 mod one;
-pub use one::{
-    OneRequest, Place, SlideWritten, Written, one_asked, one_request, slide_asking, slide_into, slide_polishing,
-    slide_write, slide_writing,
-};
+pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
 
 /// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
 /// or refused where it gives none of the fields Narrato's slides are written in (lift-up 10-25b
@@ -6831,6 +6828,9 @@ fn period(chart: &ChartData, said: [Option<&str>; 2]) -> Option<Value> {
         })
     })
 }
+
+// After the rest, so what the browser's editor module carries of this file stands where it stood.
+pub use one::{OneRequest, one_request, slide_asking};
 
 #[cfg(test)]
 mod tests {

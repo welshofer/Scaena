@@ -675,30 +675,6 @@ pub fn one_asked(
     })
 }
 
-/// What a model is sent for one slide (lift-up FUNC-1): Narrato's one-slide instructions and the
-/// prompt [`one_asked`] makes, its deck's words in `scaena_fence`'s fence. The one place either
-/// half is made: the browser's generator module (`SlideWriting.asked`) and the session the Mac
-/// edits (`Session::slide_asked`) both send what this returns, byte for byte.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct OneRequest {
-    pub system: &'static str,
-    pub prompt: String,
-}
-
-/// [`OneRequest`] for one slide at `place` in the deck `doc`, the person's `ask` with it, the rows
-/// of a chart read from `files`.
-pub fn one_request(doc: &Value, place: &Place, ask: &str, files: &dyn SourceFiles) -> Result<OneRequest, OpsError> {
-    let one = one_asked(doc, place, ask, files)?;
-    Ok(OneRequest { system: scaena_narrato::one::ONE_SLIDE_SYSTEM, prompt: scaena_narrato::one::prompt(&one) })
-}
-
-/// [`one_request`] for the bundle `b`'s deck, its data files the rows a chart reads.
-pub fn slide_asking(b: &Bundle, place: &Place, ask: &str) -> Result<OneRequest, OpsError> {
-    let doc = b.deck.to_value().context("the deck")?;
-    let none = View { base: &b.files, pending: BTreeMap::new() };
-    one_request(&doc, place, ask, &scaena_core::data::Texts(&none))
-}
-
 /// The sources a deck was grounded in (`meta.narrative.sources`), none for a deck made by hand.
 fn sources_of(doc: &Value) -> Vec<scaena_narrato::Provenance> {
     doc.pointer("/meta/narrative/sources").cloned().and_then(|s| serde_json::from_value(s).ok()).unwrap_or_default()
@@ -794,4 +770,28 @@ const LANGUAGES: &[&str] = &[
 /// `id` as a JSON Pointer's token.
 fn esc(id: &str) -> String {
     id.replace('~', "~0").replace('/', "~1")
+}
+
+/// What a model is sent for one slide (lift-up FUNC-1): Narrato's one-slide instructions and the
+/// prompt [`one_asked`] makes, its deck's words in `scaena_fence`'s fence. The one place either
+/// half is made: the browser's generator module (`SlideWriting.asked`) and the session the Mac
+/// edits (`Session::slide_asked`) both send what this returns, byte for byte.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OneRequest {
+    pub system: &'static str,
+    pub prompt: String,
+}
+
+/// [`OneRequest`] for one slide at `place` in the deck `doc`, the person's `ask` with it, the rows
+/// of a chart read from `files`.
+pub fn one_request(doc: &Value, place: &Place, ask: &str, files: &dyn SourceFiles) -> Result<OneRequest, OpsError> {
+    let one = one_asked(doc, place, ask, files)?;
+    Ok(OneRequest { system: scaena_narrato::one::ONE_SLIDE_SYSTEM, prompt: scaena_narrato::one::prompt(&one) })
+}
+
+/// [`one_request`] for the bundle `b`'s deck, its data files the rows a chart reads.
+pub fn slide_asking(b: &Bundle, place: &Place, ask: &str) -> Result<OneRequest, OpsError> {
+    let doc = b.deck.to_value().context("the deck")?;
+    let none = View { base: &b.files, pending: BTreeMap::new() };
+    one_request(&doc, place, ask, &scaena_core::data::Texts(&none))
 }
