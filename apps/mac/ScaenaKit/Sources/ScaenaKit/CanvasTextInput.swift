@@ -142,7 +142,12 @@ public final class CanvasKeys: UIView {
             guard let self, self.window != nil else { return }
             if self.typing.typing {
                 // The keyboard read again for the text now typed in: plain for code (PLAN 2.139).
-                if !self.isFirstResponder { self.becomeFirstResponder() } else { self.reloadInputViews() }
+                if !self.isFirstResponder {
+                    self.becomeFirstResponder()
+                } else {
+                    keysLog.debug("text input reloads its input views")
+                    self.reloadInputViews()
+                }
             } else if !self.presses.isFirstResponder {
                 self.presses.becomeFirstResponder()
             }
@@ -151,6 +156,7 @@ public final class CanvasKeys: UIView {
 
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
+        keysLog.debug("text input became first responder: \(became)")
         if became {
             reporting?.cancel()
             reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
