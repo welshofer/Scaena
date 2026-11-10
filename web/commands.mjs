@@ -200,7 +200,7 @@ try {
   );
   check(
     await page
-      .waitForFunction(() => document.querySelector("#transcript")?.textContent.includes("key first"), null, { timeout: 10000 })
+      .waitForFunction(() => document.querySelector("#transcript")?.textContent.includes("Paste a key to ask this"), null, { timeout: 10000 })
       .then(() => true, () => false),
     "it says the key is missing",
   );

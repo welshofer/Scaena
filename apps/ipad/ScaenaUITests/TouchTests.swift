@@ -137,7 +137,7 @@ final class TouchTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "A long press offers what is done to the title, Duplicate copies it, and Undo takes the copy away") { _ in
-            title.press(forDuration: 1.2)
+            pressForMenu(title, in: app)
             let duplicate = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Duplicate'")).firstMatch
             // Make Code stands before Duplicate for a text, so the menu is paged on to it.
             guard paged(to: duplicate, in: app) else {
@@ -320,7 +320,7 @@ final class TouchTests: XCTestCase {
         }
 
         try XCTContext.runActivity(named: "A long press offers Only on This Slide, which a tap holds") { _ in
-            title.press(forDuration: 1.2)
+            pressForMenu(title, in: app)
             let only = all.matching(NSPredicate(format: "label == 'Only on This Slide'")).firstMatch
             guard paged(to: only, in: app) else {
                 keep(app, as: "no-only-this-slide")
@@ -329,7 +329,7 @@ final class TouchTests: XCTestCase {
             XCTAssertFalse(only.isSelected, "Only on This Slide is shown held before it was asked for")
             only.tap()
             settle(1)
-            title.press(forDuration: 1.2)
+            pressForMenu(title, in: app)
             guard paged(to: only, in: app) else {
                 throw Unseen(description: "a second long press offered no Only on This Slide: \(app.debugDescription)")
             }

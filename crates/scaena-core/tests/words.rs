@@ -350,3 +350,35 @@ fn a_haiku_off_5_7_5_is_said_with_its_counts() {
     assert_eq!(words::said("I404", None).as_deref(), words::issue("I404"));
     assert_eq!(words::said("E100", None).as_deref(), words::issue("E100"));
 }
+
+/// A weight is said in a person's words on the Mac as in the browser: Thin to Black by name, and
+/// one between two by its number and both names, `550, between Medium and Semibold`, never a bare
+/// number (W2 editor dogfood).
+#[test]
+fn the_mac_says_a_weight_as_the_browser_does() {
+    let pair = Regex::new(r#"\((\d+), "([^"]+)"\)"#).unwrap();
+    let swift: BTreeSet<(String, String)> = pair
+        .captures_iter(between(WORDS_SWIFT, "static let weights", "]\n"))
+        .map(|c| (c[1].to_string(), c[2].to_string()))
+        .collect();
+    let rust: BTreeSet<(String, String)> = words::WEIGHTS.iter().map(|(w, n)| (w.to_string(), n.to_string())).collect();
+    assert_eq!(swift, rust);
+    // Each way the engine says a weight between, past Thin, or past Black, the Mac says alike.
+    let said = between(WORDS_SWIFT, "static func weight(", "\n    }\n");
+    for (w, below, above, swift) in [
+        (550.0, "Medium", "Semibold", r#""\(value), between \(b.name) and \(a.name)""#),
+        (50.0, "", "Thin", r#""\(value), lighter than \(a.name)""#),
+        (950.0, "Black", "", r#""\(value), heavier than \(b.name)""#),
+    ] {
+        let engine = words::weight(w);
+        let mac = swift
+            .trim_matches('"')
+            .replace(r"\(value)", &format!("{w}"))
+            .replace(r"\(b.name)", below)
+            .replace(r"\(a.name)", above);
+        assert!(said.contains(swift), "{said}");
+        assert_eq!(engine, mac);
+        assert!(!engine.chars().all(|c| c.is_ascii_digit()), "{engine}");
+    }
+    assert_eq!(words::weight(600.0), "Semibold");
+}
