@@ -31,7 +31,7 @@ export interface SlideAskHost {
 
 /** What the dialog answers (lift-up 20261110 deferred), as the keys sheet lists it. */
 export const slideAskKeys = (): Key[] => [
-  { keys: `${MOD}Enter`, label: "In Write this slide again… or Add a slide about…: write it", group: "Make and write" },
+  { keys: `${MOD}Enter`, label: "In Write this slide again… or Add a slide about…: write it", group: "The editor" },
 ];
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));

@@ -13,7 +13,7 @@ const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>
 
 /** What the dialog answers (lift-up 20261110 deferred), as the keys sheet lists it. */
 export const promptKeys = (): Key[] => [
-  { keys: `${MOD}Enter`, label: "In From a prompt…: generate the deck, from any field", group: "Make and write" },
+  { keys: `${MOD}Enter`, label: "In From a prompt…: generate the deck, from any field", group: "The editor" },
 ];
 
 /** How far the deck has come, in words, as `scaena generate` says it. */
