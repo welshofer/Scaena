@@ -533,6 +533,9 @@
       #story { padding: 6px 12px; font-size: 12px; }
       #story p { padding: 0; display: block; }
       #story [data-score] { margin: 0 0 6px; color: var(--muted); }
+      /* The story as last read, while the source does not compile (lift-up 20261110 deferred). */
+      #story > p[data-stale] { margin: 0 0 6px; color: var(--warning); }
+      #story[data-stale] > :is([data-score], [data-measures], [data-big-idea], [data-arc], [data-findings]) { opacity: 0.55; }
       #story [data-score] b { font-size: 22px; margin-right: 6px; }
       #story .good { color: var(--info); }
       #story .fair { color: var(--warning); }

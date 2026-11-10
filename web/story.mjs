@@ -88,6 +88,52 @@ try {
   check(/^My own question first\.\n\n\S/.test(drafted), `Ask the assistant keeps the question drafted, its own after it: ${JSON.stringify(drafted.slice(0, 60))}`);
   await page.fill("#question", "");
   await tab(page, "story");
+
+  // Read again with nothing changed, the score's live region is left as it was, so nothing is
+  // said again (lift-up 20261110 deferred).
+  await page.evaluate(() => {
+    window.__said = 0;
+    new MutationObserver(() => window.__said++).observe(document.querySelector("#story [data-score]"), { childList: true, subtree: true, characterData: true });
+  });
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => {
+      window.__read = window.scaena.story.health();
+      window.scaena.story.refresh();
+    });
+    await page.waitForFunction(() => window.scaena.story.health() !== window.__read, null, { timeout: 30000 }).catch(() => {});
+  }
+  check((await page.evaluate(() => window.__said)) === 0, `read again unchanged, the score is not said again: ${await page.evaluate(() => window.__said)} changes`);
+
+  // A source that does not compile for a moment keeps the story as last read, said to be so, its
+  // fixes held (lift-up 20261110 deferred). A slide moved out of its beat first, so a fix is offered.
+  const compiled = await page.evaluate(() => window.scaena.source());
+  const second = await page.evaluate(() => window.scaena.last().states[1][0]);
+  await page.locator(`#strip li[data-state="${second}"]`).click();
+  await page.keyboard.press("Alt+ArrowRight");
+  await page.waitForFunction((was) => window.scaena.source() !== was, compiled, { timeout: 30000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector("#story [data-findings] [data-fix]"), null, { timeout: 60000 }).catch(() => {});
+  const moved = await page.evaluate(() => window.scaena.source());
+  const shown = await page.locator("#story [data-findings] li[data-slide]").count();
+  await page.evaluate((s) => window.scaena.type(`${s}\nstate {{{`), moved);
+  await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  const asRead = await page.evaluate(() => ({
+    said: document.querySelector("#story > p[data-stale]").textContent,
+    rows: document.querySelectorAll("#story [data-findings] li[data-slide]").length,
+    curve: !!document.querySelector("#story [data-arc] svg"),
+    label: document.querySelector("#story [data-findings]").getAttribute("aria-label"),
+    fixes: [...document.querySelectorAll("#story [data-findings] [data-fix]")].map((b) => b.disabled),
+  }));
+  check(
+    asRead.said === "Showing the story as last read: the source has an error to fix" && asRead.rows === shown && asRead.curve && asRead.label.endsWith(", as last read"),
+    `a source that does not compile keeps the story as last read, and says so: ${JSON.stringify(asRead)}`,
+  );
+  const unready = await page.evaluate(() => window.scaena.source());
+  await page.evaluate(() => document.querySelector("#story [data-findings] [data-fix]")?.click());
+  check(asRead.fixes.length > 0 && asRead.fixes.every((d) => d) && (await page.evaluate(() => window.scaena.source())) === unready, `its fixes are held, and one pressed makes nothing: ${asRead.fixes}`);
+  await page.evaluate((s) => window.scaena.type(s), compiled);
+  await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  check(await page.evaluate(() => document.querySelector("#story > p[data-stale]").hidden), "compiled again, it reads anew");
+  await tab(page, "story");
   // Each finding says what to do under what it found, the question the assistant would be asked,
   // so a presenter with no key reads it in its row (editor dogfood 3).
   const todos = await page.evaluate(() =>
