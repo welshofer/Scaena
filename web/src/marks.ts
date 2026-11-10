@@ -104,6 +104,10 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
   let opened: string | null | undefined;
   /** Whether the marks step aside. */
   let aside = false;
+  /** A finding whose mark is to open once it is drawn: what a panel asks to show (editor dogfood 4). */
+  let wanted: Finding | undefined;
+  /** Whether `a` is the finding `b` says. */
+  const same = (a: Finding, b: Finding) => a.code === b.code && a.message === b.message && a.state === b.state && a.node === b.node;
 
   /** The marks for the state shown, in the format shown: each node's, in paint order, then the
    * state's. None until what stands where in it is known. */
@@ -166,7 +170,7 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
     const all = aside ? [] : current();
     const at = placed(all);
     const key = JSON.stringify([at.map(({ mark, at }) => [mark.node ?? null, at, mark.findings.map((f) => [f.code, f.severity, f.message])])]);
-    if (key === drawn) return;
+    if (key === drawn) return opening(all);
     drawn = key;
     const focused = layer.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.mark : undefined;
     layer.innerHTML = at
@@ -183,6 +187,17 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
       if (mark) open(mark, false);
       else pop.hidePopover();
     }
+    opening(all);
+  }
+
+  /** Open the mark of the finding a panel asked to show, once it stands among `all`. */
+  function opening(all: Mark[]) {
+    const f = wanted;
+    const mark = f && all.find((m) => m.findings.some((g) => same(g, f)));
+    if (!mark) return;
+    wanted = undefined;
+    if (mark.node !== undefined) host.select(mark.node);
+    open(mark, true);
   }
 
   /** The popover over `mark`: each finding, its hint, and its fix. */
@@ -268,6 +283,12 @@ export function marks(layer: HTMLElement, pop: HTMLElement, host: MarksHost) {
       draw();
     },
     draw,
+    /** Open `f`'s mark, its popover in focus, now or once the state it stands in is drawn with it
+     * (editor dogfood 4); `undefined` asks for none. */
+    show(f: Finding | undefined) {
+      wanted = f;
+      if (f) opening(aside ? [] : current());
+    },
     /** Step aside, or come back. */
     aside(on: boolean) {
       if (aside === on) return;

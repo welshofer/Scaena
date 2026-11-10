@@ -71,9 +71,9 @@ struct AssistantPanel: View {
         }
         .onChange(of: assistant.drafted, initial: true) { _, drafted in
             // A question drafted elsewhere, or given back unanswered, put in the box to send or
-            // change.
+            // change, after what was typed there already.
             guard let drafted else { return }
-            question = drafted
+            question = Assistant.drafting(question, with: drafted)
             assistant.drafted = nil
         }
         #if !os(macOS)

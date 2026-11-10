@@ -4511,6 +4511,8 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** What lint found, every finding: those about the state shown, in the format shown, stand on
      * it (PLAN 2.49). */
     found: (findings: Finding[]) => pins.found(findings),
+    /** Open `f`'s mark once the state it stands in is shown with it (editor dogfood 4). */
+    showMark: (f: Finding) => pins.show(f),
     /** The findings' marks shown, for a test. */
     marks: () => pins.shown(),
     /** `node` as the canvas names it in a sentence, by the words of the state shown last asked
