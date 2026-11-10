@@ -6197,7 +6197,7 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>) -> Opt
         }
     };
     let lands = |text: &str| {
-        let after = text.to_lowercase().rfind(" to ").map(|at| &text[at + 4..]);
+        let after = text.as_bytes().windows(4).rposition(|w| w.eq_ignore_ascii_case(b" to ")).map(|at| &text[at + 4..]);
         after
             .and_then(|rest| figures(rest).into_iter().find_map(bar))
             .or_else(|| figures(text).into_iter().find_map(bar))
@@ -7515,6 +7515,10 @@ mod tests {
         assert_eq!(signal(&burn, None, Some("Q1 FY26 was the turn")), Some(2));
         // The headline's figure, not the tallest bar.
         assert_eq!(signal(&burn, Some("Burn fell to $1.8M, the lowest in two years"), None), Some(4));
+        // Words whose lowercase is longer than they are: " to " is found where it stands, never
+        // a place in the lowercase that falls inside a letter or past the figure.
+        assert_eq!(signal(&burn, Some("İ ağır 2.9 düştü to ölçüde 1.8"), None), Some(4));
+        assert_eq!(signal(&burn, Some("İİİ fell from 2.9 to 1.8"), None), Some(4));
         let p99 = ChartData {
             categories: ["Before", "After batching", "After cache"].map(String::from).to_vec(),
             series: vec![answer::Series { name: None, values: [900.0, 210.0, 120.0].map(Some).to_vec() }],
