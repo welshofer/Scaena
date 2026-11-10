@@ -1,0 +1,292 @@
+{
+ "executiveSummary": "Harborline grew revenue 10% in Q3 FY26 to $14.4M while burn fell to $1.8M, putting cash-flow break-even at Q2 FY27, two quarters early. Growth is coming from retention, not new logos; we ask the board to move $600K to sales to fix that.",
+ "slides": [
+  {
+   "slideTitle": "Q3 FY26: growth with a shrinking burn",
+   "subtitle": "Board update · Harborline Logistics · November 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Thanks for making time. This is our Q3 update.\n- One message: we grew faster while spending less, and we can be cash-flow positive by Q2 FY27.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Opens the update",
+   "intent": "Set the frame for the quarter",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Agenda",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "Results: revenue, margin, retention",
+    "Cash: burn and runway",
+    "Risks: two we are watching",
+    "Decisions: what we need from the board"
+   ],
+   "speakerNotes": "- Four parts, thirty minutes, decisions at the end.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Sets the order",
+   "intent": "Orient the board",
+   "expectedIntensity": 0.2,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Revenue grew 10% this quarter, to $14.4M",
+   "subtitle": "Quarterly revenue, $M",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Our fifth straight quarter of double-digit growth"
+   ],
+   "chartData": {
+    "categories": [
+     "Q3 FY25",
+     "Q4 FY25",
+     "Q1 FY26",
+     "Q2 FY26",
+     "Q3 FY26"
+    ],
+    "series": [
+     {
+      "name": "Revenue",
+      "values": [
+       9.8,
+       10.6,
+       11.9,
+       13.1,
+       14.4
+      ]
+     }
+    ],
+    "unit": "$M",
+    "sourceId": "board.csv"
+   },
+   "sourceRef": "board.csv",
+   "speakerNotes": "- $14.4M, up 10% on Q2 and 47% on a year ago.\n- Growth came from mid-market accounts, not price.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Shows the headline growth",
+   "intent": "Make the board see momentum",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Gross margin is up seven points in a year",
+   "subtitle": "Gross margin, %",
+   "layoutSuggestion": "Line Chart",
+   "keyBullets": [
+    "Routing automation took 4 points out of cost of service"
+   ],
+   "chartData": {
+    "categories": [
+     "Q3 FY25",
+     "Q4 FY25",
+     "Q1 FY26",
+     "Q2 FY26",
+     "Q3 FY26"
+    ],
+    "series": [
+     {
+      "name": "Gross margin",
+      "values": [
+       61,
+       62,
+       64,
+       66,
+       68
+      ]
+     }
+    ],
+    "unit": "%",
+    "sourceId": "board.csv"
+   },
+   "sourceRef": "board.csv",
+   "speakerNotes": "- 61% to 68%.\n- Most of it is the routing engine we shipped in Q1.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Shows margin expansion",
+   "intent": "Show the growth is healthy",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "The quarter in four numbers",
+   "subtitle": "",
+   "layoutSuggestion": "Scorecard",
+   "keyBullets": [
+    "$14.4M: revenue, up 47% year over year",
+    "68%: gross margin, up 7 points",
+    "114%: net revenue retention",
+    "289: customers, up 23 this quarter"
+   ],
+   "sourceRef": "board.csv",
+   "speakerNotes": "- The four numbers we report every quarter.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Summarizes the results",
+   "intent": "Give the board the numbers to remember",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Burn fell to $1.8M, the lowest in two years",
+   "subtitle": "Net burn, $M per quarter",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Burn is down 42% since Q3 FY25"
+   ],
+   "chartData": {
+    "categories": [
+     "Q3 FY25",
+     "Q4 FY25",
+     "Q1 FY26",
+     "Q2 FY26",
+     "Q3 FY26"
+    ],
+    "series": [
+     {
+      "name": "Net burn",
+      "values": [
+       3.1,
+       2.9,
+       2.6,
+       2.2,
+       1.8
+      ]
+     }
+    ],
+    "unit": "$M",
+    "sourceId": "board.csv"
+   },
+   "sourceRef": "board.csv",
+   "speakerNotes": "- Headcount grew 8%, burn fell 42%.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Shows efficiency",
+   "intent": "Make the board see discipline",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "We can be cash-flow positive by Q2 FY27",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "Q2 FY27",
+    "the quarter we reach cash-flow break-even at current trends"
+   ],
+   "supportingFacts": [
+    "Finance model, base case, November 2026"
+   ],
+   "speakerNotes": "- At the current trend, burn crosses zero in Q2 FY27.\n- That is two quarters earlier than the plan you approved in March.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "The peak of the update",
+   "intent": "Make the board feel the turn",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Retention, not new logos, drove the growth",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Existing customers: 114% net retention, up from 104%",
+    "New customers: 23 added, flat with last quarter"
+   ],
+   "sourceRef": "board.csv",
+   "speakerNotes": "- The growth is coming from customers expanding.\n- New logo acquisition is flat. That's the risk on the next slide.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Explains where growth comes from",
+   "intent": "Show what is working and what is not",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Two risks could push break-even back a quarter",
+   "subtitle": "",
+   "layoutSuggestion": "Risk Matrix",
+   "keyBullets": [
+    "medium / high: new-logo growth stays flat",
+    "low / high: our largest customer, 9% of revenue, renews late",
+    "high / low: fuel costs rise 15%"
+   ],
+   "speakerNotes": "- New logos is the one we watch most.\n- The largest renewal is in March; early signs are good.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Names the risks",
+   "intent": "Make the board trust the plan by naming what could break it",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.3
+  },
+  {
+   "slideTitle": "We will fix new-logo growth with two moves",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Partner channel: three freight brokers signed, live in January",
+    "Self-serve tier: launches in Q4 for fleets under 20 trucks"
+   ],
+   "speakerNotes": "- Two bets, both already funded in the current budget.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Answers the risk",
+   "intent": "Show the plan has a response",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "What we need from the board",
+   "subtitle": "",
+   "layoutSuggestion": "Decision Brief",
+   "keyBullets": [
+    "The issue: new-logo growth is flat for two quarters",
+    "The options: hire four sellers now, or wait for the partner channel",
+    "We recommend: hire two now, two after January's partner results",
+    "We need: approval for $600K of the existing budget to move to sales"
+   ],
+   "supportingFacts": [
+    "Approve the $600K move today, so the first hires start in December."
+   ],
+   "speakerNotes": "- This is the one decision on the agenda.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Puts the decision to the board",
+   "intent": "Get the approval",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Next steps",
+   "subtitle": "",
+   "layoutSuggestion": "Next Steps",
+   "keyBullets": [
+    "Open two sales roles — Dana Ruiz — December 1",
+    "Partner channel goes live — Sam Okafor — January 15",
+    "Q4 board update — Lee Park — February 12"
+   ],
+   "speakerNotes": "- Owners and dates.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Commits owners",
+   "intent": "Leave the board with who does what",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Approve the $600K move today",
+   "subtitle": "So two sellers start in December and break-even holds at Q2 FY27",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Thank you. Questions, then the vote.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Closes on the ask",
+   "intent": "Make the ask the last thing said",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  }
+ ]
+}
