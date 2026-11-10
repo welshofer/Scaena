@@ -1292,6 +1292,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // not read for the big idea, and says so, rather than passing or failing on words split
         // where its letters leave ASCII ("schließt") and joining words counted as telling.
         let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
+        // Quoted mid-sentence, the idea's own closing stop is left out, so a sentence after it
+        // reads "…already are”. Rewrite", never "…already are.”. Rewrite".
+        let quoted = idea.trim_end().trim_end_matches('.').trim_end();
         if let (Some(name), Some(of)) = (named, closes.as_ref()) {
             let slides = spanned(of);
             find(
@@ -1302,7 +1305,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     "The close, {slides}, is not read for the big idea: health reads it only in English, and this deck is in {name}."
                 ),
                 format!(
-                    "The big idea is \u{201c}{idea}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
+                    "The big idea is \u{201c}{quoted}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
                 ),
                 None,
             );
@@ -1312,9 +1315,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 &read[of[0]].id,
                 Severity::Warning,
                 Kind::BigIdea,
-                format!("The close, {slides}, never lands the big idea: \u{201c}{idea}\u{201d}"),
+                format!("The close, {slides}, never lands the big idea: \u{201c}{quoted}\u{201d}"),
                 format!(
-                    "The big idea is \u{201c}{idea}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
+                    "The big idea is \u{201c}{quoted}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
                 ),
                 None,
             );
@@ -2239,6 +2242,12 @@ mod tests {
         let weak = of(&dogfood("keynote", idea, thanked));
         let n = weak.slides.len();
         let big = weak.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("a close of thanks lands nothing");
+        // An idea that ends in a stop is quoted without it, so no sentence ends twice.
+        let stopped = of(&dogfood("keynote", &format!("{idea}."), thanked));
+        let ended = stopped.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
+        assert!(ended.says.ends_with(&format!("\u{201c}{idea}\u{201d}")), "{}", ended.says);
+        assert!(ended.ask.starts_with(&format!("The big idea is \u{201c}{idea}\u{201d}. Rewrite")), "{}", ended.ask);
+        assert_eq!(stopped.big_idea.as_deref(), Some(format!("{idea}.").as_str()), "the idea itself is as settled");
         let close = format!("The close, slides {}\u{2013}{n}, never lands", n - 1);
         assert!(big.says.starts_with(&close), "{}", big.says);
         // The last beat's slide before the close shares a word with it, which the rule before
