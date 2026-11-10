@@ -2717,10 +2717,12 @@ impl Item {
         self.label.as_deref().is_some_and(numeric)
     }
 
-    /// Its figure: the label that is one, else the first in its detail.
+    /// Its figure: the label that is one, else its detail where that is a figure alone, its unit
+    /// and magnitude with it ("34 M€", dogfood pass 11), else the first in its detail.
     fn figure(&self) -> Option<String> {
         match &self.label {
             Some(label) if numeric(label) => Some(label.clone()),
+            Some(_) if numeric(&self.detail) => Some(self.detail.trim().to_string()),
             _ => figure(&self.detail),
         }
     }
@@ -3241,15 +3243,9 @@ fn layout_for(
         // the button. A closing that says something stays as it is said.
         "closing" | "thanks" if bare(&slide.slide_title) && calling(slide, items).is_some() => "call-to-action",
         "closing" | "thanks" => "closing",
-        "body" if pictured => "bullets-photo",
-        "body" => "bullets",
-        "numbered" => "numbered",
-        "quote" => "quote",
-        "statement" => "statement",
-        "definition" => "definition",
-        "metric" if pictured => "number-photo",
-        "metric" => "big-number",
-        "scorecard" | "kpi-grid" => match n {
+        // Three or more items each a name and its figure alone ("Fonds vert : 34 M€"), written as a
+        // list, are figures a room reads at a glance, not a muted list (dogfood pass 11).
+        "scorecard" | "kpi-grid" | "body" if identity != "body" || (!pictured && tallied(items)) => match n {
             0..=2 => "two-numbers",
             // Three prices, each with its tier: a pricing slide.
             3 if priced(items) && theme.layouts.contains_key("pricing") => "pricing",
@@ -3260,6 +3256,14 @@ fn layout_for(
             4 => "scorecard",
             _ => "number-grid",
         },
+        "body" if pictured => "bullets-photo",
+        "body" => "bullets",
+        "numbered" => "numbered",
+        "quote" => "quote",
+        "statement" => "statement",
+        "definition" => "definition",
+        "metric" if pictured => "number-photo",
+        "metric" => "big-number",
         // Two bars of one series are two figures, each as large as the slide takes.
         "bar-chart" if two(slide) && theme.layouts.contains_key("two-figures") => "two-figures",
         "bar-chart" if chart => "bar-chart",
@@ -3460,6 +3464,15 @@ fn bare(title: &str) -> bool {
     ];
     let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
     !t.is_empty() && BARE.contains(&t.as_str())
+}
+
+/// Whether `items` are three or more names each with its figure alone, its name first ("Fonds vert
+/// de l'État : 34 M€", "Churn: 4.2%"): a tally a scorecard sets, never a list of points.
+fn tallied(items: &[Item]) -> bool {
+    items.len() >= 3
+        && items.iter().all(|i| {
+            i.label.as_deref().is_some_and(|l| !numeric(l)) && !i.detail.is_empty() && numeric(i.detail.trim())
+        })
 }
 
 /// What a bare closing asks of the room, and where: its subtitle and its items, an ask that
@@ -8849,6 +8862,24 @@ mod tests {
         assert!(mixed.iter().any(|(_, w)| w == "Saved per household each year"), "{mixed:#?}");
         // German keeps every case as written already.
         assert_eq!(continued("der Eilbestellungen", "de"), "der Eilbestellungen");
+        // Three or more names each with its figure alone, written as a list, are set as figures,
+        // each figure with its unit as written (dogfood pass 11); two, or one item that is not a
+        // figure, stay a list.
+        let tally = |bullets: &[&str]| {
+            made(
+                serde_json::json!({ "slideTitle": "How we fund $86M", "layoutSuggestion": "Bullet List",
+                    "keyBullets": bullets }),
+                "en",
+            )
+        };
+        let (layout, said) = tally(&["Green fund: $34M", "Low-rate loan: $30M", "Own funds: $22M"]);
+        assert_eq!(layout, "numbers", "{said:#?}");
+        for (figure, name) in [("$34M", "Green fund"), ("$30M", "Low-rate loan"), ("$22M", "Own funds")] {
+            assert!(said.iter().any(|(_, w)| w == figure), "{figure}: {said:#?}");
+            assert!(said.iter().any(|(_, w)| w == name), "{name}: {said:#?}");
+        }
+        assert_eq!(tally(&["Green fund: $34M", "Low-rate loan: $30M"]).0, "bullets");
+        assert_eq!(tally(&["Green fund: $34M", "Low-rate loan: $30M", "Own funds: the rest"]).0, "bullets");
         // A quiz: one question, its answers under their letters.
         let (layout, said) = made(
             serde_json::json!({ "slideTitle": "Which is a root cause?", "layoutSuggestion": "Quiz",
