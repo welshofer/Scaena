@@ -235,6 +235,8 @@ let current:
   | {
       close: (lost?: boolean) => Promise<void> | void;
       unsaved: () => boolean;
+      /** Save it where it is kept, or in this browser: whether it was saved. */
+      save: () => Promise<unknown>;
       say: (text: string) => void;
       /** The deck's story read: its score (narrative USE-2). */
       story: () => Promise<number>;
@@ -244,6 +246,32 @@ let current:
       typeTitle: () => Promise<boolean>;
     }
   | undefined;
+
+/** What a person answers when changes not saved would be lost: save them first, go on without
+ * them, or do neither. */
+type Unsaved = "save" | "discard" | "cancel";
+
+/** Ask about changes not saved (lift-up 20261031 ATTR-3), as a presentation app asks: Save, the
+ * one that loses nothing, in focus; `discard` the words of the button that goes on without them,
+ * Don't Save unless said; Cancel, or Escape, doing neither. The dialog says what asks it
+ * (`data-for`): `open`, `disk`, or `play`. */
+function unsavedAsked(kind: "open" | "disk" | "play", said: string, discard = "Don't Save"): Promise<Unsaved> {
+  const dialog = $<HTMLDialogElement>("#unsaved");
+  if (dialog.open) dialog.close("cancel");
+  dialog.dataset.for = kind;
+  dialog.querySelector("[data-said]")!.textContent = said;
+  dialog.querySelector<HTMLButtonElement>('button[value="discard"]')!.textContent = discard;
+  dialog.returnValue = "";
+  return new Promise((answered) => {
+    dialog.addEventListener(
+      "close",
+      () => answered(dialog.returnValue === "save" || dialog.returnValue === "discard" ? dialog.returnValue : "cancel"),
+      { once: true },
+    );
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>('button[value="save"]')!.focus();
+  });
+}
 
 /** A bundle as a person names it when it does not open: its file, its folder, or its name. */
 function namedFor(source: Source): string {
@@ -261,8 +289,16 @@ function namedFor(source: Source): string {
 async function open(source: Source, asked = false) {
   // Changes not saved, lost as the person agreed, asked here or before: no copy keeps them, so none
   // is offered onto another deck that is named alike.
-  const lost = current?.unsaved() ?? false;
-  if (lost && !asked && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
+  let lost = current?.unsaved() ?? false;
+  if (lost && !asked) {
+    // Save first, lose what is not saved, or open nothing (lift-up 20261031 ATTR-3).
+    const answer = await unsavedAsked("open", "The deck open has changes not saved. Save them before opening another?");
+    if (answer === "cancel") return;
+    if (answer === "save") {
+      if (!(await current?.save())) return;
+      lost = current?.unsaved() ?? false;
+    }
+  }
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
@@ -2958,9 +2994,13 @@ async function edit(source: Source, opened?: Stage) {
       if (!dirty()) return void take(paths).catch(failed);
       again.textContent = "Changed on disk: take it";
       again.hidden = false;
-      again.onclick = () => {
-        if (confirm("Take the deck as it is on disk, and lose the changes here not saved?")) void take(["deck.json"]).catch(failed);
-      };
+      // Keep the changes here, saved over the deck on disk; take the deck on disk, losing them; or
+      // neither, asked in the editor's own words (lift-up 20261031 ATTR-3).
+      again.onclick = () =>
+        void unsavedAsked("disk", "The deck changed on disk. Save the changes made here over it, or take it as it is on disk and lose them?", "Take It from Disk").then((answer) => {
+          if (answer === "save") void save().catch(failed);
+          else if (answer === "discard") void take(["deck.json"]).catch(failed);
+        });
     };
     hearing = listen({ changed, broke: () => scnOnDisk && changed(["deck.scn"]) });
   }
@@ -3162,6 +3202,7 @@ async function edit(source: Source, opened?: Stage) {
       return gone;
     },
     unsaved,
+    save: () => save(),
     say,
     story: async () => (await stage.health(view.state.doc.toString())).score,
     models: (provider, key, base) => stage.models(provider, key, base),
@@ -3204,8 +3245,18 @@ async function edit(source: Source, opened?: Stage) {
     play.href = playingFrom();
     const fresh = unkept();
     if (!fresh && !dirty()) return;
-    if (!fresh && !confirm("The deck has changes not saved, which the player would not play. Save it first?")) return;
     e.preventDefault();
+    if (fresh) return playSaved();
+    // Save, or play the deck as last saved, or neither: asked in the editor's own words (lift-up
+    // 20261031 ATTR-3). The player's window opens on the answer, a click of its own.
+    void unsavedAsked("play", "The deck has changes not saved, which the player would not play. Save them first?", "Play as Saved").then((answer) => {
+      if (answer === "save") playSaved();
+      else if (answer === "discard") window.open(playingFrom(), "_blank");
+    });
+  };
+  /** Save the deck, then play it, the player's window opened now and sent to it once it is. */
+  const playSaved = () => {
+    const fresh = unkept();
     const opened = window.open("about:blank", "_blank");
     void save().then(
       (done) => {

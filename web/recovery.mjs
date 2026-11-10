@@ -17,7 +17,7 @@
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { launch, serve } from "./serve.mjs";
+import { answering, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -35,6 +35,9 @@ try {
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   // Leaving with changes not saved is confirmed, as is opening another deck over them.
   page.on("dialog", (d) => void d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   const ready = async (name) => {
     await page.waitForFunction(
       (name) => (window.scaena?.last() && (!name || window.scaena.where().name === name)) || document.querySelector("#status")?.textContent.startsWith("Error"),
