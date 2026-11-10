@@ -38,6 +38,9 @@ struct DeckView: View {
     @State private var pointed: CGPoint?
     /// What the canvas says of an edit its keys or the Node menu made.
     @State private var said: String?
+    /// The edits made since the window opened, where the iPad's UI tests hold the deck after so
+    /// many as the assistant holds it (`-assistantAtWorkAfter`, lift-up STAB-5).
+    @State private var editsMade = 0
     /// What the deck may have inserted, read again after each edit.
     @State private var inserts: [Insert] = []
     /// The deck's data sources and their files: what Insert names a chart's or a table's data by.
@@ -702,8 +705,12 @@ struct DeckView: View {
     /// The deck played here, as presented, keeping the time each slide takes (PLAN 3.14).
     private func rehearse() {
         showsSlides = false
+        // From the slide shown: a person rehearses the section they just rewrote (lift-up 10-25b
+        // USE-2).
+        let from = editor.slots.firstIndex { $0.state == editor.shown } ?? 0
         rehearsal = Rehearsal(
-            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none })
+            slots: editor.slots, notes: editor.slots.map { (try? editor.session.notes(state: $0.state)) ?? .none },
+            from: from)
     }
 
     /// What a press on an empty slot's words does on `state` (PLAN 3.30): fills it, on a slide made
@@ -763,6 +770,8 @@ struct DeckView: View {
                 // as a presentation app's tips fade once read: those words alone. Words said as
                 // the time runs out (a slide turned to by PageDown, say) stay their own moment.
                 guard let words = said else { return }
+                // Said to VoiceOver as it shows (lift-up 10-25c USE-1).
+                Spoken.say(words)
                 try? await Task.sleep(for: .seconds(6))
                 if !Task.isCancelled, said == words { said = nil }
             }
@@ -816,6 +825,14 @@ struct DeckView: View {
             // back, as the browser's do (lift-up STAB-5).
             .background(UndoGuard(locked: editor.assisting) { said = DeckEditor.atWork })
             #endif
+            .onChange(of: editor.revision) {
+                // Launched with `-assistantAtWorkAfter N`, as the iPad's UI tests launch it, the deck
+                // is held as the assistant holds it once N edits are made (lift-up STAB-5).
+                let after = UserDefaults.standard.integer(forKey: "assistantAtWorkAfter")
+                guard after > 0 else { return }
+                editsMade += 1
+                if editsMade >= after { editor.holdForTests() }
+            }
     }
 
     /// What the canvas says, taken away as this window's undo takes a step back or makes it again.
@@ -1256,6 +1273,9 @@ struct DeckView: View {
                 let data = try await snapshot.exported(export)
                 guard making?.id == id else { return }
                 try done(data)
+                // Made, said to VoiceOver, which the sheet's going would otherwise leave unsaid
+                // (lift-up 10-25c USE-1); a failure says itself in the alert.
+                Spoken.say(Exporting.made(kind))
             } catch is CancellationError {
             } catch {
                 if making?.id == id { failure = Why.said(error) }

@@ -17,7 +17,7 @@
 // Exits 1 on any failure.
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { launch, serve } from "./serve.mjs";
+import { answering, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu&bundle=${bundle}`;
@@ -35,6 +35,9 @@ try {
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   // Leaving with changes not saved is confirmed, as is opening another deck over them.
   page.on("dialog", (d) => void d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   const ready = async (name) => {
     await page.waitForFunction(
       (name) => (window.scaena?.last() && (!name || window.scaena.where().name === name)) || document.querySelector("#status")?.textContent.startsWith("Error"),
@@ -169,9 +172,17 @@ try {
   await page.waitForFunction(() => window.scaena.last()?.valid === true, null, { timeout: 30000 }).catch(() => {});
   check((await source()) === withImage && (await page.evaluate(() => window.scaena.last().valid)), "Recover puts the picture back with the source: the deck validates");
   check((await status()).includes("with 1 file"), `and says the file came with it: ${await status()}`);
-  await page.evaluate(() => window.scaena.save());
+  // A copy being kept as the save is asked for, its picture still being read from the worker: the
+  // save's discard waits on it, so no copy of what was saved is left behind once both are done
+  // (the 20261031 plan's REL-3).
+  await page.evaluate(() => {
+    void window.scaena.keepCopy();
+    return window.scaena.save();
+  });
   await page.waitForFunction(() => !window.scaena.where().dirty, null, { timeout: 30000 });
   check(await uncopied(), "saved, the copy is gone");
+  await page.waitForTimeout(2000);
+  check(!(await copies()).some((c) => c.record), "and stays gone, though a copy was being kept as the save was asked for");
 
   // Discard leaves the deck as saved.
   const kept2 = await source();

@@ -87,11 +87,27 @@ pub fn busy(status: u16) -> bool {
     matches!(status, 0 | 408 | 429 | 500..=599)
 }
 
+/// What a provider says when the key is out of credit (Vzestup's signatures, and Anthropic's).
+const NO_CREDIT: [&str; 5] = [
+    "insufficient_quota",
+    "billing_hard_limit_reached",
+    "exceeded your current quota",
+    "check your plan and billing",
+    "credit balance is too low",
+];
+
+/// Whether a failed answer says the key is out of credit, which waiting does not mend, though it
+/// comes as a 429 as a rate limit does (lift-up 20261110 REL-2): no step is asked again for it.
+pub fn for_good(status: u16, body: &str) -> bool {
+    let lower = body.to_lowercase();
+    !(200..300).contains(&status) && NO_CREDIT.iter().any(|s| lower.contains(s))
+}
+
 /// How long to wait before asking a busy provider again for a look or a fit (lift-up REL-1),
 /// as the slides and the pictures are asked: `tried` the times it was asked so far, from 0. None
-/// where `status` answers for good, or [`TRIES`] are spent.
+/// where `status` answers for good, out of credit among it ([`for_good`]), or [`TRIES`] are spent.
 pub fn retry_after(status: u16, body: &str, after: Option<&str>, tried: usize) -> Option<f64> {
-    (busy(status) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
+    (busy(status) && !for_good(status, body) && tried + 1 < TRIES).then(|| providers::wait(after, body, tried + 1))
 }
 
 /// Who writes the deck: a provider, the model the user picked from those their key lists, and
@@ -602,6 +618,18 @@ impl Generation {
     ) -> Result<Step, NarratoError> {
         if self.step == Step::Done {
             return Err(NarratoError::Done);
+        }
+        // Out of credit is said at once, at any step, and asked again at none: the arc falls back
+        // to no heuristic, since the slides after it would fail the same way (lift-up 20261110
+        // REL-2).
+        if for_good(status, body) {
+            self.again = None;
+            self.tried = 0;
+            let said =
+                providers::read(status, status_text, body).err().unwrap_or_else(|| format!("{status} {status_text}"));
+            return Err(NarratoError::Provider(format!(
+                "no credit is left on this key: top up its balance, or use another key. It said: {said}"
+            )));
         }
         if busy(status) && self.tried + 1 < TRIES {
             self.tried += 1;

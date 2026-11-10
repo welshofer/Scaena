@@ -31,6 +31,7 @@
 // as it is made: the deck is read again and shown where it was. A `deck.scn` that does not
 // compile says so, at its line, and the deck stays as it was until it does.
 import { letSleep, stayAwake } from "./awake";
+import { PLAYER_ICONS, VIEW } from "./player-icons";
 import type { At, LinkTarget, Painter, Section, Slot, Source } from "./protocol";
 import { reader } from "./reading";
 import { line, listen, served } from "./served";
@@ -96,7 +97,12 @@ function fitting(stage: Stage, room: () => [number, number], watched: Element[])
   };
   density();
   fit();
-  return fit;
+  // Fitted again as asked, at the size it last was too: a fresh engine's canvas, after a crash,
+  // is painted at the deck's own size until it is.
+  return () => {
+    last = "";
+    fit();
+  };
 }
 
 /** The screen as the presenter turns it, black or white, the slide out of sight (PLAN 2.105). */
@@ -165,7 +171,8 @@ function keys(act: Act) {
     // button, as Next is where a click left the keys.
     const control = (e.target as HTMLElement).closest("input, select, textarea, button, a");
     if (e.metaKey || e.ctrlKey || e.altKey || (control && !control.matches("button, a"))) return;
-    if (number.key(e.key) || list.key(e.key)) return e.preventDefault();
+    // The keys list first: open, it is modal, and takes every key (lift-up 20261031 USE-5).
+    if (list.key(e.key) || number.key(e.key)) return e.preventDefault();
     if (control && (e.key === "Enter" || e.key === " ")) return;
     const action = act[names[e.key]];
     if (!action) return;
@@ -269,17 +276,25 @@ function keyList(act: Act) {
   dialog.className = "keylist";
   dialog.setAttribute("aria-labelledby", "keylist-title");
   // The words are the page's own, none a deck's.
-  dialog.innerHTML = `<h2 id="keylist-title">Keys</h2><dl>${rows
+  dialog.innerHTML = `<h2 id="keylist-title" tabindex="-1">Keys</h2><dl>${rows
     .filter(([, , has]) => has)
     .map(([keys, does]) => `<dt>${keys}</dt><dd>${does}</dd>`)
     .join("")}</dl><p>A key or a click brings back a black or white screen. Past the last slide, a black screen says the show has ended. <kbd>Escape</kbd> or <kbd>?</kbd> closes this.</p>`;
   dialog.onclick = () => dialog.close();
   document.body.append(dialog);
   return {
+    /** Whether `key` was the list's: `?` opens it, modal, its heading in focus, and `?` or
+     * Escape closes it, the focus going back where it was, as the slide navigator's does; while
+     * it is open, no other key reaches the deck (lift-up 20261031 USE-5). */
     key(key: string): boolean {
-      if (key === "?") dialog.open ? dialog.close() : dialog.show();
-      else if (key === "Escape" && dialog.open) dialog.close();
-      else return false;
+      if (key === "?") {
+        if (dialog.open) dialog.close();
+        else {
+          dialog.showModal();
+          dialog.querySelector<HTMLElement>("#keylist-title")?.focus();
+        }
+      } else if (key === "Escape" && dialog.open) dialog.close();
+      else return dialog.open;
       return true;
     },
   };
@@ -329,6 +344,33 @@ const fullscreen = (status: HTMLElement) => () =>
     status.textContent = `The browser refused fullscreen: ${said(e)}`;
   });
 
+/** The bar's buttons drawn with the icons that ship (lift-up 20261031 ATTR-2): Back, Next, and
+ * Fullscreen by their icons alone, their names in their `aria-label`s and titles; Presenter and
+ * Edit by an icon and their words. A button the page lacks is passed over. */
+function dressBar() {
+  const drawn = (name: string) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", VIEW.join(" "));
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", PLAYER_ICONS[name]);
+    svg.append(path);
+    return svg;
+  };
+  for (const [id, name, words] of [
+    ["back", "caret-left", ""],
+    ["on", "caret-right", ""],
+    ["present", "presentation", "Presenter"],
+    ["full", "corners-out", ""],
+    ["edit", "pencil-simple", "Edit"],
+  ]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.replaceChildren(drawn(name), ...(words ? [Object.assign(document.createElement("span"), { textContent: words })] : []));
+    el.classList.add("tool");
+  }
+}
+
 /** The player: the deck, its controls, and its clock. */
 /** What no handler caught, said in `status` rather than lost, so a talk never freezes on a slide
  * with nothing said (lift-up STAB-5). */
@@ -344,8 +386,20 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   const statesPicker = $<HTMLSelectElement>("#state");
   const formatPicker = $<HTMLSelectElement>("#format");
   const scrub = $<HTMLInputElement>("#scrub");
-  const stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
+  dressBar();
+  // A spinner in the slide's place until the deck opens, which the status says too (lift-up
+  // 20261031 ATTR-2).
+  const loading = document.body.appendChild(Object.assign(document.createElement("div"), { className: "loading" }));
+  loading.setAttribute("aria-hidden", "true");
+  let stage: Stage;
+  try {
+    stage = await Stage.open($("#stage"), deck, how.painter, how.engine);
+  } finally {
+    loading.remove();
+  }
   stage.onError = (e) => (status.textContent = `Error: ${e.message}`);
+  /** Fits the canvas to the room again, where the page fits it. */
+  let fitted: (() => void) | undefined;
   // The slide as large as fits the room the bar leaves, and fullscreen the screen, as sharp as
   // the screen (lift-up ATTR-2); the bar's height changes as a narrow window wraps it.
   if (how.fit !== "own") {
@@ -355,7 +409,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       const foot = bar.offsetParent === null ? 0 : bar.getBoundingClientRect().height;
       return [body.width, Math.max(0, body.height - foot)];
     };
-    fitting(stage, roomLeft, [document.body, bar]);
+    fitted = fitting(stage, roomLeft, [document.body, bar]);
   }
   // The window is the deck's, by its title, as a single file's page is.
   document.title = titled(stage.opened);
@@ -421,13 +475,16 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     // pointer over it.
     const screen = blank ? `${blank} screen` : ended ? "end of the show" : "";
     if (notice && notice.index !== at.index) notice = undefined;
-    const line = notice?.words ?? [place(slots, at.index), format(), at.playing && !screen ? "playing" : "", screen].filter(Boolean).join(" · ");
-    // The status is a live region: it changes when the deck's place does, not every frame.
+    const line = notice?.words ?? [place(slots, at.index), format(), screen].filter(Boolean).join(" · ");
+    // The status is a live region: it changes when the deck's place does, not every frame, nor as
+    // each cue starts and ends, which its title says (lift-up 20261031 USE-3).
     if (status.textContent !== line) status.textContent = line;
-    status.title = stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU";
+    const title = `${stage.opened.painter === "webgpu" ? "Painted by WebGPU" : "Painted by the CPU"}${at.playing && !screen ? " · playing" : ""}`;
+    if (status.title !== title) status.title = title;
     if (statesPicker.value !== String(at.index)) statesPicker.value = String(at.index);
     scrub.value = String(scrubbed(at));
-    scrub.setAttribute("aria-valuetext", slots[at.index].said ?? `${at.index + 1} of ${slots.length}`);
+    const valued = slots[at.index].said ?? `${at.index + 1} of ${slots.length}`;
+    if (scrub.getAttribute("aria-valuetext") !== valued) scrub.setAttribute("aria-valuetext", valued);
     tell({ type: "at", ...at, format: format(), blank, laser, ended });
     void read?.(slots[at.index].state, format());
   };
@@ -436,6 +493,8 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
    * again. */
   let rested = "";
   stage.onAt = (at) => {
+    // The deck moved on from the state the engine stopped on: its notice goes.
+    if (fault !== undefined && !restarting && at.index !== fault) unfault();
     report(at);
     measure?.(at);
     const now = `${at.index} ${resting(at)}`;
@@ -516,10 +575,80 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     ending(false);
   });
 
+  // The engine stopped mid-show (lift-up 20261110 STAB-4), on a panic or a worker out of memory:
+  // it is started again in a fresh worker from the deck as it came, and the state it stopped on is
+  // shown again at rest. Over the stage, not only in the bar, which fullscreen hides, the room is
+  // told that → goes on past it. A state that stops the engine again is not drawn a third time:
+  // the notice stays over it until the deck moves on.
+  const faulted = document.createElement("div");
+  faulted.className = "end fault";
+  faulted.hidden = true;
+  faulted.setAttribute("role", "alert");
+  // The words are the page's own, none a deck's.
+  faulted.innerHTML = `<p>This slide could not be drawn; → goes on past it.</p><p></p>`;
+  document.body.append(faulted);
+  /** The state the engine stopped on, while its notice stands over the stage. */
+  let fault: number | undefined;
+  /** The state the engine last stopped on, and whether a fresh engine is being started. */
+  let stoppedOn: number | undefined;
+  let restarting = false;
+  /** How many times the engine has been started again. */
+  let restarts = 0;
+  const unfault = () => {
+    fault = undefined;
+    faulted.hidden = true;
+  };
+  const restarted = async (crash: { message: string }) => {
+    if (restarting) return;
+    restarting = true;
+    const index = fault ?? stage.at.index;
+    const again = stoppedOn === index;
+    stoppedOn = index;
+    fault = index;
+    faulted.hidden = false;
+    const why = crash.message ? ` (${crash.message})` : "";
+    (faulted.lastElementChild as HTMLElement).textContent = `The engine stopped on an error${why}: starting it again…`;
+    try {
+      await stage.restart(deck);
+    } catch (e) {
+      (faulted.lastElementChild as HTMLElement).textContent = `The engine stopped on an error${why}, and could not be started again: ${said(e)}. Reload the page.`;
+      restarting = false;
+      return;
+    }
+    restarts++;
+    wire(stage.canvas);
+    fitted?.();
+    restarting = false;
+    (faulted.lastElementChild as HTMLElement).textContent = `The engine stopped on an error${why}, and was started again.`;
+    // Drawn once more at rest, where a cue may have stopped it; the second time, not again.
+    if (again) return;
+    try {
+      await stage.seek(index, undefined, format());
+    } catch {
+      // It stopped again: heard by the stage, which starts it again.
+      return;
+    }
+    // Drawn: the slide is in sight again, and the bar says what happened.
+    if (fault === index && stoppedOn === index && !restarting) {
+      unfault();
+      notice = { words: `The engine stopped on an error${why}, and was started again on this slide.`, index };
+      report(stage.at);
+    }
+  };
+  // A click on the notice goes on past the slide, as → does.
+  faulted.onclick = () => on();
+  stage.onCrashed = (crash) => void restarted(crash);
+  stage.onDied = (death) => void restarted(death);
+  stage.onStalled = () => {
+    (faulted.lastElementChild as HTMLElement).textContent = "The engine stopped answering: waiting for it…";
+  };
+
   /** On: finish a cue that is playing, else play the next state's; past the last, the show is
    * over, and stays over as a presentation app's end does, until a click, Escape, or Back. */
   const on = () => {
     if (!shown() || ended) return;
+    // A slide that could not be drawn is gone on past (lift-up 20261110 STAB-4).
+    if (fault !== undefined) return fault + 1 < slots.length ? stage.run(fault + 1, 0, format(), still()) : ending(true);
     const { index, t, playing } = stage.at;
     if (playing && t < slots[index].span) return void stage.seek(index, undefined, format());
     if (index + 1 < slots.length) stage.run(index + 1, 0, format(), still());
@@ -528,7 +657,7 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
   /** Back: the state before, at rest; at the end of the show, the last again. */
   const back = () => {
     if (ended) return ending(false);
-    if (shown()) void stage.seek(Math.max(0, stage.at.index - 1), undefined, format());
+    if (shown()) void stage.seek(Math.max(0, (fault ?? stage.at.index) - 1), undefined, format());
   };
   const go = (i: number) => {
     ending(false);
@@ -629,18 +758,22 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       }, 2000);
   };
   document.addEventListener("fullscreenchange", () => rest(true));
-  stage.canvas.addEventListener("pointermove", (e) => {
-    pointer = over(e);
-    if (laser) pointAt(pointer);
+  // The bar floats over the slide in fullscreen (lift-up 20261031 ATTR-2): a pointer over it keeps
+  // it, and a touch anywhere brings it back.
+  const bar = $(".bar");
+  let overBar = false;
+  bar.addEventListener("pointerenter", () => {
+    overBar = true;
+    clearTimeout(idling);
+    document.body.classList.remove("idle");
+  });
+  bar.addEventListener("pointerleave", () => {
+    overBar = false;
     rest(true);
-    void hover();
   });
-  stage.canvas.addEventListener("pointerleave", () => {
-    pointer = undefined;
-    if (laser) pointAt(undefined);
-    rest(false);
-    void hover();
-  });
+  document.addEventListener("pointerdown", () => !overBar && rest(true), true);
+  // Tab brings it back too, for the keyboard, and lets it go again as the pointer's rest does.
+  addEventListener("keydown", (e) => e.key === "Tab" && rest(true));
   addEventListener("resize", drawDot);
 
   outline(statesPicker, slots, stage.opened.outline);
@@ -699,9 +832,27 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
     if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) return dx < 0 ? on() : back();
     if (e.button === 0) click();
   };
-  stage.canvas.onpointerdown = end.onpointerdown = (e) => (down = e);
-  stage.canvas.onpointerup = (e) => lifted(e, () => void follow(e).then((followed) => followed || on()));
+  end.onpointerdown = (e) => (down = e);
   end.onpointerup = (e) => lifted(e, leave);
+  /** The canvas's own handlers: on the canvas the deck opened in, and on each a fresh engine
+   * paints into after a crash, which takes the old one's place. */
+  const wire = (canvas: HTMLCanvasElement) => {
+    canvas.addEventListener("pointermove", (e) => {
+      pointer = over(e);
+      if (laser) pointAt(pointer);
+      rest(true);
+      void hover();
+    });
+    canvas.addEventListener("pointerleave", () => {
+      pointer = undefined;
+      if (laser) pointAt(undefined);
+      rest(false);
+      void hover();
+    });
+    canvas.onpointerdown = (e) => (down = e);
+    canvas.onpointerup = (e) => lifted(e, () => void follow(e).then((followed) => followed || on()));
+  };
+  wire(stage.canvas);
   /** A click on a link at rest follows it (PLAN 2.70): a state is shown, a web address opens in
    * a window of its own. Whether there was one. */
   const follow = async (e: PointerEvent): Promise<boolean> => {
@@ -804,6 +955,12 @@ async function play(deck: Source, how: Play, channel: BroadcastChannel) {
       laser: () => ({ on: laser, point: point ?? null }),
       /** Whether the show is over, past the last state (PLAN 2.120). */
       ended: () => ended,
+      /** Stop the engine as one out of memory does, to test the player's recovery (lift-up
+       * 20261110 STAB-4). */
+      die: stage.die.bind(stage),
+      /** How many times the engine has been started again, and the state whose notice stands. */
+      restarts: () => restarts,
+      fault: () => fault ?? null,
     },
   });
 }
@@ -905,6 +1062,9 @@ function slideNavigator(
       if (!canvas || !thumb.pixels || !thumb.width || !thumb.height) return;
       canvas.width = thumb.width;
       canvas.height = thumb.height;
+      // Every slide is drawn as the deck's canvas, or its format's, stands: never stretched to 16:9
+      // (lift-up 20261031 ATTR-1). The slides still waiting for theirs take its shape too.
+      list.style.setProperty("--aspect", `${thumb.width} / ${thumb.height}`);
       canvas.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(thumb.pixels), thumb.width), 0, 0);
     });
   };

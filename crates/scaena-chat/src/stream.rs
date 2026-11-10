@@ -88,6 +88,8 @@ struct Gemini {
     parts: Vec<Value>,
     finish: Option<Value>,
     usage: Option<Value>,
+    /// Why the request was blocked, where it was: an answer withheld (lift-up 20261031 REL-5).
+    feedback: Option<Value>,
 }
 
 impl Stream {
@@ -289,6 +291,9 @@ impl Stream {
             self.error = Some(json!({ "error": error }));
             return String::new();
         }
+        if let Some(feedback) = v.get("promptFeedback").filter(|f| !f.is_null()) {
+            g.feedback = Some(feedback.clone());
+        }
         let Some(candidate) = v.pointer("/candidates/0") else { return String::new() };
         if let Some(finish) = candidate.get("finishReason").filter(|f| !f.is_null()) {
             g.finish = Some(finish.clone());
@@ -382,6 +387,9 @@ impl Stream {
                 let mut out = json!({ "candidates": [candidate] });
                 if let Some(usage) = g.usage {
                     out["usageMetadata"] = usage;
+                }
+                if let Some(feedback) = g.feedback {
+                    out["promptFeedback"] = feedback;
                 }
                 out
             }

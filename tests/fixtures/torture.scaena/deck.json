@@ -7043,7 +7043,7 @@
         },
         "code-block": {}
       },
-      "notes": "Pass: sixteen lines of TypeScript set as written in JetBrains Mono, in the text's own color (PLAN 2.131), its role's ligatures off (`calt: false`), so each `=>` draws as typed. Each line breaks only where the text breaks it: nothing wraps, hyphenates, or changes case, and the blank lines stand. The quotation mark that opens line 1 stands on the block's left edge, where prose would hang it into the margin (case 11). Each tab stands to the next stop of four columns: the comments of lines 5 and 6 start in one column, the 21st, and lines 10-13 step in four columns a tab. At the code role's 40 cu the sixteen lines run past rows 2-8, so the block shrinks to 34.5 cu, worked out from one layout: the largest size at which every line fits, and never under 24 cu, 12 pt at presentation size, by itself."
+      "notes": "Pass: sixteen lines of TypeScript set as written in JetBrains Mono, in the text's own color (PLAN 2.131), its role's ligatures off (`calt: false`), so each `=>` draws as typed. Each line breaks only where the text breaks it: nothing wraps, hyphenates, or changes case, and the blank lines stand. The quotation mark that opens line 1 stands on the block's left edge, where prose would hang it into the margin (case 11). Each tab stands to the next stop of four columns: the comments of lines 5 and 6 start in one column, the 21st, and lines 10-13 step in four columns a tab. At the code role's 40 cu the sixteen lines run past rows 2-8, so the block shrinks, worked out from one layout: the largest size at which every line fits, and never under 24 cu, 12 pt at presentation size, by itself; held, as code that shrinks is (PLAN 2.141), to the size at which every text the deck gives it fits there, case 66's nineteen lines: 29.2 cu."
     },
     {
       "id": "code-next",
@@ -7060,6 +7060,23 @@
         }
       },
       "notes": "Pass at rest and in the transition (frame @0.5): case 64's block with lines 4-7, the type `Talk`, in focus (PLAN 2.140). The other lines and their numbers are set back toward the card, each token fainter in its own hue, never under 3:1; the lines in focus stand on a band of the surface, as wide as the code, half the card's inset past it each side, and read 4.5:1 on it. Nothing moves or reshapes: mid-glide, every word stands where it stood, its color halfway between, the band fading in at half and the numbers halfway set back."
+    },
+    {
+      "id": "code-move",
+      "name": "Code: Magic Move",
+      "transition": "standard",
+      "props": {
+        "case": {
+          "text": "66 · Code: Magic Move · recorded"
+        },
+        "code-block": {
+          "text": "\"use strict\";\n\n// Rank talks by votes; ties go by title.\ntype Talk = {\n\ttitle: string;\t// as printed\n\tvotes: number;\t// one per seat\n};\n\nconst LEAST = 3;\n\nexport function rank(talks: Talk[]): string[] {\n\treturn [...talks]\n\t\t.filter((talk) => talk.votes >= LEAST)\n\t\t.sort((a, b) => b.votes - a.votes\n\t\t\t|| a.title.localeCompare(b.title))\n\t\t.map((talk) => talk.title);\n}\n\nconsole.log(rank(await loadTalks()).join(\"\\n\"));",
+          "code": {
+            "focus": null
+          }
+        }
+      },
+      "notes": "Pass at rest and in the transition (frame @0.5): case 64's block with two lines added above `export function` (a constant and a blank line) and a `.filter` line under `return` (PLAN 2.141). Mid-move every token both sides share moves to where it now stands, each line under the first added a line lower on its way down, at one size, nothing scaling; the tokens added fade in where they stand, and case 65's focus lets go, every token gliding back to its own color. The numbers pair by number: 1 to 16 stay where they stand, and 17 to 19 fade in. The card grows down to hold the lines added."
     },
     {
       "id": "maps",

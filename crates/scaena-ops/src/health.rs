@@ -156,6 +156,9 @@ pub enum Kind {
     /// the one before, and is the first to cut. Or its beats' time runs short of, or past, the
     /// slot its brief's slides are given; this slide's beat runs shortest, or longest.
     Pacing,
+    /// A made deck links an address whose host neither its brief nor its sources name: where it
+    /// sends the room was the model's word alone (lift-up 20261025 SEC-4).
+    Link,
     /// A change the model asked once it saw the slide drawn was not kept, lint having found the
     /// slide worse for it (`meta.narrative.refused`, lift-up USE-4).
     Look,
@@ -422,6 +425,11 @@ fn counted(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
+/// A verb that agrees with `n` of something: "1 slide bends", "2 slides bend" (dogfood pass 9).
+fn agree<'a>(n: usize, one: &'a str, more: &'a str) -> &'a str {
+    if n == 1 { one } else { more }
+}
+
 /// A share of the scale, to two places: `0.35`.
 fn level(v: f64) -> String {
     format!("{v:.2}")
@@ -620,12 +628,15 @@ const THANKS: [&str; 16] = [
 ];
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// or headed with thanks or questions (ADR-0032 item 6).
+/// next steps, or questions, or headed with thanks or questions (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
-        layout.is_some_and(|l| CLOSING.contains(&l)) || THANKS.iter().any(|t| title.starts_with(t))
+        // Next steps and the floor opened belong to a close too, before or after its last word
+        // (dogfood pass 9).
+        layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
+            || THANKS.iter().any(|t| title.starts_with(t))
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -652,6 +663,18 @@ fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
     let opened = health::coherence::keywords(opening(&next.notes));
     carried.iter().any(|w| opened.contains(w))
+}
+
+/// The host an address goes to, as a person would name it: an email's domain, or a web address's
+/// host without `www.`, in lower case.
+fn host(href: &str) -> Option<String> {
+    let rest = match href.strip_prefix("mailto:") {
+        Some(email) => email.rsplit_once('@')?.1,
+        None => href.strip_prefix("https://").or_else(|| href.strip_prefix("http://"))?,
+    };
+    let host = rest.split(['/', '?', '#', ':']).next()?.to_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host).to_string();
+    (!host.is_empty()).then_some(host)
 }
 
 /// The narrative health of `deck`, as its words and its plan read: [`health_in`] with nothing
@@ -815,7 +838,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         score: Some(fidelity_score as u32),
         says: match bends.len() {
             0 => format!("The intensity the slides declare follows {curve_of}."),
-            k => format!("{} bend the intensity away from {curve_of}.", counted(k, "slide")),
+            k => format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend")),
         },
     };
     // Slides that declare what `of` reads, and of those, the ones read: a deck whose words the
@@ -867,10 +890,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         _ => Measure {
             score: Some(r.score as u32),
             says: match unread {
-                0 => format!("{} read far from the {what} they declare.", counted(gaps, "slide")),
-                _ => format!(
-                    "{} read far from the {what} they declare; on {} the lexicons read none.",
+                0 => format!(
+                    "{} {} far from the {what} {}.",
                     counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare")
+                ),
+                _ => format!(
+                    "{} {} far from the {what} {}; on {} the lexicons read none.",
+                    counted(gaps, "slide"),
+                    agree(gaps, "reads", "read"),
+                    agree(gaps, "it declares", "they declare"),
                     counted(unread, "slide")
                 ),
             },
@@ -1220,8 +1250,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     if let Some(idea) = &big_idea {
-        let closing = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
-        if let Some(of) = closing.filter(|of| shares(idea, of) == Some(false)) {
+        // The close is the last outlined beat's slides only where they end the deck; else the
+        // deck's last run of closing slides, as `closing` reads it; else its last slide. A model
+        // may write the slides' beats otherwise than the outline did (W2's dogfood).
+        let last = read.len().checked_sub(1);
+        let beat = (0..outlined.len()).rev().map(of_beat).find(|of| !of.is_empty());
+        let ending = beat.filter(|of| of.last().copied() == last);
+        let run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
+        let closes = ending.or_else(|| (!run.is_empty()).then_some(run)).or_else(|| last.map(|l| vec![l]));
+        if let Some(of) = closes.filter(|of| shares(idea, of) == Some(false)) {
             let slides = spanned(&of);
             find(
                 &read[of[0]].id,
@@ -1348,6 +1385,33 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             }
         }
     }
+    // An address a made deck links that neither its brief nor its sources name (lift-up 20261025
+    // SEC-4). A deck no narrative made is the person's own, its links theirs.
+    if let Some(narrative) = narrative {
+        let named = (narrative.get("brief").map(Value::to_string).into_iter())
+            .chain(narrative.get("sources").map(Value::to_string))
+            .collect::<String>()
+            .to_lowercase();
+        for link in crate::narrative::links(deck) {
+            let Some(host) = host(&link.href) else { continue };
+            let Some(slide) = read.get(link.slide - 1) else { continue };
+            if named.contains(&host) {
+                continue;
+            }
+            let k = link.slide;
+            let shown = link.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            find(
+                &slide.id,
+                Severity::Warning,
+                Kind::Link,
+                format!("Slide {k} links {shown}, which neither the brief nor the sources name."),
+                format!(
+                    "Check where slide {k}'s link to {shown} goes, and keep it only if it is the address you mean."
+                ),
+                None,
+            );
+        }
+    }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
     if let (Some((seconds, beats)), Some((count, (lo, hi)))) = (&talk, &given) {
@@ -1431,20 +1495,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         );
     }
     // Each change the model asked once it saw the deck drawn that was let go, and why (lift-up
-    // USE-4): what the person may try again, by hand or with the assistant.
+    // USE-4): what the person may try again, by hand or with the assistant, or dismiss. Its fix
+    // takes its record away, held to the record as read, so a fix gone stale once another took a
+    // record before it is refused, not another record taken; on a slide with several, the
+    // highest first, so each taken in the order given finds its own.
     let refused = narrative.and_then(|n| n.get("refused")).and_then(Value::as_array).into_iter().flatten();
-    for r in refused {
+    for (i, r) in refused.enumerate().collect::<Vec<_>>().into_iter().rev() {
         let text = |key: &str| r.get(key).and_then(Value::as_str).unwrap_or_default();
         let Some(k) = r.get("slide").and_then(Value::as_u64).map(|k| k as usize) else { continue };
         let Some(slide) = k.checked_sub(1).and_then(|i| slides.get(i)) else { continue };
         let (what, why) = (text("what"), text("why"));
+        let path = format!("/meta/narrative/refused/{i}");
+        let fix = Fix {
+            says: "Dismiss it".into(),
+            patch: vec![json!({ "op": "test", "path": path, "value": r }), json!({ "op": "remove", "path": path })],
+        };
         find(
             &deck.states[slide.states[0]].id,
             Severity::Info,
             Kind::Look,
             format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
-            None,
+            Some(fix),
         );
     }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
@@ -1523,6 +1595,55 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A made deck that links an address neither its brief nor its sources name is warned of it,
+    /// on the slide that shows it; one its brief or its sources name is not, nor a deck no
+    /// narrative made (lift-up 20261025 SEC-4).
+    #[test]
+    fn a_link_neither_the_brief_nor_the_sources_name_is_a_warning() {
+        let mut deck = climate();
+        let states = deck["states"].as_array().unwrap();
+        let k = states.len();
+        let last = states[k - 1]["props"].as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+        let id = last.iter().find(|id| deck["nodes"][id.as_str()]["text"].is_string()).unwrap().clone();
+        let node = deck["nodes"][id.as_str()].as_object_mut().unwrap();
+        node.remove("text");
+        node.insert(
+            "runs".into(),
+            json!([
+                { "text": "Read " },
+                { "text": "portalderpower.org/playbook", "link": { "href": "https://portalderpower.org/playbook" } },
+                { "text": " or write to " },
+                { "text": "team@Tidewater.io", "link": { "href": "mailto:team@Tidewater.io" } },
+            ]),
+        );
+        let said = |deck: &Value| -> Vec<(usize, String)> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Link).map(|f| (f.slide, f.says)).collect()
+        };
+        let n = of(&deck).slides.len();
+        assert_eq!(
+            said(&deck),
+            [
+                (
+                    n,
+                    format!(
+                        "Slide {n} links portalderpower.org/playbook, which neither the brief nor the sources name."
+                    )
+                ),
+                (n, format!("Slide {n} links team@Tidewater.io, which neither the brief nor the sources name.")),
+            ]
+        );
+        // Named in the brief, or among the sources, an address is the person's own.
+        deck["meta"]["narrative"]["brief"]["topic"] = json!("Climate, with the playbook at www.PortalDerPower.org");
+        deck["meta"]["narrative"]["sources"] = json!([{ "name": "notes.md", "kind": "markdown", "url": "https://tidewater.io/notes", "bytes": 1, "truncated": false }]);
+        assert_eq!(said(&deck), []);
+        deck["meta"]["narrative"]["brief"]["topic"] = json!("Climate");
+        deck["meta"].as_object_mut().unwrap().remove("narrative");
+        assert_eq!(said(&deck), []);
+        assert_eq!(host("https://www.Example.org:8443/a?b"), Some("example.org".into()));
+        assert_eq!(host("mailto:a@b.io"), Some("b.io".into()));
+        assert_eq!(host("ftp://x"), None);
     }
 
     /// Every beat of `deck` given `seconds`.
@@ -1645,6 +1766,58 @@ mod tests {
     fn planned(deck: &mut Value, state: &str, intensity: f64) {
         let beat = beat_of(deck, state);
         *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(intensity);
+    }
+
+    /// What the model's look let go is a finding each, which its fix dismisses (lift-up USE-4):
+    /// the record taken away, held to it as read, the highest first; the deck then says nothing
+    /// of it, and a fix gone stale is refused.
+    #[test]
+    fn what_the_look_let_go_is_dismissed_by_its_fix() {
+        let mut deck = climate();
+        let refused = json!([
+            { "slide": 2, "what": "a shorter title", "why": "Its text runs past its place." },
+            { "slide": 3, "what": "another layout", "why": "Two texts overlap." }
+        ]);
+        deck.pointer_mut("/meta/narrative").unwrap()["refused"] = refused.clone();
+        let looks =
+            |deck: &Value| -> Vec<Finding> { of(deck).findings.into_iter().filter(|f| f.kind == Kind::Look).collect() };
+        let found = looks(&deck);
+        assert_eq!(found.iter().map(|f| f.slide).collect::<Vec<_>>(), [2, 3]);
+        let fix = |f: &Finding| f.fix.clone().expect("a fix").patch;
+        assert_eq!(found[0].fix.as_ref().unwrap().says, "Dismiss it");
+        assert_eq!(
+            fix(&found[1]),
+            [
+                json!({ "op": "test", "path": "/meta/narrative/refused/1", "value": refused[1] }),
+                json!({ "op": "remove", "path": "/meta/narrative/refused/1" })
+            ]
+        );
+        // Each taken in turn, as the slides give them: the other still finds its own record.
+        let apply = |deck: &mut Value, patch: &[Value]| -> bool {
+            let mut was = deck.clone();
+            for op in patch {
+                let path = op["path"].as_str().unwrap();
+                match op["op"].as_str().unwrap() {
+                    "test" if was.pointer(path) != Some(&op["value"]) => return false,
+                    "remove" => {
+                        let (parent, at) = path.rsplit_once('/').unwrap();
+                        was.pointer_mut(parent).unwrap().as_array_mut().unwrap().remove(at.parse().unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            *deck = was;
+            true
+        };
+        let stale = fix(&found[1]);
+        assert!(apply(&mut deck, &fix(&found[0])), "the first slide's dismissed");
+        assert_eq!(looks(&deck).iter().map(|f| f.slide).collect::<Vec<_>>(), [3]);
+        let now = fix(&looks(&deck)[0]);
+        assert_eq!(now[1]["path"], "/meta/narrative/refused/0", "read again, the record left is the first");
+        assert!(apply(&mut deck, &now));
+        assert!(looks(&deck).is_empty());
+        assert_eq!(deck["meta"]["narrative"]["refused"], json!([]));
+        assert!(!apply(&mut deck, &stale), "a fix gone stale is refused");
     }
 
     /// A turn the notes bridge is not found (narrative dogfood H4): coherence reads a slide's
@@ -1825,6 +1998,44 @@ mod tests {
             paced[0].says
         );
         assert!(paced[0].slide > 1 && paced[0].slide < 25);
+    }
+
+    /// The close is the slides that end the deck (W2's dogfood): where a model wrote the slides'
+    /// beats otherwise than the outline, and the last outlined beat's slides stand before the end,
+    /// the big idea's finding names the deck's last run of closing slides, not that beat's.
+    #[test]
+    fn the_close_is_the_slides_that_end_the_deck() {
+        let mut deck = climate();
+        let h = of(&deck);
+        let n = h.slides.len();
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let last_beat = h.beats.len() - 1;
+        let beats: Vec<Value> =
+            (h.beats.iter()).map(|name| json!({ "name": name, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"] =
+            json!({ "bigIdea": "Zebras orchestrate symphonies underwater", "beats": beats });
+        // Each slide of the last beat but the first moved to the first beat: the last beat's slides
+        // now stand before the end.
+        let of_last: Vec<usize> = (0..n).filter(|&i| written[i] == last_beat).collect();
+        assert!(of_last.contains(&(n - 1)), "the climate deck's last beat ends it");
+        for &i in &of_last[1..] {
+            let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &h.slides[i].state));
+            *deck.pointer_mut(&at).unwrap() = json!(0);
+        }
+        let found = of(&deck);
+        let big = found.findings.iter().find(|f| f.kind == Kind::BigIdea).expect("the big idea is not landed");
+        // The deck's last run of closing slides, Questions then Closing, ends at its last slide.
+        assert!(
+            big.says.starts_with(&format!("The close, slides {}\u{2013}{n}, never lands", big.slide)),
+            "{}",
+            big.says
+        );
+        assert_ne!(big.slide, of_last[0] + 1, "not the last outlined beat's first slide, which stands before the end");
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
@@ -2045,6 +2256,32 @@ mod tests {
             assert!(cooler(&open, &last), "the same plan away from a close bends: {:#?}", open.findings);
         }
         assert_eq!(closed.fidelity.score, open.fidelity.score, "no figure moves");
+        // Next steps before the Closing, planned at rest, are part of the close; the floor opened
+        // too (dogfood pass 9). A slide before them that closes nothing still bends.
+        let thanks = |i: usize| THANKS.iter().any(|t| before.slides[i].title.to_lowercase().starts_with(t));
+        let n = before.slides.len();
+        let k = (2..n - 1).rev().find(|&k| !thanks(k) && !thanks(k - 1)).unwrap();
+        let [steps, ask] = [k, k - 1].map(|i| before.slides[i].state.clone());
+        let layouts = |deck: &mut Value, step: &str| {
+            for (i, slide) in before.slides.iter().enumerate().skip(k - 1) {
+                let layout = match i {
+                    i if i == k - 1 => "statement",
+                    i if i == k => step,
+                    _ => "closing",
+                };
+                let at =
+                    (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
+                deck["states"][at]["layout"] = json!(layout);
+                declare(deck, &slide.state, "intensity", 0.0);
+            }
+        };
+        for step in ["next-steps", "qa"] {
+            let mut deck = climate();
+            layouts(&mut deck, step);
+            let h = of(&deck);
+            assert!(!cooler(&h, &steps), "{step} before the close is no bend: {:#?}", h.findings);
+            assert!(cooler(&h, &ask), "a slide before the close that closes nothing bends: {:#?}", h.findings);
+        }
     }
 
     /// A slide planned hotter than its place in the story is asked to change its plan, or its
@@ -2138,6 +2375,43 @@ mod tests {
         // The score capped by the slides that stand: 23 of 25, less ten for each of the two that
         // do not (ADR-0032 item 1).
         assert_eq!((plain.score, h.slides.len(), h.score), (84, 25, 72));
+    }
+
+    /// What a measure says of its slides agrees with how many it counts: "1 slide bends the
+    /// intensity", "2 slides bend it"; "1 slide reads far from the tone it declares" (dogfood
+    /// pass 9).
+    #[test]
+    fn a_measure_says_its_slides_as_many_as_it_counts() {
+        let climate = climate();
+        let before = of(&climate);
+        let mut decks = vec![before.clone()];
+        // Each slide that reads something planned at the far end of it, alone: one bend at a time.
+        for (i, plan) in heard(&before).into_iter().take(4) {
+            let mut deck = climate.clone();
+            planned(&mut deck, &before.slides[i].state, plan);
+            decks.push(of(&deck));
+        }
+        let (mut one, mut more) = (0, 0);
+        for h in &decks {
+            for says in [&h.fidelity.says, &h.intensity.says, &h.tone.says] {
+                let Some(n) = says.split(' ').next().and_then(|w| w.parse::<usize>().ok()) else { continue };
+                if n == 1 {
+                    one += 1;
+                    assert!(says.starts_with("1 slide ") && !says.starts_with("1 slides"), "{says}");
+                    assert!(!says.contains("slide bend ") && !says.contains("slide read far"), "{says}");
+                    assert!(!says.contains("they declare"), "{says}");
+                } else {
+                    more += 1;
+                    assert!(!says.contains("slides bends") && !says.contains("slides reads"), "{says}");
+                }
+            }
+        }
+        assert!(
+            one > 0,
+            "a measure counting one slide is said: {:#?}",
+            decks.iter().map(|h| &h.fidelity.says).collect::<Vec<_>>()
+        );
+        assert!(more > 0);
     }
 
     /// A slide that does not stand caps the score at the clean slides' share, less ten for each:

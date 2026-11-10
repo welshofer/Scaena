@@ -27,9 +27,11 @@ use crate::ExportError;
 use base64::Engine as _;
 use kurbo::{Affine, Rect as KRect};
 use scaena_core::displaylist::{
-    Blend, Cap, Color, DL_VERSION, DisplayList, FillRule, FontRef, IDENTITY, Join, Op, Paint, Path, PathEl, Quality,
-    Stop,
+    Blend, Cap, Color, DL_VERSION, DisplayList, FillRule, FontRef, IDENTITY, Join, LinkTarget, Op, Paint, Path, PathEl,
+    Quality, Stop,
 };
+use scaena_core::links::followable;
+use scaena_core::reading::{Kind, Reading};
 use scaena_core::shader::Job;
 use scaena_paint::cpu::CpuPainter;
 use scaena_paint::{Assets, Painter as _};
@@ -49,11 +51,15 @@ pub struct SvgSettings {
     pub title: Option<String>,
     /// The document's language (BCP 47).
     pub lang: Option<String>,
+    /// How each node drawn reads, by id ([`scaena_core::reading::readings`]): a figure with alt
+    /// text is a group a reader hears by it, as the PDF tags it. Empty, nothing is said but each
+    /// layer's own `label`.
+    pub readings: HashMap<String, Reading>,
 }
 
 impl Default for SvgSettings {
     fn default() -> Self {
-        Self { scale: 1.0, title: None, lang: None }
+        Self { scale: 1.0, title: None, lang: None, readings: HashMap::new() }
     }
 }
 
@@ -83,6 +89,8 @@ pub fn svg(list: &DisplayList, assets: &Assets, settings: &SvgSettings) -> Resul
         body: String::new(),
         images: HashMap::new(),
         outlines: HashMap::new(),
+        painter: CpuPainter::default(),
+        readings: &settings.readings,
     };
     cx.ops(&list.ops, Affine::scale(f64::from(scale)))?;
 
@@ -95,14 +103,19 @@ pub fn svg(list: &DisplayList, assets: &Assets, settings: &SvgSettings) -> Resul
     if let Some(lang) = &settings.lang {
         let _ = write!(out, " xml:lang=\"{}\"", escape(lang));
     }
+    let title = settings.title.as_ref().map(|title| (format!("{}-title", cx.prefix), title));
+    if let Some((id, _)) = &title {
+        let _ = write!(out, " role=\"graphics-document\" aria-labelledby=\"{id}\"");
+    }
     out.push_str(">\n");
-    if let Some(title) = &settings.title {
-        let _ = writeln!(out, "<title>{}</title>", escape(title));
+    if let Some((id, title)) = &title {
+        let _ = writeln!(out, "<title id=\"{id}\">{}</title>", escape(title));
     }
     if !cx.defs.is_empty() {
         let _ = write!(out, "<defs>\n{}</defs>\n", cx.defs);
     }
     out.push_str(&cx.body);
+    out.push_str(&links(list));
     out.push_str("</svg>\n");
     Ok(out)
 }
@@ -124,6 +137,11 @@ struct Cx<'a> {
     /// Glyph outlines at a size, about their origin with y down: by font, instance, and
     /// size, then by glyph.
     outlines: HashMap<Face, HashMap<u32, Vec<PathEl>>>,
+    /// What draws what SVG cannot, kept for every such op of the drawing with its glyph
+    /// outlines (lift-up 20261031 PERF-1).
+    painter: CpuPainter,
+    /// How each node reads, by id ([`SvgSettings::readings`]).
+    readings: &'a HashMap<String, Reading>,
 }
 
 impl Cx<'_> {
@@ -132,14 +150,29 @@ impl Cx<'_> {
         format!("{}-{}", self.prefix, self.next)
     }
 
+    /// What a reader hears for a layer, where it says something of its own: a figure's alt text
+    /// (a picture, a chart, a shape or a group described), else the layer's `label` (a
+    /// forecast's sky drawn as an icon).
+    fn said<'b>(&'b self, node: Option<&str>, label: Option<&'b str>) -> Option<&'b str> {
+        let reading = node.and_then(|id| self.readings.get(id));
+        let alt = reading
+            .filter(|r| matches!(r.kind, Kind::Figure | Kind::Group))
+            .and_then(|r| r.alt.as_deref())
+            .filter(|alt| !alt.trim().is_empty());
+        alt.or(label.filter(|l| !l.trim().is_empty()))
+    }
+
     /// `ops` drawn in the current coordinates, which `xf` maps to the SVG's pixels.
     fn ops(&mut self, ops: &[Op], xf: Affine) -> Result<(), ExportError> {
         for op in ops {
             match op {
-                Op::Layer { node, transform, opacity, blend, clip, ops: inner, .. } => {
+                Op::Layer { node, label, transform, opacity, blend, clip, ops: inner, .. } => {
                     let mut g = String::from("<g");
                     if let Some(node) = node {
                         let _ = write!(g, " data-node=\"{}\"", escape(node));
+                    }
+                    if let Some(said) = self.said(node.as_deref(), label.as_deref()) {
+                        let _ = write!(g, " role=\"img\" aria-label=\"{}\"", escape(said));
                     }
                     if *transform != IDENTITY {
                         let _ = write!(g, " transform=\"{}\"", matrix(*transform));
@@ -486,8 +519,7 @@ impl Cx<'_> {
             clip: None,
             ops: vec![op.clone()],
         });
-        let raster =
-            CpuPainter::default().paint(&list, self.assets, 1.0).map_err(|e| ExportError::Svg(e.to_string()))?;
+        let raster = self.painter.paint(&list, self.assets, 1.0).map_err(|e| ExportError::Svg(e.to_string()))?;
         let Some([cx, cy, cw, ch]) = covered(&raster) else { return Ok(()) };
         let Some(place) = placed(xf, x0 + f64::from(cx), y0 + f64::from(cy)) else { return Ok(()) };
         let mut pixels = Vec::with_capacity((cw * ch * 4) as usize);
@@ -685,6 +717,32 @@ fn num(out: &mut String, v: f32) {
 
 /// `s` as XML character data or an attribute value: markup escaped, and the characters
 /// XML 1.0 cannot hold left out.
+/// Each link of `list` that goes to a web address, as an `<a>` over its area (PLAN 2.70), the
+/// PDF's link annotations: a transparent polygon on its four corners, last so it takes the
+/// pointer over what draws there. A link to a state of the deck goes nowhere in a drawing of
+/// one state, and an address [`followable`] refuses is left out, as the engine leaves it.
+fn links(list: &DisplayList) -> String {
+    let mut out = String::new();
+    for link in list.links() {
+        let LinkTarget::Href(href) = &link.target else { continue };
+        if !followable(href) || link.corners.iter().flatten().any(|v| !v.is_finite()) {
+            continue;
+        }
+        let href = escape(href);
+        let _ = write!(out, "<a href=\"{href}\" xlink:href=\"{href}\"><polygon points=\"");
+        for (k, [x, y]) in link.corners.iter().enumerate() {
+            if k > 0 {
+                out.push(' ');
+            }
+            num(&mut out, *x);
+            out.push(',');
+            num(&mut out, *y);
+        }
+        out.push_str("\" fill=\"transparent\"/></a>\n");
+    }
+    out
+}
+
 fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -798,6 +856,53 @@ mod tests {
     }
 
     #[test]
+    fn links_and_alt_texts_reach_a_reader() {
+        let layer = |node: &str, label: Option<&str>, ops: Vec<Op>| Op::Layer {
+            node: Some(node.into()),
+            cell: None,
+            label: label.map(Into::into),
+            transform: [2.0, 0.0, 0.0, 2.0, 10.0, 0.0],
+            opacity: 1.0,
+            blend: Blend::Normal,
+            clip: None,
+            ops,
+        };
+        let link = |href: &str| Op::Link { rect: [1.0, 2.0, 3.0, 4.0], target: LinkTarget::Href(href.into()) };
+        let mut list = DisplayList::new([100.0, 50.0]);
+        list.ops.push(layer("words", None, vec![link("https://example.com/?a=1&b=2")]));
+        list.ops.push(layer("photo", None, vec![]));
+        list.ops.push(layer("sky", Some("Partly cloudy"), vec![link("javascript:alert(1)")]));
+        list.ops.push(layer("deco", None, vec![Op::Link { rect: [0.0; 4], target: LinkTarget::State("next".into()) }]));
+        let read = |kind, alt: &str| Reading {
+            kind,
+            alt: Some(alt.into()),
+            lang: None,
+            items: Vec::new(),
+            verse: false,
+            credit: Vec::new(),
+        };
+        let readings = HashMap::from([
+            ("photo".to_string(), read(Kind::Figure, "A trail at dusk")),
+            ("deco".to_string(), read(Kind::Artifact, "")),
+        ]);
+        let settings = SvgSettings { readings, ..SvgSettings::default() };
+        let s = svg(&list, &Assets::new(), &settings).unwrap();
+        // The web address, over its area drawn through the layer: (1, 2) to (4, 6), doubled and moved.
+        assert!(
+            s.contains(
+                "<a href=\"https://example.com/?a=1&amp;b=2\" xlink:href=\"https://example.com/?a=1&amp;b=2\">\
+                 <polygon points=\"12,4 18,4 18,12 12,12\" fill=\"transparent\"/></a>"
+            ),
+            "{s}"
+        );
+        assert_eq!(s.matches("<a ").count(), 1, "no script and no state is a link: {s}");
+        assert!(s.contains("data-node=\"photo\" role=\"img\" aria-label=\"A trail at dusk\""), "{s}");
+        assert!(s.contains("data-node=\"sky\" role=\"img\" aria-label=\"Partly cloudy\""), "{s}");
+        assert!(!s.contains("data-node=\"words\" role") && !s.contains("data-node=\"deco\" role"), "{s}");
+        assert!(!s.contains("aria-labelledby"), "no title, none named");
+    }
+
+    #[test]
     fn layers_paths_and_gradients_say_what_they_draw() {
         let mut list = DisplayList::new([100.0, 50.0]);
         list.ops.push(Op::Layer {
@@ -830,10 +935,16 @@ mod tests {
                 },
             ],
         });
-        let s =
-            svg(&list, &Assets::new(), &SvgSettings { scale: 2.0, title: Some("A & B".into()), lang: None }).unwrap();
+        let s = svg(
+            &list,
+            &Assets::new(),
+            &SvgSettings { scale: 2.0, title: Some("A & B".into()), lang: None, ..SvgSettings::default() },
+        )
+        .unwrap();
         assert!(s.contains("width=\"200\" height=\"100\" viewBox=\"0 0 100 50\""), "{s}");
-        assert!(s.contains("<title>A &amp; B</title>"));
+        let id = format!("s{}-title", &list.digest().unwrap()[..8]);
+        assert!(s.contains(&format!(" role=\"graphics-document\" aria-labelledby=\"{id}\">")), "{s}");
+        assert!(s.contains(&format!("<title id=\"{id}\">A &amp; B</title>")));
         assert!(s.contains("<g data-node=\"card\" transform=\"matrix(1 0 0 1 10 5)\" clip-path=\"url(#"));
         assert!(s.contains("opacity=\"0.5\" style=\"mix-blend-mode:multiply\">"));
         assert!(
@@ -848,7 +959,12 @@ mod tests {
         ));
         assert_eq!(
             s,
-            svg(&list, &Assets::new(), &SvgSettings { scale: 2.0, title: Some("A & B".into()), lang: None }).unwrap()
+            svg(
+                &list,
+                &Assets::new(),
+                &SvgSettings { scale: 2.0, title: Some("A & B".into()), lang: None, ..SvgSettings::default() }
+            )
+            .unwrap()
         );
     }
 }

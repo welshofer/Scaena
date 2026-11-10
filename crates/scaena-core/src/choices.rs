@@ -180,6 +180,10 @@ pub enum Takes {
     /// Fractions of an image, from 0 to 1, one for each of `names` (PLAN 2.45): a point's `x`
     /// and `y`, or a part's `x`, `y`, `w`, and `h`.
     Fractions { names: Vec<String> },
+    /// A code text's lines, numbered from `first` to `last` as its gutter numbers them: its lines
+    /// in focus, typed as those numbers ("2–4, 7", `code::focus::read`), each one as written
+    /// counted from 1 (PLAN 2.140).
+    Lines { first: u64, last: u64 },
 }
 
 /// Where a property's values come from.
@@ -198,9 +202,11 @@ enum Source {
     Fractions(&'static [&'static str]),
     /// The languages Scaena knows by name, for a code text's (PLAN 2.133, `code::LANGUAGES`).
     Languages,
+    /// A code text's lines, as its gutter numbers them, for its lines in focus (PLAN 2.140).
+    Lines,
 }
 
-use Source::{Columns, Data, Fractions, Languages, Names, Schema};
+use Source::{Columns, Data, Fractions, Languages, Lines, Names, Schema};
 use Vocabulary as V;
 
 /// What an inspector edits on every node: how far it is turned is its `transform`'s
@@ -238,6 +244,8 @@ fn own(node_type: NodeType) -> &'static [(&'static str, Source)] {
             ("code/numbers", Schema(false)),
             ("code/start", Schema(false)),
             ("code/card", Schema(false)),
+            // The lines a step is about, the rest set back (PLAN 2.140).
+            ("code/focus", Lines),
         ],
         NodeType::Shape => &[
             ("fill", Names(V::Color, true)),
@@ -445,6 +453,11 @@ pub fn choices(
             },
             Fractions(names) => Takes::Fractions { names: names.iter().map(|n| n.to_string()).collect() },
             Languages => Takes::Word { words: crate::code::LANGUAGES.iter().map(|l| l.name.to_string()).collect() },
+            Lines => {
+                let first = shown.get("code").and_then(|c| c.get("start")).and_then(Value::as_u64).unwrap_or(1).max(1);
+                let lines = crate::lists::paragraphs(&crate::reading::words(&shown)).len() as u64;
+                Takes::Lines { first, last: first + lines.max(1) - 1 }
+            }
         };
         let (name, key) = prop.split_once('/').map_or((prop, None), |(n, k)| (n, Some(k)));
         let value = match key {
@@ -503,7 +516,12 @@ fn shader_params(
     over: Option<&Props>,
     shown: &Props,
 ) -> Vec<Field> {
-    let Some(kind) = shown.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty()) else { return Vec::new() };
+    // A kind is a schema's word, ASCII: any other (a deck validation would flag, which an editor
+    // still opens) names no parameters, and is not sliced inside a letter (lift-up 20261031
+    // STAB-2).
+    let Some(kind) = shown.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty() && k.is_ascii()) else {
+        return Vec::new();
+    };
     let def = format!("{}{}Params", kind[..1].to_ascii_uppercase(), &kind[1..]);
     let checker = Checker::deck();
     let presets = theme.shaders.as_ref().and_then(|s| s.presets.as_ref());
@@ -697,7 +715,7 @@ pub fn characters(
                 allowed(Checker::deck().def_property(def, key)?, overrides)?
             }
             // A run reads no data, has no image, and is written in its text's language.
-            Data | Columns | Fractions(_) | Languages => return None,
+            Data | Columns | Fractions(_) | Languages | Lines => return None,
         };
         let value = run.and_then(|r| match prop.split_once('/') {
             Some((name, key)) => r.get(name)?.get(key),
@@ -778,7 +796,7 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 allowed(Checker::deck().def_property(def, name)?, overrides)?
             }
             // A state reads no data, has no image, and is written in no language.
-            Data | Columns | Fractions(_) | Languages => return None,
+            Data | Columns | Fractions(_) | Languages | Lines => return None,
         };
         let (value, lives) = match (prop, key) {
             ("layout", _) => {
@@ -906,6 +924,24 @@ mod tests {
         }
     }
 
+    /// A shader whose kind is no word of the schema's, a letter past ASCII first among them, offers
+    /// no parameters and panics nothing (lift-up 20261031 STAB-2).
+    #[test]
+    fn a_shader_of_no_kind_offers_no_parameters() {
+        let theme = Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json")).unwrap();
+        let mut doc: Value = serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        let files = std::collections::BTreeMap::<String, Vec<u8>>::new();
+        for kind in ["ñoise", "é", "日本", "noise"] {
+            doc["nodes"]["glow"] = json!({ "type": "shader", "kind": kind, "at": { "in": "canvas" } });
+            doc["states"][0]["props"]["glow"] = json!({});
+            let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
+            let state = deck.states[0].id.clone();
+            let fields = choices(&deck, &theme, &state, "glow", &files).unwrap().fields;
+            let params = fields.iter().any(|f| f.prop.starts_with("params/"));
+            assert_eq!(params, kind == "noise", "{kind}");
+        }
+    }
+
     /// A fetched map offers its pin's label and color and where its credit stands (ADR-0030), and a
     /// picture with neither offers none of them.
     #[test]
@@ -996,6 +1032,8 @@ mod tests {
                     Fractions(names) => (None, json!(vec![0.5; names.len()])),
                     // Nor is a language's name (PLAN 2.133).
                     Languages => (None, json!("rust")),
+                    // Nor are a code text's lines in focus (PLAN 2.140).
+                    Lines => (None, json!([[2, 4], 7])),
                 };
                 if let Some(written) = written {
                     assert!(literal(prop, &written), "{prop} = {written} is an override");

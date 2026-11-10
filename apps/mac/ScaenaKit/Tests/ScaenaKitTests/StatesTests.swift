@@ -101,6 +101,22 @@ private func playing(_ editor: DeckEditor) -> [String] {
     var on = Rehearsal(slots: Array(slots.prefix(1)), at: began)
     on.go(1, at: began + .milliseconds(450))
     #expect(!on.running && on.kept.first?.keeps == 100)
+
+    // From the slide shown, paused for a call: the pause counts toward neither the slide nor the
+    // whole, and only the slides rehearsed keep a time (lift-up 10-25b USE-2).
+    var here = Rehearsal(slots: slots, from: 1, at: began)
+    #expect(here.state == "b")
+    here.pause(at: began + .milliseconds(1000))
+    #expect(here.paused && here.here(at: began + .milliseconds(60000)) == 1000)
+    here.pause(at: began + .milliseconds(60000))
+    #expect(!here.paused)
+    here.go(1, at: began + .milliseconds(61500))
+    #expect(here.state == "c")
+    here.pause(at: began + .milliseconds(62000))
+    here.go(1, at: began + .milliseconds(90000))
+    #expect(!here.running && !here.paused && here.total() == 3000)
+    #expect(here.kept.map(\.keeps) == [nil, 2500, 100])
+    #expect(Rehearsal(slots: slots, from: 9).state == "a", "a place past the end begins at the first")
 }
 
 /// The cue's bars (PLAN 2.44, 3.14), as the browser's: a motion's start and end dragged, each a

@@ -52,12 +52,16 @@ export type SaveTo = { folder: FileSystemDirectoryHandle } | { opfs: string };
  *   worker loads the first time a PDF is asked for; with `notes`, each slide smaller with the
  *   presenter's notes under it, as `export --format pdf --notes` prints them;
  * - `html`: the deck as one file that plays offline, named `name`: `page`, the single-file
- *   player's page, filled in with the bundle, its fonts subset. */
+ *   player's page, filled in with the bundle, its fonts subset;
+ * - `movie`: the deck as it plays, as `scaena export --format webm` plays it, `fps` frames a
+ *   second, `width` pixels wide, in `format`, titled `name`: painted by the CPU painter and
+ *   encoded by the browser's own encoder, VP9 (else VP8) in WebM (lift-up 20261031 FUNC-2). */
 export type Export =
   | { kind: "png"; state: string; width: number; format?: string }
   | { kind: "slides"; width: number; format?: string; name: string }
   | { kind: "pdf"; notes?: boolean }
-  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean };
+  | { kind: "html"; page: string; name: string; /** The presenter's words kept, or left out of a file sent to the room, as they are by default (lift-up 20261025 SEC-3). */ notes: boolean }
+  | { kind: "movie"; fps: number; width: number; format?: string; name: string };
 
 /** Where an open bundle is kept, and saves to: a folder on disk, the browser's storage, or the
  * folder `scaena serve` serves it from (PLAN 2.11), by name. A bundle read from any other URL is
@@ -550,7 +554,10 @@ export type Takes =
   | { kind: "text" }
   /** Fractions of an image, 0 to 1, one for each name: a point's `x` and `y`, a part's `x`, `y`,
    * `w`, and `h` (PLAN 2.45). */
-  | { kind: "fractions"; names: string[] };
+  | { kind: "fractions"; names: string[] }
+  /** A code text's lines, numbered `first` to `last` as its gutter numbers them: its lines in focus,
+   * typed as those numbers, "2–4, 7" (PLAN 2.140). The value is said under `words.said` by its JSON. */
+  | { kind: "lines"; first: number; last: number };
 
 /** Where a value a state shows lives: the deck's overrides, a state's delta, or the node. */
 export type Lives = "overrides" | "node" | { state: string };
@@ -916,7 +923,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1034,7 +1041,16 @@ export type ToWorker =
   /** Open the bundle at `source`, and paint into `canvas` by `painter`, with the engine's
    * module `engine`, compiled, if the page carries it (PLAN 2.5); the worker loads its own
    * without it. */
-  | { type: "open"; source: Source; painter: Painter; canvas: OffscreenCanvas; engine?: WebAssembly.Module }
+  | {
+      type: "open";
+      source: Source;
+      painter: Painter;
+      canvas: OffscreenCanvas;
+      engine?: WebAssembly.Module;
+      /** The page goes on from a crash with the bundle's files as the worker held them, so the
+       * worker keeps a copy of them: the editor's alone (lift-up 20261031 PERF-3). */
+      recoverable?: boolean;
+    }
   /** Be the worker a deck is made from a prompt in (PLAN G.5), which holds no deck: say what a
    * brief may ask (`briefing`), loading the generator's module, then make the deck `generate`
    * asks for, saying how far it has come (`generating`) and handing back its files
@@ -1211,6 +1227,12 @@ export type ToWorker =
   | { type: "uncoding"; id: number; source: string; node: string }
   /** Tidy Code's patch of `node` as `state` shows it (PLAN 2.139). */
   | { type: "tidying"; id: number; source: string; state: string; node: string }
+  /** The patch that sets code text `node`'s lines in focus in `state` to those `said` names, in
+   * its gutter's numbers; nothing said clears it (PLAN 2.140). */
+  | { type: "focusing"; id: number; source: string; state: string; node: string; said: string }
+  /** Walk Through Lines…'s patch of code text `node` from `state`: the lines each step shows, in
+   * the gutter's numbers (PLAN 2.140). */
+  | { type: "walking"; id: number; source: string; state: string; node: string; steps: string[] }
   | { type: "italicizing"; id: number; source: string; state: string; node: string; from: number; to: number; format?: string }
   /** The theme the deck names, and the theme files the bundle holds (PLAN 2.39). */
   | { type: "themes"; id: number }
@@ -1567,6 +1589,8 @@ export interface Generated {
   /** What the model changed on the deck it saw drawn, slide by slide (PLAN G.13), or why not. */
   looked?: { slide: number; layout?: string; title?: string; subtitle?: string; bullets?: string[]; why: string }[];
   unlooked?: string;
+  /** Each address the deck links, with the slide that first shows it (lift-up 20261025 SEC-4). */
+  links?: { slide: number; href: string }[];
   /** Each change the model asked that lint found its slide worse for, let go (lift-up USE-4). */
   refused?: { slide: number; what: string; why: string }[];
   /** Each sheet given, kept as a data source, or why not. */
@@ -1662,6 +1686,10 @@ export interface Written {
 
 /** A question asked once of the model the assistant uses (PLAN 2.101): who answers it, with the
  * user's key, and what it is told and asked. */
+/** Why a writing tool's answer ended (lift-up 20261031 REL-5): `length`, cut off by its token
+ * limit, and `refused`, declined, are no answer to take. */
+export type WritingStop = "tools" | "end" | "length" | "refused" | "other";
+
 export interface WritingCall {
   provider: ProviderId;
   model: string;
@@ -1720,7 +1748,7 @@ export type AssistantEvent =
   | { kind: "usage"; input: number; output: number }
   /** It stopped: its answer is done (`end`), it ran out of room (`length`), it called tools
    * as many rounds as one question allows (`steps`), or the user stopped it (`stopped`). */
-  | { kind: "done"; stop: "tools" | "end" | "length" | "other" | "steps" | "stopped" }
+  | { kind: "done"; stop: "tools" | "end" | "length" | "refused" | "other" | "steps" | "stopped" }
   /** It failed: the provider refused, or the network did. */
   | { kind: "failed"; message: string };
 
@@ -2122,7 +2150,7 @@ export type FromWorker =
   | { type: "codeWords"; id: number; words: string }
   | { type: "tidied"; id: number; text: string }
   | { type: "keyed"; id: number; keyed: Keyed | null }
-  | { type: "coding" | "uncoding" | "tidying"; id: number; patch: unknown[] }
+  | { type: "coding" | "uncoding" | "tidying" | "focusing" | "walking"; id: number; patch: unknown[] }
   | { type: "italicizing"; id: number; look: Record<string, unknown> }
   | { type: "themes"; id: number; themes: Themes }
   /** A theme chosen: what it did, as `theme --apply` says it, and unless it was refused, the
@@ -2189,6 +2217,8 @@ export type FromWorker =
   | { type: "zipped"; id: number; bytes: ArrayBuffer; subset: [string, number, number][] }
   /** What `export` made: a PNG, a zip of PNGs, a PDF, or an HTML file's bytes. */
   | { type: "exported"; id: number; bytes: ArrayBuffer }
+  /** How far an export has come (lift-up 20261031 FUNC-2): a movie's frames made, of how many. */
+  | { type: "exportProgress"; id: number; done: number; of: number }
   /** The dropped file is in the bundle at `path`. */
   | { type: "dropped"; id: number; path: string }
   | { type: "pictured"; id: number; picture: Picture }
@@ -2232,7 +2262,7 @@ export type FromWorker =
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
-  | { type: "wrote"; id: number; text: string; usage?: { input: number; output: number } }
+  | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the
    * page starts each as it started this one, and hands this one a port to each (`helpers`). */
   | { type: "helpers"; count: number }
