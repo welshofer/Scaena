@@ -558,6 +558,11 @@
       #story li p { margin: 4px 0 0; }
       #story li[data-severity="error"] [data-show] { color: var(--error); }
       #story li[data-severity="warning"] [data-show] { color: var(--warning); }
+      /* Each severity's shape before the slide's number, not its colour alone; its word is the button's name (lift-up 20261110 USE-1). */
+      #story li [data-show]::before { display: inline-block; width: 1.1em; margin-right: 4px; text-align: center; font-size: 0.85em; }
+      #story li[data-severity="error"] [data-show]::before { content: "\2715" / ""; }
+      #story li[data-severity="warning"] [data-show]::before { content: "\25B2" / ""; }
+      #story li[data-severity="info"] [data-show]::before { content: "\25CF" / ""; }
       #story li .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
       #story li[data-more] summary { cursor: pointer; color: var(--muted); }
       #story li[data-more] ol { margin-top: 4px; }
