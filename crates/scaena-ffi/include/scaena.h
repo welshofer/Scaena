@@ -510,6 +510,10 @@ char *scaena_adopt_since(struct ScaenaSession *session,
 // `saved` is a live handle from [`scaena_save`], or null.
 void scaena_saved_free(struct ScaenaSaved *saved);
 
+// Whether this library carries the web player a single-file export is made from (`scaena_export`'s
+// `html`): only one built after `just web` does, as only such a `scaena` exports `--format html`.
+bool scaena_carries_player(void);
+
 // Make the GPU every surface paints with, if it is not made yet: what the app calls as it starts,
 // off its main thread, so that the first deck it opens shows its first frame without waiting for
 // it (gate 3). A surface made meanwhile waits for it. False where none can be made, as on any
@@ -579,7 +583,10 @@ void scaena_surface_free(struct ScaenaSurface *surface);
 // painter that wide, as the editor's PNG export paints it; or `slides`, `args` `{width, name}`,
 // every slide once its steps have played, as PNGs that wide in one zip, each `{name} - Slide
 // 3.png` (PLAN 2.122); or `version`, the same as `png` of the version `viewVersion` shows (PLAN
-// 3.15). Null bytes where it cannot be made, `*error` then saying why.
+// 3.15); or `html`, `args` `{name, notes}`, the deck as one file that plays offline, named `name`,
+// as `export --format html` writes it, the presenter's notes kept only with `notes: true`, made
+// only by a library that carries the web player ([`scaena_carries_player`]). Null bytes where it
+// cannot be made, `*error` then saying why.
 //
 // # Safety
 // `session` is a live handle; `format` a NUL-terminated string; `args` one, or null; `error`
