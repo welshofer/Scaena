@@ -21,7 +21,7 @@
 // - A single-file export's page carries no themes or fonts to make a deck with.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
-import { launch, serve } from "./serve.mjs";
+import { answering, launch, serve } from "./serve.mjs";
 
 const server = await serve();
 const editor = (bundle) => `${server.origin}/web/dist/editor.html?painter=cpu${bundle ? `&bundle=${bundle}` : ""}`;
@@ -54,6 +54,9 @@ try {
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
   page.on("dialog", (d) => d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   /** The editor once it has compiled and linted the bundle named `name`. */
   const ready = async (name) => {
     await page.waitForFunction(
@@ -180,7 +183,11 @@ try {
   const again = (await page.evaluate(() => window.scaena.source())).replace('"Field notes"', '"Field notes, again"');
   await type(again);
   await page.evaluate(() => window.scaena.save());
-  await page.goto(editor("folder:on-disk"));
+  // The page's address names the folder by the key it is kept under, never its name, which another
+  // folder may share (the 20261031 plan's REL-2).
+  const onDisk = new URL(page.url()).searchParams.get("bundle");
+  check(onDisk?.startsWith("folder:") && onDisk !== "folder:on-disk", `the address names the folder by its key: ${onDisk}`);
+  await page.goto(editor(onDisk));
   await ready("on-disk");
   check((await page.evaluate(() => window.scaena.source())).includes('"Field notes, again"'), "a save writes the folder, and the page opens it from there");
 

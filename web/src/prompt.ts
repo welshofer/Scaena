@@ -81,6 +81,15 @@ export function said(event: GeneratingEvent): string {
   }
 }
 
+/** Where the deck sends its audience: ". Linked: portal.org/playbook on slide 13" (lift-up
+ * 20261025 SEC-4). */
+function linked(m: Generated): string {
+  const links = m.links ?? [];
+  if (!links.length) return "";
+  const said = links.map((l) => `${l.href.replace(/^mailto:/, "").replace(/^https:\/\//, "")} on slide ${l.slide}`);
+  return `. Linked: ${said.join("; ")}`;
+}
+
 /** What was made, in a line for the status bar. */
 export function made(m: Generated): string {
   const fixed = m.fixed.length ? `, ${m.fixed.length} ${m.fixed.length === 1 ? "issue" : "issues"} fixed` : "";
@@ -88,7 +97,7 @@ export function made(m: Generated): string {
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
   const refused = m.refused?.length ? `, ${m.refused.length} of its changes let go` : "";
-  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}`;
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}${linked(m)}`;
 }
 
 /** What a run that failed had paid for, in words, to go on from (lift-up 20261110 REL-1); none

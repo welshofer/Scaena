@@ -33,6 +33,18 @@ pub type Rect = [f32; 4];
 pub type Affine = [f32; 6];
 pub const IDENTITY: Affine = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
+/// The dashes a stroke `width` wide is drawn with: `dash` where its period is a length a painter
+/// can walk, else none, a solid stroke. A pattern of zeros, or of lengths too small to see, would
+/// be a segment for each period along the path, a billion on a line across the canvas, which
+/// hangs every painter and the PDF; one under a twentieth of the stroke's width (or of a unit)
+/// draws as solid anyway (lift-up 20261031 REL-1).
+pub fn dashes(dash: &[f32], width: f32) -> &[f32] {
+    let period: f32 = dash.iter().sum();
+    let drawn =
+        dash.iter().all(|d| d.is_finite() && *d >= 0.0) && period.is_finite() && period >= 0.05 * width.max(1.0);
+    if drawn { dash } else { &[] }
+}
+
 /// `inner` drawn inside `outer`: a point goes through `inner`, then `outer`.
 pub fn then(outer: Affine, inner: Affine) -> Affine {
     let [a, b, c, d, e, f] = outer;
@@ -856,6 +868,18 @@ impl serde_json::ser::Formatter for GoldenFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A dash pattern whose period no painter could walk is drawn solid; one that can be, as
+    /// written (lift-up 20261031 REL-1).
+    #[test]
+    fn a_dash_of_no_length_is_none() {
+        for dash in [&[0.0, 0.0][..], &[1e-6, 1e-6], &[-1.0, 3.0], &[f32::NAN, 2.0], &[f32::INFINITY, 1.0]] {
+            assert!(dashes(dash, 4.0).is_empty(), "{dash:?}");
+        }
+        assert_eq!(dashes(&[4.0, 2.0], 4.0), &[4.0, 2.0]);
+        assert_eq!(dashes(&[0.0, 4.0], 4.0), &[0.0, 4.0], "dots, drawn by round caps");
+        assert!(dashes(&[], 4.0).is_empty());
+    }
 
     const INK: Color = Color([0x16, 0x14, 0x0F, 0xFF]);
 

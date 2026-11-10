@@ -88,6 +88,10 @@ pub struct VideoSettings {
     /// description, never a time (lift-up 10-24b ATTR-4).
     pub title: Option<String>,
     pub comment: Option<String>,
+    /// Keep every pixel's color, a master's 4:4:4, where H.264 and VP9 otherwise halve it each
+    /// way (4:2:0) and ProRes across (4:2:2): H.264's High 4:4:4, VP9's profile 1, ProRes 4444.
+    /// Fewer players play such a file (lift-up 20261031 ATTR-5).
+    pub chroma444: bool,
     /// The frames `encode` will be handed, where it is known before ffmpeg starts: the video
     /// is then written that long, `frames / fps` seconds, and its sound padded and cut to it.
     /// A newer ffmpeg's `-shortest` lets padded sound run on past the last frame, a few tenths
@@ -107,6 +111,7 @@ impl Default for VideoSettings {
             ffmpeg: PathBuf::from("ffmpeg"),
             title: None,
             comment: None,
+            chroma444: false,
             frames: None,
         }
     }
@@ -310,8 +315,9 @@ fn pump(
 
 /// What paints a video's frames, made before ffmpeg starts.
 enum Painting {
-    /// The CPU painter, on this many cores.
-    Cpu(usize),
+    /// The CPU painter, one for each core it paints on, each kept from batch to batch with
+    /// its render context and glyph outlines (lift-up 20261031 PERF-1).
+    Cpu(Vec<CpuPainter>),
     #[cfg(feature = "gpu")]
     Gpu(Box<scaena_paint::gpu::GpuPainter>),
 }
@@ -332,7 +338,10 @@ const GPU_DEPTH: usize = 2;
 impl Painting {
     fn new(painter: Painter) -> Result<Self, ExportError> {
         match painter {
-            Painter::Cpu => Ok(Painting::Cpu(std::thread::available_parallelism().map_or(1, |n| n.get()).min(16))),
+            Painter::Cpu => {
+                let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
+                Ok(Painting::Cpu((0..threads).map(|_| framer()).collect()))
+            }
             #[cfg(feature = "gpu")]
             Painter::Gpu => match GPU.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 Some(gpu) => Ok(Painting::Gpu(gpu)),
@@ -358,7 +367,7 @@ impl Painting {
     /// Frames to a batch: two for each core, or the GPU's.
     fn batch(&self) -> usize {
         match self {
-            Painting::Cpu(threads) => threads * 2,
+            Painting::Cpu(painters) => painters.len() * 2,
             #[cfg(feature = "gpu")]
             Painting::Gpu(_) => GPU_BATCH,
         }
@@ -386,7 +395,7 @@ impl Painting {
         assets: &Assets,
     ) -> Vec<Option<Result<Vec<u8>, ExportError>>> {
         match self {
-            Painting::Cpu(threads) => paint(lists, todo, *threads, scale, assets),
+            Painting::Cpu(painters) => paint(lists, todo, painters, scale, assets),
             #[cfg(feature = "gpu")]
             Painting::Gpu(gpu) => paint_gpu(gpu, lists, todo, scale, assets),
         }
@@ -435,23 +444,30 @@ fn paint_gpu(
     out
 }
 
-/// The frames `todo` names, painted on up to `threads` cores: for each frame of `lists`,
-/// its RGB pixels, or none where it was not asked for.
+/// A CPU painter for one core of a video's: frames are already painted on every core, so a
+/// frame's shaders take one.
+fn framer() -> CpuPainter {
+    CpuPainter { threads: 1, ..CpuPainter::default() }
+}
+
+/// The frames `todo` names, painted by `painters`, each on a core of its own: for each frame
+/// of `lists`, its RGB pixels, or none where it was not asked for.
 fn paint(
     lists: &[DisplayList],
     todo: &[usize],
-    threads: usize,
+    painters: &mut [CpuPainter],
     scale: f32,
     assets: &Assets,
 ) -> Vec<Option<Result<Vec<u8>, ExportError>>> {
     let mut out: Vec<Option<Result<Vec<u8>, ExportError>>> = (0..lists.len()).map(|_| None).collect();
     let next = std::sync::atomic::AtomicUsize::new(0);
     let done = std::thread::scope(|s| {
-        let workers: Vec<_> = (0..threads.min(todo.len()))
-            .map(|_| {
-                s.spawn(|| {
-                    // Frames are already painted on every core, so a frame's shaders take one.
-                    let mut painter = CpuPainter { threads: 1, ..CpuPainter::default() };
+        let next = &next;
+        let workers: Vec<_> = painters
+            .iter_mut()
+            .take(todo.len())
+            .map(|painter| {
+                s.spawn(move || {
                     let mut done = Vec::new();
                     loop {
                         let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -527,6 +543,8 @@ fn metadata(chapters: &[Chapter]) -> String {
     out
 }
 
+/// How swscale turns the frames' RGB into the codec's YUV (lift-up 20261031 ATTR-5).
+const SCALING: &str = "lanczos+accurate_rnd+full_chroma_int+full_chroma_inp";
 /// `frames` at `fps`, in seconds as ffmpeg reads them: to the microsecond, no trailing zeros.
 fn seconds(frames: u64, fps: u32) -> String {
     let micros = (u128::from(frames) * 1_000_000).div_ceil(u128::from(fps.max(1)));
@@ -537,17 +555,36 @@ fn seconds(frames: u64, fps: u32) -> String {
 /// ffmpeg's arguments: raw RGB frames on stdin, then the sound track and the chapters, if
 /// there are any; the codecs' settings; `out`.
 fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option<&Path>) -> Vec<OsString> {
+    let full = settings.chroma444;
     let (pixels, codec, sound): (&str, &[&str], &[&str]) = match settings.codec {
+        // Slides are flat fields and hard edges, which `animation` tunes for (lift-up 20261031 ATTR-5).
         Codec::H264 => (
-            "yuv420p",
-            &["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-movflags", "+faststart", "-f", "mp4"],
+            if full { "yuv444p" } else { "yuv420p" },
+            &[
+                "-c:v",
+                "libx264",
+                "-profile:v",
+                if full { "high444" } else { "high" },
+                "-preset",
+                "medium",
+                "-tune",
+                "animation",
+                "-crf",
+                "18",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+            ],
             &["-c:a", "aac", "-b:a", "192k"],
         ),
         Codec::Vp9 => (
-            "yuv420p",
+            if full { "yuv444p" } else { "yuv420p" },
             &[
                 "-c:v",
                 "libvpx-vp9",
+                "-profile:v",
+                if full { "1" } else { "0" },
                 "-crf",
                 "30",
                 "-b:v",
@@ -564,14 +601,16 @@ fn args(settings: &VideoSettings, [w, h]: [u32; 2], out: &Path, chapters: Option
             &["-c:a", "libopus", "-b:a", "160k"],
         ),
         Codec::ProRes => (
-            "yuv422p10le",
-            &["-c:v", "prores_ks", "-profile:v", "3", "-vendor", "apl0", "-f", "mov"],
+            if full { "yuv444p10le" } else { "yuv422p10le" },
+            &["-c:v", "prores_ks", "-profile:v", if full { "4" } else { "3" }, "-vendor", "apl0", "-f", "mov"],
             &["-c:a", "pcm_s16le"],
         ),
     };
     let size = format!("{w}x{h}");
     let fps = settings.fps.to_string();
-    let filter = format!("scale=out_color_matrix=bt709:out_range=tv,format={pixels}");
+    // Lanczos, rounded exactly, the color worked out from every pixel and to every one before it is
+    // halved: swscale's bicubic default bleeds red and blue type into a dark ground.
+    let filter = format!("scale=out_color_matrix=bt709:out_range=tv:flags={SCALING},format={pixels}");
     let mut args: Vec<OsString> = [
         "-hide_banner",
         "-loglevel",
@@ -656,6 +695,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_cpu_painters_are_kept_from_batch_to_batch() {
+        use scaena_core::displaylist::{Color, FillRule, Op, Paint, Path as Outline};
+        let Ok(Painting::Cpu(painters)) = Painting::new(Painter::Cpu) else { panic!("the CPU painter") };
+        let cores = std::thread::available_parallelism().map_or(1, |n| n.get()).min(16);
+        assert_eq!(painters.len(), cores, "one painter for each core, made once");
+        assert!(painters.iter().all(|p| p.threads == 1), "a frame's shaders take one core");
+        let mut painting = Painting::Cpu(painters);
+        assert_eq!(painting.batch(), cores * 2);
+        let lists: Vec<DisplayList> = (0..5u8)
+            .map(|k| {
+                let mut list = DisplayList::new([32.0, 16.0]);
+                list.ops.push(Op::Fill {
+                    path: Outline::rect([f32::from(k), 0.0, 8.0, 8.0]),
+                    rule: FillRule::NonZero,
+                    paint: Paint::Solid(Color([200, 40 * k, 10, 255])),
+                });
+                list
+            })
+            .collect();
+        let todo: Vec<usize> = (0..lists.len()).collect();
+        let assets = Assets::new();
+        let fresh = paint(&lists, &todo, &mut (0..cores).map(|_| framer()).collect::<Vec<_>>(), 1.0, &assets);
+        // Batch after batch on the same painters, each frame painted as a new painter paints it.
+        for _ in 0..3 {
+            let kept = painting.paint(&lists, &todo, 1.0, &assets);
+            let Painting::Cpu(painters) = &painting else { unreachable!() };
+            assert_eq!(painters.len(), cores, "no painter thrown away");
+            for (a, b) in kept.iter().zip(&fresh) {
+                assert_eq!(a.as_ref().unwrap().as_ref().unwrap(), b.as_ref().unwrap().as_ref().unwrap());
+            }
+        }
+        let half = paint(&lists, &[1, 3], &mut [framer()], 1.0, &assets);
+        assert!(half[0].is_none() && half[2].is_none() && half[1].is_some() && half[3].is_some());
+    }
+
+    #[test]
     fn rgb_lays_translucent_pixels_over_black() {
         assert_eq!(rgb(&[10, 20, 30, 255, 200, 100, 50, 128, 255, 255, 255, 0]), [10, 20, 30, 100, 50, 25, 0, 0, 0]);
     }
@@ -712,6 +787,34 @@ mod tests {
             (seconds(1, 60), seconds(90, 60), seconds(7, 3), seconds(0, 30)),
             ("0.016667".into(), "1.5".into(), "2.333334".into(), "0".into())
         );
+    }
+
+    #[test]
+    fn colored_type_keeps_its_edges_and_a_master_keeps_every_pixels_color() {
+        let said = |settings: &VideoSettings| -> Vec<String> {
+            args(settings, [1920, 1080], Path::new("x"), None).iter().map(|a| a.to_str().unwrap().to_string()).collect()
+        };
+        let has = |args: &[String], pair: [&str; 2]| args.windows(2).any(|w| w[0] == pair[0] && w[1] == pair[1]);
+        for codec in [Codec::H264, Codec::Vp9, Codec::ProRes] {
+            let args = said(&VideoSettings { codec, ..VideoSettings::default() });
+            let filter = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
+            assert!(filter.contains(":flags=lanczos+accurate_rnd+full_chroma_int+full_chroma_inp,"), "{filter}");
+            let master = said(&VideoSettings { codec, chroma444: true, ..VideoSettings::default() });
+            let (pixels, profile) = match codec {
+                Codec::H264 => ("yuv444p", "high444"),
+                Codec::Vp9 => ("yuv444p", "1"),
+                Codec::ProRes => ("yuv444p10le", "4"),
+            };
+            assert!(has(&master, ["-pix_fmt", pixels]) && has(&master, ["-profile:v", profile]), "{master:?}");
+            assert!(master.iter().any(|a| a.ends_with(&format!("format={pixels}"))), "{master:?}");
+        }
+        let h264 = said(&VideoSettings::default());
+        assert!(has(&h264, ["-tune", "animation"]) && has(&h264, ["-pix_fmt", "yuv420p"]), "{h264:?}");
+        assert!(has(&h264, ["-profile:v", "high"]), "{h264:?}");
+        let vp9 = said(&VideoSettings { codec: Codec::Vp9, ..VideoSettings::default() });
+        assert!(has(&vp9, ["-pix_fmt", "yuv420p"]) && has(&vp9, ["-profile:v", "0"]), "{vp9:?}");
+        let prores = said(&VideoSettings { codec: Codec::ProRes, ..VideoSettings::default() });
+        assert!(has(&prores, ["-pix_fmt", "yuv422p10le"]) && has(&prores, ["-profile:v", "3"]), "{prores:?}");
     }
 
     #[test]

@@ -28,6 +28,7 @@ import init, {
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import type { Decision, Outlined } from "./generate";
 import { sha256 } from "./recovery";
+import { within } from "./within";
 import { finding } from "./words";
 import type {
   SlideWritten,
@@ -653,6 +654,17 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
               : player.tidying(data.state, data.node);
         return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
       }
+      // Lines in focus, and a walkthrough (PLAN 2.140): each the patch the page then makes.
+      case "focusing":
+      case "walking": {
+        const behind = !player.compiledFrom(data.source);
+        if (behind) saveable(data.source);
+        const patch =
+          data.type === "focusing"
+            ? player.focusing(data.state, data.node, data.said)
+            : player.walking(data.state, data.node, JSON.stringify(data.steps));
+        return post({ type: data.type, id: data.id, patch: JSON.parse(patch) as unknown[] });
+      }
       case "codeWords": {
         const behind = !held(data.source);
         if (behind) saveable(data.source);
@@ -943,8 +955,8 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const stop = new AbortController();
         writes.set(data.id, stop);
         try {
-          const { text, usage } = await write(data.call, stop.signal);
-          return post({ type: "wrote", id: data.id, text, usage });
+          const { text, stop: why, usage } = await write(data.call, stop.signal);
+          return post({ type: "wrote", id: data.id, text, stop: why, usage });
         } finally {
           writes.delete(data.id);
         }
@@ -1150,7 +1162,7 @@ function keptIn(dir: FileSystemDirectoryHandle, kind: "folder" | "opfs"): Home {
  * with the token its address carried (lift-up 10-24b SEC-5). */
 function served(deck: string, serve: Serving, folder: string): Home {
   const sent = async (method: "PUT" | "DELETE", path: string, bytes?: Uint8Array) => {
-    const url = new URL(path.split("/").map(encodeURIComponent).join("/"), deck);
+    const url = within(path.split("/").map(encodeURIComponent).join("/"), deck);
     const body = bytes as Uint8Array<ArrayBuffer> | undefined;
     const headers = { "X-Scaena-Client": serve.client, "X-Scaena-Token": serve.token };
     const response = await fetch(url, { method, body, headers });
@@ -1226,9 +1238,10 @@ async function load(source: Source) {
  * history. `scaena serve` reads each only with the token its address carried (lift-up R1). */
 /** The bundle whose deck is at `deck`, and every file of it as read. */
 async function fetched(deck: string, serve?: Serving): Promise<{ player: Player; read: Map<string, Uint8Array> }> {
+  // The token goes only with what `within` lets through: the deck's own origin, under its folder.
   const headers: Record<string, string> = serve ? { "X-Scaena-Token": serve.token } : {};
   const get = async (path: string) => {
-    const response = await fetch(new URL(path, deck), { headers });
+    const response = await fetch(within(path, deck), { headers });
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response;
   };
@@ -1245,7 +1258,7 @@ async function fetched(deck: string, serve?: Serving): Promise<{ player: Player;
   const data = Object.values(files.data ?? {}).flatMap(({ source }) => (typeof source === "string" ? [source] : []));
   const paths = new Set([...(files.fonts ?? []).map((f) => f.file), ...data, ...fetchedPlayer.imageFiles()]);
   if (new URL(deck).pathname.endsWith("/deck.json")) {
-    const manifest = await fetch(new URL("manifest.json", deck), { headers }).catch(() => undefined);
+    const manifest = await fetch(within("manifest.json", deck), { headers }).catch(() => undefined);
     if (manifest?.ok) {
       const bytes = new Uint8Array(await manifest.arrayBuffer());
       fetchedPlayer.addFile("manifest.json", bytes);
