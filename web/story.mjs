@@ -231,11 +231,17 @@ try {
   await page.waitForFunction(() => !document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
   const heldFix = await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled);
   check(heldFix === true, `while the source does not compile, lint's fix is held: ${heldFix}`);
-  await page.evaluate((s) => window.scaena.type(s), broken);
+  // Taken back by ⌘Z, the deck is as it was, its fix offered again.
+  await page.focus("#overlay");
+  await page.keyboard.press("Control+z");
+  await page.waitForFunction((s) => window.scaena.source() === s, broken, { timeout: 30000 }).catch(() => {});
   await page.waitForFunction(() => document.querySelector("#story > p[data-stale]").hidden, null, { timeout: 60000 }).catch(() => {});
+  await page
+    .waitForFunction(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false, null, { timeout: 120000 })
+    .catch(() => {});
   check(
     await page.evaluate(() => document.querySelector("#story [data-findings] > li[data-slide] [data-lint-fix]")?.disabled === false),
-    "compiled again, lint's fix is offered again",
+    "taken back, lint's fix is offered again",
   );
   await page.click("#story [data-findings] > li[data-slide] [data-lint-show]");
   const popped = await page
