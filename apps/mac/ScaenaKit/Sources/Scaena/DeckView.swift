@@ -2,6 +2,11 @@ import QuickLook
 import ScaenaKit
 import SwiftUI
 import UniformTypeIdentifiers
+import os
+
+/// Each lift of the slide over the software keyboard, said with what it was asked for and where the
+/// slide stood before and after (lift-up 20261110): what a UI test's `log.txt` shows of a loop.
+private let keyboardLog = Logger(subsystem: "com.welshofer.Scaena", category: "keyboard")
 
 /// A deck's window (PLAN 3.3–3.4), as a presentation app's (PLAN 3.18): the slides down the side,
 /// numbered, each drawn small, a slide's steps under it; the slide chosen painted by the engine on
@@ -382,6 +387,12 @@ struct DeckView: View {
                     }
                 }
             }
+            #if !os(macOS)
+            // The software keyboard covers the desk's foot and resizes nothing: the slide keeps its
+            // size as the keyboard comes and goes, lifted only to clear the line typed in (lift-up
+            // 20261110). Followed, it moved four or five times a sentence.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            #endif
         }
     }
 
@@ -1137,6 +1148,25 @@ struct DeckView: View {
                     takeZoom(canvas: now)
                 }
                 .onChange(of: zoom.view) { _, now in editor.look(through: now) }
+                #if !os(macOS)
+                // How much of the desk the software keyboard covers, from where it will end, and the
+                // line typed in lifted clear of it (lift-up 20261110).
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
+                    note in
+                    let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+                    // The end frame is the screen's; the desk's, its window's, converted through
+                    // the window's screen, so a Stage Manager window offset on it reads right.
+                    let desk = room.frame(in: .global)
+                    zoom.cover(end.map { KeyboardCover.covered(by: $0, desk: desk, in: KeyboardCover.window) } ?? 0)
+                    lift("frame \(end.map { "\($0)" } ?? "none") desk \(desk)")
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    let was = zoom.lifted
+                    zoom.cover(0)
+                    keyboardLog.debug("hide: lifted \(Double(was), privacy: .public) to \(Double(zoom.lifted), privacy: .public)")
+                }
+                .onChange(of: typedLine) { _, _ in lift("line") }
+                #endif
                 .onChange(of: zoom) { _, now in
                     if zoomTaken { keptZoom = now.kept }
                 }
@@ -1162,6 +1192,26 @@ struct DeckView: View {
         } else {
             ContentUnavailableView("No Slides", systemImage: "rectangle.stack")
         }
+    }
+
+    #if !os(macOS)
+    /// The slide lifted clear of the software keyboard for the line typed in, said with `why`, the
+    /// cover, and where it stood before and after, each time (lift-up 20261110).
+    private func lift(_ why: String) {
+        let line = typedLine
+        let was = zoom.lifted
+        let moved = zoom.lift(clearing: line ?? .null)
+        keyboardLog.debug(
+            "\(why, privacy: .public): covered \(Double(zoom.covered), privacy: .public), line \(line.map { "\($0)" } ?? "none", privacy: .public), lifted \(Double(was), privacy: .public) to \(Double(zoom.lifted), privacy: .public)\(moved ? "" : ", still", privacy: .public)"
+        )
+    }
+    #endif
+
+    /// The line typed in, canvas units, as the caret stands on it: what the slide is lifted to keep
+    /// above the software keyboard (lift-up 20261110); none while no text is typed in.
+    private var typedLine: CGRect? {
+        guard let typing, typing.typing else { return nil }
+        return typing.caretBox(at: typing.head)
     }
 
     /// Show a match the find bar found (PLAN 3.16): its state, and its node selected, brought into
