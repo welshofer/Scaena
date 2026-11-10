@@ -628,12 +628,15 @@ const THANKS: [&str; 16] = [
 ];
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// or headed with thanks or questions (ADR-0032 item 6).
+/// next steps, or questions, or headed with thanks or questions (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
-        layout.is_some_and(|l| CLOSING.contains(&l)) || THANKS.iter().any(|t| title.starts_with(t))
+        // Next steps and the floor opened belong to a close too, before or after its last word
+        // (dogfood pass 9).
+        layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
+            || THANKS.iter().any(|t| title.starts_with(t))
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -2208,6 +2211,32 @@ mod tests {
             assert!(cooler(&open, &last), "the same plan away from a close bends: {:#?}", open.findings);
         }
         assert_eq!(closed.fidelity.score, open.fidelity.score, "no figure moves");
+        // Next steps before the Closing, planned at rest, are part of the close; the floor opened
+        // too (dogfood pass 9). A slide before them that closes nothing still bends.
+        let thanks = |i: usize| THANKS.iter().any(|t| before.slides[i].title.to_lowercase().starts_with(t));
+        let n = before.slides.len();
+        let k = (2..n - 1).rev().find(|&k| !thanks(k) && !thanks(k - 1)).unwrap();
+        let [steps, ask] = [k, k - 1].map(|i| before.slides[i].state.clone());
+        let layouts = |deck: &mut Value, step: &str| {
+            for (i, slide) in before.slides.iter().enumerate().skip(k - 1) {
+                let layout = match i {
+                    i if i == k - 1 => "statement",
+                    i if i == k => step,
+                    _ => "closing",
+                };
+                let at =
+                    (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
+                deck["states"][at]["layout"] = json!(layout);
+                declare(deck, &slide.state, "intensity", 0.0);
+            }
+        };
+        for step in ["next-steps", "qa"] {
+            let mut deck = climate();
+            layouts(&mut deck, step);
+            let h = of(&deck);
+            assert!(!cooler(&h, &steps), "{step} before the close is no bend: {:#?}", h.findings);
+            assert!(cooler(&h, &ask), "a slide before the close that closes nothing bends: {:#?}", h.findings);
+        }
     }
 
     /// A slide planned hotter than its place in the story is asked to change its plan, or its
