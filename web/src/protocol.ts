@@ -2003,6 +2003,9 @@ export interface Linted {
   laid: boolean;
   whole: boolean;
   ms: number;
+  /** Dropped before it was done (lift-up 20261110 PERF-1): the deck changed while it was laid
+   * out, or a newer lint was asked for. It found nothing that stands. */
+  dropped?: boolean;
 }
 
 /** A state inspected (SPEC §7.1, `inspect --resolved --timeline`): its nodes resolved, each
