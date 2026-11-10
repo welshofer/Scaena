@@ -1066,8 +1066,12 @@ export type ToWorker =
   | { type: "generate"; generate: Generate; engine?: WebAssembly.Module }
   /** The outline as the person settled it (narrative FUNC-1): the slides are written to it. */
   | { type: "storySettled"; outline: StoryOutline }
-  /** Another arc for the outline, by name, or the heuristic's where none: outlined again. */
-  | { type: "outlineAgain"; arc?: string }
+  /** Another arc for the outline, by name, or the heuristic's where none: outlined again, keeping
+   * the claims the person typed, each in the beat of its name (lift-up 20261110 FUNC-2). */
+  | { type: "outlineAgain"; arc?: string; kept?: StoryBeat[] }
+  /** Beat `beat` (from 0) of `outline`, as the pane holds it, asked for again alone, every other
+   * claim fixed (lift-up 20261110 FUNC-2): its claim comes back as a `claimed` event. */
+  | { type: "claimAgain"; beat: number; outline: StoryOutline }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { type: "outlinePassed" }
   /** `files` as one `.scaena` zip, unchanged (lift-up 20261110 REL-1): `filesZipped`. */
@@ -1547,6 +1551,8 @@ export type GeneratingEvent =
   | { kind: "outlining" }
   | { kind: "outlined"; beats: number }
   | { kind: "settled"; beats: number }
+  /** One beat's claim asked for again (lift-up 20261110 FUNC-2): the claim, or why none came. */
+  | { kind: "claimed"; beat: number; claim?: string; why?: string }
   /** The outline, twice unreadable, passed over: the slides written without one (lift-up REL-3). */
   | { kind: "unoutlined" }
   | { kind: "writing"; slides: number }

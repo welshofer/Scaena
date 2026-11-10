@@ -38,6 +38,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "claimed":
+      return event.claim ? `Beat ${event.beat + 1} asked again` : `Beat ${event.beat + 1} was not asked again: ${event.why ?? "no claim came back"}`;
     case "unoutlined":
       return "Writing the slides without an outline";
     case "writing":
@@ -198,6 +200,8 @@ export function prompting(
     claim.value = beat.claim;
     claim.placeholder = "What its slides leave the audience believing";
     claim.setAttribute("aria-label", "The beat's claim");
+    // A claim the person typed is theirs: Outline again keeps it (lift-up 20261110 FUNC-2).
+    claim.oninput = () => (li.dataset.typed = "1");
     const acts = document.createElement("div");
     acts.className = "acts";
     const act = (label: string, aria: string, on: () => void) => {
@@ -211,9 +215,14 @@ export function prompting(
     act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
     act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
     act("Remove", "Remove the beat", () => li.remove());
+    // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
+    act("Ask again", "Ask for this beat's claim again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
     return li;
   };
+
+  /** Asks for one beat's claim again, while the deck is being made and its outline shown. */
+  let askAgain: ((li: HTMLLIElement) => void) | undefined;
 
   /** The outline as the pane holds it now, as the person settled it. */
   const settledOutline = (): StoryOutline => ({
@@ -248,6 +257,22 @@ export function prompting(
     outlinePane.hidden = false;
     for (const field of outlinePane.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, textarea, select, button")) field.disabled = false;
     bigIdea.focus();
+  };
+
+  /** A beat's claim asked again, come back: set in its row, which is the model's again. */
+  const claimedBeat = (event: Extract<GeneratingEvent, { kind: "claimed" }>) => {
+    const li = beats.querySelectorAll("li")[event.beat];
+    if (li) {
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      const claim = li.querySelector<HTMLTextAreaElement>(".claim")!;
+      claim.removeAttribute("aria-busy");
+      if (event.claim) {
+        claim.value = event.claim;
+        delete li.dataset.typed;
+        claim.focus();
+      }
+    }
+    step(said(event), !event.claim);
   };
 
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
@@ -589,7 +614,8 @@ export function prompting(
     const making = worker;
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
-        if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
+        if (data.type === "generating" && data.event.kind === "claimed") claimedBeat(data.event);
+        else if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
         else if (data.type === "paid") paid = { ...paid, ...data.paid };
@@ -604,9 +630,20 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "storySettled", outline: settled } satisfies ToWorker);
     };
+    // Outlined again, the claims the person typed kept, each in the beat of its name (lift-up
+    // 20261110 FUNC-2).
     $<HTMLButtonElement>("#prompting-outline-again").onclick = () => {
+      const now = settledOutline();
+      const kept = [...beats.querySelectorAll("li")].flatMap((li, i) => (li.dataset.typed && now.beats[i].claim.trim() ? [now.beats[i]] : []));
       outlinePane.hidden = true;
-      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
+      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined, kept } satisfies ToWorker);
+    };
+    askAgain = (li) => {
+      const at = [...beats.querySelectorAll("li")].indexOf(li);
+      if (at < 0) return;
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      li.querySelector<HTMLTextAreaElement>(".claim")!.setAttribute("aria-busy", "true");
+      making.postMessage({ type: "claimAgain", beat: at, outline: settledOutline() } satisfies ToWorker);
     };
     // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
     $<HTMLButtonElement>("#prompting-without").onclick = () => {

@@ -265,7 +265,11 @@ export interface Outlined {
 
 /** What the person decided of an outline: settled, so the slides are written to it; or another
  * arc, by name or the heuristic's where none, to outline again. */
-export type Decision = { settled: StoryOutline } | { arc?: string } | { without: true };
+export type Decision =
+  | { settled: StoryOutline }
+  | { arc?: string; kept?: StoryOutline["beats"] }
+  | { without: true }
+  | { again: { beat: number; outline: StoryOutline } };
 
 /** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
  * to, and its title. `hear` hears how far it has come. With `job.outline`, the outline is
@@ -277,7 +281,7 @@ export async function generate(
   job: Generate,
   given: Theme,
   hear: (event: GeneratingEvent) => void,
-  settle?: (outlined: Outlined) => Promise<Decision>,
+  settle?: (outlined?: Outlined) => Promise<Decision>,
   keep: (paid: Paid) => void = () => {},
 ): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
   // Before a file is read or a call is paid for: the script's font where the theme's fonts do
@@ -383,7 +387,13 @@ export async function generate(
           const outline = at.outline ?? { bigIdea: "", beats: [] };
           if (at.outline) hear({ kind: "outlined", beats: outline.beats.length });
           const shown = { outline, arc: at.arc ?? "", reasoning: at.reasoning ?? "", fallback: at.fallback ?? undefined };
-          const decided = await settle!(at.unread ? { ...shown, unread: at.unread } : shown);
+          let decided = await settle!(at.unread ? { ...shown, unread: at.unread } : shown);
+          // One beat asked for again, the outline still shown: its claim, then the next decision
+          // (lift-up 20261110 FUNC-2).
+          while ("again" in decided) {
+            hear(await claimed(generation, job, decided.again.beat, decided.again.outline));
+            decided = await settle!();
+          }
           if ("without" in decided) {
             generation.skipOutline();
             hear({ kind: "unoutlined" });
@@ -392,7 +402,8 @@ export async function generate(
             hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
             if (now.outline) keep({ settled: now.outline });
           } else {
-            // Another arc, chosen with no call, and outlined again.
+            // Another arc, chosen with no call, and outlined again, the claims typed kept.
+            generation.keepClaims(JSON.stringify(decided.kept ?? []));
             generation.chooseArc(decided.arc || undefined);
             generation.outlineFirst();
             const chosen = JSON.parse(generation.standing()) as { arc?: string };
@@ -435,6 +446,31 @@ export async function generate(
     }
   } finally {
     sources.free();
+  }
+}
+
+/** Beat `beat` of `outline` asked for again alone (lift-up 20261110 FUNC-2), a busy provider asked
+ * again after the wait the slides take: its claim, or why none came. */
+async function claimed(
+  generation: InstanceType<Generator["Generation"]>,
+  job: Generate,
+  beat: number,
+  outline: StoryOutline,
+): Promise<Extract<GeneratingEvent, { kind: "claimed" }>> {
+  const asked = generation.claimRequest(job.key, JSON.stringify(outline), beat);
+  if (!asked) return { kind: "claimed", beat, why: "the outline has no such beat" };
+  for (let tried = 0; ; tried++) {
+    const reply = await send(JSON.parse(asked));
+    const pause = generation.retryAfter(reply.status, reply.body, reply.after, tried);
+    if (pause != null) {
+      await wait(pause * 1000);
+      continue;
+    }
+    try {
+      return { kind: "claimed", beat, claim: read(WRITERS[job.provider], reply, () => generation.claimAnswer(reply.status, reply.statusText, reply.body)) };
+    } catch (e) {
+      return { kind: "claimed", beat, why: said(e) };
+    }
   }
 }
 

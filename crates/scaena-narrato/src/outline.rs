@@ -51,8 +51,15 @@ fn planned<'a>(arc: &'a NarrativeArc, plan: &[(usize, usize, usize)]) -> Vec<(us
 }
 
 /// The prompt that asks for `brief`'s outline along `arc`, chosen for `reasoning`, its slides
-/// spread as `plan` spreads them.
-pub fn prompt(brief: &Brief, arc: &NarrativeArc, reasoning: &str, plan: &[(usize, usize, usize)]) -> String {
+/// spread as `plan` spreads them, keeping each claim of `kept` the person wrote (lift-up 20261110
+/// FUNC-2): word for word in the beat of its name, else carried where it fits.
+pub fn prompt(
+    brief: &Brief,
+    arc: &NarrativeArc,
+    reasoning: &str,
+    plan: &[(usize, usize, usize)],
+    kept: &[Beat],
+) -> String {
     let mut out = format!(
         "A presentation is to be written about \"{}\", for {}, to {}, {} long.",
         brief.topic, brief.audience, brief.goal, brief.length
@@ -83,6 +90,15 @@ pub fn prompt(brief: &Brief, arc: &NarrativeArc, reasoning: &str, plan: &[(usize
     for (number, name, slides) in planned(arc, plan) {
         let count = if slides == 1 { "1 slide".to_string() } else { format!("{slides} slides") };
         out.push_str(&format!("  Beat {number} \"{name}\" \u{2192} {count}\n"));
+    }
+    let kept: Vec<&Beat> = kept.iter().filter(|b| !b.claim.trim().is_empty()).collect();
+    if !kept.is_empty() {
+        out.push_str(
+            "\nThe user has written these claims themselves. Keep each word for word in the beat above of the same name; one whose beat is not above, carry into the beat it fits. Write the other claims to lead to them and on from them:\n",
+        );
+        for beat in kept {
+            out.push_str(&format!("  \"{}\": {}\n", js::trim(&beat.name), js::trim(&beat.claim)));
+        }
     }
     out.push_str(
         "\nGive the big idea, then one claim for each beat above, in order: what its slides must leave the audience believing, said as the audience would repeat it. Each claim follows from the one before, and the last lands the big idea. The first beat's claim opens the talk: make it a hook drawn from the material, a tension, a surprising figure, or a question the audience will want answered.",
@@ -135,6 +151,70 @@ fn shared(content: &str, units: usize) -> String {
         }
     }
     out
+}
+
+/// The rider one beat's claim is asked again under (lift-up 20261110 FUNC-2).
+pub const CLAIM_SYSTEM: &str = "You are revising one beat of a presentation's outline. Output ONLY a JSON object \u{2014} no markdown, no code fence, no commentary \u{2014} with one key, \"claim\" (string: the one sentence that beat's slides must leave the audience believing, specific to this presentation and its material, never the beat's generic name). Write it plainly, in the language the presentation is in, at most 25 words.";
+
+/// The prompt that asks for beat `beat` (from 0) of `outline` again, the person's outline as it
+/// stands, every other claim fixed (lift-up 20261110 FUNC-2): another take on that beat alone,
+/// following from the claim before it and leading to the one after.
+pub fn claim_prompt(brief: &Brief, arc: &NarrativeArc, outline: &Outline, beat: usize) -> Option<String> {
+    let asked = outline.beats.get(beat)?;
+    let mut out = format!(
+        "A presentation is about \"{}\", for {}, to {}, on the {} arc: {}",
+        brief.topic, brief.audience, brief.goal, arc.arc, arc.premise
+    );
+    if let Some(language) = brief.language.as_deref().map(js::trim).filter(|l| !l.is_empty()) {
+        out.push_str(&format!(" It is in {language}: write the claim in {language}."));
+    }
+    if !outline.big_idea.trim().is_empty() {
+        out.push_str(&format!("\n\nIts big idea: {}", js::trim(&outline.big_idea)));
+    }
+    out.push_str("\n\nIts outline, beat by beat, each with the one claim its slides leave the audience with:\n");
+    for (i, b) in outline.beats.iter().enumerate() {
+        let claim = if i == beat { "(to write again)" } else { js::trim(&b.claim) };
+        out.push_str(&format!("  Beat {} \"{}\": {claim}\n", i + 1, js::trim(&b.name)));
+    }
+    out.push_str(&format!(
+        "\nWrite beat {} \"{}\"'s claim again, keeping every other claim as it is: a different take from \"{}\", following from the claim before it and leading to the one after it.",
+        beat + 1,
+        js::trim(&asked.name),
+        js::trim(&asked.claim)
+    ));
+    if let Some(content) = brief.source_content.as_deref().filter(|s| !s.trim().is_empty()) {
+        out.push_str(&format!(
+            "\n\nGround it in this material:\n{}",
+            containment::wrap_source_excerpt(&shared(content, SOURCE_UNITS / 2))
+        ));
+    }
+    Some(out)
+}
+
+/// The claim an answer to [`claim_prompt`] gives, trimmed; an answer with none is refused.
+pub fn read_claim(text: &str) -> Result<String, String> {
+    let (Some(start), Some(end)) = (text.find('{'), text.rfind('}')) else {
+        return Err("the answer holds no JSON object".into());
+    };
+    if end < start {
+        return Err("the answer holds no JSON object".into());
+    }
+    let value: Value =
+        serde_json::from_str(&text[start..=end]).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
+    let claim = value.get("claim").and_then(Value::as_str).map(str::trim).unwrap_or_default();
+    if claim.is_empty() {
+        return Err("the answer gives no claim".into());
+    }
+    Ok(claim.to_string())
+}
+
+/// One claim's contract, as Gemini takes it.
+pub fn claim_schema_gemini() -> Value {
+    json!({
+        "type": "OBJECT",
+        "properties": { "claim": { "type": "STRING" } },
+        "required": ["claim"]
+    })
 }
 
 /// The answer's contract, as Gemini takes it (the others derive theirs from it).
@@ -325,7 +405,7 @@ mod tests {
     fn the_prompt_names_each_beat_with_its_slides() {
         let arc = arcs::arc("Problem\u{2013}Solution");
         let plan = beats::plan(arc, 5);
-        let p = prompt(&brief(), arc, "The donors know the problem.", &plan);
+        let p = prompt(&brief(), arc, "The donors know the problem.", &plan, &[]);
         assert!(p.starts_with("A presentation is to be written about \"Fifty-two miles of trail\", for Donors, to Inspire, 5-10 slides long. It should achieve: Fund next summer."));
         assert!(p.contains("It follows the Problem\u{2013}Solution arc:"));
         assert!(p.contains("Why this arc: The donors know the problem."));
@@ -335,10 +415,10 @@ mod tests {
         assert!(!p.contains("Ground each claim"));
         let grounded =
             Brief { source_content: Some("=== SOURCE: notes.md ===\nPort calls doubled.".into()), ..brief() };
-        let g = prompt(&grounded, arc, "", &plan);
+        let g = prompt(&grounded, arc, "", &plan, &[]);
         assert!(g.contains("Ground each claim in this material") && g.contains("Port calls doubled."));
         let czech = Brief { language: Some("Czech".into()), ..brief() };
-        assert!(prompt(&czech, arc, "", &plan).contains("write the big idea and every claim in Czech"));
+        assert!(prompt(&czech, arc, "", &plan, &[]).contains("write the big idea and every claim in Czech"));
     }
 
     /// The counts a person sets stand where their sum is within the length's own range; others
@@ -432,11 +512,11 @@ mod tests {
             voice: Some("Plain, warm, no jargon".into()),
             ..brief()
         };
-        let p = prompt(&given, arc, "", &plan);
+        let p = prompt(&given, arc, "", &plan, &[]);
         assert!(p.contains(" It is given as: Keynote \u{2014} One speaker on a stage."), "{p}");
         assert!(p.contains(" Its voice: Plain, warm, no jargon."), "{p}");
         let stopped = Brief { modality: Some("Keynote \u{2014} On a stage.".into()), ..brief() };
-        let once = prompt(&stopped, arc, "", &plan);
+        let once = prompt(&stopped, arc, "", &plan, &[]);
         assert!(
             once.contains(" It is given as: Keynote \u{2014} On a stage.\n") && !once.contains(".."),
             "one stop: {once}"
@@ -445,7 +525,7 @@ mod tests {
         // The first source far past the room, the second short: the second is there whole.
         let long = format!("=== SOURCE: report.pdf ===\n{}\n", "Freight rose. ".repeat(2_000));
         let pack = format!("{long}\n=== SOURCE: notes.md ===\nPort calls doubled in Q3.\n");
-        let g = prompt(&Brief { source_content: Some(pack), ..brief() }, arc, "", &plan);
+        let g = prompt(&Brief { source_content: Some(pack), ..brief() }, arc, "", &plan, &[]);
         assert!(g.contains("=== SOURCE: report.pdf ===") && g.contains("Freight rose."), "{g}");
         assert!(g.contains("=== SOURCE: notes.md ===\nPort calls doubled in Q3."), "the second source, whole");
         // Held to the room: the long one gives up what the short one leaves.
