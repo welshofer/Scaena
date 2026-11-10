@@ -70,7 +70,7 @@ import { filesPanel } from "./files";
 import { storyPanel } from "./story";
 import { finder, findKeys } from "./find";
 import { deleteKept, keptBundle, keptNames, persist, persisted, renameKept } from "./folders";
-import { discard, find, keep, savedAt, sha256, type Copy } from "./recovery";
+import { bundleOf, discard, find, keep, leftovers, savedAt, sha256, type Copy, type Reopen } from "./recovery";
 import { formatsRow } from "./formats";
 import { layerKeys, layers } from "./layers";
 import { ended, listen as heed, observing } from "./life";
@@ -291,6 +291,7 @@ let current:
   | {
       close: (lost?: boolean) => Promise<void> | void;
       unsaved: () => boolean;
+      copyKey: () => string;
       /** Save it where it is kept, or in this browser: whether it was saved. */
       save: () => Promise<unknown>;
       say: (text: string) => void;
@@ -340,9 +341,10 @@ function namedFor(source: Source): string {
 }
 
 /** Open the bundle at `source`, closing what is open once it opens; `asked` where changes not saved
- * were asked about already. One that does not open leaves the bundle open as it was, in use, and
- * the status says why, by the file's name. */
-async function open(source: Source, asked = false) {
+ * were asked about already, and `recovering` where it opens to take the copy it left (lift-up
+ * REL-4). One that does not open leaves the bundle open as it was, in use, and the status says
+ * why, by the file's name. */
+async function open(source: Source, asked = false, recovering = false) {
   // Changes not saved, lost as the person agreed, asked here or before: no copy keeps them, so none
   // is offered onto another deck that is named alike.
   let lost = current?.unsaved() ?? false;
@@ -369,7 +371,7 @@ async function open(source: Source, asked = false) {
   current = undefined;
   // The copy taken away before the deck opens looks for its own.
   await closed;
-  await edit(source, stage);
+  await edit(source, stage, recovering);
 }
 
 /** The page's address names where the bundle is kept, so a reload opens it there. A served
@@ -612,12 +614,12 @@ const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(descr
 /** `words` as a change is described: without the status's "⌘Z undoes it", which an undo makes untrue. */
 const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
-async function edit(source: Source, opened?: Stage) {
+async function edit(source: Source, opened?: Stage, recovering = false) {
   // A folder is kept under its own key, which its address and its recovery copy name (REL-2).
   if ("folder" in source) await keepFolder(source.folder).catch((e: unknown) => console.warn(`The folder was not kept for next time: ${said(e)}`));
   // The deck of files as it opened, by its digest: what keys its recovery copy.
-  const files = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
-  const openedAs = files?.["deck.json"] ? await sha256(files["deck.json"]) : undefined;
+  const opening = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
+  const openedAs = opening?.["deck.json"] ? await sha256(opening["deck.json"]) : undefined;
   const status = $("#status");
   // A status too long for its two lines says the rest in its title.
   observing(new MutationObserver(() => (status.title = status.textContent ?? ""))).observe(status, { childList: true, characterData: true, subtree: true });
@@ -737,6 +739,9 @@ async function edit(source: Source, opened?: Stage) {
     if ("create" in source) return `new:${source.create.title}`;
     return `files:${name}:${openedAs ?? ""}`;
   };
+  /** Whether the copy carries the files the deck opened with, or the browser had no room for them,
+   * which is said once: the copy then keeps the edits, but cannot open the deck again. */
+  let carried: boolean | "refused" = false;
   /** How long after a change the copy is written, ms. */
   const COPY_AFTER = 2000;
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -753,6 +758,7 @@ async function edit(source: Source, opened?: Stage) {
       const key = copyKey();
       if (!unsaved()) {
         copied = new Map();
+        carried = false;
         return discard(key);
       }
       const { written, removed } = stage.unsaved();
@@ -762,7 +768,23 @@ async function edit(source: Source, opened?: Stage) {
         const bytes = await stage.file(path);
         if (bytes) files.set(path, new Uint8Array(bytes));
       }
-      await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed }, files);
+      // A deck kept nowhere, which nothing else opens again, carries how to: its theme and title, or
+      // the files it opened with, kept once (a page that starts lists each such copy).
+      const reopen: Reopen | undefined =
+        where || "url" in source || carried === "refused"
+          ? undefined
+          : "create" in source
+            ? { create: source.create }
+            : opening
+              ? { files: Object.keys(opening) }
+              : undefined;
+      const bundle = reopen && "files" in reopen && !carried ? opening : undefined;
+      const kept = await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed, reopen }, files, bundle);
+      if (bundle && kept) carried = true;
+      else if (bundle) {
+        carried = "refused";
+        status.textContent = "This browser has no room to keep this deck for after a crash: save it to keep it safe.";
+      }
       copied = new Map(written);
     };
     copying = copying.then(run, run).catch((e: unknown) => console.warn(`The recovery copy was not kept: ${said(e)}`));
@@ -857,6 +879,12 @@ async function edit(source: Source, opened?: Stage) {
   /** Whether the source takes typing: not while the assistant works. */
   const locked = new Compartment();
   let assisting = false;
+  /** The answer the assistant is giving (lift-up 10-25 FUNC-4): the source as it was asked, and
+   * each file its edits wrote, with its text as the answer found it and as the answer left it. */
+  let answer: { from: string; files: Map<string, Rewritten> } | undefined;
+  /** How deep the source's history stood once the last answer made its step: while it stands
+   * there, Undo this answer takes it back. */
+  let answered: number | undefined;
   /** The source the assistant's last edit, or the canvas's, made, and what the worker found in
    * it: the lint of that source takes it as it is, rather than asking the worker again. With it,
    * how many states had been shown then (`showings`): one shown since is where the lint leaves
@@ -1016,6 +1044,8 @@ async function edit(source: Source, opened?: Stage) {
     const saved = await savedAt(kept);
     const same = copy.source === view.state.doc.toString() && !copy.files.length && !copy.removed.length;
     if ((saved !== undefined && saved > copy.at) || same) return discard(key);
+    // Opened again from the copies a page left, to recover them: no asking twice.
+    if (recovering) return recover(copy);
     const dialog = $<HTMLDialogElement>("#recovering");
     dialog.querySelector("[data-said]")!.textContent = `Changes made to ${titled() || name} at ${when(copy.at)} were not saved. Recover them, or discard them?`;
     dialog.returnValue = "";
@@ -2223,7 +2253,7 @@ async function edit(source: Source, opened?: Stage) {
       return `<tr data-node="${html(id)}"${id === chosen || beside.includes(id) ? ' aria-selected="true"' : ""}><td>${html(object(words, id))}</td><td>${place}</td><td>${text}</td><td>${own || ""}</td></tr>`;
     });
     const motions = (cue?.motions ?? []).map(
-      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td>${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
+      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td class="when">${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
     );
     void look.show(chosen, beside);
     const advance = cue && cue.hold > 0 ? `advances after ${seconds(cue.hold)}` : "advances on a click";
@@ -2470,9 +2500,14 @@ async function edit(source: Source, opened?: Stage) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    conversationKey: () => copyKey(),
     states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
+      // An answer's edits go in the source's history as one step once it ends (lift-up 10-25
+      // FUNC-4): until then, none of them, each file's text as the answer found it kept.
+      if (answer) for (const f of files) answer.files.set(f.path, { ...f, before: answer.files.get(f.path)?.before ?? f.before });
+      const quiet = answer ? [Transaction.addToHistory.of(false)] : [isolateHistory.of("full")];
       // A theme it edited goes in the source's history with the theme's text before and after,
       // as the Theme tab's edit does (PLAN 2.61): ⌘Z writes the theme back.
       const effects = [...(files.length ? [filesWritten.of(files)] : []), described.of("the assistant’s edit")];
@@ -2481,13 +2516,43 @@ async function edit(source: Source, opened?: Stage) {
       if (source === view.state.doc.toString()) {
         if (files.length) {
           anchor();
-          view.dispatch({ effects, annotations: isolateHistory.of("full") });
+          view.dispatch({ effects, annotations: quiet });
         }
         return wrote(edited);
       }
       anchor();
       taken = { source, edited, showings };
-      view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant" });
+      view.dispatch({ changes: change(view.state.doc.toString(), source), effects, userEvent: "input.assistant", annotations: answer ? quiet : [] });
+    },
+    answering: (on) => {
+      if (on) {
+        answer = { from: view.state.doc.toString(), files: new Map() };
+        return false;
+      }
+      const ended = answer;
+      answer = undefined;
+      const now = view.state.doc.toString();
+      if (!ended || (now === ended.from && !ended.files.size)) return (answered = undefined), false;
+      // The answer made one step: the source as it was asked, put back without a step, then the
+      // source as the answer left it, with every file it wrote, its before and after.
+      if (now !== ended.from) view.dispatch({ changes: change(now, ended.from), annotations: Transaction.addToHistory.of(false) });
+      const files = [...ended.files.values()];
+      view.dispatch({
+        changes: now === ended.from ? undefined : change(ended.from, now),
+        effects: [...(files.length ? [filesWritten.of(files)] : []), described.of("the assistant’s answer")],
+        userEvent: "input.assistant",
+        annotations: isolateHistory.of("full"),
+      });
+      answered = undoDepth(view.state);
+      return true;
+    },
+    undoAnswer: () => {
+      // The answer's step, while it is the last: one undo takes it back, files and all.
+      if (assisting || answered === undefined || undoDepth(view.state) !== answered) return false;
+      const undone = undo(view);
+      if (undone) forceLinting(view);
+      answered = undefined;
+      return undone;
     },
     seeing,
     lock: (on) => {
@@ -3134,6 +3199,24 @@ async function edit(source: Source, opened?: Stage) {
   const exportFps = $<HTMLSelectElement>("#exporting-fps");
   type ExportAs = "png" | "slides" | "pdf" | "html" | "movie";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
+  /** Whether any slide of the deck has notes to print, found each time Export… opens (editor
+   * dogfood 2): none known until every state is asked. */
+  let noted: boolean | undefined;
+  let notedAsked = 0;
+  const findNoted = async () => {
+    const asked = ++notedAsked;
+    noted = undefined;
+    for (const [state] of last?.states ?? []) {
+      const notes = await stage.notes(state).catch(() => undefined);
+      if (asked !== notedAsked) return;
+      if (notes?.text.trim()) {
+        noted = true;
+        return noteExport();
+      }
+    }
+    noted = false;
+    noteExport();
+  };
   /** What the export chosen makes, said under the choices. */
   const noteExport = () => {
     const as = chosenExport();
@@ -3165,7 +3248,11 @@ async function edit(source: Source, opened?: Stage) {
       slides: whole
         ? `${slides} slide${slides === 1 ? "" : "s"}, each as it stands once its steps have played${format() ? `, in ${format()}` : ""}: a PNG of ${pixels} named by its number, all in one .zip.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
-      pdf: notes
+      // A deck with no notes yet prints each page with its slide alone, small: said, before it is
+      // made (editor dogfood 2).
+      pdf: notes && noted === false
+        ? "No slide has notes yet, so each page would hold its slide alone, drawn smaller. Write a slide's notes in its Presenter Notes, or leave this unchecked for the slides at full size."
+        : notes
         ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
         : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       movie: !encodes()
@@ -3192,6 +3279,7 @@ async function edit(source: Source, opened?: Stage) {
     withNotes.checked = false;
     exportWidth.value = String(Math.round(board.size()[0]));
     noteExport();
+    void findNoted();
     exporting.returnValue = "";
     exporting.showModal();
     (as === "png" || as === "slides" || as === "movie" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
@@ -3296,6 +3384,7 @@ async function edit(source: Source, opened?: Stage) {
       return gone;
     },
     unsaved,
+    copyKey,
     save: () => save(),
     say,
     story: async () => (await stage.health(view.state.doc.toString())).score,
@@ -3583,7 +3672,50 @@ function tabs() {
 tabs();
 controls()
   .then(first)
-  .then(edit)
+  .then((source) => edit(source))
+  .then(() => leftoversOffered())
   .catch(failed);
+
+/** The copies an earlier page left of decks kept nowhere, which nothing else opens again (lift-up
+ * REL-4): offered once the editor starts, in one list, the latest first, each to recover, which
+ * opens it again and takes its copy, or to discard. The deck open now offers its own. */
+async function leftoversOffered() {
+  const own = current?.copyKey();
+  const left = (await leftovers().catch(() => [])).filter((l) => l.key !== own);
+  if (!left.length) return;
+  const dialog = $<HTMLDialogElement>("#leftovers");
+  const list = dialog.querySelector("ul")!;
+  const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  list.replaceChildren(
+    ...left.map((l) => {
+      const item = document.createElement("li");
+      const said = document.createElement("span");
+      const called = l.title || l.name;
+      said.textContent = `${called}, changed ${when(l.at)}`;
+      const recover = document.createElement("button");
+      recover.type = "button";
+      recover.textContent = "Recover";
+      recover.setAttribute("aria-label", `Recover ${called}, changed ${when(l.at)}`);
+      const drop = document.createElement("button");
+      drop.type = "button";
+      drop.textContent = "Discard";
+      drop.setAttribute("aria-label", `Discard ${called}, changed ${when(l.at)}`);
+      recover.onclick = async () => {
+        dialog.close();
+        const reopened: Source = "create" in l.reopen ? { create: l.reopen.create } : { files: await bundleOf(l.key, l.reopen.files), name: l.name };
+        await open(reopened, false, true).catch(failed);
+      };
+      drop.onclick = async () => {
+        await discard(l.key);
+        item.remove();
+        if (!list.children.length) dialog.close();
+        else list.querySelector("button")?.focus();
+      };
+      item.append(said, recover, drop);
+      return item;
+    }),
+  );
+  dialog.showModal();
+}
 
 offline();

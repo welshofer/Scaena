@@ -345,15 +345,37 @@ final class KeysTests: XCTestCase {
 
         try XCTContext.runActivity(named: "⌘Z takes the typing back, and ⌘Z again Make Code") { _ in
             // B1 is left as it was: Not Code would leave the subtitle in the body's role, not its own.
-            app.typeKey("z", modifierFlags: .command)
-            settle(1)
-            app.typeKey("z", modifierFlags: .command)
-            settle()
+            // Each ⌘Z is waited on by the step the toolbar's Undo names, never by a fixed pause: on a
+            // loaded runner the burst of typing ends, and a ⌘Z lands, later than a second allows,
+            // and two ⌘Z sent blind left the subtitle code (PLAN 4.11, the undo's own words).
+            let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+            guard undo.waitForExistence(timeout: 5) else {
+                throw Unseen(description: "no Undo in the toolbar: \(app.debugDescription)")
+            }
+            XCTAssertTrue(wait(5) { undo.label == "Undo Typing" }, "the step to take back first is \(undo.label)")
+            try undoing(undo, in: app)
+            XCTAssertEqual(undo.label, "Undo Make Code", "the typing was not one step: \(app.debugDescription)")
+            try undoing(undo, in: app)
             subtitle.press(forDuration: 1.2)
             let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
             XCTAssertTrue(paged(to: make, in: app), "the subtitle is still code: \(app.debugDescription)")
             app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
         }
+    }
+
+    /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named: the key
+    /// sent again once where the app did not hear it, as a loaded simulator drops one.
+    @MainActor
+    private func undoing(_ undo: XCUIElement, in app: XCUIApplication) throws {
+        let step = undo.label
+        for _ in 0..<2 {
+            app.typeKey("z", modifierFlags: .command)
+            if wait(5, { undo.label != step }) {
+                settle(1)
+                return
+            }
+        }
+        throw Unseen(description: "⌘Z took back nothing: Undo still reads \(step): \(app.debugDescription)")
     }
 
     /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the

@@ -49,6 +49,7 @@ import type {
   FromHelper,
   FromWorker,
   Generate,
+  Paid,
   Insert,
   Keyed,
   Layer,
@@ -334,13 +335,23 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         deciding = undefined;
         return;
       case "outlineAgain":
-        deciding?.({ arc: data.arc });
+        deciding?.({ arc: data.arc, kept: data.kept });
         deciding = undefined;
         return;
       case "outlinePassed":
         deciding?.({ without: true });
         deciding = undefined;
         return;
+      case "claimAgain":
+        deciding?.({ again: { beat: data.beat, outline: data.outline } });
+        deciding = undefined;
+        return;
+      // A deck made that would not open, as a `.scaena` to download (lift-up 20261110 REL-1).
+      case "zipFiles": {
+        const { zipped } = await import("@scaena/generate");
+        const bytes = zipped(data.files).buffer as ArrayBuffer;
+        return post({ type: "filesZipped", id: data.id, bytes }, [bytes]);
+      }
       case "reload": {
         if (!("url" in from)) throw new Error("only a bundle read from a URL is read again");
         latest++;
@@ -956,6 +967,12 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         return asking?.abort();
       case "forget":
         return (await import("@scaena/assistant")).forget();
+      case "conversation":
+        return post({ type: "conversation", id: data.id, messages: (await import("@scaena/assistant")).kept() });
+      case "resume": {
+        const { resume } = await import("@scaena/assistant");
+        return resume(data.messages as Parameters<typeof resume>[0]);
+      }
       case "models": {
         const { providers } = await import("@scaena/assistant");
         return post({ type: "models", id: data.id, models: await providers[data.provider].models(data.key, data.base) });
@@ -1359,13 +1376,16 @@ async function generating(job: Generate, engine?: WebAssembly.Module) {
   const theme = await shipped(job.theme);
   // The outline shown to the person (narrative FUNC-1), the generation waiting on what they decide
   // of it: `settled` or `outlineAgain`, which the page sends.
-  const settle = (outlined: Outlined) => {
-    post({ type: "storyOutlined", ...outlined });
+  // Without `outlined`, the outline shown stays: a beat asked again waits on the next decision.
+  const settle = (outlined?: Outlined) => {
+    if (outlined) post({ type: "storyOutlined", ...outlined });
     return new Promise<Decision>((resolve) => {
       deciding = resolve;
     });
   };
-  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle);
+  // Each part paid for, kept by the page to go on from should a later step fail (lift-up 20261110 REL-1).
+  const keep = (paid: Paid) => post({ type: "paid", paid });
+  const { files, made, title } = await generate(job, theme, (event) => post({ type: "generating", event }), settle, keep);
   const out: Record<string, ArrayBuffer> = {};
   for (const [path, bytes] of files) out[path] = (bytes as Uint8Array).slice().buffer as ArrayBuffer;
   post({ type: "generated", files: out, name: nameFor(title), made }, Object.values(out));

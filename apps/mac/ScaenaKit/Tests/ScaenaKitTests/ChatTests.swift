@@ -145,6 +145,8 @@ private func streaming(_ text: String) -> [String] {
     #expect(Assistant.stopped("end") == nil && Assistant.stopped("tools") == nil)
     #expect(Assistant.stopped("stopped") == "Stopped.")
     #expect(Assistant.stopped("length") == "The answer ran out of room.")
+    // A refusal said as one, as the browser's panel says it (lift-up 20261025c REL-1).
+    #expect(Assistant.stopped("refused") == "The model declined to answer that. Ask in other words.")
     #expect(Assistant.stopped("max_tokens_reason") == "The model stopped.")
 }
 
@@ -600,6 +602,33 @@ private actor Answers {
     #expect(why == "Anthropic couldn't answer just now. Try again in a moment.", "\(why)")
 }
 
+/// An answer is one step of undo however many calls edited (lift-up 10-25 FUNC-4): the window is
+/// handed the source as the question found it once, when the answer ends, and the panel offers to
+/// take the answer back.
+@MainActor
+@Test(.timeLimit(.minutes(2))) func anAnswerOfSeveralEditsIsOneStepOfUndo() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let louder = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Loudly: "}]}"#
+    let more = #"{"ops": [{"op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Very "}]}"#
+    let answers = Answers([
+        calling("First.", [("t1", "deck_patch", louder)]), calling("Then.", [("t2", "deck_patch", more)]),
+        answering("Done."),
+    ])
+    let assistant = Assistant(editor: editor) { request in await answers.answer(request) }
+    var undone: [String] = []
+    assistant.edited = { before, _ in undone.append(before) }
+    let was = editor.source
+
+    assistant.ask("Say it louder, twice.", provider: .anthropic, model: "a-model", key: "sk-test")
+    #expect(!assistant.answered)
+    await assistant.asking?.value
+    #expect(editor.source.contains("Very Loudly: "), "both edits were taken")
+    #expect(undone == [was], "one step, from the source as the question found it")
+    #expect(assistant.answered, "the answer may be taken back")
+    assistant.answerUndone()
+    #expect(!assistant.answered)
+}
+
 /// Whether this Mac lets a test write the Keychain: a runner without a login keychain does not.
 private func keychainWritable() -> Bool {
     let probe = Keychain(service: "com.scaena.tests.probe")
@@ -621,6 +650,30 @@ private func keychainWritable() -> Bool {
     try keychain.set(nil, for: .openai)
     #expect(keychain.key(for: .openai) == nil)
     #expect(keychain.providers.isEmpty)
+}
+
+/// Keeping a key, or taking it away, says so for its service alone, so the assistant's panel lists
+/// the models again as Settings keeps a key on the Mac (lift-up 20261031 FUNC-4).
+@Test(.enabled(if: keychainWritable())) func keepingAKeySaysSo() throws {
+    let service = "com.scaena.tests.\(UUID().uuidString)"
+    let keychain = Keychain(service: service)
+    let heard = Heard()
+    let listening = NotificationCenter.default.addObserver(forName: Keychain.changed, object: nil, queue: nil) {
+        if $0.object as? String == service { heard.count() }
+    }
+    defer { NotificationCenter.default.removeObserver(listening) }
+    try keychain.set("sk-one", for: .openai)
+    #expect(heard.times == 1, "kept")
+    try keychain.set(nil, for: .openai)
+    #expect(heard.times == 2, "taken away")
+}
+
+/// How many times a notification was heard, from whichever thread posts it.
+private final class Heard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var heard = 0
+    func count() { lock.withLock { heard += 1 } }
+    var times: Int { lock.withLock { heard } }
 }
 
 /// A key is kept to this device, readable only while it is unlocked, in the data-protection

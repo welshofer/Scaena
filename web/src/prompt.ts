@@ -5,7 +5,7 @@
 // runs, and the deck open is untouched until the new one opens, kept nowhere until it is saved.
 import { themeGallery } from "./theme-gallery";
 import { keep, load, settings, store, verdict } from "./assistant/keys";
-import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
+import type { Choices, FromWorker, Generate, Generated, GeneratingEvent, Paid, ProviderId, Source, StoryOutline, ToWorker } from "./protocol";
 import type { Engine } from "./stage";
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -28,6 +28,8 @@ export function said(event: GeneratingEvent): string {
       return event.doing;
     case "researched":
       return `Researched: ${event.sources} sources${event.cut ? ", cut short" : ""}`;
+    case "unresearched":
+      return `Research stopped: ${event.why.replace(/\.$/, "")}. The deck is grounded in what you gave.`;
     case "choosing":
       return "Choosing the arc…";
     case "chose":
@@ -38,6 +40,8 @@ export function said(event: GeneratingEvent): string {
       return `Outline: ${event.beats} beats. Read it below, change what you will, then Write the slides.`;
     case "settled":
       return `Outline settled: ${event.beats} beats`;
+    case "claimed":
+      return event.claim ? `Beat ${event.beat + 1} asked again` : `Beat ${event.beat + 1} was not asked again: ${event.why ?? "no claim came back"}`;
     case "unoutlined":
       return "Writing the slides without an outline";
     case "writing":
@@ -100,6 +104,20 @@ export function made(m: Generated): string {
   return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}${linked(m)}`;
 }
 
+/** What a run that failed had paid for, in words, to go on from (lift-up 20261110 REL-1); none
+ * where it paid for nothing worth keeping. */
+export function kept(paid: Paid): string | undefined {
+  const parts = [
+    paid.researched && "the research",
+    paid.settled && "the outline as you settled it",
+    paid.slides && "the slides as written",
+  ].filter(Boolean);
+  if (!parts.length) return undefined;
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0];
+  const arc = paid.arc ? `, on the ${paid.arc} arc` : "";
+  return `Kept from this run: ${list}${arc}. Go on from what was made to pay for none of it again, or Generate to start afresh.`;
+}
+
 /** A source given: a file, or a link. */
 type Given = { file: File } | { link: string };
 
@@ -147,6 +165,10 @@ export function prompting(
   const progress = $<HTMLOListElement>("#prompting-progress");
   const film = $<HTMLOListElement>("#prompting-film");
   const go = $<HTMLButtonElement>("#prompting-go");
+  // What a run paid for, kept to go on from should a later step fail (lift-up 20261110 REL-1).
+  const goOn = $<HTMLButtonElement>("#prompting-go-on");
+  const keptSaid = $<HTMLParagraphElement>("#prompting-kept");
+  const download = $<HTMLButtonElement>("#prompting-download");
   const keying = $<HTMLFieldSetElement>("#prompting-key");
   const keyProvider = $<HTMLSelectElement>("#prompting-key-provider");
   const keyValue = $<HTMLInputElement>("#prompting-key-value");
@@ -189,6 +211,8 @@ export function prompting(
     claim.value = beat.claim;
     claim.placeholder = "What its slides leave the audience believing";
     claim.setAttribute("aria-label", "The beat's claim");
+    // A claim the person typed is theirs: Outline again keeps it (lift-up 20261110 FUNC-2).
+    claim.oninput = () => (li.dataset.typed = "1");
     const acts = document.createElement("div");
     acts.className = "acts";
     const act = (label: string, aria: string, on: () => void) => {
@@ -202,9 +226,14 @@ export function prompting(
     act("↑", "Move the beat up", () => li.previousElementSibling?.before(li));
     act("↓", "Move the beat down", () => li.nextElementSibling?.after(li));
     act("Remove", "Remove the beat", () => li.remove());
+    // This beat's claim alone, asked again, every other claim as it stands (lift-up 20261110 FUNC-2).
+    act("Ask again", "Ask for this beat's claim again", () => askAgain?.(li));
     li.append(name, slides, claim, acts);
     return li;
   };
+
+  /** Asks for one beat's claim again, while the deck is being made and its outline shown. */
+  let askAgain: ((li: HTMLLIElement) => void) | undefined;
 
   /** The outline as the pane holds it now, as the person settled it. */
   const settledOutline = (): StoryOutline => ({
@@ -241,6 +270,22 @@ export function prompting(
     bigIdea.focus();
   };
 
+  /** A beat's claim asked again, come back: set in its row, which is the model's again. */
+  const claimedBeat = (event: Extract<GeneratingEvent, { kind: "claimed" }>) => {
+    const li = beats.querySelectorAll("li")[event.beat];
+    if (li) {
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      const claim = li.querySelector<HTMLTextAreaElement>(".claim")!;
+      claim.removeAttribute("aria-busy");
+      if (event.claim) {
+        claim.value = event.claim;
+        delete li.dataset.typed;
+        claim.focus();
+      }
+    }
+    step(said(event), !event.claim);
+  };
+
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
     const li = beatRow({ name: "", claim: "", slides: 0 });
     beats.append(li);
@@ -248,6 +293,19 @@ export function prompting(
   };
 
   let given: Given[] = [];
+  /** What this dialog's runs have paid for, kept while it is open (lift-up 20261110 REL-1). */
+  let paid: Paid = {};
+  /** A deck made that would not open, kept to download. */
+  let unopened: { files: Record<string, ArrayBuffer>; name: string } | undefined;
+  /** Go on from what was made, offered where a run that failed paid for something. */
+  const offered = () => {
+    const line = running ? undefined : kept(paid);
+    keptSaid.textContent = line ?? "";
+    keptSaid.hidden = !line;
+    goOn.hidden = !line;
+    goOn.disabled = running || !asking?.key || !asking.model;
+    download.hidden = running || !unopened;
+  };
   /** The worker the deck is made in, from the dialog's opening until it closes. */
   let worker: Worker | undefined;
   let running = false;
@@ -437,11 +495,15 @@ export function prompting(
       if (!outlining(field)) field.disabled = on;
     go.disabled = on;
     go.textContent = on ? "Generating…" : "Generate";
+    offered();
     if (!on) outlinePane.hidden = true;
     if (!on) unreadPane.hidden = true;
   };
 
   opener.onclick = () => {
+    paid = {};
+    unopened = undefined;
+    offered();
     progress.replaceChildren();
     film.replaceChildren();
     outlinePane.hidden = true;
@@ -506,9 +568,13 @@ export function prompting(
 
   form.onsubmit = async (e) => {
     const submitter = (e as SubmitEvent).submitter as HTMLButtonElement | null;
-    if (submitter?.value !== "generate") return;
+    if (submitter?.value !== "generate" && submitter?.value !== "goOn") return;
     e.preventDefault();
     if (running || !worker) return;
+    // Generate starts afresh; Go on goes on from what the last run paid for.
+    const goingOn = submitter.value === "goOn";
+    if (!goingOn) paid = {};
+    unopened = undefined;
     await whoWrites();
     if (!asking?.key || !asking.model) return;
     if (unsaved() && !confirm("The deck open is not saved. Make a new deck, and lose what is not saved when it opens?")) return;
@@ -551,6 +617,7 @@ export function prompting(
             }
           : undefined;
       })(),
+      paid: goingOn ? paid : undefined,
     };
     progress.replaceChildren();
     film.replaceChildren();
@@ -558,9 +625,11 @@ export function prompting(
     const making = worker;
     const done = new Promise<{ files: Record<string, ArrayBuffer>; name: string; made: Generated }>((resolve, reject) => {
       making.onmessage = ({ data }: MessageEvent<FromWorker>) => {
-        if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
+        if (data.type === "generating" && data.event.kind === "claimed") claimedBeat(data.event);
+        else if (data.type === "generating") data.event.kind === "drawn" ? drawn(data.event) : step(said(data.event));
         else if (data.type === "storyOutlined") showOutlined(data);
         else if (data.type === "generated") resolve(data);
+        else if (data.type === "paid") paid = { ...paid, ...data.paid };
         else if (data.type === "error") reject(new Error(data.message));
       };
       making.onerror = (e) => reject(new Error(e.message || "the generator stopped"));
@@ -572,9 +641,20 @@ export function prompting(
       outlinePane.hidden = true;
       making.postMessage({ type: "storySettled", outline: settled } satisfies ToWorker);
     };
+    // Outlined again, the claims the person typed kept, each in the beat of its name (lift-up
+    // 20261110 FUNC-2).
     $<HTMLButtonElement>("#prompting-outline-again").onclick = () => {
+      const now = settledOutline();
+      const kept = [...beats.querySelectorAll("li")].flatMap((li, i) => (li.dataset.typed && now.beats[i].claim.trim() ? [now.beats[i]] : []));
       outlinePane.hidden = true;
-      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined } satisfies ToWorker);
+      making.postMessage({ type: "outlineAgain", arc: outlineArcs.value || undefined, kept } satisfies ToWorker);
+    };
+    askAgain = (li) => {
+      const at = [...beats.querySelectorAll("li")].indexOf(li);
+      if (at < 0) return;
+      li.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      li.querySelector<HTMLTextAreaElement>(".claim")!.setAttribute("aria-busy", "true");
+      making.postMessage({ type: "claimAgain", beat: at, outline: settledOutline() } satisfies ToWorker);
     };
     // The outline that did not read passed over, or the deck stopped (lift-up REL-3).
     $<HTMLButtonElement>("#prompting-without").onclick = () => {
@@ -588,8 +668,20 @@ export function prompting(
     );
     try {
       const deck = await done;
+      // Opened before the dialog closes: a deck that would not open is kept to download, not lost
+      // with the dialog (lift-up 20261110 REL-1).
+      try {
+        await open({ files: deck.files, name: deck.name });
+      } catch (err) {
+        if (worker !== making) return;
+        unopened = { files: deck.files, name: deck.name };
+        step(`The deck was made but would not open: ${err instanceof Error ? err.message : String(err)}. Download it to keep it.`, true);
+        busy(false);
+        download.focus();
+        return;
+      }
+      paid = {};
       dialog.close("generated");
-      await open({ files: deck.files, name: deck.name });
       // What was made is said at once; the deck lands on its story (narrative USE-2): the arc's
       // curve, the pacing against the brief, and each slide's fix, where Gamma lands on its
       // outline, its score in the line as soon as the story is read.
@@ -603,7 +695,31 @@ export function prompting(
       busy(false);
       // A worker that failed starts afresh.
       start();
+      if (!goOn.hidden) goOn.focus();
     }
+  };
+  // A deck made that would not open, zipped as it stands by the worker, downloaded.
+  let zipping = 0;
+  download.onclick = () => {
+    const deck = unopened;
+    if (!deck || !worker) return;
+    const id = ++zipping;
+    const zipper = worker;
+    const was = zipper.onmessage;
+    zipper.onmessage = (event: MessageEvent<FromWorker>) => {
+      const data = event.data;
+      if (data.type !== "filesZipped" || data.id !== id) return was?.call(zipper, event);
+      zipper.onmessage = was;
+      const url = URL.createObjectURL(new Blob([data.bytes], { type: "application/zip" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${deck.name}.scaena`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      step(`Downloaded ${deck.name}.scaena`);
+    };
+    // Copied, not handed over: the deck stays here to download again.
+    zipper.postMessage({ type: "zipFiles", id, files: deck.files } satisfies ToWorker);
   };
   return { running: () => running };
 }

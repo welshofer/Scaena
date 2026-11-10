@@ -2230,7 +2230,7 @@ fn assemble(
         return Err(OpsError::new("a narrative with no slides makes no deck"));
     }
     // Its words set as a typesetter sets them: "Canada\u{2019}s", "2021\u{2013}2024" (G.16).
-    let narrative = &typeset_all(narrative);
+    let narrative = &posed(&typeset_all(narrative));
     let arc = narrative.narrative_arc();
     // The beats the slides are spread over: the outline's where the person settled one before
     // the slides were written (narrative FUNC-1), else the arc's.
@@ -6031,6 +6031,53 @@ fn words(text: &str) -> usize {
     text.split_whitespace().filter(|w| !w.chars().any(spaceless)).count() + set.div_ceil(2)
 }
 
+/// `narrative` with each quiz read as the quiz layout reads one (dogfood pass 10): a model often
+/// writes the question as its first bullet, under a title that names the exercise ("Check
+/// yourself"), and each answer under its letter ("A: Methods"). The question becomes the slide's
+/// headline, and each answer its words alone, the layout setting its letter.
+fn posed(narrative: &Narrative) -> Narrative {
+    let mut out = narrative.clone();
+    for slide in &mut out.slides {
+        if Varied::of(slide).layout.identity() != "quiz" {
+            continue;
+        }
+        let question = |b: &str| b.trim_end().ends_with('?') && !b.contains("?: ");
+        let (head, answers) = match slide.key_bullets.split_first() {
+            Some((first, rest))
+                if question(first) && (2..=4).contains(&rest.len()) && !rest.iter().any(|a| question(a)) =>
+            {
+                (Some(first.trim().to_string()), rest.to_vec())
+            }
+            _ => (None, slide.key_bullets.clone()),
+        };
+        let answers = lettered(&answers).unwrap_or(answers);
+        if let Some(head) = head {
+            slide.slide_title = head;
+        }
+        slide.key_bullets = answers;
+    }
+    out
+}
+
+/// `answers` each without the letter written before it ("A: Methods", "b) Results", "(C)
+/// Results"), where every one has its letter, in order from A; else none.
+fn lettered(answers: &[String]) -> Option<Vec<String>> {
+    (2..=4).contains(&answers.len()).then_some(())?;
+    (answers.iter().enumerate())
+        .map(|(k, a)| {
+            let a = a.trim();
+            let a = a.strip_prefix('(').unwrap_or(a);
+            let mut chars = a.chars();
+            let letter = chars.next()?;
+            (letter.to_ascii_uppercase() == char::from(b'A' + k as u8)).then_some(())?;
+            let rest = chars.as_str();
+            let rest = rest.strip_prefix([':', ')', '.'])?;
+            let rest = rest.strip_prefix(' ')?.trim();
+            (!rest.is_empty()).then(|| rest.to_string())
+        })
+        .collect()
+}
+
 /// `narrative` with the words each slide shows set as a typesetter sets them ([`typeset`]).
 fn typeset_all(narrative: &Narrative) -> Narrative {
     let lang = deck_lang(&narrative.brief).unwrap_or("en");
@@ -8618,6 +8665,34 @@ mod tests {
         has(&said, "second", "Config pushes skip review");
         has(&said, "third-letter", "C");
         lacks(&said, "fourth-letter");
+        // A quiz as a model often writes one (dogfood pass 10): its question the first bullet,
+        // under a title naming the exercise, each answer under its letter. The question heads it,
+        // and each answer stands under the layout's letter alone.
+        let (layout, said) = made(
+            serde_json::json!({ "slideTitle": "Check yourself", "layoutSuggestion": "Quiz",
+                "keyBullets": ["Which section tells you why the study matters?", "A: Methods", "B: Introduction",
+                    "C: Results", "D: References"] }),
+            "en",
+        );
+        assert_eq!(layout, "quiz");
+        has(&said, "header", "Which section tells you why the study matters?");
+        has(&said, "second", "Introduction");
+        has(&said, "fourth", "References");
+        has(&said, "fourth-letter", "D");
+        assert!(said.iter().all(|(_, w)| !w.starts_with("A: ") && w != "Check yourself"), "{said:#?}");
+        // Its title the question, its answers lettered "a)", the letters come off alone.
+        let (layout, said) = made(
+            serde_json::json!({ "slideTitle": "Which part do you read first?", "layoutSuggestion": "Quiz",
+                "keyBullets": ["a) The methods", "b) The abstract", "c) The references"] }),
+            "en",
+        );
+        assert_eq!(layout, "quiz");
+        has(&said, "header", "Which part do you read first?");
+        has(&said, "second", "The abstract");
+        // Answers that are not lettered A, B, C in order keep their words as written.
+        assert_eq!(lettered(&["A: Methods".into(), "C: Results".into()]), None);
+        assert_eq!(lettered(&["Plan B: wait".into(), "Plan C: go".into()]), None);
+        assert_eq!(lettered(&["A: Methods".into()]), None);
         // Questions each with its answer are an FAQ's, each read as a question, never "?:".
         let (layout, said) = made(
             serde_json::json!({ "slideTitle": "Quick quiz", "layoutSuggestion": "Quiz",

@@ -146,6 +146,28 @@ pub fn slides(text: &str) -> Result<Slides, String> {
     Ok(Slides { executive_summary: string_property(text, "executiveSummary"), slides, recovered: true })
 }
 
+/// A slide's `supportingFacts`, a string as the schema writes it; or, as a model writes the field
+/// its plural name asks for, a list of strings, each kept, joined as sentences where each is one
+/// and by semicolons where they are fragments: a Decision Brief's bottom line or a Big Number's
+/// source written as `["…"]` is the slide's, never dropped (dogfood pass 9). Nothing written is
+/// none.
+fn facts(raw: Option<&Value>) -> Option<String> {
+    let said: Vec<String> = match raw? {
+        Value::String(s) => vec![js::trim(s).to_string()],
+        Value::Array(items) => items.iter().filter_map(Value::as_str).map(|s| js::trim(s).to_string()).collect(),
+        _ => return None,
+    };
+    let said: Vec<String> = said.into_iter().filter(|s| !s.is_empty()).collect();
+    match said.as_slice() {
+        [] if matches!(raw, Some(Value::String(_))) => Some(String::new()),
+        [] => None,
+        _ => {
+            let sentences = said.iter().all(|s| s.ends_with(['.', '!', '?', '\u{3002}']));
+            Some(said.join(if sentences { " " } else { "; " }))
+        }
+    }
+}
+
 /// A slide as the model wrote it, normalized (Narrato's `normalizeSlide`): strings trimmed, a
 /// layout it left out a Bullet List, intensity held to 0–1 and tone to −1–1, chart data with
 /// what does not read taken out. A null, as OpenAI's strict mode writes an optional field it
@@ -166,7 +188,7 @@ pub fn normalize(raw: &Value) -> Slide {
             .collect(),
         visual_description: text("visualDescription"),
         speaker_notes: text("speakerNotes"),
-        supporting_facts: raw.get("supportingFacts").and_then(Value::as_str).map(|s| js::trim(s).to_string()),
+        supporting_facts: facts(raw.get("supportingFacts")),
         chart_data: raw.get("chartData").and_then(chart_data),
         beat_index: index("beatIndex"),
         beat_name: some("beatName"),
@@ -478,6 +500,28 @@ mod tests {
         assert_eq!((s.beat_index, s.expected_intensity, s.expected_valence), (Some(4), Some(1.0), Some(-1.0)));
         assert_eq!((s.supporting_facts, s.purpose), (None, None));
         assert!(s.icons.is_empty(), "a slide that names no icon has none");
+    }
+
+    /// `supportingFacts` written as a list, as a model writes the field its plural name asks for,
+    /// is kept: a decision's bottom line, a big number's source (dogfood pass 9).
+    #[test]
+    fn supporting_facts_written_as_a_list_are_kept() {
+        let facts = |v: Value| normalize(&json!({ "slideTitle": "t", "supportingFacts": v })).supporting_facts;
+        assert_eq!(facts(json!(" Approve it today. ")), Some("Approve it today.".into()));
+        assert_eq!(
+            facts(json!(["Approve the $600K move today, so two sellers start in December."])),
+            Some("Approve the $600K move today, so two sellers start in December.".into())
+        );
+        assert_eq!(
+            facts(json!(["Board pack p. 4.", "Finance model, base case."])),
+            Some("Board pack p. 4. Finance model, base case.".into())
+        );
+        assert_eq!(facts(json!(["City Library survey", " 2026 ", 7])), Some("City Library survey; 2026".into()));
+        assert_eq!(facts(json!([])), None);
+        assert_eq!(facts(json!(["  "])), None);
+        assert_eq!(facts(json!(42)), None);
+        // A string stays as it was read, an empty one included.
+        assert_eq!(facts(json!("")), Some(String::new()));
     }
 
     /// A value the model gave no number for keeps its category's place, and a chart a series of
