@@ -367,9 +367,10 @@ try {
   // ⌘Enter (Ctrl+Enter) in a field generates, as Generate does (lift-up 20261110 deferred).
   await page.locator("#prompting-topic").press("Control+Enter");
   const began = await page
-    .waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 })
+    .waitForFunction(() => document.querySelector("#prompting-go").textContent === "Generating…", null, { timeout: 10000 })
     .then(() => true, () => false);
   check(began, "Ctrl+Enter in the brief generates");
+  await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
   // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
   // does (WCAG 2.1.1; axe's scrollable-region-focusable, editor dogfood 1).
