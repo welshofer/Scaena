@@ -341,8 +341,22 @@ try {
     const before = await page.evaluate(() => window.scaena.source());
     const model = await choose(page, id, scripted.origin, `${id}-test-key`);
     check(model === "scripted", `${id}: the models the key can use are listed (${model})`);
+    // An empty conversation offers ways to begin from the deck's story (lift-up 20261110 ATTR-2):
+    // its health first, and every slide's claim; they go once a question is asked.
+    const starters = () =>
+      page.evaluate(() => {
+        const box = document.querySelector("#starters");
+        return { shown: !box.hidden, asks: [...box.querySelectorAll("button")].map((b) => b.textContent) };
+      });
+    await page.waitForFunction(() => !document.querySelector("#starters").hidden, null, { timeout: 30000 }).catch(() => {});
+    const offered = await starters();
+    check(
+      offered.shown && offered.asks[0] === "Make this talk stronger" && offered.asks.at(-1) === "Check every slide says its claim",
+      `${id}: an empty conversation offers ways to begin: ${JSON.stringify(offered)}`,
+    );
     const done = await page.evaluate(() => window.scaena.assistant.ask("Put the trail headline on the slide, fix what lint finds, and show me."));
     check(done.kind === "done" && done.stop === "end", `${id}: the question is answered (${JSON.stringify(done)})`);
+    check(!(await starters()).shown, `${id}: and once one is asked, the ways to begin go`);
     const { requests } = scripted;
     check(requests.length === SCRIPT.length + 1, `${id}: one request a turn: ${requests.length}`);
 
@@ -703,6 +717,26 @@ try {
       await reload();
       await page.waitForTimeout(1500);
       check(!(await page.evaluate(() => !!document.querySelector("#transcript .resume"))), "and a reload offers none");
+    }
+
+    if (id === "anthropic") {
+      // New conversation offers them again, and one pressed asks its question (lift-up 20261110
+      // ATTR-2): held while it is asked, then stopped.
+      await page.evaluate(() => document.querySelector("#new").click());
+      await page.waitForFunction(() => !document.querySelector("#starters").hidden, null, { timeout: 30000 }).catch(() => {});
+      check((await starters()).shown, "a new conversation offers the ways to begin again");
+      await page.waitForFunction(() => document.querySelector("#model").options.length > 0, null, { timeout: 30000 }).catch(() => {});
+      const sent = scripted.requests.length;
+      scripted.state.slow = 4000;
+      await page.evaluate(() => [...document.querySelectorAll("#starters button")].find((b) => b.textContent === "Check every slide says its claim").click());
+      await page.waitForFunction(() => !document.querySelector("#thinking").hidden, null, { timeout: 10000 }).catch(() => {});
+      const waited = Date.now();
+      while (scripted.requests.length === sent && Date.now() - waited < 15000) await page.waitForTimeout(100);
+      const words = JSON.stringify(scripted.requests[sent]?.body.messages ?? "");
+      check(words.includes("Check that every slide says its claim"), `and one pressed asks its question: ${words.slice(0, 160)}`);
+      await page.evaluate(() => document.querySelector("#stop").click());
+      await page.waitForFunction(() => document.querySelector("#thinking").hidden, null, { timeout: 15000 }).catch(() => {});
+      scripted.state.slow = 0;
     }
 
     if (id === "anthropic") {

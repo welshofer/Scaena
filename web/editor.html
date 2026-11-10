@@ -651,6 +651,11 @@
       #who #model { max-width: 16em; }
       #who #base { width: 100%; }
       .note { color: var(--muted); font-size: 12px; margin: 0; }
+      /* Ways to begin, under an empty conversation (lift-up 20261110 ATTR-2): asks built from the deck's own story. */
+      #starters { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+      #starters[hidden] { display: none; }
+      #starters button { font: inherit; font-size: 13px; text-align: left; padding: 5px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); cursor: pointer; }
+      #starters button:hover { border-color: var(--info); }
       #transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
       #transcript li { white-space: pre-wrap; overflow-wrap: anywhere; }
       #transcript .user { align-self: flex-end; background: var(--line); border-radius: 6px; padding: 4px 8px; max-width: 90%; }
@@ -1101,6 +1106,7 @@
             <p id="keystatus" class="keystatus" role="status" aria-live="polite" data-state="none"></p>
           </div>
           <p class="note" id="keynote"></p>
+          <div id="starters" role="group" aria-label="Ways to begin" hidden></div>
           <ol id="transcript" aria-label="Conversation" aria-live="polite"></ol>
           <p id="thinking" hidden>Working…</p>
           <form id="asking">
