@@ -1312,7 +1312,25 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             let told = idea.intersection(&said).count();
             Some(told * LANDED.1 >= idea.len() * LANDED.0 || told >= LANDED_WORDS)
         };
-        if let Some(of) = closes.filter(|of| lands(of) == Some(false)) {
+        // The telling words are English's, as the lexicons are: a close in another language is
+        // not read for the big idea, and says so, rather than passing or failing on words split
+        // where its letters leave ASCII ("schließt") and joining words counted as telling.
+        let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
+        if let (Some(name), Some(of)) = (named, closes.as_ref()) {
+            let slides = spanned(of);
+            find(
+                &read[of[0]].id,
+                Severity::Info,
+                Kind::BigIdea,
+                format!(
+                    "The close, {slides}, is not read for the big idea: health reads it only in English, and this deck is in {name}."
+                ),
+                format!(
+                    "The big idea is \u{201c}{idea}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
+                ),
+                None,
+            );
+        } else if let Some(of) = closes.filter(|of| lands(of) == Some(false)) {
             let slides = spanned(&of);
             find(
                 &read[of[0]].id,
@@ -2292,6 +2310,25 @@ mod tests {
         assert_eq!(found(&of(&dogfood("keynote", fine, |_| {}))), 1, "steps between them, the thesis is not the close");
         let said = |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = idea.into();
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
+    }
+
+    /// A close in another language is not read for the big idea (the coordinator's check on W1's
+    /// dogfood 3): the German board deck's close says its idea, "drei Beschlüsse", which English's
+    /// telling words cannot see, so health says it reads the close only in English, an info, and
+    /// warns of nothing.
+    #[test]
+    fn a_close_in_another_language_is_not_read_for_the_big_idea() {
+        let mut deck = dogfood("board-de", "Der Bericht schließt mit drei Beschlüssen", |_| {});
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let h = of(&deck);
+        let big: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::BigIdea).collect();
+        assert_eq!(big.len(), 1, "{big:?}");
+        assert_eq!(big[0].severity, Severity::Info);
+        assert!(
+            big[0].says.ends_with("health reads it only in English, and this deck is in German."),
+            "{}",
+            big[0].says
+        );
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
