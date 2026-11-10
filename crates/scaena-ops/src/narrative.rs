@@ -6131,7 +6131,7 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
 /// Double quotation marks are the deck's language's (`lang`, [`Marks`]): 「…」 in Japanese,
 /// „…“ in German, « … » in French. A single mark is curled as English curls it, since a closing
 /// one reads as an apostrophe. A short parenthetical, "P(E | H)", is kept on one line, its spaces
-/// ones no line breaks at (U+00A0).
+/// ones no line breaks at (U+00A0), as is a French space before `;` `:` `!` `?`.
 fn typeset(text: &str, lang: &str) -> String {
     // An angle bracket anywhere keeps a text as it is, as it did before [`reads_as_code`].
     if text.contains(['<', '>']) || reads_as_code(text) {
@@ -6140,6 +6140,7 @@ fn typeset(text: &str, lang: &str) -> String {
     let marks = Marks::of(lang);
     // Outside English, a model's curled marks are the language's too.
     let english = marks.open == "\u{201c}";
+    let french = lang.split('-').next().is_some_and(|l| l.eq_ignore_ascii_case("fr"));
     let chars: Vec<char> = text.chars().collect();
     let digit = |i: usize| chars.get(i).is_some_and(char::is_ascii_digit);
     let mut out = String::with_capacity(text.len());
@@ -6183,6 +6184,9 @@ fn typeset(text: &str, lang: &str) -> String {
             }
             // A figure and its unit, and a day and its month, stay on one line (DF7-2).
             ' ' if joined(&chars, i) => out.push('\u{a0}'),
+            // French sets a space before a mark of two parts, `;` `:` `!` `?`, that no line breaks
+            // at, as it sets « » and a percent sign; one the writer did not write is not added.
+            ' ' if french && after.is_some_and(|c| ";:!?".contains(c)) => out.push('\u{a0}'),
             '(' => match short_parenthetical(&chars[i..]) {
                 Some(len) => {
                     out.extend(chars[i..i + len].iter().map(|c| if *c == ' ' { '\u{a0}' } else { *c }));
@@ -7112,6 +7116,21 @@ mod tests {
         let long = "the posterior (what we believe after the test)";
         assert_eq!(typeset(long, "en"), long);
         assert_eq!(typeset("(2024)", "en"), "(2024)");
+    }
+
+    /// French sets a space before `;` `:` `!` `?` no line breaks at, adding none the writer did
+    /// not write, and a label before it reads as it did (dogfood pass 11).
+    #[test]
+    fn french_keeps_a_mark_of_two_parts_on_its_word() {
+        assert_eq!(typeset("O\u{f9} en sommes-nous ?", "fr"), "O\u{f9} en sommes-nous\u{a0}?");
+        assert_eq!(typeset("Contact : x ; y ! z", "fr-CA"), "Contact\u{a0}: x\u{a0}; y\u{a0}! z");
+        assert_eq!(typeset("Vraiment?", "fr"), "Vraiment?");
+        assert_eq!(typeset("https://exemple.fr ? 10:30", "fr"), "https://exemple.fr\u{a0}? 10:30");
+        assert_eq!(typeset("Where are we ?", "en"), "Where are we ?");
+        let once = typeset("\"Pourquoi ?\" : la question", "fr");
+        assert_eq!(typeset(&once, "fr"), once);
+        let i = item(&typeset("Contact : equipe@exemple.fr", "fr"));
+        assert_eq!((i.label.as_deref(), i.detail.as_str()), (Some("Contact"), "equipe@exemple.fr"));
     }
 
     #[test]
