@@ -39,6 +39,9 @@ struct DeckActions {
     /// Make a picture by the user's image model for the image selected, the slide's empty place
     /// for one, or where the pointer last pressed (PLAN 2.107).
     var makePicture: (() -> Void)? = nil
+    /// Write This Slide Again… and Add a Slide About… for the slide shown (lift-up FUNC-1).
+    var writeSlideAgain: (() -> Void)? = nil
+    var addSlideAbout: (() -> Void)? = nil
     /// Insert › Map… (PLAN O.1d): a map of a place, in the image selected, the slide's empty place
     /// for a picture, or where the pointer last pressed.
     var insertMap: (() -> Void)? = nil
@@ -147,6 +150,12 @@ struct NodeCommands: Commands {
                 .disabled(panes?.duplicateSlide == nil)
             Button("Delete Slide") { panes?.deleteSlide?() }
                 .disabled(panes?.deleteSlide == nil)
+            Divider()
+            // One slide written by the assistant's model (lift-up FUNC-1).
+            Button("Write This Slide Again…") { panes?.writeSlideAgain?() }
+                .disabled(panes?.writeSlideAgain == nil)
+            Button("Add a Slide About…") { panes?.addSlideAbout?() }
+                .disabled(panes?.addSlideAbout == nil)
         }
         CommandMenu("Format") {
             Button("Bold") { canvas?.bold?() }

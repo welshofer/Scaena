@@ -13,6 +13,9 @@ struct StoryPanel: View {
     let edits: PanelEdits
     @State private var health: Health?
     @State private var why: String?
+    /// Whether `health` is the last read, kept while the source has an error to fix (lift-up
+    /// 20261110 deferred): said so over it, dimmed, its fixes held.
+    @State private var asLastRead = false
     /// The sources the deck was grounded in, read with its story: what a figure no source backs
     /// may cite (W1's dogfood 5).
     @State private var grounded: [Grounded] = []
@@ -21,6 +24,11 @@ struct StoryPanel: View {
         List {
             if let health {
                 Section {
+                    if asLastRead {
+                        Label(StoryRead.said, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("story-as-last-read")
+                    }
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text("\(health.score)")
                             .font(.largeTitle.monospacedDigit())
@@ -57,7 +65,7 @@ struct StoryPanel: View {
                         .frame(height: 110)
                     ArcLegend()
                 }
-                Section("What to Look At") {
+                Section {
                     if health.findings.isEmpty {
                         Text("Nothing to look at: each slide tells its part.").foregroundStyle(.secondary)
                     }
@@ -74,11 +82,15 @@ struct StoryPanel: View {
                         }
                         .accessibilityIdentifier("story-more")
                     }
+                } header: {
+                    Text("What to Look At")
+                        .accessibilityLabel(StoryRead(health: health, asLastRead: asLastRead).listed("What to Look At"))
                 }
             } else if let why {
                 Text(why).foregroundStyle(.secondary)
             }
         }
+        .opacity(asLastRead ? 0.6 : 1)
         .task(id: editor.revision) { await read() }
     }
 
@@ -91,11 +103,13 @@ struct StoryPanel: View {
         }
         guard !Task.isCancelled else { return }
         do {
-            guard let read = try await editor.health(), !Task.isCancelled else { return }
-            health = read
-            grounded = (try? editor.session.grounded()) ?? []
+            guard let read = try await editor.story(after: health), !Task.isCancelled else { return }
+            health = read.health
+            asLastRead = read.asLastRead
+            if !read.asLastRead { grounded = (try? editor.session.grounded()) ?? [] }
             why = nil
         } catch {
+            asLastRead = false
             health = nil
             why = "Its story couldn't be read. \(Why.said(error))"
         }
@@ -145,6 +159,8 @@ struct StoryPanel: View {
             HStack(spacing: 8) {
                 ForEach(run.filter { $0.fix != nil }) { finding in
                     if let fix = finding.fix {
+                        // Held while the story is as last read: each fix was made against a deck
+                        // the source no longer is.
                         Button(fix.says) {
                             // Held while the assistant has the deck, saying why, as the browser's
                             // Story says it: the fix is not lost, only not made yet.
@@ -154,6 +170,7 @@ struct StoryPanel: View {
                                 edits.patch("Fix Slide \(finding.slide)", fix.patch)
                             }
                         }
+                        .disabled(asLastRead)
                     }
                 }
                 // A figure no source backs, in a deck made from sources, cites one of them (W1's
@@ -167,7 +184,7 @@ struct StoryPanel: View {
                         }
                     }
                     .fixedSize()
-                    .disabled(!(editor.valid && editor.error == nil))
+                    .disabled(asLastRead || !editor.compiles)
                     .accessibilityIdentifier("story-cite")
                 }
                 // The slide it is about shown first: a question begins with what the window shows,

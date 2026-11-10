@@ -174,24 +174,49 @@ final class OpeningTests: XCTestCase {
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         // A long press on the title offers the edit menu, as TouchTests's does, and its Paste is the
         // canvas's: ⌘V from XCUITest's keyboard reached no paste on the simulator.
-        let title = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'")).firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
-        title.press(forDuration: 1.2)
-        let paste = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste'")).firstMatch
-        guard paste.waitForExistence(timeout: 10) else {
-            keep(app, as: "no-paste-offered")
-            throw Unseen(description: "the long press offers no Paste: \(app.debugDescription)")
+        // The subtitle, the lowest a test presses: its menu has the least room under it.
+        let subtitle = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Why this exists'")).firstMatch
+        XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "no subtitle on the canvas: \(app.debugDescription)")
+        subtitle.press(forDuration: 1.2)
+        let listed = NSPredicate(
+            format: "elementType == %lu OR elementType == %lu",
+            XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.menuItem.rawValue)
+        func offered(_ label: String) -> XCUIElementQuery {
+            app.descendants(matching: .any).matching(listed).matching(NSPredicate(format: "label == %@", label))
         }
-        paste.tap()
-        // The menu's Paste is the system's own, which reads the pasteboard with no Allow Paste
-        // prompt. A prompt would hold the app's main thread on its answer, and no query of the app
-        // would come back, so the test waits on the chip alone.
-        let chip = app.descendants(matching: .any).matching(identifier: "code-chip").firstMatch
-        XCTAssertTrue(chip.waitForExistence(timeout: 10), "the code pasted shows no chip: \(app.debugDescription)")
-        XCTAssertEqual(chip.value as? String, "Rust", "the chip does not say Rust: \(chip.debugDescription)")
+        // The slide's own asks under Slide, the menu's next to last.
+        let slide = offered("Slide").firstMatch
+        guard paged(to: slide, in: app) else {
+            keep(app, as: "no-slide-menu")
+            throw Unseen(description: "the long press offers no Slide: \(app.debugDescription)")
+        }
+        // The menu's last item on the screen too, so nothing it lists runs past its foot.
+        let insert = offered("Insert")
+        guard wait(5, { insert.allElementsBoundByIndex.contains { $0.isHittable } }) else {
+            keep(app, as: "no-insert")
+            throw Unseen(description: "the long press's Insert is off the screen: \(app.debugDescription)")
+        }
+        slide.tap()
+        let again = offered("Write This Slide Again…").firstMatch
+        guard wait(5, { again.exists && again.isHittable }) else {
+            keep(app, as: "no-write-again")
+            throw Unseen(description: "Slide offers no Write This Slide Again…: \(app.debugDescription)")
+        }
+        again.tap()
+        let key = app.buttons.matching(identifier: "slide-ask-key").firstMatch
+        guard key.waitForExistence(timeout: 10) else {
+            keep(app, as: "slide-ask-no-key")
+            throw Unseen(description: "the sheet offers no Add a Key…: \(app.debugDescription)")
+        }
+        let go = app.buttons.matching(identifier: "slide-ask-go").firstMatch
+        XCTAssertTrue(go.exists && !go.isEnabled, "Write It Again is offered with no model to ask")
+        keep(app, as: "slide-ask")
+        app.buttons.matching(NSPredicate(format: "label == 'Cancel'")).firstMatch.tap()
+        XCTAssertTrue(wait(5) { !key.exists }, "Cancel left the sheet up: \(app.debugDescription)")
+        let undo = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'undo'")).firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5) && undo.label == "Undo", "the sheet wrote something")
         settle()
-        keep(app, as: "code-pasted")
-        leaveB1(in: app)
     }
 
     /// B1 left as it was, each step this test made taken back by the toolbar's Undo (PLAN 4.11)

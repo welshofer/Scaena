@@ -131,8 +131,9 @@ final class KeysTests: XCTestCase {
             case .neither:
                 keep(app, as: "typing-not-stopped")
                 unheard.append("neither Escape nor ⌘. stopped typing")
-                // Typing stopped as a tap stops it, where nothing draws, and the title selected again.
-                canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
+                // Typing stopped as a tap stops it, where nothing draws, and the title selected again:
+                // at the slide's top, which the software keyboard leaves clear (lift-up 20261110).
+                canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.03)).tap()
                 title.tap()
                 guard wait(5, { !typing.exists && title.isSelected }) else {
                     throw Unseen(description: "typing did not stop: \(app.debugDescription)")
