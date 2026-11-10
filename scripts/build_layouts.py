@@ -56,6 +56,7 @@ SECTIONS = [
     "People",
     "Editorial",
     "Diagrams",
+    "Code",
     "Briefing",
     "Classroom",
     "Closing",
@@ -606,8 +607,10 @@ layout("Numbers", "scorecard", "Four measures in a row, each its number and how 
     "header": header(),
     "rule": rule((1, 12), (6, 6)),
     **{f"{o}-figure": slot(c, (3, 5), "figure", w, align={"y": "end"}) for o, c, w in zip(ORDINALS, QUARTERS, ["$4.2M", "38%", "12k", "2.1%"])},
-    **{f"{o}-title": slot(c, (7, 8), "label", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
-    **{o: slot(c, (9, 10), "caption", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
+    # What each figure counts stands under it in the lede, read with it from the back of the room,
+    # and how it moved in the body, not a caption (dogfood pass 10).
+    **{f"{o}-title": slot(c, (7, 8), "lede", w) for o, c, w in zip(ORDINALS, QUARTERS, ["Revenue", "Margin", "Users", "Churn"])},
+    **{o: slot(c, (9, 10), "body", "Up on last year") for o, c in zip(ORDINALS, QUARTERS)},
 })
 
 layout("Numbers", "ranking", "The top four, in order, each with its number.", {
@@ -1105,10 +1108,12 @@ SHADES = ["surface-2"] * 4 + ["line"] * 2 + ["accent"] * 3
 layout("Frameworks", "risk-matrix", "Each risk placed by how likely it is and how much it would hurt, the cells shaded from calm to grave.", {
     "kicker": KICKER,
     "header": header(),
-    **{f"cell-{5 - li}-{ii + 1}": card(c, (r, r), fill=SHADES[(4 - li) + ii]) for li, r in enumerate(LIKELY) for ii, c in enumerate(IMPACT)},
+    # The cells close the gutters between them, so the matrix reads as one shaded field, not a
+    # scatter of chips; its scales are read from the back of the room (dogfood pass 10).
+    **{f"cell-{5 - li}-{ii + 1}": slot(c, (r, r), prompt={"shape": "rect", "fill": SHADES[(4 - li) + ii]}, inset=-12) for li, r in enumerate(LIKELY) for ii, c in enumerate(IMPACT)},
     "likely-title": slot((1, 2), (3, 3), "label", "Likelihood"),
-    **{f"likely-{5 - i}": slot((1, 2), (r, r), "caption", w, align={"y": "center"}) for i, r, w in zip(range(5), LIKELY, ["Almost certain", "Likely", "Possible", "Unlikely", "Rare"])},
-    **{f"impact-{i + 1}": slot(c, (9, 9), "caption", w, align={"x": "center"}) for i, c, w in zip(range(5), IMPACT, ["Minor", "Moderate", "Major", "Severe", "Critical"])},
+    **{f"likely-{5 - i}": slot((1, 2), (r, r), "body", w, align={"y": "center"}, fit="shrink") for i, r, w in zip(range(5), LIKELY, ["Almost certain", "Likely", "Possible", "Unlikely", "Rare"])},
+    **{f"impact-{i + 1}": slot(c, (9, 9), "body", w, align={"x": "center"}, fit="shrink") for i, c, w in zip(range(5), IMPACT, ["Minor", "Moderate", "Major", "Severe", "Critical"])},
     "impact-title": slot((3, 7), (10, 10), "label", "Impact", align={"x": "center"}),
     "first": slot(IMPACT[1], (6, 6), "body", "Hiring", align={"x": "center", "y": "center"}),
     "second": slot(IMPACT[0], (5, 5), "body", "Churn", align={"x": "center", "y": "center"}),
@@ -1502,6 +1507,86 @@ layout("Diagrams", "seating-chart", "Tables as circles, each its number in the m
     for o, (c, r) in zip(ORDINALS, SEATS) for k in ["-table", "", "-left", "-right"]
 })
 
+# Code ------------------------------------------------------------------------------------------
+
+# Code on a slide (PLAN 2.138, ADR-0029): each code slot set in the theme's code role, which starts
+# a Plain Text code block its prompt's words are typed over, so every code slide of a deck sits at
+# one size and in one place. Two blocks stand side by side where their lines are short, and one
+# above the other, each the full width, where they are long: a made deck takes the stacked one
+# where its longest line, side by side, would set too small to read across a room.
+CODE = "Paste or type code"
+
+
+def code(text, language="go"):
+    """What a layout's picture shows in a code slot: real-looking code (theme format 0.29)."""
+    return {"code": {"language": language, "text": text}}
+
+
+# A handler, a page of a service as code on a slide shows it.
+HANDLER = code("""func (s *Server) Price(w http.ResponseWriter, r *http.Request) {
+\tcart, err := s.carts.Get(r.Context(), r.URL.Query().Get("cart"))
+\tif err != nil {
+\t\thttp.Error(w, err.Error(), http.StatusNotFound)
+\t\treturn
+\t}
+\ttotal := s.pricing.Total(r.Context(), cart)
+\tjson.NewEncoder(w).Encode(total)
+}""")
+# What to notice beside it: shorter lines, for the narrower place.
+TOTAL = code("""def total(cart, prices):
+    subtotal = sum(prices[i.sku] * i.qty for i in cart.items)
+    discount = best_discount(cart, subtotal)
+    tax = tax_for(cart.address, subtotal - discount)
+    return subtotal - discount + tax""", "python")
+# Before and after: a loop of calls collapsed into one (deepdive's pair).
+BEFORE = code("""var total Money
+for _, item := range cart.Items {
+\tp, err := pricing.Get(ctx, item.SKU)
+\tif err != nil {
+\t\treturn err
+\t}
+\ttotal = total.Add(p.Times(item.Qty))
+}""")
+AFTER = code("""prices, err := pricing.GetMany(ctx, cart.SKUs())
+if err != nil {
+\treturn err
+}
+total := prices.Total(cart.Items)""")
+# One above the other, as lines too long to stand side by side are: a few, each the slide's width.
+BEFORE_WIDE = code("""for _, item := range cart.Items {
+\ttotal = total.Add(pricing.MustGet(ctx, item.SKU, pricing.WithRegion(region)).Times(item.Qty))
+}""")
+AFTER_WIDE = code("""total := pricing.MustGetMany(ctx, cart.SKUs(), pricing.WithRegion(region)).Total(cart.Items)""")
+
+layout("Code", "title-code", "A headline over one block of code, as wide as the slide.", {
+    "kicker": KICKER,
+    "header": header("What this code does"),
+    "code": slot((1, 12), (3, 10), "code", CODE, example=HANDLER),
+})
+
+layout("Code", "code-notes", "A block of code beside what to notice in it.", {
+    "kicker": KICKER,
+    "header": header("What this code does"),
+    "code": slot((1, 8), (3, 10), "code", CODE, example=TOTAL),
+    "notes": slot((9, 12), (3, 10), "body", "What to notice in it"),
+})
+
+layout("Code", "two-code", "Two blocks of code side by side, each named over it: before and after, or one way and another.", {
+    "kicker": KICKER,
+    "header": header("Before and after"),
+    **{f"{o}-title": slot(c, (3, 3), "label", w) for o, c, w in zip(ORDINALS, HALVES, ["Before", "After"])},
+    **{o: slot(c, (4, 10), "code", CODE, example=e) for o, c, e in zip(ORDINALS, HALVES, [BEFORE, AFTER])},
+})
+
+layout("Code", "two-code-stacked", "Two blocks of code one above the other, each the slide's width and named over it: for lines too long to stand side by side.", {
+    "kicker": KICKER,
+    "header": header("Before and after"),
+    "first-title": slot((1, 12), (3, 3), "label", "Before"),
+    "first": slot((1, 12), (4, 6), "code", CODE, example=BEFORE_WIDE),
+    "second-title": slot((1, 12), (7, 7), "label", "After"),
+    "second": slot((1, 12), (8, 10), "code", CODE, example=AFTER_WIDE),
+})
+
 # Pictures --------------------------------------------------------------------------------------
 
 # The page at the left, its passage ringed, and the passage enlarged beside it.
@@ -1597,6 +1682,13 @@ OLD_SLOTS = {
     "quote-portrait": {"quote": {"align": {"x": "start", "y": "end"}}, "who": {"role": "body"}},
     "statement": {"statement": {"align": {"x": "start", "y": "end"}}},
     "numbered": {"body": {"role": "lede"}},
+    # Each number stands on what it counts, the two together on their card, what it counts in the
+    # lede, read with the number from the back of the room, not a caption at the card's foot
+    # (dogfood pass 10).
+    "numbers": {
+        **{f"{o}-title": {"align": {"y": "end"}} for o in ("first", "second", "third")},
+        **{o: {"role": "lede"} for o in ("first", "second", "third")},
+    },
 }
 
 # And in one theme alone. Where Stat's claim sits under its number, as in Dusk and Daybreak, the
@@ -1618,7 +1710,17 @@ TITLE_KICKER = {"kicker": {"col": [1, 8], "row": [11, 12], "align": {"y": "end"}
 
 # By geometry family.
 OLD_SLOTS_IN = {
-    "dusk": {"stat": {"number": {"row": [3, 7]}}, "timeline": timeline_rows(3), "title": TITLE_KICKER},
+    "dusk": {
+        "stat": {"number": {"row": [3, 7]}},
+        "timeline": timeline_rows(3),
+        "title": TITLE_KICKER,
+        # Three numbers' cards fill what the slide holds, a row larger, each number over what it
+        # counts, as Ember's do (dogfood pass 10).
+        "numbers": {
+            **{f"{o}-card": {"row": [4, 9]} for o in ("first", "second", "third")},
+            **{o: {"row": [7, 9]} for o in ("first", "second", "third")},
+        },
+    },
     "ember": {
         "timeline": timeline_rows(4, last=12),
         # Who said them on the row under the words, as in the other themes, not a row further down.
@@ -1725,6 +1827,9 @@ NAMES = {
     "buyer-persona": "Buyer Persona",
     # S.3's first five
     "seating-chart": "Seating Chart", "exhibit-callout": "Exhibit Callout",
+    # Code
+    "title-code": "Title and Code", "code-notes": "Code beside Notes", "two-code": "Two Code Blocks",
+    "two-code-stacked": "Two Code Blocks, Stacked",
     "concept-of-operations": "Concept of Operations", "brand-board": "Brand Board", "fine-print": "Fine Print",
     # Maps (PLAN O.1e)
     "map": "Map", "map-words": "Map and Words", "map-full": "Full-Bleed Map",

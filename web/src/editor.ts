@@ -1636,7 +1636,15 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
    * JPEG, with the nodes drawn from it. */
   const photos = async () =>
     (await stage.bundleFiles(view.state.doc.toString())).filter((f) => f.type === "image" && PICTURE.test(f.path));
-  const theming = themePanel(stage, $("#theming"), { edit: themeEdit, photos, words: () => lexicon });
+  const theming = themePanel(stage, $("#theming"), {
+    edit: themeEdit,
+    photos,
+    words: () => lexicon,
+    preview: async (ops) => {
+      const now = showing();
+      if (now) await stage.previewTheme(now.state, ops, format());
+    },
+  });
   /** The theme given the colors of the photo the image `node` draws in the state shown (PLAN 2.94). */
   async function colorsFrom(node: string) {
     const state = showing()?.state;
@@ -2253,7 +2261,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       return `<tr data-node="${html(id)}"${id === chosen || beside.includes(id) ? ' aria-selected="true"' : ""}><td>${html(object(words, id))}</td><td>${place}</td><td>${text}</td><td>${own || ""}</td></tr>`;
     });
     const motions = (cue?.motions ?? []).map(
-      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td>${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
+      (m) => `<tr><td>${html(object(words, m.node))}</td><td>${html(moving(words, m.motion, m.split))}</td><td class="when">${seconds(m.start).replace(" s", "")}–${seconds(m.end)}</td></tr>`,
     );
     void look.show(chosen, beside);
     const advance = cue && cue.hold > 0 ? `advances after ${seconds(cue.hold)}` : "advances on a click";
@@ -2500,6 +2508,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
 
   const assistant = panel(stage, {
     source: () => view.state.doc.toString(),
+    conversationKey: () => copyKey(),
     states: () => last?.states.map(([id]) => id) ?? [],
     apply: (source, edited, touched, files = []) => {
       touching = touched?.length ? { source, nodes: touched } : undefined;
@@ -3198,6 +3207,24 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   const exportFps = $<HTMLSelectElement>("#exporting-fps");
   type ExportAs = "png" | "slides" | "pdf" | "html" | "movie";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
+  /** Whether any slide of the deck has notes to print, found each time Export… opens (editor
+   * dogfood 2): none known until every state is asked. */
+  let noted: boolean | undefined;
+  let notedAsked = 0;
+  const findNoted = async () => {
+    const asked = ++notedAsked;
+    noted = undefined;
+    for (const [state] of last?.states ?? []) {
+      const notes = await stage.notes(state).catch(() => undefined);
+      if (asked !== notedAsked) return;
+      if (notes?.text.trim()) {
+        noted = true;
+        return noteExport();
+      }
+    }
+    noted = false;
+    noteExport();
+  };
   /** What the export chosen makes, said under the choices. */
   const noteExport = () => {
     const as = chosenExport();
@@ -3229,7 +3256,11 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       slides: whole
         ? `${slides} slide${slides === 1 ? "" : "s"}, each as it stands once its steps have played${format() ? `, in ${format()}` : ""}: a PNG of ${pixels} named by its number, all in one .zip.`
         : "A width in whole pixels: the height keeps the canvas's aspect.",
-      pdf: notes
+      // A deck with no notes yet prints each page with its slide alone, small: said, before it is
+      // made (editor dogfood 2).
+      pdf: notes && noted === false
+        ? "No slide has notes yet, so each page would hold its slide alone, drawn smaller. Write a slide's notes in its Presenter Notes, or leave this unchecked for the slides at full size."
+        : notes
         ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
         : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
       movie: !encodes()
@@ -3256,6 +3287,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     withNotes.checked = false;
     exportWidth.value = String(Math.round(board.size()[0]));
     noteExport();
+    void findNoted();
     exporting.returnValue = "";
     exporting.showModal();
     (as === "png" || as === "slides" || as === "movie" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
@@ -3507,6 +3539,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
        * they print. */
       reading: (state?: string) => stage.reading(state ?? last?.states[shown]?.[0] ?? stage.opened.states[shown], format()),
       at: () => stage.at,
+      /** The notes a presenter reads for `state` (SPEC §2.6). */
+      notes: (state: string) => stage.notes(state),
       /** The assistant: ask it something, and read the conversation. */
       assistant,
       /** The writing tools (PLAN 2.101): one asked, and its answer taken, settled. */

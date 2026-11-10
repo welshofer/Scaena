@@ -679,7 +679,15 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
             .filter(|f| f.prop.starts_with("transition/"))
             .all(|f| f.value.is_none())
     );
-    assert_eq!(shown(own(&revenue, "notes")), (None, None));
+    // `revenue` has no notes of its own: it shows those its beat gives it, which the presenter
+    // reads (editor dogfood 3).
+    let notes = shown(own(&revenue, "notes"));
+    assert!(
+        notes.0.as_ref().and_then(Value::as_str).is_some_and(|n| n.starts_with("Pause on the Q3 bar")),
+        "{notes:?}"
+    );
+    assert_eq!(notes.1, Some(Where::State("revenue".into())));
+    assert_eq!(shown(own(&state(&example(), "close"), "notes")), (None, None), "nor its beat any");
     let intro = state(&example(), "intro");
     let Takes::Name { names, .. } = &own(&intro, "layout").takes else { panic!() };
     assert_eq!(
@@ -694,9 +702,55 @@ fn a_state_offers_its_layout_transition_hold_and_notes() {
     let blank = state(&doc, "blank");
     assert_eq!(shown(own(&blank, "layout")), (None, None));
     let Takes::Name { names, .. } = &own(&blank, "layout").takes else { panic!() };
-    assert_eq!(names.len(), 177, "with nothing placed in a slot, every layout fits: {names:?}");
+    assert_eq!(names.len(), 181, "with nothing placed in a slot, every layout fits: {names:?}");
     let deck: Deck = serde_json::from_value(example()).unwrap();
     assert!(state_choices(&deck, &Theme::from_json(DUSK).unwrap(), "nowhere").is_err());
+}
+
+/// The notes edited are those the presenter reads (SPEC §2.6, editor dogfood 3): `set_state`
+/// writes a state's own where it has them, its beat's where it has none and opens the beat, and
+/// its own where it has none and the beat named it before; the field shows what was written.
+#[test]
+fn notes_are_written_where_the_presenter_reads_them() {
+    let notes = |doc: &Value, id: &str, value: Value| {
+        let ops = json!([{ "op": "set_state", "id": id, "prop": "notes", "value": value }]);
+        compile(doc, ops.as_array().unwrap(), &Examples).unwrap().doc
+    };
+    let beat = |doc: &Value, id: &str| {
+        let beats = doc["spine"]["sections"].as_array().unwrap().iter().flat_map(|s| s["beats"].as_array().unwrap());
+        beats.into_iter().find(|b| b["id"] == id).unwrap().clone()
+    };
+    let read = |doc: &Value, id: &str| {
+        let deck: Deck = serde_json::from_value(doc.clone()).unwrap();
+        scaena_core::spine::notes(&deck, id).map(String::from)
+    };
+    // `revenue` opens the beat `doubled` and has no notes of its own: the beat's are written.
+    let doc = notes(&example(), "revenue", json!("Bridge from the title.\nPause on the Q3 bar."));
+    assert_eq!(beat(&doc, "doubled")["notes"], "Bridge from the title.\nPause on the Q3 bar.");
+    let at = |doc: &Value, id: &str| doc["states"].as_array().unwrap().iter().find(|s| s["id"] == id).unwrap().clone();
+    assert!(at(&doc, "revenue").get("notes").is_none(), "the state keeps none of its own");
+    assert_eq!(read(&doc, "revenue").as_deref(), Some("Bridge from the title.\nPause on the Q3 bar."));
+    assert_eq!(
+        shown(own(&state(&doc, "revenue"), "notes")).0,
+        Some(json!("Bridge from the title.\nPause on the Q3 bar."))
+    );
+    // `mix` has its own: those are written, and the beat's stand.
+    let doc = notes(&example(), "mix", json!("Stacked."));
+    assert_eq!(at(&doc, "mix")["notes"], "Stacked.");
+    assert_eq!(beat(&doc, "doubled")["notes"], beat(&example(), "doubled")["notes"]);
+    // `close` opens `thanks`, which has no notes: the beat's are written there.
+    let doc = notes(&example(), "close", json!("Thank the room."));
+    assert_eq!(beat(&doc, "thanks")["notes"], "Thank the room.");
+    // A state with none that its beat named before (`mix`, without its own) has its own written.
+    let mut bare = example();
+    let i = bare["states"].as_array().unwrap().iter().position(|s| s["id"] == "mix").unwrap();
+    bare["states"][i].as_object_mut().unwrap().remove("notes");
+    let doc = notes(&bare, "mix", json!("Just this step."));
+    assert_eq!(at(&doc, "mix")["notes"], "Just this step.");
+    assert_eq!(beat(&doc, "doubled")["notes"], beat(&example(), "doubled")["notes"]);
+    // Taken away, the beat's go.
+    let doc = notes(&example(), "revenue", Value::Null);
+    assert!(beat(&doc, "doubled").get("notes").is_none());
 }
 
 /// What the inspector offers of a slide's number and footer (ADR-0028): the deck's, and what the

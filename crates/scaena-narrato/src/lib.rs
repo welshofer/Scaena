@@ -311,6 +311,27 @@ impl Generation {
         brief::slide_count(&self.brief.length)
     }
 
+    /// The fewest and the most slides an outline's beats may take in all, the most none for
+    /// "41+": the length's own range, or, for a length that names none, its count to a fifth past
+    /// it. Counts a person sets outside it are scaled to its nearer end ([`outline::counted`]).
+    pub fn slides_range(&self) -> (usize, Option<usize>) {
+        let target = self.target();
+        match brief::minimum_slides(&self.brief.length) {
+            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
+            None => (target, Some(target + (target / 5).max(1))),
+        }
+    }
+
+    /// The slides the slides' prompt asks for: the outline's in all where one stands, as the
+    /// person settled it, else the length's ([`Generation::target`]); what the progress says and
+    /// the rest of slides cut short is held to (lift-up 20261110 USE-3).
+    pub fn slides_asked(&self) -> usize {
+        match &self.outline {
+            Some(outline) if !outline.beats.is_empty() => outline.beats.iter().map(|b| b.slides).sum::<usize>().max(1),
+            _ => self.target(),
+        }
+    }
+
     /// The arc chosen, once it is.
     pub fn arc(&self) -> Option<&ArcChoice> {
         self.arc.as_ref()
@@ -442,12 +463,7 @@ impl Generation {
             _ => return Err(NarratoError::Answer("the arc is chosen before the outline is settled".into())),
         }
         let target = self.target();
-        // The counts a person sets are kept within the length's own range; a length that names
-        // none keeps them from its count to a fifth past it.
-        let range = match brief::minimum_slides(&self.brief.length) {
-            Some(least) => (least, brief::maximum_slides(&self.brief.length)),
-            None => (target, Some(target + (target / 5).max(1))),
-        };
+        let range = self.slides_range();
         self.outline = Some(outline::settled(outline, target, range).map_err(NarratoError::Answer)?);
         self.step = Step::Slides;
         Ok(())
@@ -545,14 +561,15 @@ impl Generation {
             }
             Step::Slides => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
-                let text = prompt::generation_outlined(&self.brief, arc, self.target(), self.outline.as_ref());
+                let text = prompt::generation_outlined(&self.brief, arc, self.slides_asked(), self.outline.as_ref());
                 (prompt::SLIDES_SYSTEM, text, Shape::Slides, room(SLIDES_MAX_TOKENS), 0.7, documents)
             }
             // The slides' own prompt, the sources with it, and after it those written so far.
             Step::Rest => {
                 let arc = arcs::arc(&self.arc.as_ref()?.selection);
-                let mut text = prompt::generation_outlined(&self.brief, arc, self.target(), self.outline.as_ref());
-                text.push_str(&prompt::rest(&self.partial.as_ref()?.slides, self.target()));
+                let mut text =
+                    prompt::generation_outlined(&self.brief, arc, self.slides_asked(), self.outline.as_ref());
+                text.push_str(&prompt::rest(&self.partial.as_ref()?.slides, self.slides_asked()));
                 (prompt::SLIDES_SYSTEM, text, Shape::Slides, room(SLIDES_MAX_TOKENS), 0.7, documents)
             }
             Step::Done => return None,
@@ -869,7 +886,7 @@ impl Generation {
         }
         let written = answer::slides(text).map_err(NarratoError::Answer)?;
         let cut = written.recovered || stopped;
-        if rest && cut && written.slides.len() < self.target() {
+        if rest && cut && written.slides.len() < self.slides_asked() {
             (self.partial, self.rests, self.unrested) = (Some(written), 0, None);
             self.step = Step::Rest;
             return Ok(self.step);
@@ -885,7 +902,7 @@ impl Generation {
         self.rests += 1;
         let cut = match more {
             Ok((more, stopped)) => {
-                let room = self.target().saturating_sub(partial.slides.len());
+                let room = self.slides_asked().saturating_sub(partial.slides.len());
                 let before = partial.slides.len();
                 partial.slides.extend(more.slides.into_iter().take(room));
                 if partial.executive_summary.is_empty() {
@@ -899,7 +916,7 @@ impl Generation {
                 false
             }
         };
-        if cut && partial.slides.len() < self.target() && self.rests < RESTS {
+        if cut && partial.slides.len() < self.slides_asked() && self.rests < RESTS {
             self.partial = Some(partial);
             return Ok(self.step);
         }

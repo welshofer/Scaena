@@ -77,6 +77,19 @@ public final class RemoteClient {
     public private(set) var status = Status.joining
     /// Where the show is; none until the presenter says.
     public private(set) var place: RemotePlace?
+    /// Whether the link waits for the network to come back while joined, as Wi-Fi dropped for a
+    /// moment leaves it: the show is shown as it last was, "Reconnecting…" over it (lift-up
+    /// 20261110 REL-4).
+    public private(set) var reconnecting = false
+    /// Whether it was lost after it had joined, the code taken: joining again with the same code
+    /// may answer, where a code refused would only spend one of the presenter's tries.
+    public private(set) var rejoinable = false
+    /// Whether the presenter refused its code: joining again with it would spend another try.
+    public private(set) var refused = false
+    /// The presenter and the code it joined with, which `again` joins with.
+    @ObservationIgnored private let endpoint: NWEndpoint
+    @ObservationIgnored private let code: String
+    @ObservationIgnored private let seconds: Double
     private let connection: NWConnection
     /// This end of the pairing, until paired.
     @ObservationIgnored private var pairing: Pairing?
@@ -92,6 +105,9 @@ public final class RemoteClient {
 
     /// Join the presenter at `endpoint` with `code`, giving up after `seconds`.
     public init(_ endpoint: NWEndpoint, code: String, seconds: Double = 10) {
+        self.endpoint = endpoint
+        self.code = code
+        self.seconds = seconds
         connection = NWConnection(to: endpoint, using: Remote.parameters())
         pairing = try? Pairing(side: .remote, code: code)
         connection.stateUpdateHandler = { [weak self] state in
@@ -124,6 +140,14 @@ public final class RemoteClient {
         connection.send(frame: frame)
     }
 
+    /// A remote that joins the same presenter again with the same code, this one left: what a
+    /// remote lost mid-talk does, so its code is never typed again on stage (lift-up 20261110
+    /// REL-4).
+    public func again() -> RemoteClient {
+        leave()
+        return RemoteClient(endpoint, code: code, seconds: seconds)
+    }
+
     /// Leave the presenter.
     public func leave() {
         patience?.cancel()
@@ -133,7 +157,14 @@ public final class RemoteClient {
     private func changed(_ state: NWConnection.State) {
         switch state {
         case .ready:
+            // Back from waiting for the network, already joined: the show goes on as it was.
+            if status == .joined {
+                reconnecting = false
+                return
+            }
             hello()
+        case .waiting:
+            if status == .joined { reconnecting = true }
         case .failed:
             // What the network says of it is not a person's words (PLAN 3.18). A presenter that
             // lets go once this end has proved itself had another code.
@@ -209,6 +240,9 @@ public final class RemoteClient {
     private func lose(_ why: String) {
         patience?.cancel()
         if case .lost = status { return }
+        rejoinable = status == .joined
+        refused = proving && status != .joined
+        reconnecting = false
         status = .lost(why)
         connection.cancel()
     }

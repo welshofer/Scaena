@@ -1205,6 +1205,10 @@ export type ToWorker =
   /** `state` painted at rest as the patch `ops` would make it, nothing made, until a `rest` lets
    * it go: a suggested layout pointed at (PLAN 2.92). */
   | { type: "preview"; id: number; state: string; ops: unknown[]; format?: string }
+  /** `state` painted at rest in the theme as `ops` (RFC 6902 operations on it) would edit it,
+   * nothing made or written; without `ops`, in the theme as it is: a color held in the Theme
+   * tab's picker before it is chosen (lift-up ATTR-5). A `rest`, or the deck changed, lets it go. */
+  | { type: "previewTheme"; id: number; state: string; ops?: unknown[]; format?: string }
   /** `node`'s look as `state` shows it, in the deck the editor's `source` compiles to (PLAN 2.58). */
   | { type: "look"; id: number; source: string; state: string; node: string }
   /** The patch that puts `look` on `nodes` in `state`, on the deck the editor's `source` compiles
@@ -1424,6 +1428,10 @@ export type ToWorker =
   | { type: "stop" }
   /** Start a new conversation with the assistant. */
   | { type: "forget" }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number }
+  /** Go on from a conversation kept: the next question follows it. */
+  | { type: "resume"; messages: unknown[] }
   /** The models `key` can use at `provider`. */
   | { type: "models"; id: number; provider: ProviderId; key: string; base?: string }
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. */
@@ -1557,6 +1565,7 @@ export type GeneratingEvent =
   | { kind: "researching"; topic: string }
   | { kind: "researchingNow"; doing: string }
   | { kind: "researched"; sources: number; cut: boolean }
+  | { kind: "unresearched"; why: string }
   | { kind: "choosing" }
   | { kind: "chose"; arc: string; fallback?: string }
   /** The outline before the slides (narrative FUNC-1): asked, written with this many beats, and
@@ -2117,7 +2126,17 @@ export type FromWorker =
   | { type: "generating"; event: GeneratingEvent }
   /** The outline the model wrote (narrative FUNC-1), on `arc`, chosen for `reasoning`: shown for
    * the person to settle (`settled`) or to outline again on another arc (`outlineAgain`). */
-  | { type: "storyOutlined"; outline: StoryOutline; arc: string; reasoning: string; fallback?: string; unread?: string }
+  | {
+      type: "storyOutlined";
+      outline: StoryOutline;
+      arc: string;
+      reasoning: string;
+      fallback?: string;
+      unread?: string;
+      /** The fewest and the most slides the beats may take in all, the length's range (lift-up
+       * 20261110 USE-3): a sum outside it is scaled to its nearer end. */
+      range?: [number, number | null];
+    }
   /** The deck made from a prompt: the bundle's files by their paths, its name, and what it came
    * to. Kept nowhere until it is saved. */
   | { type: "generated"; files: Record<string, ArrayBuffer>; name: string; made: Generated }
@@ -2303,6 +2322,8 @@ export type FromWorker =
   /** A step of the assistant's answer to `ask` request `id`. */
   | { type: "assistant"; id: number; event: AssistantEvent }
   | { type: "models"; id: number; models: string[] }
+  /** The assistant's conversation as it may be kept (lift-up 20261110 FUNC-4). */
+  | { type: "conversation"; id: number; messages: unknown[] }
   /** What a model wrote, asked once (PLAN 2.101), and the tokens it took. */
   | { type: "wrote"; id: number; text: string; stop: WritingStop; usage?: { input: number; output: number } }
   /** The CPU painter met a shader whose rows `count` more workers could share (PLAN 2.28): the

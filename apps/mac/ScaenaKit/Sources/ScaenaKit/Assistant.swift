@@ -128,7 +128,8 @@ public final class Assistant {
     public private(set) var spoken = 0
     /// Tokens in and out since the conversation began.
     public private(set) var usage = Usage(input: 0, output: 0)
-    /// A question another panel drafted for the user to send (the story's, PLAN G.9): the
+    /// A question another panel drafted for the user to send (the story's, PLAN G.9), or one the
+    /// assistant gave back, refused or stopped before any answer (lift-up 20261110 USE-2): the
     /// assistant's panel takes it into its box, and it is gone from here.
     public var drafted: String?
     /// Why the provider is being asked again, and when, while it is (narrative REL-3): "Anthropic
@@ -160,6 +161,9 @@ public final class Assistant {
     @ObservationIgnored private var counted = 0
     /// The entry the answer being written goes into, until it is whole (narrative ATTR-3).
     @ObservationIgnored private var saying: Int?
+    /// The question being answered, as the person typed it: given back to the box where no answer
+    /// to it came (lift-up 20261110 USE-2).
+    @ObservationIgnored private var asked: String?
 
     /// The assistant on `editor`'s deck, its requests made by `stream`, which reads each answer as
     /// it is written (narrative ATTR-3), else by `send`, which reads it whole: `URLSession`'s in
@@ -209,8 +213,11 @@ public final class Assistant {
             try chat.ask(text, seeing: seeing, on: editor.session)
         } catch {
             add(.failed(Why.said(error, of: provider)))
+            // Never asked: the words go back to the box to send again (lift-up 20261110 USE-2).
+            drafted = text
             return
         }
+        asked = text
         add(.question(text))
         working = true
         answered = false
@@ -288,7 +295,10 @@ public final class Assistant {
                     if refusal.tooLong, try chat.shorter() { continue }
                     // A refusal, or an answer that does not read, said in a person's words (PLAN
                     // 3.18), never the provider's own: the conversation is as it was.
+                    // The question no answer joined is taken back, so asked again it is one
+                    // (lift-up 20261110 STAB-3).
                     unsaid()
+                    takeBack(chat)
                     add(.failed(refusal.said))
                     return
                 }
@@ -331,7 +341,17 @@ public final class Assistant {
         } catch let error as URLError where error.code == .cancelled {
             settle(chat)
         } catch {
-            if Task.isCancelled { settle(chat) } else { add(.failed(Why.said(error, of: chat.provider))) }
+            if Task.isCancelled {
+                settle(chat)
+            } else {
+                // A failure mid-round: every call of the answer answered, those not run as not run,
+                // so the next question is not refused for a call left without its result; and a
+                // question no answer joined taken back (lift-up 20261110 STAB-3).
+                unsaid()
+                _ = try? chat.next()
+                takeBack(chat)
+                add(.failed(Why.said(error, of: chat.provider)))
+            }
         }
     }
 
@@ -544,11 +564,20 @@ public final class Assistant {
         saying = nil
     }
 
-    /// A question stopped: every call of the last answer answered, as stopped where it never ran.
+    /// A question stopped: every call of the last answer answered, as stopped where it never ran,
+    /// and one stopped before any answer taken back (lift-up 20261110 STAB-3).
     private func settle(_ chat: ScaenaChat) {
         saying = nil
         _ = try? chat.next()
+        takeBack(chat)
         add(.done("stopped"))
+    }
+
+    /// The question asked last taken back from the conversation, where no answer to it joined it:
+    /// its words given back to the box (lift-up 20261110 STAB-3, USE-2).
+    private func takeBack(_ chat: ScaenaChat) {
+        if chat.takeBack(), let asked { drafted = asked }
+        asked = nil
     }
 
     private func count(_ used: Usage?) {
@@ -571,13 +600,17 @@ public final class Assistant {
     }
 
     /// Why an answer stopped, in a person's words, where it did not simply end: `stopped`,
-    /// `steps`, `length`, or the provider's own reason. None where it ended as answers do.
+    /// `steps`, `length`, `refused`, or the provider's own reason. None where it ended as answers
+    /// do.
     nonisolated public static func stopped(_ why: String) -> String? {
         switch why {
         case "end", "tools": nil
         case "stopped": "Stopped."
         case "steps": "Stopped after 32 rounds of calls: ask again to go on."
         case "length": "The answer ran out of room."
+        // Said as what it is, as the browser says it, so the same ask is not paid for again
+        // (lift-up 20261025c REL-1).
+        case "refused": "The model declined to answer that. Ask in other words."
         // The provider's own reason is no person's word (PLAN 3.18), as the browser says it.
         default: "The model stopped."
         }
