@@ -300,6 +300,10 @@
       #writing { width: min(34em, 92vw); }
       #writing textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; }
       #writing-was, #writing-said { white-space: pre-wrap; }
+      /* Add a slide about… and Write this slide again…: the words typed in the page's face, as every other field's, never the browser's monospace, and no gap where nothing is said yet (editor dogfood 1). */
+      #slide-ask { width: min(34em, 92vw); }
+      #slide-ask textarea { box-sizing: border-box; width: 100%; font: inherit; line-height: 1.4; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px; resize: vertical; }
+      #slide-ask-thinking:empty { display: none; }
       #writing-was { max-height: 8em; overflow: auto; }
       #rehearsed table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
       #rehearsed th, #rehearsed td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); }
