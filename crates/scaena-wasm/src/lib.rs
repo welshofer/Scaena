@@ -792,6 +792,21 @@ impl Player {
         serde_json::to_string(&self.0.tidying(state, node).map_err(js)?).map_err(js)
     }
 
+    /// The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+    /// gutter's numbers, as JSON (PLAN 2.140): Focus on These Lines, Lines in Focus, and, with
+    /// nothing said, Clear Focus; the states after it as they were. `[]` where it shows them so.
+    pub fn focusing(&self, state: &str, node: &str, said: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.focusing(state, node, said).map_err(js)?).map_err(js)
+    }
+
+    /// The patch Walk Through Lines… makes of code text `node` from `state`, as JSON (PLAN 2.140):
+    /// `steps` a JSON array of the lines each step shows, in the gutter's numbers, the first
+    /// `state`'s and a step after it for each of the rest; the states after them as they were.
+    pub fn walking(&self, state: &str, node: &str, steps: &str) -> Result<String, JsError> {
+        let steps: Vec<String> = serde_json::from_str(steps).map_err(js)?;
+        serde_json::to_string(&self.0.walking(state, node, &steps).map_err(js)?).map_err(js)
+    }
+
     /// `text` with `from` to `to` (UTF-16 code units) selected after `key` in a code text whose
     /// tab stops are `tab` columns apart, as JSON (PLAN 2.139): `{ text, from, to }`, or `null` for
     /// a key code does not answer. `language` is the text's `code.language`, so a Makefile's stop
@@ -1643,6 +1658,50 @@ impl ToolResult {
     /// `deck_render`'s frame as RGBA, for an `ImageData`; empty from any other tool.
     pub fn pixels(&self) -> wasm_bindgen::Clamped<Vec<u8>> {
         wasm_bindgen::Clamped(self.frame.as_ref().map(|r| r.rgba.clone()).unwrap_or_default())
+    }
+}
+
+/// The deck compiled last, taken to be laid out on every state a step at a time while the
+/// worker goes on answering (lift-up 20261110 PERF-1): [`Player::laying`], then
+/// [`DeckLaying::step`] until it says it is laid out, then [`Player::lint_laid`].
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+pub struct DeckLaying(scaena_session::editor::Laying);
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl DeckLaying {
+    /// Take its next step: a state laid out, or a state's contrast judged. Whether it is laid out.
+    pub fn step(&mut self) -> bool {
+        self.0.step()
+    }
+}
+
+#[cfg(feature = "editor")]
+#[wasm_bindgen]
+impl Player {
+    /// The deck compiled last, to lay out on every state a step at a time (lift-up 20261110
+    /// PERF-1): nothing where no source compiled to a deck that validates.
+    pub fn laying(&self) -> Option<DeckLaying> {
+        self.0.laying().map(DeckLaying)
+    }
+
+    /// Whether `laying` was taken from the deck as it stands: one that is not lays out an older
+    /// deck, and is dropped.
+    pub fn holds(&self, laying: &DeckLaying) -> bool {
+        self.0.holds(&laying.0)
+    }
+
+    /// Lint the deck compiled last on every state, as `lint` with no state does, with what
+    /// `laying` laid out, as JSON; nothing where the deck has changed since it was taken, or it is
+    /// not laid out yet. Dates are judged at `now`, as `lint` judges them.
+    #[wasm_bindgen(js_name = lintLaid)]
+    pub fn lint_laid(&mut self, laying: &DeckLaying, now: Option<f64>) -> Result<Option<String>, JsError> {
+        let now = now.map(|n| n as i64);
+        match self.0.lint_laid(&laying.0, now).map_err(js)? {
+            Some(linting) => serde_json::to_string(&linting).map(Some).map_err(js),
+            None => Ok(None),
+        }
     }
 }
 

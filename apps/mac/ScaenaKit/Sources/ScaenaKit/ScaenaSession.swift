@@ -259,6 +259,19 @@ public final class ScaenaSession {
         return try Self.take(scaena_export(handle, "png", args, &error), error)
     }
 
+    /// The deck as one HTML file that plays offline, named `name`, the bytes `scaena export --format
+    /// html` writes; the presenter's notes kept only with `notes` (lift-up 20261031 FUNC-3). Only a
+    /// library built after `just web` makes it ([`carriesPlayer`]); any other throws, saying so.
+    public func html(name: String, notes: Bool = false) throws -> Data {
+        let asked: JSONValue = ["name": .string(name), "notes": .bool(notes)]
+        let args = String(decoding: try JSONEncoder().encode(asked), as: UTF8.self)
+        var error: UnsafeMutablePointer<CChar>?
+        return try Self.take(scaena_export(handle, "html", args, &error), error)
+    }
+
+    /// Whether the engine carries the web player a single HTML file is made from.
+    public static var carriesPlayer: Bool { scaena_carries_player() }
+
     /// Every slide once its steps have played, as PNGs `width` pixels wide in one zip, each named
     /// by its number, `name - Slide 3.png` (PLAN 2.122), as the editor's Export makes it.
     public func slides(width: Int, name: String) throws -> Data {

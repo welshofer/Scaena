@@ -449,7 +449,7 @@ impl ShapeNode {
                 cap: s.cap,
                 join: s.join,
                 miter_limit: 4.0,
-                dash: s.dash.clone(),
+                dash: scaena_core::displaylist::dashes(&s.dash, s.width).to_vec(),
                 dash_offset: 0.0,
             });
             ops.extend(heads);
@@ -846,7 +846,7 @@ impl Border {
             cap: s.cap,
             join: s.join,
             miter_limit: 4.0,
-            dash: s.dash.clone(),
+            dash: scaena_core::displaylist::dashes(&s.dash, s.width).to_vec(),
             dash_offset: 0.0,
         }
     }

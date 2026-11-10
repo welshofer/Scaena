@@ -341,6 +341,10 @@ fn said(p: &Progress) -> String {
         Progress::Chose { arc, fallback: None } => format!("arc: {arc}"),
         Progress::Chose { arc, fallback: Some(why) } => format!("arc: {arc}, the heuristic's ({why})"),
         Progress::Writing { slides } => format!("writing the slides, at least {slides}…"),
+        Progress::Continuing { written, slides } => {
+            format!("the answer was cut short after {written} slides: asking for the rest of {slides}…")
+        }
+        Progress::Unrested { why } => format!("the rest of the slides did not come back: {why}"),
         Progress::Retrying { wait, tried } => format!(
             "the provider is busy or did not answer: asking again in {wait:.0} s (try {} of {})…",
             tried + 1,
@@ -1006,6 +1010,12 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             (Some(why), true) => println!("  not changed by what the model saw: {why}"),
             (Some(why), false) => println!("  {why}"),
             (None, _) => {}
+        }
+        // Where the deck sends its audience, so nobody is left not knowing it links anywhere
+        // (lift-up 20261025 SEC-4).
+        for l in &made.links {
+            let shown = l.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            println!("  linked: {shown} on slide {}", l.slide);
         }
         // Each change let go, and what lint found (lift-up USE-4).
         for r in &made.refused {

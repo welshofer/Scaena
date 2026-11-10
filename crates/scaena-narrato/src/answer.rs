@@ -90,6 +90,14 @@ pub(crate) fn unfenced(text: &str) -> &str {
     js::trim(rest.strip_suffix("```").unwrap_or(rest))
 }
 
+/// The JSON object an answer holds: from its first `{` to its last `}`, where the first comes
+/// before the last; none where it holds no such span. An answer like `}{` is none, never a slice
+/// that runs backward (lift-up 20261110 STAB-1).
+pub(crate) fn json_within(text: &str) -> Option<&str> {
+    let (start, end) = text.find('{').zip(text.rfind('}')).filter(|(start, end)| start < end)?;
+    Some(&text[start..=end])
+}
+
 /// The arc an answer to arc selection chose (Narrato's `parseArcJson`): one the catalog does
 /// not name exactly is matched as a model writes it ([`arcs::named`]: case, dashes, and
 /// apostrophes aside, or by a part). Text that does not read as the answer is an error, and so
@@ -100,10 +108,7 @@ pub fn arc(text: &str) -> Result<ArcChoice, String> {
     // Read as written, else from its first `{` to its last `}`, as the look reads its answer: a
     // model that writes a sentence around its JSON still chose (lift-up REL-3).
     let parsed: Value = serde_json::from_str(unfenced(text))
-        .or_else(|e| {
-            let within = text.find('{').zip(text.rfind('}')).filter(|(start, end)| start < end);
-            within.map_or(Err(e), |(start, end)| serde_json::from_str(&text[start..=end]))
-        })
+        .or_else(|e| json_within(text).map_or(Err(e), serde_json::from_str))
         .map_err(|e| format!("arc selection did not read: {e}"))?;
     let selection = parsed.get("selection").and_then(Value::as_str).ok_or("arc selection named no arc")?;
     let selection = match arcs::named(selection) {
@@ -141,6 +146,28 @@ pub fn slides(text: &str) -> Result<Slides, String> {
     Ok(Slides { executive_summary: string_property(text, "executiveSummary"), slides, recovered: true })
 }
 
+/// A slide's `supportingFacts`, a string as the schema writes it; or, as a model writes the field
+/// its plural name asks for, a list of strings, each kept, joined as sentences where each is one
+/// and by semicolons where they are fragments: a Decision Brief's bottom line or a Big Number's
+/// source written as `["…"]` is the slide's, never dropped (dogfood pass 9). Nothing written is
+/// none.
+fn facts(raw: Option<&Value>) -> Option<String> {
+    let said: Vec<String> = match raw? {
+        Value::String(s) => vec![js::trim(s).to_string()],
+        Value::Array(items) => items.iter().filter_map(Value::as_str).map(|s| js::trim(s).to_string()).collect(),
+        _ => return None,
+    };
+    let said: Vec<String> = said.into_iter().filter(|s| !s.is_empty()).collect();
+    match said.as_slice() {
+        [] if matches!(raw, Some(Value::String(_))) => Some(String::new()),
+        [] => None,
+        _ => {
+            let sentences = said.iter().all(|s| s.ends_with(['.', '!', '?', '\u{3002}']));
+            Some(said.join(if sentences { " " } else { "; " }))
+        }
+    }
+}
+
 /// A slide as the model wrote it, normalized (Narrato's `normalizeSlide`): strings trimmed, a
 /// layout it left out a Bullet List, intensity held to 0–1 and tone to −1–1, chart data with
 /// what does not read taken out. A null, as OpenAI's strict mode writes an optional field it
@@ -161,7 +188,7 @@ pub fn normalize(raw: &Value) -> Slide {
             .collect(),
         visual_description: text("visualDescription"),
         speaker_notes: text("speakerNotes"),
-        supporting_facts: raw.get("supportingFacts").and_then(Value::as_str).map(|s| js::trim(s).to_string()),
+        supporting_facts: facts(raw.get("supportingFacts")),
         chart_data: raw.get("chartData").and_then(chart_data),
         beat_index: index("beatIndex"),
         beat_name: some("beatName"),
@@ -383,6 +410,25 @@ mod tests {
     }
 
     use super::*;
+
+    /// An answer whose first `}` comes before its first `{` holds no JSON for any reader, never a
+    /// slice run backward; one slide written inside a sentence still reads (lift-up 20261110
+    /// STAB-1).
+    #[test]
+    fn an_answer_closed_before_it_opens_reads_as_none() {
+        for text in ["}{", "} not json {", "}"] {
+            assert_eq!(json_within(text), None, "{text}");
+            assert!(crate::look::read(text, &[]).is_err(), "{text}");
+            assert!(crate::fit::read(text, &[]).is_err(), "{text}");
+            let arc = crate::arcs::arc("Problem\u{2013}Solution");
+            assert!(crate::outline::read(text, arc, &crate::beats::plan(arc, 5)).is_err(), "{text}");
+            assert!(crate::one::answer(text).is_err(), "{text}");
+        }
+        assert_eq!(json_within("Here: {\"a\": 1} done"), Some("{\"a\": 1}"));
+        let wrapped = "Here is the slide:\n{\"slideTitle\": \"Relay drafts the first reply\", \"keyBullets\": [\"Agents edit, not type\"]}";
+        let slide = crate::one::answer(wrapped).expect("a slide inside a sentence");
+        assert_eq!(slide.slide_title, "Relay drafts the first reply");
+    }
     use serde_json::json;
 
     #[test]
@@ -454,6 +500,28 @@ mod tests {
         assert_eq!((s.beat_index, s.expected_intensity, s.expected_valence), (Some(4), Some(1.0), Some(-1.0)));
         assert_eq!((s.supporting_facts, s.purpose), (None, None));
         assert!(s.icons.is_empty(), "a slide that names no icon has none");
+    }
+
+    /// `supportingFacts` written as a list, as a model writes the field its plural name asks for,
+    /// is kept: a decision's bottom line, a big number's source (dogfood pass 9).
+    #[test]
+    fn supporting_facts_written_as_a_list_are_kept() {
+        let facts = |v: Value| normalize(&json!({ "slideTitle": "t", "supportingFacts": v })).supporting_facts;
+        assert_eq!(facts(json!(" Approve it today. ")), Some("Approve it today.".into()));
+        assert_eq!(
+            facts(json!(["Approve the $600K move today, so two sellers start in December."])),
+            Some("Approve the $600K move today, so two sellers start in December.".into())
+        );
+        assert_eq!(
+            facts(json!(["Board pack p. 4.", "Finance model, base case."])),
+            Some("Board pack p. 4. Finance model, base case.".into())
+        );
+        assert_eq!(facts(json!(["City Library survey", " 2026 ", 7])), Some("City Library survey; 2026".into()));
+        assert_eq!(facts(json!([])), None);
+        assert_eq!(facts(json!(["  "])), None);
+        assert_eq!(facts(json!(42)), None);
+        // A string stays as it was read, an empty one included.
+        assert_eq!(facts(json!("")), Some(String::new()));
     }
 
     /// A value the model gave no number for keeps its category's place, and a chart a series of

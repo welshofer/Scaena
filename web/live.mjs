@@ -16,7 +16,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { launch } from "./serve.mjs";
+import { answering, launch } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -94,6 +94,9 @@ try {
   const editor = await context.newPage();
   editor.on("pageerror", (e) => check(false, `the editor: ${e.message}`));
   editor.on("dialog", (d) => d.accept());
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(editor);
   await editor.goto(at(`/editor.html?bundle=/bundle/&serve=${token}&painter=cpu`));
   await editor.waitForFunction(() => window.scaena?.source, null, { timeout: 120_000 });
   check((await editor.evaluate(() => window.scaena.source())) === source, "the editor opens deck.scn as its source");

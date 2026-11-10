@@ -42,6 +42,10 @@ export function said(event: GeneratingEvent): string {
       return "Writing the slides without an outline";
     case "writing":
       return `Writing the slides, at least ${event.slides}…`;
+    case "continuing":
+      return `The answer was cut short after ${event.written} slides: asking for the rest of ${event.slides}…`;
+    case "unrested":
+      return `The rest of the slides did not come back: ${event.why}`;
     case "retrying":
       return `The provider is busy or did not answer: asking again in ${Math.round(event.seconds)} s (try ${event.tried + 1} of 6)…`;
     case "wrote":
@@ -77,6 +81,15 @@ export function said(event: GeneratingEvent): string {
   }
 }
 
+/** Where the deck sends its audience: ". Linked: portal.org/playbook on slide 13" (lift-up
+ * 20261025 SEC-4). */
+function linked(m: Generated): string {
+  const links = m.links ?? [];
+  if (!links.length) return "";
+  const said = links.map((l) => `${l.href.replace(/^mailto:/, "").replace(/^https:\/\//, "")} on slide ${l.slide}`);
+  return `. Linked: ${said.join("; ")}`;
+}
+
 /** What was made, in a line for the status bar. */
 export function made(m: Generated): string {
   const fixed = m.fixed.length ? `, ${m.fixed.length} ${m.fixed.length === 1 ? "issue" : "issues"} fixed` : "";
@@ -84,7 +97,7 @@ export function made(m: Generated): string {
   const pictures = m.pictures ? `, ${m.pictures} ${m.pictures === 1 ? "picture" : "pictures"}` : "";
   const looked = m.looked?.length ? `, ${m.looked.length} changed by what the model saw` : "";
   const refused = m.refused?.length ? `, ${m.refused.length} of its changes let go` : "";
-  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}`;
+  return `Made: ${m.layouts.length} slides on the arc ${m.arc}${pictures}${looked}${refused}${fixed}${errors}${linked(m)}`;
 }
 
 /** A source given: a file, or a link. */
