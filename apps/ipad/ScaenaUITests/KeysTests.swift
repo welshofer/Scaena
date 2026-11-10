@@ -425,6 +425,46 @@ final class KeysTests: XCTestCase {
         throw Unseen(description: "⌘Z took back nothing: Undo still reads \(step): \(app.debugDescription)")
     }
 
+    /// ⌘Z with the long press's menu up closes the menu and undoes, as UIKit's own menus take a
+    /// hardware keyboard's keys (lift-up 20261110): the title copied by ⌘D, the menu asked of it,
+    /// and ⌘Z takes the copy back with the menu gone. With the menu holding the keyboard, ⌘Z went
+    /// nowhere and ThemeTests waited out its two minutes.
+    @MainActor
+    func testUndoKeyClosesTheMenuAndUndoes() throws {
+        let app = launched()
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let titles = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'"))
+        let title = titles.firstMatch
+        guard title.waitForExistence(timeout: 10) else {
+            throw Unseen(description: "the cover reads no title: \(app.debugDescription)")
+        }
+        settle()
+        title.tap()
+        XCTAssertTrue(wait(5) { title.isSelected }, "the title is not selected")
+        app.typeKey("d", modifierFlags: .command)
+        guard wait(5, { titles.count == 2 }) else {
+            throw Unseen(description: "⌘D made no copy: \(app.debugDescription)")
+        }
+        settle()
+        title.press(forDuration: 1.2)
+        let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
+        guard wait(5, { copy.isHittable }) else {
+            keep(app, as: "undo-key-no-menu")
+            throw Unseen(description: "a long press offered no menu: \(app.debugDescription)")
+        }
+        keep(app, as: "undo-key-menu")
+        app.typeKey("z", modifierFlags: .command)
+        guard wait(10, { titles.count == 1 }) else {
+            keep(app, as: "undo-key-unheard")
+            throw Unseen(description: "⌘Z with the menu up took nothing back: \(app.debugDescription)")
+        }
+        XCTAssertTrue(wait(5) { !copy.isHittable }, "the menu stayed up after ⌘Z: \(app.debugDescription)")
+        keep(app, as: "undo-key-closed")
+        settle()
+    }
+
     /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the
     /// Mac's Edit menu holds them: on B1's cover with a hardware keyboard, the title nudged by
     /// eight arrows, the deck then held as the assistant holds it (`-assistantAtWorkAfter 8`), and ⌘Z and ⇧⌘Z

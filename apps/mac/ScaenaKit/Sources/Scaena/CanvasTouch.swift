@@ -213,6 +213,40 @@ struct CanvasMenu: UIViewRepresentable {
 
         override func paste(_ sender: Any?) { held?.clip(.paste) }
 
+        /// A hardware keyboard's ⌘Z, ⇧⌘Z, and Escape while the menu shows (lift-up 20261110), as
+        /// UIKit's own menus take them: the menu goes, the keyboard goes back to the canvas, and
+        /// Undo or Redo is made there as the menu bar makes it, held as it is while the assistant
+        /// is at work; Escape only closes. With the menu holding the keyboard, ⌘Z went nowhere, and
+        /// a UI test's ⌘Z waited its two minutes on a menu that stayed up.
+        override var keyCommands: [UIKeyCommand]? {
+            guard isFirstResponder else { return nil }
+            return Self.closing
+        }
+
+        private static let closing: [UIKeyCommand] = {
+            let keys: [(String, UIKeyModifierFlags)] = [
+                ("z", .command), ("z", [.command, .shift]), (UIKeyCommand.inputEscape, []),
+            ]
+            return keys.map { input, flags in
+                let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(Host.closed(_:)))
+                command.wantsPriorityOverSystemBehavior = true
+                return command
+            }
+        }()
+
+        @objc private func closed(_ command: UIKeyCommand) {
+            let action: Selector? =
+                switch command.input {
+                case "z": command.modifierFlags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
+                default: nil
+                }
+            held?.menus?.dismissMenu()
+            giveBack()
+            guard let action else { return }
+            // The menu bar's own Undo or Redo, sent up from what has the keyboard now.
+            UIApplication.shared.sendAction(action, to: nil, from: nil, for: nil)
+        }
+
         /// Takes the keyboard for the menu.
         func take() {
             guard !isFirstResponder, let window else { return }
