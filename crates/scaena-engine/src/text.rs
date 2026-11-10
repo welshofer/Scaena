@@ -702,8 +702,11 @@ impl TextEngine {
             }
             // In Chinese, Japanese, or Korean, a run of figures beside its letters is set in the
             // script's own face, which a text family names last among its fallbacks
-            // (`scaena_ops::scripts`), not in a Latin face the family puts first.
+            // (`scaena_ops::scripts`), not in a Latin face the family puts first. A text with no
+            // Latin letter in it, "8%" or "2027年度", is set in it whole, figures, signs, and its
+            // own letters, so a set of figures side by side reads in one face (dogfood pass 11).
             if cjk(spec.lang.as_deref()) {
+                let whole = code.is_none() && !text.chars().any(latin);
                 let mut at = 0;
                 for (span, t) in spec.spans.iter().zip(&cased) {
                     let range = at..at + t.len();
@@ -716,10 +719,14 @@ impl TextEngine {
                         let (start, end) = (f.start.max(range.start), f.end.min(range.end));
                         let beside = text[..f.start].chars().next_back().is_some_and(cjk_letter)
                             || text[f.end..].chars().next().is_some_and(cjk_letter);
-                        if start < end && beside {
+                        if start < end && beside && !whole {
                             let named = names.iter().map(|n| FontFamilyName::Named(Cow::Owned(n.clone())));
                             builder.push(StyleProperty::FontFamily(FontFamily::List(named.collect())), start..end);
                         }
+                    }
+                    if whole && !range.is_empty() {
+                        let named = names.iter().map(|n| FontFamilyName::Named(Cow::Owned(n.clone())));
+                        builder.push(StyleProperty::FontFamily(FontFamily::List(named.collect())), range);
                     }
                 }
             }
@@ -1494,6 +1501,14 @@ fn hiragana(c: char) -> bool {
 /// Katakana, its prolonged sound mark ー among it.
 fn katakana(c: char) -> bool {
     matches!(u32::from(c), 0x30A0..=0x30FF | 0x31F0..=0x31FF)
+}
+
+/// A letter of the Latin script, in any of its blocks but the fullwidth forms, which a CJK face
+/// draws as its own.
+fn latin(c: char) -> bool {
+    c.is_alphabetic()
+        && matches!(u32::from(c), 0x41..=0x5A | 0x61..=0x7A | 0xC0..=0x24F | 0x1D00..=0x1DBF | 0x1E00..=0x1EFF
+            | 0x2C60..=0x2C7F | 0xA720..=0xA7FF | 0xAB30..=0xAB6F)
 }
 
 /// A letter of Chinese or Japanese: Han or kana.

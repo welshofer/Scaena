@@ -770,3 +770,30 @@ fn a_number_in_japanese_is_set_in_the_scripts_face() {
     let (one, two, _) = faces(None);
     assert_eq!((one.as_str(), two.as_str()), ("fonts/Fraunces-VF.ttf", "fonts/Fraunces-VF.ttf"));
 }
+
+#[test]
+fn a_japanese_text_with_no_latin_letter_is_set_in_the_scripts_face_whole() {
+    // Dogfood pass 11: in Three Numbers, "120億円" was set in Noto Sans JP and "8%" and "40%"
+    // beside it in Fraunces, since figures took the script's face only beside its letters. A
+    // text with no Latin letter now takes it whole, its figures and signs too; one with a Latin
+    // letter keeps the rule before it.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let mut faces = |text: &str, lang: Option<&str>| {
+        let mut spec = TextSpec::plain(theme.text_role("display").unwrap(), text);
+        spec.lang = lang.map(String::from);
+        let layout = engine.layout(&mut fonts, &theme, &spec, 10_000.0).unwrap();
+        let mut ids: Vec<String> = layout.runs.iter().map(|r| r.font.id.clone()).collect();
+        ids.dedup();
+        ids
+    };
+    let (jp, fraunces) = ("fonts/NotoSansJP-subset.ttf".to_string(), "fonts/Fraunces-VF.ttf".to_string());
+    for figure in ["8%", "40%", "120億円", "3.5"] {
+        assert_eq!(faces(figure, Some("ja")), std::slice::from_ref(&jp), "{figure}");
+    }
+    // A Latin letter keeps a figure apart from its letters in the family's own face.
+    assert_eq!(faces("p99", Some("ja")), std::slice::from_ref(&fraunces));
+    // Outside Chinese, Japanese, and Korean, nothing changes.
+    assert_eq!(faces("8%", None), std::slice::from_ref(&fraunces));
+    assert_eq!(faces("8%", Some("en")), [fraunces]);
+}
