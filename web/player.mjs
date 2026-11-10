@@ -151,6 +151,11 @@ try {
   // Each drawn with an icon of the set that ships, not a character of a font (lift-up 20261031 ATTR-2).
   const drawn = await player.evaluate(() => ["back", "on", "full", "present"].every((id) => document.querySelector(`#${id} > svg path`)?.getAttribute("d")?.startsWith("M")));
   check(drawn && !(await player.evaluate(() => document.querySelector(".loading"))), "its buttons are drawn with the icons that ship, and the spinner has gone once the deck opened");
+  // What the bar holds hidden stays hidden: the bar's own look for its controls is no reason to
+  // show one, "A new version is ready" least of all, which a page with no new version showed
+  // (editor dogfood 1).
+  const unhidden = await player.evaluate(() => [...document.querySelectorAll(".bar [hidden]")].filter((e) => e.checkVisibility()).map((e) => e.id || e.textContent));
+  check(unhidden.length === 0, `nothing the bar holds hidden shows: ${JSON.stringify(unhidden)}`);
   /** Where the slide stands, and the room the bar at the window's foot leaves it: the window's
    * height in fullscreen. */
   const standing = (page) =>
