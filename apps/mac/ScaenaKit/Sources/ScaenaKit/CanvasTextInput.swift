@@ -163,6 +163,8 @@ public final class CanvasKeys: UIView {
         let became = super.becomeFirstResponder()
         keysLog.debug("text input became first responder: \(became)")
         if became {
+            // A chord whose end went to another responder holds no typing back.
+            chorded = []
             reporting?.cancel()
             reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
         }
