@@ -4433,6 +4433,14 @@ impl Slots<'_> {
         !self.items.is_empty() && self.items.iter().all(Item::figure_first)
     }
 
+    /// Whether a head-to-head's every answer, on both sides of each row, is a figure and nothing
+    /// else ("$46", "400", "18%"), so that its rows compare figures (dogfood pass 9).
+    fn compares_figures(&self) -> bool {
+        let only = |cell: Option<String>| cell.is_some_and(|c| figure(&c).is_some_and(|f| f == c.trim()));
+        let rows: Vec<_> = self.items.iter().skip(1).map(row).collect();
+        !rows.is_empty() && rows.into_iter().all(|(_, left, right)| only(left) && only(right))
+    }
+
     /// Whether the layout has a slot of this name.
     fn has(&self, slot: &str) -> bool {
         self.template().is_some_and(|l| l.slots.contains_key(slot))
@@ -4457,6 +4465,11 @@ impl Slots<'_> {
         match (ordinal(name), role) {
             // A card's or a step's own number keeps its size.
             (Some((_, "number")), _) => None,
+            // A head-to-head whose every answer is a figure ("$46" against "$11") compares figures:
+            // they lead its rows, toward a scorecard's size, the set held to one (dogfood pass 9).
+            (Some((_, "left" | "right")), "body") if self.layout == "head-to-head" && self.compares_figures() => {
+                at_least("numeral")
+            }
             (Some(_), "body") => at_least("lede"),
             // A card's statement, as large as three-quarters of the slide's headline; one of two
             // cards side by side, nine-tenths of it, so each fills its card and the slide's own
@@ -7679,6 +7692,53 @@ mod tests {
         assert!(node(&deck, &state, "first")["list"].is_null(), "one point is no list");
         assert_eq!(node(&deck, &state, "third-title")["text"], "Business");
         assert_eq!(node(&deck, &state, "third")["text"], "Adds SSO, audit log, and a 99.9% SLA");
+    }
+
+    /// A head-to-head whose every answer is a figure compares figures: they grow toward a
+    /// scorecard's size, the set held to one; one whose answers are words keeps them at the lede
+    /// (dogfood pass 9).
+    #[test]
+    fn a_head_to_head_of_figures_sets_them_as_figures() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |bullets: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "VS").unwrap().clone();
+            slide.key_bullets = bullets.iter().map(|b| b.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            (made.layouts[1].clone(), made.deck.clone(), state)
+        };
+        let node = |deck: &Value, state: &str, slot: &str| deck["nodes"][format!("{state}-{slot}")].clone();
+        let lede = theme.typography.roles["lede"].size;
+        let (layout, deck, state) = made(&[
+            "Branch model: Laundromat model",
+            "Cost per new card: $46 | $11",
+            "New cardholders a month: 60 | 400",
+            "First-time cardholders: 18% | 71%",
+        ]);
+        assert_eq!(layout, "head-to-head");
+        let first = node(&deck, &state, "first-left");
+        assert_eq!(first["text"], "$46");
+        for slot in ["first-left", "first-right", "second-left", "third-right"] {
+            let n = node(&deck, &state, slot);
+            assert_eq!(n["fit"], "grow", "{slot}: {n:#}");
+            assert!(n["maxSize"].as_f64().unwrap() > lede, "{slot} grows past the lede: {n:#}");
+        }
+        // Words on either side keep every answer at the lede.
+        let (_, deck, state) = made(&[
+            "Branch model: Laundromat model",
+            "Speed: slow to open | open in a week",
+            "Cost per new card: $46 | $11",
+        ]);
+        for slot in ["first-left", "second-left"] {
+            let n = node(&deck, &state, slot);
+            assert!(n["maxSize"].as_f64().is_none_or(|most| most <= lede), "{slot}: {n:#}");
+        }
     }
 
     /// A few short lines of words alone in a large place grow toward three-quarters of the
