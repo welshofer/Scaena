@@ -1411,7 +1411,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!(
                     "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
                 ),
-                format!("Open slide {k}'s notes with the line that carries the room from slide {before} into {part}."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
                 None,
             );
         } else {
@@ -1420,7 +1422,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Severity::Warning,
                 Kind::Turn,
                 format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-                format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
                 None,
             );
         }
@@ -2663,7 +2667,10 @@ mod tests {
         let k = turn.slide;
         assert_eq!(
             turn.ask,
-            format!("Open slide {k}'s notes with the line that carries the talk from slide {}.", k - 1)
+            format!(
+                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
+                b = k - 1
+            )
         );
         let d = Deck::from_value(&deck).unwrap();
         let read = readings(&d, &slides(&d)).unwrap().0;
@@ -2691,6 +2698,10 @@ mod tests {
         assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
         let h = noted(&mut deck, format!("Plainly onward. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
+        // A connective alone carries nothing over, as the ask says (W1's dogfood 5).
+        for connective in ["So, onward.", "But that's not all.", "That's why it matters."] {
+            assert!(found(&noted(&mut deck, connective.to_string())), "{connective}");
+        }
         if let Some(shared) = shared {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
             assert!(found(&h), "a word both slides use carries nothing over");
@@ -3414,7 +3425,7 @@ mod tests {
         );
         assert_eq!(
             opened.ask,
-            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches, in a word of slide 3's: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
         );
         assert_eq!(fleet.coherence.score, None, "no figure moves");
         assert_eq!(
