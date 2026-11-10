@@ -124,40 +124,14 @@ public final class CanvasKeys: UIView {
 
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became, UserDefaults.standard.bool(forKey: "reportAnimations") { reportAnimations() }
+        if became {
+            reporting?.cancel()
+            reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
+        }
         return became
     }
 
-    /// What animates in the app's windows, said every two seconds while a text is typed in.
-    private func reportAnimations() {
-        reporting?.cancel()
-        reporting = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                guard let self, self.isFirstResponder else { return }
-                Self.sayAnimations()
-            }
-        }
-    }
-
     private var reporting: Task<Void, Never>?
-
-    /// Each layer of each window of the app's scenes that holds an animation, said once a report.
-    private static func sayAnimations() {
-        var said: [String] = []
-        func walk(_ layer: CALayer, _ window: String) {
-            for key in layer.animationKeys() ?? [] where said.count < 40 {
-                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
-                said.append("\(window): \(type(of: layer)) of \(owner), \(key)")
-            }
-            for sub in layer.sublayers ?? [] { walk(sub, window) }
-        }
-        for scene in UIApplication.shared.connectedScenes {
-            guard let scene = scene as? UIWindowScene else { continue }
-            for window in scene.windows { walk(window.layer, String(describing: type(of: window))) }
-        }
-        animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
-    }
 
     public override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
@@ -1101,9 +1075,17 @@ public final class CanvasPresses: UIView {
     public override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         keysLog.debug("canvas keys became first responder: \(became)")
-        if became { lettingGo = false }
+        if became {
+            lettingGo = false
+            // Said too while the canvas's own keys hold the keyboard, as when a field gives them
+            // back, where ThemeTests stalled (lift-up 20261110).
+            reporting?.cancel()
+            reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
+        }
         return became
     }
+
+    private var reporting: Task<Void, Never>?
 
     @discardableResult
     public override func resignFirstResponder() -> Bool {
@@ -1230,6 +1212,41 @@ public final class CanvasPresses: UIView {
 
     public override func selectAll(_ sender: Any?) {
         _ = selectingAll?()
+    }
+}
+
+/// What animates in the app's windows, said every two seconds in the `animations` log while a
+/// view holds the keyboard, where the app is launched with `-reportAnimations YES` (lift-up
+/// 20261110): what a UI test's wait for the app to settle waited on, named in its `log.txt`.
+@MainActor
+enum AnimationReport {
+    /// The report begun, while `holding` holds; none where the app was not asked for it.
+    static func started(while holding: @escaping @MainActor () -> Bool) -> Task<Void, Never>? {
+        guard UserDefaults.standard.bool(forKey: "reportAnimations") else { return nil }
+        return Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard holding() else { return }
+                say()
+            }
+        }
+    }
+
+    /// Each layer of each window of the app's scenes that holds an animation, said once a report.
+    private static func say() {
+        var said: [String] = []
+        func walk(_ layer: CALayer, _ window: String) {
+            for key in layer.animationKeys() ?? [] where said.count < 40 {
+                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
+                said.append("\(window): \(type(of: layer)) of \(owner), \(key)")
+            }
+            for sub in layer.sublayers ?? [] { walk(sub, window) }
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let scene = scene as? UIWindowScene else { continue }
+            for window in scene.windows { walk(window.layer, String(describing: type(of: window))) }
+        }
+        animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
     }
 }
 #endif
