@@ -1795,21 +1795,22 @@ fn edit_runs(runs: &[Value], range: Range<usize>, text: &str) -> Vec<Value> {
         // A figure typed over with words that still say it keeps its run and its quote, the
         // words before and after it runs of their own in its look, quoting nothing: the data
         // sets the figure's run again whole, and would take words in it with it (dogfood-5 item 13).
-        if new != *own && run.get("quote").is_some() {
-            if let Some(&at) = crate::quotes::places(&new, own).first() {
-                let words = |text: &str| {
-                    let mut run = run.clone();
-                    if let Some(fields) = run.as_object_mut() {
-                        fields.shift_remove("quote");
-                        fields.shift_remove("link");
-                        fields.insert("text".into(), Value::String(text.into()));
-                    }
-                    run
-                };
-                out.extend([words(&new[..at]), run.clone(), words(&new[at + own.len()..])]);
-                split = true;
-                continue;
-            }
+        if new != *own
+            && run.get("quote").is_some()
+            && let Some(&at) = crate::quotes::places(&new, own).first()
+        {
+            let words = |text: &str| {
+                let mut run = run.clone();
+                if let Some(fields) = run.as_object_mut() {
+                    fields.shift_remove("quote");
+                    fields.shift_remove("link");
+                    fields.insert("text".into(), Value::String(text.into()));
+                }
+                run
+            };
+            out.extend([words(&new[..at]), run.clone(), words(&new[at + own.len()..])]);
+            split = true;
+            continue;
         }
         let mut run = run.clone();
         if let Some(fields) = run.as_object_mut() {
