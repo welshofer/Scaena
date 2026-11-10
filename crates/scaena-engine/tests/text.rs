@@ -770,3 +770,40 @@ fn a_number_in_japanese_is_set_in_the_scripts_face() {
     let (one, two, _) = faces(None);
     assert_eq!((one.as_str(), two.as_str()), ("fonts/Fraunces-VF.ttf", "fonts/Fraunces-VF.ttf"));
 }
+
+/// An address breaks as Chicago breaks one (dogfood pass 10): after `@` or a `/`, or before a
+/// `.` or a `-`, the hyphen going on to the next line, never at a hyphen's end, and never in a
+/// word, hyphenation on or off. Its characters stay as written, so it copies and links whole.
+#[test]
+fn an_address_breaks_after_its_at_or_slash_or_before_its_dot_or_hyphen() {
+    for (text, lang) in [
+        ("Termin: vertrieb@nordlicht-logistik.de", "de-DE"),
+        ("See https://docs.example-site.org/guides/reading-papers today", "en-US"),
+    ] {
+        let mut broke = false;
+        for width in [120.0, 160.0, 200.0, 260.0, 320.0] {
+            let layout = set("specimen", text, width, |s| {
+                s.hyphenate = true;
+                s.lang = Some(lang.into());
+            });
+            let address = text.split(' ').find(|w| w.contains('@') || w.contains("://")).unwrap();
+            assert!(layout.text.contains(address), "no soft hyphen in the address: {:?}", layout.text);
+            let lines: Vec<String> = (0..layout.lines.len()).map(|k| line_text(&layout, k)).collect();
+            assert_eq!(lines.concat(), text, "no character changed at {width}: {lines:?}");
+            for (k, pair) in lines.windows(2).enumerate() {
+                let (end, next) = (pair[0].trim_end(), pair[1].as_str());
+                // A word's own hyphenation, and a break at a space, are no address's.
+                if pair[0].ends_with(' ') || layout.lines[k].hyphen {
+                    continue;
+                }
+                broke = true;
+                let allowed = (end.ends_with('@') || (end.ends_with('/') && !next.starts_with('/')))
+                    || next.starts_with('.')
+                    || next.starts_with('-');
+                assert!(allowed, "{end:?} | {next:?} at {width}: {lines:?}");
+                assert!(!end.ends_with('-'), "a hyphen ends no line: {lines:?}");
+            }
+        }
+        assert!(broke, "{text}: the address broke at some width");
+    }
+}
