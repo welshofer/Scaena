@@ -94,6 +94,24 @@ struct CloseGuard: NSViewRepresentable {
         }
     }
 }
+
+/// What closes the window it stands in once `close` is true, as its close button does: the
+/// window's delegate asked first, `CloseGuard` among it (lift-up 20261110 REL-3).
+struct WindowCloser: NSViewRepresentable {
+    let close: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        guard close, let window = view.window else { return }
+        // Once SwiftUI's update is done: a window closed inside it closes under its views.
+        DispatchQueue.main.async { window.performClose(nil) }
+    }
+}
 #else
 /// New from a Prompt on the iPad (PLAN G.6): the document browser's launch screen offers it beside
 /// New Deck, and its brief covers the screen (`ScaenaApp`). The deck made is kept in the app's own
@@ -870,6 +888,9 @@ struct PromptView: View {
 
     private func say(_ words: String, failed: Bool = false) {
         steps.append(Line(words: words, failed: failed))
+        // Said to VoiceOver too, as the browser's progress list is a live region (lift-up 10-25c
+        // USE-1): a failure at once.
+        Spoken.say(words, urgent: failed)
     }
 
     private func generate() {
@@ -926,7 +947,7 @@ struct PromptView: View {
                         say(GeneratingStep.reading(url.lastPathComponent).words)
                         let reading = url.startAccessingSecurityScopedResource()
                         defer { if reading { url.stopAccessingSecurityScopedResource() } }
-                        say(try generator.add(name: url.lastPathComponent, data: try Data(contentsOf: url)).words)
+                        say(try await generator.add(contentsOf: url).words)
                     case .link(let link):
                         say(GeneratingStep.reading(link).words)
                         let read = try await generator.fetch(
@@ -936,8 +957,14 @@ struct PromptView: View {
                     try Task.checkCancellation()
                 }
                 if research {
-                    try await generator.research(brief: brief, provider: provider, model: model, key: key) {
-                        say($0.words)
+                    do {
+                        try await generator.research(brief: brief, provider: provider, model: model, key: key) {
+                            say($0.words)
+                        }
+                    } catch where !given.isEmpty && !Task.isCancelled && !(error is CancellationError) {
+                        // A research that fails goes on from the files and links given, where there
+                        // are any (lift-up 10-25b REL-4); with none, it stops the deck.
+                        say(GeneratingStep.unresearched(Why.said(error)).words)
                     }
                     try Task.checkCancellation()
                 }

@@ -139,13 +139,15 @@ final class ScaenaDocument: ReferenceFileDocument {
     struct Taken: @unchecked Sendable {
         let snapshot: ScaenaSession.Snapshot
         let session: ScaenaSession
+        /// What the window says what the save said of the history through (lift-up 20261025b REL-1).
+        let editor: DeckEditor
     }
 
     /// The bundle as it stands, taken in a moment: what is slow in a save is done off the main
     /// actor, in `fileWrapper` (lift-up PERF-5). What is saved is the deck shown: a source typed
     /// that does not compile is not the deck yet.
     func snapshot(contentType: UTType) throws -> Taken {
-        Taken(snapshot: try session.snapshot(), session: session)
+        Taken(snapshot: try session.snapshot(), session: session, editor: editor)
     }
 
     /// The bundle saved, off the main actor, as SwiftUI writes it: its files by their paths, fonts
@@ -162,6 +164,8 @@ final class ScaenaDocument: ReferenceFileDocument {
         DispatchQueue.main.async {
             // A save not gone on from is one the next save makes again: nothing is lost.
             _ = try? taken.session.adopt(saved, since: taken.snapshot)
+            // A history that could not be read, or a newer Scaena's, said once (REL-1).
+            if let said = DeckEditor.said(ofSave: saved.summary) { taken.editor.savedSaid = said }
         }
         return wrapper
     }
@@ -238,8 +242,12 @@ final class ScaenaDocument: ReferenceFileDocument {
     /// as the user's own edit is: the source made the deck again, and the files written back.
     func took(_ before: String, files: [Rewritten], undo: UndoManager?) {
         keep(before, files: files, undo: undo)
-        undo?.setActionName("Assistant’s Edit")
+        undo?.setActionName(Self.answerStep)
     }
+
+    /// What an answer's step of undo is called (lift-up 10-25 FUNC-4): the Edit menu's Undo
+    /// Assistant’s Edits takes back every edit of the answer.
+    static let answerStep = "Assistant’s Edits"
 
     /// An edit a panel makes on the session beside the source (PLAN 3.15): the theme edited or
     /// another taken, a version restored, rows written inline. The deck is read again, and the

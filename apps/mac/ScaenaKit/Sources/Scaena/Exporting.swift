@@ -10,7 +10,8 @@ import UniformTypeIdentifiers
 /// The deck's exports (PLAN 3.8): the PDF `scaena export` writes, a page for each slide at its
 /// last state, or with the presenter's notes under each, as `--notes` writes it; the state shown
 /// as a PNG, and every slide as PNGs in one zip, each named by its
-/// number (PLAN 2.122), as the editor's Export… makes them. Each is written
+/// number (PLAN 2.122), as the editor's Export… makes them, at the canvas's size or twice it; and
+/// the deck as one HTML file that plays offline (lift-up 20261031 FUNC-3). Each is written
 /// when it is asked for, into a folder of its own, then shared through the Share sheet, shown in
 /// Quick Look, or saved where the user says.
 enum Exporting {
@@ -24,12 +25,16 @@ enum Exporting {
         case png(state: String, width: Int)
         /// Every slide once its steps have played, as PNGs this many pixels wide in one zip.
         case slides(width: Int)
+        /// The deck as one HTML file that plays offline, without the presenter's notes, as a file
+        /// sent to the room is (lift-up 20261031 FUNC-3).
+        case html
 
         var type: UTType {
             switch self {
             case .pdf, .notes: .pdf
             case .png: .png
             case .slides: .zip
+            case .html: .html
             }
         }
     }
@@ -42,6 +47,7 @@ enum Exporting {
         case .notes: .notes
         case .png(let state, let width): .png(state: state, width: width)
         case .slides(let width): .slides(width: width, name: title(of: editor))
+        case .html: .html(name: title(of: editor))
         }
     }
 
@@ -52,6 +58,18 @@ enum Exporting {
         case .notes: "Making the PDF with the notes…"
         case .png: "Making the PNG…"
         case .slides: "Making a PNG of every slide…"
+        case .html: "Making the HTML file…"
+        }
+    }
+
+    /// What VoiceOver is told once `kind` is made (lift-up 10-25c USE-1).
+    static func made(_ kind: Kind) -> String {
+        switch kind {
+        case .pdf: "The PDF is made"
+        case .notes: "The PDF with the notes is made"
+        case .png: "The PNG is made"
+        case .slides: "A PNG of every slide is made"
+        case .html: "The HTML file is made"
         }
     }
 
@@ -70,6 +88,7 @@ enum Exporting {
         case .notes: return "\(safe) - Notes.pdf"
         case .png(let state, _): return "\(safe) – \(Words.slide(state, in: editor.slots)).png"
         case .slides: return "\(safe) - Slides.zip"
+        case .html: return "\(safe).html"
         }
     }
 
@@ -153,7 +172,7 @@ private final class SharingEnd: NSObject, NSSharingServicePickerDelegate, NSShar
 
 /// An export's bytes, as a save panel writes them.
 struct ExportedFile: FileDocument {
-    static var readableContentTypes: [UTType] { [.pdf, .png, .zip] }
+    static var readableContentTypes: [UTType] { [.pdf, .png, .zip, .html] }
     let data: Data
 
     init(data: Data) {
