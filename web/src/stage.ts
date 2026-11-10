@@ -82,6 +82,7 @@ import type {
   Writing,
   WritingAsk,
   WritingCall,
+  WritingStop,
   Written,
   SlidePlace,
   SlideWritten,
@@ -181,6 +182,8 @@ type Reply = Extract<
       | "coding"
       | "uncoding"
       | "tidying"
+      | "focusing"
+      | "walking"
       | "italicizing"
       | "themes"
       | "rethemed"
@@ -281,6 +284,8 @@ export class Stage {
   private hearing = new Map<number, (event: AssistantEvent) => void>();
   /** What takes each thumbnail as it is painted, by the request's id. */
   private thumbing = new Map<number, (thumb: Thumb) => void>();
+  /** What hears each export's progress, by its request (lift-up 20261031 FUNC-2). */
+  private exportHearing = new Map<number, (done: number, of: number) => void>();
   private asked = 0;
   /** The name each file dropped had, by its path in the bundle, which names it by its content. */
   private dropped = new Map<string, string>();
@@ -305,6 +310,8 @@ export class Stage {
     private engine: Engine,
     /** Who paints, as the page asked. */
     private painter: Painter,
+    /** Whether the worker keeps a copy of the files to go on from after a crash. */
+    private recoverable: boolean,
   ) {
     this.hear(worker);
   }
@@ -359,9 +366,12 @@ export class Stage {
    * canvas in `canvas`'s place: a canvas WebGPU has held takes no other painter, so falling
    * back to the CPU painter starts over. A bundle that does not open puts `canvas` back, as
    * whoever painted it left it. */
-  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine): Promise<Stage> {
-    const started = await Stage.start(canvas, source, painter, engine);
-    return new Stage(started.canvas, started.worker, started.opened, engine, painter);
+  /** A stage on `source`. One `recoverable` keeps a copy of the bundle's files in its worker,
+   * which `onCrashed` hears after a crash: the editor's, which goes on from it (lift-up 20261031
+   * PERF-3); a player's copies nothing. */
+  static async open(canvas: HTMLCanvasElement, source: Source, painter: Painter, engine: Engine, recoverable = false): Promise<Stage> {
+    const started = await Stage.start(canvas, source, painter, engine, recoverable);
+    return new Stage(started.canvas, started.worker, started.opened, engine, painter, recoverable);
   }
 
   /** Start the stage again on `source`, the bundle's files as its worker held them (lift-up
@@ -369,7 +379,7 @@ export class Stage {
    * requests waiting on the old one are refused. The bundle as the fresh worker opened it. */
   async restart(source: Source): Promise<Opened> {
     this.halt(new EngineStopped("the engine stopped"));
-    const started = await Stage.start(this.canvas, source, this.painter, this.engine);
+    const started = await Stage.start(this.canvas, source, this.painter, this.engine, this.recoverable);
     this.canvas = started.canvas;
     this.worker = started.worker;
     this.opened = started.opened;
@@ -384,6 +394,7 @@ export class Stage {
     source: Source,
     painter: Painter,
     engine: Engine,
+    recoverable: boolean,
   ): Promise<{ canvas: HTMLCanvasElement; worker: Worker; opened: Opened }> {
     const fresh = canvas.cloneNode() as HTMLCanvasElement;
     canvas.replaceWith(fresh);
@@ -394,7 +405,7 @@ export class Stage {
         worker.onerror = (e) => reject(new Error(e.message || "the worker failed to start"));
       });
       const offscreen = fresh.transferControlToOffscreen();
-      const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module };
+      const open: ToWorker = { type: "open", source, painter, canvas: offscreen, engine: engine.module, recoverable };
       worker.postMessage(open, [offscreen]);
       const first = await reply;
       if (first.type === "ready") {
@@ -405,7 +416,7 @@ export class Stage {
       const message = first.type === "error" ? first.message : `the worker said ${first.type} first`;
       if (first.type === "error" && first.webgpu && painter === "auto") {
         console.warn(`${message}; the CPU painter paints instead`);
-        return await Stage.start(fresh, source, "cpu", engine);
+        return await Stage.start(fresh, source, "cpu", engine, recoverable);
       }
       throw new Error(message);
     } catch (e) {
@@ -932,6 +943,21 @@ export class Stage {
     return this.request<"tidying">(asked).then(({ patch }) => patch);
   }
 
+  /** The patch that sets code text `node`'s lines in focus in `state` to those `said` names in its
+   * gutter's numbers, "2–4, 7"; nothing said clears it (PLAN 2.140): Focus on These Lines, Lines in
+   * Focus, and Clear Focus. The states after it stay as they were; `[]` where it shows them so. */
+  focusing(source: string, state: string, node: string, said: string): Promise<unknown[]> {
+    const asked = { type: "focusing" as const, id: ++this.asked, source, state, node, said };
+    return this.request<"focusing">(asked).then(({ patch }) => patch);
+  }
+
+  /** Walk Through Lines…'s patch of code text `node` from `state` (PLAN 2.140): `state` shows the
+   * lines the first of `steps` names, and a step after it each of the rest's. */
+  walking(source: string, state: string, node: string, steps: string[]): Promise<unknown[]> {
+    const asked = { type: "walking" as const, id: ++this.asked, source, state, node, steps };
+    return this.request<"walking">(asked).then(({ patch }) => patch);
+  }
+
   /** `text` tidied as code in `language` is when it is pasted (PLAN 2.133, `code::tidy`). */
   tidied(text: string, language: string): Promise<string> {
     return this.request<"tidied">({ type: "tidied", id: ++this.asked, text, language }).then(({ text }) => text);
@@ -1016,12 +1042,12 @@ export class Stage {
 
   /** Ask a model once, with the user's key and nothing to call (PLAN 2.101): its words. `signal`,
    * aborted, stops the request in the worker (lift-up PERF-4). */
-  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; usage?: { input: number; output: number } }> {
+  write(call: WritingCall, signal?: AbortSignal): Promise<{ text: string; stop: WritingStop; usage?: { input: number; output: number } }> {
     const id = ++this.asked;
     const stop = () => this.send({ type: "stopWrite", id });
     signal?.addEventListener("abort", stop, { once: true });
     return this.request<"wrote">({ type: "write", id, call })
-      .then(({ text, usage }) => ({ text, usage }))
+      .then(({ text, stop, usage }) => ({ text, stop, usage }))
       .finally(() => signal?.removeEventListener("abort", stop));
   }
 
@@ -1285,8 +1311,12 @@ export class Stage {
   }
 
   /** The deck `source` compiles to, exported `as` asks (PLAN 2.54): the file's bytes. */
-  export(source: string, as: Export): Promise<ArrayBuffer> {
-    return this.request<"exported">({ type: "export", id: ++this.asked, source, as }).then(({ bytes }) => bytes);
+  export(source: string, as: Export, progress?: (done: number, of: number) => void): Promise<ArrayBuffer> {
+    const id = ++this.asked;
+    if (progress) this.exportHearing.set(id, progress);
+    return this.request<"exported">({ type: "export", id, source, as })
+      .then(({ bytes }) => bytes)
+      .finally(() => this.exportHearing.delete(id));
   }
 
   /** Add a file dropped on the page to the bundle; resolves to its path there. A picture an image
@@ -1515,6 +1545,8 @@ export class Stage {
       case "coding":
       case "uncoding":
       case "tidying":
+      case "focusing":
+      case "walking":
       case "italicizing":
       case "themes":
       case "rethemed":
@@ -1551,6 +1583,9 @@ export class Stage {
         return;
       case "thumbed":
         this.thumbing.get(data.id)?.(data.thumb);
+        return;
+      case "exportProgress":
+        this.exportHearing.get(data.id)?.(data.done, data.of);
         return;
       case "pong":
         this.waiting.get(data.id)?.resolve(data);

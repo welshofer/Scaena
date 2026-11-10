@@ -21,22 +21,20 @@ pub struct Request {
 }
 
 /// Why a model stopped: it waits for its calls' results, its answer is done, it ran out of
-/// room, it declined to answer, or another reason.
+/// room, the model or its provider's safety system declined to answer (lift-up 20261031 REL-5),
+/// or another reason.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Stop {
     Tools,
     End,
     Length,
-    /// It declined, or the provider blocked the answer: Anthropic's `refusal`, OpenAI's
-    /// `content_filter` or its `refusal`, Gemini's safety, blocklist, and recitation stops, and a
-    /// prompt it blocked (lift-up 20261025c REL-1). Asked again the same way, it says the same.
     Refused,
     Other,
 }
 
-/// Gemini's reasons for an answer it blocked, which a person hears as a refusal.
-const GEMINI_REFUSED: [&str; 5] = ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII"];
+/// The reasons Gemini gives for an answer it withheld, as scaena-narrato reads them.
+const BLOCKED: [&str; 5] = ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"];
 
 /// Tokens in and out, as the provider counts them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,8 +203,43 @@ pub(crate) fn first(text: &str, n: usize) -> String {
     out
 }
 
+/// `base`, an API address (scaena-narrato's twin) typed beside a key, where a key may go to it: `https://` and a host, or
+/// `http://` to this machine alone (`localhost`, `127.0.0.1`, `[::1]`, at any port), for a proxy
+/// on it. Else why not: over plain `http` elsewhere the key would cross the network in the clear
+/// with every call (lift-up 20261025 SEC-2).
+pub fn checked_base(base: &str) -> Result<&str, String> {
+    let base = base.trim();
+    let host = |rest: &str| rest.split(['/', '?', '#']).next().unwrap_or_default().to_string();
+    let lower = base.to_ascii_lowercase();
+    if let Some(rest) = lower.strip_prefix("https://") {
+        let host = host(rest);
+        if !host.is_empty() && !host.contains('@') {
+            return Ok(base);
+        }
+    } else if let Some(rest) = lower.strip_prefix("http://") {
+        // The whole host, matched strictly, as the browser's `refusedBase` matches it: this
+        // machine's name, then at most a port of digits, and nothing else, so no userinfo or
+        // other text after the name reads as this machine (`http://[::1]@evil.example`).
+        let host = host(rest);
+        let local = ["localhost", "127.0.0.1", "[::1]"].iter().any(|name| {
+            host.strip_prefix(name).is_some_and(|port| {
+                port.is_empty() || port.strip_prefix(':').is_some_and(|d| d.bytes().all(|b| b.is_ascii_digit()))
+            })
+        });
+        if local {
+            return Ok(base);
+        }
+    }
+    Err(format!(
+        "{base}: an API address takes https://, or http:// to this machine (localhost, 127.0.0.1), so the key never crosses the network in the clear"
+    ))
+}
+
+/// `path` at `base`, the provider's own address `fallback` where none is given. An address
+/// [`checked_base`] refuses is never asked, the key never going to it: the clients refuse it
+/// as it is typed, and this is the last guard, asking the provider's own instead.
 fn at(base: Option<&str>, fallback: &str, path: &str) -> String {
-    let base = base.filter(|b| !b.is_empty()).unwrap_or(fallback);
+    let base = base.filter(|b| !b.is_empty()).and_then(|b| checked_base(b).ok()).unwrap_or(fallback);
     format!("{}{path}", base.trim_end_matches('/'))
 }
 
@@ -418,7 +451,11 @@ fn openai(ask: &Ask) -> Request {
             }
             Message::Tool { results } => {
                 for r in results {
-                    messages.push(json!({ "role": "tool", "tool_call_id": r.id, "content": r.json }));
+                    // A call that failed says so, as Gemini's `error` and Anthropic's `is_error`
+                    // do: a refused patch never reads as done (lift-up 20261025c STAB-5).
+                    let content =
+                        if r.error { json!({ "error": parsed(&r.json) }).to_string() } else { r.json.clone() };
+                    messages.push(json!({ "role": "tool", "tool_call_id": r.id, "content": content }));
                 }
                 // A tool's message holds text alone: the frames it drew follow as the user's.
                 let frames: Vec<&ToolResult> = results.iter().filter(|r| r.png.is_some()).collect();
@@ -472,7 +509,8 @@ fn openai_turn(answer: &Value) -> Turn {
         })
         .collect();
     // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
-    let refused = message.get("refusal").is_some_and(|r| r.as_str().is_some_and(|r| !r.is_empty()));
+    // Declined, by the model or the content filter: its calls are not what it meant.
+    let refused = message.get("refusal").is_some_and(Value::is_string);
     let stop = match choice.get("finish_reason").and_then(Value::as_str) {
         Some("length") => Stop::Length,
         Some("content_filter") => Stop::Refused,
@@ -574,7 +612,7 @@ fn gemini_turn(answer: &Value) -> Turn {
     let blocked = answer.pointer("/promptFeedback/blockReason").is_some_and(|r| !r.is_null());
     let stop = match candidate.get("finishReason").and_then(Value::as_str) {
         Some("MAX_TOKENS") => Stop::Length,
-        Some(reason) if GEMINI_REFUSED.contains(&reason) => Stop::Refused,
+        Some(reason) if BLOCKED.contains(&reason) => Stop::Refused,
         _ if blocked => Stop::Refused,
         _ if !calls.is_empty() => Stop::Tools,
         Some("STOP") => Stop::End,
@@ -596,4 +634,33 @@ fn component(text: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A key goes over plain `http` to this machine alone (lift-up 20261025 SEC-2): every other
+    /// address but `https://` is refused, and one refused is never asked.
+    #[test]
+    fn a_key_never_goes_over_plain_http_off_this_machine() {
+        // The cases the browser's `refusedBase` is held to as well (`web/exchanges.mjs`).
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/assistant/bases.json")).expect("the cases");
+        for good in cases["good"].as_array().unwrap().iter().map(|g| g.as_str().unwrap()) {
+            assert_eq!(checked_base(good), Ok(good), "{good}");
+        }
+        for bad in cases["bad"].as_array().unwrap().iter().map(|b| b.as_str().unwrap()) {
+            let why = checked_base(bad).unwrap_err();
+            assert!(why.contains("https://"), "{bad}: {why}");
+        }
+        assert_eq!(
+            at(Some("http://evil.example"), "https://api.anthropic.com", "/v1/messages"),
+            "https://api.anthropic.com/v1/messages"
+        );
+        assert_eq!(
+            at(Some("http://localhost:4000/"), "https://x", "/v1/messages"),
+            "http://localhost:4000/v1/messages"
+        );
+    }
 }

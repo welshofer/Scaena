@@ -116,6 +116,44 @@ try {
   check(!result.lintedOver, `the linter's edit of the source before a patch leaves the patch's deck, its step read: ${result.lintedOver || "it reads"}`);
   check(result.staleKept, "a request older than the deck held is answered from it, the patch kept");
   check(result.stepped === "made", `a step added, with a request of the source before it taken meanwhile, is made: ${result.step} ${result.stepped}`);
+
+  // A deck that names a file of another origin, or out of its folder, opens to an error naming it,
+  // and nothing is asked of that host, the serve token least of all (the 20261031 plan's SEC-1).
+  const torture = JSON.parse(await (await fetch(`${server.origin}/tests/fixtures/torture.scaena/deck.json`)).text());
+  const strays = [];
+  await page.context().route("**/*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname === "evil.example") {
+      strays.push(`${url} ${route.request().headers()["x-scaena-token"] ?? ""}`.trim());
+      return route.fulfill({ status: 200, body: "" });
+    }
+    const named = /\/tests\/fixtures\/torture\.scaena\/stray-(\d)\.json$/.exec(url.pathname);
+    if (!named) return route.fallback();
+    const font = ["https://evil.example/x.ttf", "//evil.example/x.ttf", "../../x.ttf"][Number(named[1])];
+    const deck = { ...torture, fonts: [{ ...torture.fonts[0], file: font }, ...torture.fonts.slice(1)] };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(deck) });
+  });
+  const strayed = await page.evaluate(
+    async ({ script, decks }) => {
+      const said = [];
+      for (const deck of decks) {
+        const worker = new Worker(script, { type: "module" });
+        const first = await new Promise((resolve) => {
+          worker.onmessage = ({ data }) => (data.type === "ready" || data.type === "error") && resolve(data);
+          const canvas = document.createElement("canvas").transferControlToOffscreen();
+          const serve = { token: "the-token", client: "stray" };
+          worker.postMessage({ type: "open", source: { url: deck, serve }, painter: "cpu", canvas }, [canvas]);
+        });
+        worker.terminate();
+        said.push(first.type === "error" ? first.message : "opened");
+      }
+      return said;
+    },
+    { script, decks: [0, 1, 2].map((n) => `${server.origin}/tests/fixtures/torture.scaena/stray-${n}.json`) },
+  );
+  for (const [n, font] of ["https://evil.example/x.ttf", "//evil.example/x.ttf", "../../x.ttf"].entries())
+    check(strayed[n]?.includes(font), `a deck naming the font ${font} is refused, naming it: ${strayed[n]}`);
+  check(strays.length === 0, `nothing is fetched from another origin, nor the token sent there: ${strays.join(", ") || "none"}`);
 } finally {
   await browser.close();
   server.close();

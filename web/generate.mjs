@@ -30,13 +30,15 @@
 //   (lift-up FUNC-5).
 // - Its story (PLAN G.9): the Story tab reads it as Vzestup measures a talk, by the generator's
 //   module: its score and the arc it was written to, the six measures, coherence by words
-//   unscored, a mark on the arc for each slide. No fix rewrites the plan's intensity or tone. A
+//   unscored, a mark on the arc for each slide, its beats as bands and its tone a line (lift-up
+//   ATTR-4). No fix rewrites the plan's intensity or tone. A
 //   slide moved out of its beat's order has drifted: a finding's slide is shown at a press; its
-//   fix is one change, which ⌘Z takes back; and its question goes into the assistant's box.
+//   fix is one change, which ⌘Z takes back; a burst of edits is read once, after it stops (lift-up
+//   PERF-1); and its question goes into the assistant's box.
 // Exits 1 on any failure.
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { launch, serve, tab } from "./serve.mjs";
+import { answering, launch, serve, tab } from "./serve.mjs";
 
 const failures = [];
 const check = (ok, what) => {
@@ -79,7 +81,7 @@ const PAGE = "<h1>Tidewater in the press</h1><p>The Gulf's first carbon-negative
 /** Anthropic, scripted: what each request asks, and the state the walk sets (`slow`, `fail`, and
  * the `slides` it answers with, the recorded ones where none is set). */
 const requests = [];
-const state = { slow: 0, fail: false, slides: undefined, looking: 0 };
+const state = { slow: 0, fail: false, slides: undefined, unreadable: false, looking: 0 };
 const provider = createServer(async (req, res) => {
   const cors = {
     "access-control-allow-origin": req.headers.origin ?? "*",
@@ -120,6 +122,10 @@ const provider = createServer(async (req, res) => {
   if (asked === "arc") return reply(200, ARC);
   // The outline before the slides (narrative FUNC-1): the big idea and a claim for each of the
   // arc's six beats.
+  if (asked === "outline" && state.unreadable) {
+    // An outline that comes back but does not read: prose, no JSON (lift-up REL-3).
+    return reply(200, { content: [{ type: "text", text: "I would be glad to outline this talk." }], stop_reason: "end_turn" });
+  }
   if (asked === "outline") {
     const beats = [1, 2, 3, 4, 5, 6].map((beat) => ({ beat, claim: `Claim ${beat}: what this beat's slides leave behind.` }));
     return reply(200, { content: [{ type: "text", text: JSON.stringify({ bigIdea: "Cargo can pay for its carbon.", beats }) }], stop_reason: "end_turn" });
@@ -147,6 +153,9 @@ try {
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
   const accepting = (d) => d.accept();
   page.on("dialog", accepting);
+  // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
+  // as the confirms it replaced were taken.
+  await answering(page);
   await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/docs/examples/revenue.deck.json`);
   await page.waitForFunction(() => window.scaena?.last() && window.scaena.where().name === "revenue", null, { timeout: 120000 });
   // No key kept: the dialog takes one in place, in a page of its own, so what it chose leaves the
@@ -201,12 +210,6 @@ try {
 
   /** The dialog, open, with Narrato's choices in it. */
   const opened = async () => {
-    // The deck the walk edited before may be offered back from its recovery copy (lift-up REL-4),
-    // as soon as its timer kept one: declined, so the dialog it opens stands over nothing.
-    await page.evaluate(() => {
-      const offered = document.querySelector("#recovering");
-      if (offered?.open) offered.close("discard");
-    });
     await page.click("#new-prompt");
     await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
   };
@@ -339,6 +342,9 @@ try {
   await page.click("#prompting-go");
   await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((l) => l.textContent.startsWith("Choosing the arc")), null, { timeout: 60000 });
   check(await leaving(), "leaving the page while a deck is being made asks first");
+  // The progress scrolls once it runs past its room: the keys reach it to scroll it, as a pointer
+  // does (WCAG 2.1.1; axe's scrollable-region-focusable, editor dogfood 1).
+  check(await page.evaluate(() => document.querySelector("#prompting-progress").tabIndex === 0), "the keys reach the progress, which scrolls");
   page.off("dialog", accepting);
   const askedFirst = [];
   const declining = (d) => (askedFirst.push(d.message()), d.dismiss());
@@ -495,6 +501,21 @@ try {
   check(coherence.startsWith("—"), `coherence by words, unscored: ${coherence}`);
   const marks = await page.locator("#story [data-arc] [data-slide]").count();
   check(marks === 5, `a mark on the arc for each slide: ${marks}`);
+  // The arc's beats as bands under it, each slide in the band of the beat it was written for, and
+  // the tone each declares a line beside the intensity (lift-up ATTR-4).
+  const graph = await page.evaluate(() => {
+    const h = window.scaena.story.health();
+    const bands = [...document.querySelectorAll("#story [data-arc] .beat")].map((g) => ({ part: Number(g.dataset.part), name: g.querySelector("title")?.textContent }));
+    const parts = h.slides.map((s) => s.part);
+    const runs = parts.filter((p, i) => p !== undefined && p !== parts[i - 1]);
+    const tone = document.querySelector("#story [data-arc] .tone")?.getAttribute("points")?.trim().split(/\s+/).length ?? 0;
+    return { bands, runs, beats: h.beats, tone, toned: h.slides.filter((s) => s.tone !== undefined).length };
+  });
+  check(
+    graph.bands.length > 0 && graph.bands.map((b) => b.part).join() === graph.runs.join() && graph.bands.every((b) => b.name === graph.beats[b.part]),
+    `a band for each run of slides in one of the arc's beats, named by it: ${JSON.stringify(graph.bands)} for ${graph.runs}`,
+  );
+  check(graph.toned > 0 && graph.tone === graph.toned, `the tone each slide declares, a line: ${graph.tone} points for ${graph.toned}`);
   const said = await page.locator("#story [data-findings] li").allTextContents();
   // Each slide names what its words came from, and its row says so (narrative FUNC-3).
   const cited = await page.evaluate(() => window.scaena.story.health().slides.map((s) => (s.sources ?? []).join()));
@@ -590,6 +611,24 @@ try {
     `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
   );
 
+  // A burst of edits is read once, after it stops, as the Mac's Story panel waits (lift-up
+  // PERF-1). The source is linted 150 ms after it last changed, so typing at a person's pace, a
+  // key every 300 ms, lints each edit; the panel reads the deck once the burst rests. The tab
+  // shown is read at once; the burst is counted once that read is in.
+  await tab(page, "story");
+  await page.waitForTimeout(1500);
+  const reads = await page.evaluate(() => window.scaena.story.reads());
+  const burst = await page.evaluate(() => window.scaena.source());
+  for (let i = 1; i <= 5; i++) {
+    await page.evaluate((s) => window.scaena.type(s), `# a burst of edits, ${i}\n${burst}`);
+    await page.waitForTimeout(300);
+  }
+  await page.waitForTimeout(1500);
+  const burstReads = (await page.evaluate(() => window.scaena.story.reads())) - reads;
+  check(burstReads === 1, `a burst of five edits a key every 300 ms is read once: ${burstReads}`);
+  await page.evaluate((s) => window.scaena.type(s), burst);
+  await page.waitForFunction((w) => window.scaena.source() === w, burst, { timeout: 30000 }).catch(() => {});
+
   // An icon set that cannot be fetched loses none of the slides paid for: they are set without
   // icons, which the progress says in a line (lift-up 10-25 STAB-3).
   state.slides = ICONED;
@@ -650,6 +689,28 @@ try {
   check(!dashed.includes("alt:Acorn") && !dashed.includes("alt:Lightning"), "the dashed list keeps its words, under no icon");
   state.slides = undefined;
 
+  // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
+  // write the slides without one, on the arc already chosen, which makes the deck.
+  state.unreadable = true;
+  await opened();
+  await page.check("#prompting-show-outline");
+  const unreadFrom = requests.length;
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-unread:not([hidden])", { timeout: 120000 }).catch(() => {});
+  const unreadSaid = (await page.textContent("#prompting-unread-why")) ?? "";
+  check(unreadSaid.includes("asked twice") && !unreadSaid.includes("asked 2 times") && unreadSaid.includes("Problem–Solution"), `the dialog says why, the count once, and the arc kept: ${unreadSaid}`);
+  const since = requests.slice(unreadFrom);
+  check(since.filter((r) => r.asked === "outline").length === 2 && since.filter((r) => r.asked === "arc").length === 1, `the outline was asked twice, the arc once: ${since.map((r) => r.asked)}`);
+  check(await page.isHidden("#prompting-outline"), "no outline is shown to settle");
+  const unoutlinedWas = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-without");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unoutlinedWas, { timeout: 180000 })
+    .catch(() => {});
+  const unoutlined = requests.slice(unreadFrom).find((r) => r.asked === "slides")?.prompt ?? "";
+  check(unoutlined.includes("**Narrative Framework**: Problem–Solution") && !unoutlined.includes("**Outline (Scaena)**"), "the slides are written without an outline, on the arc chosen");
+  check((await page.evaluate(() => window.scaena.source())) !== unoutlinedWas, "and the deck is made");
+  state.unreadable = false;
   // The brief's other controls, as `scaena generate` takes them (lift-up FUNC-5): a persona chosen
   // for an audience in the person's own words, pictures made with high care, and the slides not
   // shown to the model.

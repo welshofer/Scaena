@@ -120,8 +120,9 @@ private func anthropic(_ text: String) -> Data {
     #expect(film.allSatisfy { $0.jpeg.starts(with: [0xFF, 0xD8, 0xFF]) })
     // Built and drawn, then drawn again as the model's look changed it; fitted where a text ran on.
     let slow = away.steps.map(\.step)
-    #expect(Array(slow.prefix(2)) == ["make", "looked"], "the slow steps: \(slow)")
-    #expect(Set(slow).isSubset(of: ["make", "looked", "fitted"]), "the slow steps: \(slow)")
+    // The next round drawn while the one asked is out (lift-up 10-25 PERF-5).
+    #expect(Array(slow.prefix(3)) == ["make", "drawAhead", "looked"], "the slow steps: \(slow)")
+    #expect(Set(slow).isSubset(of: ["make", "drawAhead", "looked", "fitted"]), "the slow steps: \(slow)")
     #expect(away.steps.allSatisfy { !$0.main }, "a slow step was made on the main thread: \(away.steps)")
     // On a stack that holds a deck being built: a dispatch queue's 512 KB worker overflows it.
     #expect(away.steps.allSatisfy { $0.stack >= Generator.stack }, "a slow step's stack: \(away.steps)")
@@ -231,6 +232,45 @@ private func anthropic(_ text: String) -> Data {
     #expect(!(direct2[1].body ?? "").contains("**Outline (Scaena)**"))
 }
 
+/// An outline that does not read (lift-up REL-3): asked once more at once, then shown as unread,
+/// and passed over, the slides written without one on the arc chosen, and the deck made.
+@MainActor
+@Test func anUnreadableOutlineIsAskedAgainThenPassedOver() async throws {
+    let arc = try Data(contentsOf: answers.appending(path: "anthropic-arc.json"))
+    let slides = try Data(contentsOf: answers.appending(path: "anthropic-slides.json"))
+    let asked = Asked()
+    let generator = Generator { request in
+        await asked.add(request)
+        let body = request.body ?? ""
+        if body.contains("=== CATALOG ===") { return GeneratorReply(status: 200, body: arc) }
+        if body.contains("planning a presentation before its slides") {
+            return GeneratorReply(status: 200, body: anthropic("I would be glad to outline this talk."))
+        }
+        if body.contains("runs past its place") { return GeneratorReply(status: 200, body: anthropic(#"{"texts": []}"#)) }
+        return GeneratorReply(status: 200, body: slides)
+    }
+    var heard: [GeneratingStep] = []
+    var shown: [Outlined] = []
+    let (_, made) = try await generator.generate(
+        brief: Brief(topic: "Carbon-negative cargo is ready to scale", audience: "Investors"),
+        provider: .anthropic, model: "a-model", key: "sk-writer", theme: "dusk", look: false,
+        outline: { outlined in
+            shown.append(outlined)
+            return .withoutOutline
+        }
+    ) { heard.append($0) }
+    #expect(shown.count == 1, "shown once, when it stands unread")
+    #expect(shown.first?.unread?.hasSuffix("(asked 2 times)") == true, "\(shown)")
+    #expect(shown.first?.arc == "Problem–Solution")
+    #expect(heard.contains(.unoutlined))
+    #expect(!heard.contains(where: { if case .outlined = $0 { true } else { false } }))
+    #expect(made.created.created)
+    let requests = await asked.requests.filter { $0.url.hasSuffix("/v1/messages") }
+    #expect(requests.count == 4, "the arc, the outline twice, then the slides")
+    #expect(requests[1].body == requests[2].body, "the same outline asked once more")
+    #expect(!(requests[3].body ?? "").contains("**Outline (Scaena)**"))
+}
+
 /// A provider that refuses says why in a person's words, as the pictures do (lift-up USE-3), its
 /// own words left to the log, and no deck is made.
 @MainActor
@@ -328,19 +368,55 @@ private func anthropic(_ text: String) -> Data {
 
 /// What a brief may ask is Narrato's: its goals, lengths, arcs, and defaults.
 /// A source's host is held to where it resolves, not its name alone (lift-up 10-24b SEC-3): an
-/// address on this machine or its network is refused however a name reaches it.
+/// address on this machine or its network is refused however a name reaches it, and a host that
+/// does not resolve is refused too, never let by.
 @Test func aSourceIsHeldToWhereItsHostResolves() {
     for host in [
         "localhost", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0",
-        "::1", "[::1]", "fd00::1", "::ffff:127.0.0.1",
+        "198.18.0.1", "240.0.0.1", "::1", "[::1]", "fd00::1", "fe80::1", "::ffff:127.0.0.1", "::127.0.0.1",
+        "64:ff9b::a00:1", "nowhere.invalid", "",
     ] {
         #expect(!GeneratorReply.resolvesPublic(host), "\(host)")
     }
     // Public addresses, written as such, so no network is asked.
-    for host in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"] {
+    for host in ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111", "64:ff9b::808:808"] {
         #expect(GeneratorReply.resolvesPublic(host), "\(host)")
     }
     #expect(GeneratorReply.reached(v4: [172, 32, 0, 1]) && !GeneratorReply.reached(v4: [172, 31, 255, 255]))
+}
+
+/// The address a request connected to is held as the CLI holds one (lift-up 10-24b SEC-3,
+/// `scaena_sources::fetch::reached`), as a task's metrics write it: an IPv6 address that carries
+/// an IPv4 one is that one, however it carries it, and every range this machine, its network, or
+/// no one reaches is refused; so is what reads as no address.
+@Test func anAddressConnectedToIsHeldToThePublicInternet() {
+    for refused in [
+        // IPv4: this network, private, loopback, link-local, shared, the IETF's, a benchmark's,
+        // documentation's, multicast, reserved, and the broadcast address.
+        "0.1.2.3", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.0.1", "127.0.0.1", "127.255.255.254",
+        "169.254.169.254", "100.64.0.1", "100.127.255.255", "192.0.0.8", "198.18.0.1", "198.19.255.255",
+        "192.0.2.1", "198.51.100.1", "203.0.113.1", "224.0.0.1", "239.255.255.250", "240.0.0.1",
+        "255.255.255.255",
+        // IPv6: unspecified, loopback, an IPv4 address mapped, compatible, behind NAT64's prefix, or
+        // 6to4's; NAT64's local prefix, unique local, link-local (with its zone too), site-local,
+        // multicast, and documentation's.
+        "::", "::1", "[::1]", "::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:7f00:1", "::127.0.0.1", "::10.0.0.1",
+        "64:ff9b::127.0.0.1", "64:ff9b::a00:1", "64:ff9b::c0a8:101", "64:ff9b:1::808:808", "2002:7f00:1::1",
+        "2002:a9fe:a9fe::1", "fc00::1", "fd12:3456::1", "fe80::1", "fe80::1%en0", "[fe80::1%25en0]", "febf::1",
+        "fec0::1", "ff02::1", "ff05::1:3", "2001:db8::1",
+        // No address at all.
+        "", "example.com", "1.2.3", "1.2.3.4.5", "::ffff:1.2.3", "12345::1",
+    ] {
+        #expect(!GeneratorReply.reached(address: refused), "\(refused)")
+    }
+    for reached in [
+        "1.1.1.1", "8.8.8.8", "93.184.215.14", "100.63.255.255", "100.128.0.1", "172.32.0.1", "198.17.255.255",
+        "198.20.0.1", "223.255.255.255", "2606:4700:4700::1111", "[2606:4700:4700::1111]", "::ffff:8.8.8.8",
+        "64:ff9b::808:808", "2002:808:808::1", "2a00:1450:4001:80b::200e",
+    ] {
+        #expect(GeneratorReply.reached(address: reached), "\(reached)")
+    }
+    #expect(!GeneratorReply.reached(v4: [1, 2, 3]) && !GeneratorReply.reached(v6: [UInt8](repeating: 0x20, count: 15)))
 }
 
 /// A redirect is followed only to a public https address by name: a page a source names cannot
@@ -403,6 +479,64 @@ private final class Endless: URLProtocol {
     Endless.chunks = 8
     let whole = await GeneratorReply.made(request, by: session)
     #expect(whole.status == 200 && whole.body.count == 8 << 16)
+}
+
+/// What was made says where the deck sends its audience, each address with its slide, as the
+/// browser's line and `scaena generate` say it (lift-up 20261025 SEC-4).
+@Test func whatWasMadeSaysWhereTheDeckLinks() throws {
+    let json = #"""
+        {"created": {"created": true, "errors": 0}, "arc": "Hero's Journey", "layouts": ["title", "closing"],
+         "links": [{"slide": 2, "href": "https://portalderpower.org/playbook"},
+                   {"slide": 2, "href": "mailto:team@tidewater.io"}]}
+        """#
+    let made = try JSONDecoder().decode(Generated.self, from: Data(json.utf8))
+    #expect(made.words.hasSuffix(". Linked: portalderpower.org/playbook on slide 2; team@tidewater.io on slide 2"))
+    let none = try JSONDecoder().decode(
+        Generated.self, from: Data(#"{"created": {"created": true, "errors": 0}, "arc": "A", "layouts": []}"#.utf8))
+    #expect(!none.words.contains("Linked"))
+}
+
+/// A server that answers every request with a page of a few bytes, from no address at all: what
+/// a task's metrics say no public internet reached.
+private final class Unplaced: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/html"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("<p>Inside.</p>".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+/// A web source's GET is read only where the address it connected to is one the public internet
+/// reaches (lift-up 10-24b SEC-3), whatever its host resolved to when it was checked, so an answer
+/// rebound after the check reads nothing from this machine or its network. One answered from no
+/// such address is let go unread, saying so; the engine's own requests, a provider's or a map's,
+/// are not held to it, and read as they came.
+@Test func aSourceAnsweredFromNoPublicAddressIsLetGo() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [Unplaced.self]
+    let session = URLSession(configuration: configuration)
+    for most in [#","most":1048576"#, ""] {
+        let asked = Data(#"{"method":"GET","url":"https://example.com/page","headers":{}\#(most)}"#.utf8)
+        var request = try JSONDecoder().decode(GeneratorRequest.self, from: asked)
+        #expect(!request.reachesPublic, "the engine's requests come without it")
+        let read = await GeneratorReply.made(request, by: session)
+        #expect(read.status == 200 && read.text == "<p>Inside.</p>", "\(read.text)")
+        request.reachesPublic = true
+        #expect(try request.urlRequest().cachePolicy == .reloadIgnoringLocalCacheData, "never from a cache")
+        let refused = await GeneratorReply.made(request, by: session)
+        #expect(refused.status == 0, "read \(most.isEmpty ? "whole" : "as it arrives")")
+        #expect(
+            refused.text
+                == "https://example.com/page was answered from this machine or its network: a web source is a public address",
+            "\(refused.text)")
+    }
 }
 
 /// How many requests are in flight at once, and the most there were.

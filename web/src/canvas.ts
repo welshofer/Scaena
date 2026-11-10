@@ -77,7 +77,7 @@ import { pointer } from "./theme-panel";
 import * as notes from "./notes";
 import { annotate, askWords, markName, noteName } from "./notes";
 import type { Stage } from "./stage";
-import { covered, paragraphs, type Selected, typing } from "./typing";
+import { covered, paragraphs, type Selected, touched, typing } from "./typing";
 import { an, findings, fractions, inserting as insertSaid, named, object, reaching, sentence, source as sourceSaid } from "./words";
 
 /** `text` as SVG holds it, as text or in a quoted attribute: the words of a slot's prompt (PLAN 3.30), and
@@ -2353,8 +2353,11 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
       const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       const told = done ?? `${op?.node === undefined ? "Placed" : `${Called(op.node)} placed`}: ${placed(op?.at ?? {}, aim?.by, words)}`;
       editor.apply(source, edited, told);
+      const applied = editor.version();
       await refresh();
-      editor.say(told);
+      // An undo, or another edit, made while the canvas caught up is newer: this one's words
+      // are not said over it.
+      if (editor.version() === applied) editor.say(told);
     } catch (e) {
       await still(`Not placed: ${said(e)}`);
     }
@@ -2370,7 +2373,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     try {
       const { source, edited } = await stage.make(editor.source, ops, shown.index, editor.format());
       editor.apply(source, edited, done);
+      const applied = editor.version();
       await refresh();
+      // An undo, or another edit, made while the canvas caught up is newer: what this one would
+      // select is not taken back over it, nor its words said over the undo's, or over a gesture's
+      // after it (Escape on a drag begun meanwhile), and what a caller does next with the change
+      // (words typed in, a stroke joined) does not go on.
+      if (editor.version() !== applied) return false;
       if (Array.isArray(next)) selectAll(next.filter((n) => box(n) !== undefined));
       else if (next !== undefined) select(next ?? undefined);
       editor.say(done);
@@ -2761,6 +2770,70 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
         await change(patch, doing, done, node);
       } catch (e) {
         editor.say(`${not}: ${said(e)}`);
+      }
+    });
+  }
+
+  /** Code text `node`'s lines in focus in the state shown, those `asked` names in its gutter's
+   * numbers, "2–4, 7"; nothing shows every line (PLAN 2.140): Lines in Focus and Clear Focus. One
+   * patch, one step to undo, the states after it as they were. */
+  function focusLines(node: string, asked: string) {
+    if (locks([node], "has its lines in focus set")) return Promise.resolve();
+    return inTurn(async () => {
+      const shown = editor.shown();
+      if (!shown) return editor.say(WAITING);
+      const name = Called(node);
+      const words = asked.trim();
+      try {
+        const patch = await stage.focusing(editor.source(), shown.state, node, words);
+        if (!patch.length) return editor.say(words ? `${name} has lines ${words} in focus already` : `${name} shows every line already`);
+        await change(patch, "Setting the lines in focus…", words ? `${name}: lines ${words} in focus` : `${name}: every line shown`, node);
+      } catch (e) {
+        editor.say(`Lines not set: ${said(e)}`);
+      }
+    });
+  }
+
+  /** Focus on These Lines (PLAN 2.140): code text `node`'s lines in focus, those the caret or the
+   * selection in it touches, or touched as typing in it last stopped in the state shown, as Lines
+   * in Focus sets them. Nothing where it has not been typed in. */
+  async function focusTouched(node: string) {
+    const shown = editor.shown();
+    const now = text.now() ?? (text.last()?.state === shown?.state ? text.last() : undefined);
+    if (!now || now.node !== node || !shown) return editor.say(`Type in ${called(node)} first: the lines the caret is on go in focus`);
+    const c = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+    const from = c?.code?.from ?? 1;
+    const [a, b] = touched(now.value, now.from, now.to).map((k) => k + from);
+    return focusLines(node, a === b ? String(a) : `${a}–${b}`);
+  }
+
+  /** Walk Through Lines… on code text `node` (PLAN 2.140, ADR-0029 decision 6): the lines each step
+   * shows, asked over the text, apart by semicolons and from the whole block to the whole block;
+   * then one patch, the state shown the first and a step after it for each of the rest. */
+  function walk(node: string) {
+    if (locks([node], "is walked through")) return Promise.resolve();
+    return inTurn(async () => {
+      const shown = editor.shown();
+      const found = box(node);
+      if (!shown || !found) return editor.say(WAITING);
+      const name = Called(node);
+      const c = await stage.carets(editor.source(), shown.state, node, editor.format()).catch(() => null);
+      if (!c?.code) return editor.say(`${name} is no code`);
+      const all = `${c.code.from}–${c.code.from + paragraphs(c.text).length - 1}`;
+      const [x, y, w] = found.rect;
+      const top = onScreen([x + w / 2, y]);
+      const r = overlay.getBoundingClientRect();
+      const words = await askWords([top[0], Math.max(top[1], r.top + 32)], `${all}; ${all}`, `The lines each step of ${called(node)} shows`, {
+        caption: `Each step's lines, apart by semicolons: ${all}; 2–4; 7; ${all}`,
+      });
+      const steps = (words ?? "").split(";").map((s) => s.trim());
+      if (words === undefined || !steps.some((s) => s)) return editor.say(`${name} is not walked through`);
+      try {
+        const patch = await stage.walking(editor.source(), shown.state, node, steps);
+        const added = patch.filter((op) => (op as { op?: string }).op === "add_state").length;
+        await change(patch, "Walking through the lines…", `${name} walked through: ${added} ${added === 1 ? "step" : "steps"} added`, node);
+      } catch (e) {
+        editor.say(`Not walked through: ${said(e)}`);
       }
     });
   }
@@ -3987,7 +4060,9 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
   // A press on the desk around the slide selects nothing, as a click off the slide does in a
   // presentation app: the inspector shows the slide's own settings. The canvas takes the focus,
   // so that its keys go on working.
-  overlay.closest<HTMLElement>("#desk")?.addEventListener("pointerdown", (e) => {
+  const desk = overlay.closest<HTMLElement>("#desk");
+  // Until the editor opens another bundle: the desk stays, and the next canvas listens afresh.
+  if (desk) listen(desk, "pointerdown", (e) => {
     const on = e.target as Element;
     if (e.button !== 0 || overlay.contains(on) || on.closest("#marks") || drag || sketch || turning || cropping || reshaping || slotting) return;
     e.preventDefault();
@@ -4498,6 +4573,13 @@ export function canvas(stage: Stage, overlay: HTMLElement, editor: Editor, layer
     /** Draw a text's lines as a diagram in its place (PLAN 2.110). */
     diagram,
     coded,
+    /** A code text's lines in focus, the lines the caret touches, and a walkthrough (PLAN 2.140). */
+    focusLines,
+    focusTouched,
+    /** Whether code text `node` is typed in, or was last, in the state shown: what Focus on These
+     * Lines reads. */
+    caretIn: (node: string) => text.node() === node || (text.last()?.node === node && text.last()?.state === editor.shown()?.state),
+    walk,
     /** Pick the focal point of the image selected with the next press on it, as the inspector's
      * Pick does; and a file dropped on the canvas: a picture on an image, put in its place (PLAN
      * 2.45), else inserted there, and data attached as a source with a chart of it there. */

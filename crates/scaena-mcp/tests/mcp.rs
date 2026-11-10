@@ -367,11 +367,20 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let titles: Vec<&str> = health["slides"].as_array().unwrap().iter().filter_map(|s| s["title"].as_str()).collect();
     assert_eq!(titles, ["Q3 in review.", "Revenue doubled."], "{health:#}");
     assert!(health["coherence"]["score"].is_null() && health["score"].as_u64().is_some(), "{health:#}");
-    // The icons that ship (PLAN 2.104): found by words, each its path and the view it is drawn on.
-    let icons = ok(&client, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2 })).await;
+    // The icons that ship (PLAN 2.104): found by words, each, with `paths`, its path and the view
+    // it is drawn on.
+    let icons =
+        ok(&client, "icon_find", json!({ "query": "rocket", "weight": "fill", "limit": 2, "paths": true })).await;
     assert_eq!(icons["icons"][0]["name"], "rocket", "{icons:#}");
     assert_eq!(icons["icons"][0]["icon"]["view"], json!([0.0, 0.0, 256.0, 256.0]), "{icons:#}");
     assert!(icons["icons"].as_array().unwrap().len() == 2 && icons["found"].as_u64() >= Some(2), "{icons:#}");
+    // Fifty at most, whatever `limit` asks, and the names alone without `paths` (lift-up
+    // 20261025c SEC-3).
+    let every = ok(&client, "icon_find", json!({ "query": "", "limit": 100_000 })).await;
+    let listed = every["icons"].as_array().unwrap();
+    assert_eq!(listed.len(), scaena_ops::icons::MOST, "{}", every["found"]);
+    assert!(every["found"].as_u64() > Some(scaena_ops::icons::MOST as u64));
+    assert!(listed.iter().all(|i| i.get("icon").is_none() && i["name"].is_string()), "{}", listed[0]);
 
     // Found across the deck's words, and replaced where each is written (PLAN 2.47, 2.83): the
     // beat's claim in the spine, and the title in `revenue`'s delta.
@@ -459,7 +468,10 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     // A layout the theme lacks stops it, saying so.
     let lacks = call(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "nowhere" })).await;
     assert_eq!(lacks.is_error, Some(true));
-    assert!(text(&lacks).contains("no layout `nowhere`"), "{}", text(&lacks));
+    assert!(text(&lacks).contains("no layout `nowhere`; the theme's layouts include `"), "{}", text(&lacks));
+    // One near a layout the theme has names it (lift-up 10-25c USE-4).
+    let near = call(&client, "state_start", json!({ "bundle": bundle, "state": "start", "layout": "bulets" })).await;
+    assert!(text(&near).contains("no layout `bulets`; did you mean `bullets`?"), "{}", text(&near));
 
     // The new slide's background: Texture, kept to its slide; then taken away.
     let set = ok(&client, "background_set", json!({ "bundle": bundle, "state": "bullets", "preset": "texture" })).await;
@@ -548,6 +560,55 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&no_arc).contains("no arc of Narrato's"), "{}", text(&no_arc));
+    // Slides written to an outline carry it (lift-up 10-25c FUNC-1): the sections its beats, the
+    // outline kept where health reads its claims, and the whole brief beside it.
+    let outline = json!({ "bigIdea": "Freight can pull carbon out of the air and pay for itself", "beats": [
+        { "name": "The cost", "claim": "Shipping's carbon bill lands on shippers twice", "slides": 20 },
+        { "name": "The lanes", "claim": "Our lanes take more carbon out than they put in", "slides": 20 },
+        { "name": "The ask", "claim": "Eighteen million crosses the Atlantic", "slides": 16 },
+    ] });
+    let mut counted = slides.clone();
+    for (i, slide) in counted["slides"].as_array_mut().unwrap().iter_mut().enumerate() {
+        slide["beatIndex"] = json!((i / 20).min(2));
+    }
+    let outlined_dir = scratch("editors-ops").join("outlined");
+    ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&outlined_dir), "slides": counted, "theme": "ember", "outline": outline,
+                "modality": "keynote", "voice": "Plain and sure", "desiredOutcomes": "A term sheet",
+                "persona": "investors" }),
+    )
+    .await;
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(outlined_dir.join("deck.json")).unwrap()).unwrap();
+    let narrative = &d["meta"]["narrative"];
+    assert_eq!(narrative["outline"]["bigIdea"], outline["bigIdea"], "{narrative:#}");
+    assert_eq!(narrative["outline"]["beats"].as_array().unwrap().len(), 3, "{narrative:#}");
+    assert!(narrative["brief"]["modality"].as_str().unwrap().starts_with("Keynote"), "{narrative:#}");
+    assert_eq!(
+        (narrative["brief"]["voice"].clone(), narrative["brief"]["desiredOutcomes"].clone()),
+        (json!("Plain and sure"), json!("A term sheet")),
+        "{narrative:#}"
+    );
+    let titles: Vec<&str> =
+        d["spine"]["sections"].as_array().unwrap().iter().filter_map(|s| s["title"].as_str()).collect();
+    // A section a divider opens takes the divider's title, as made decks do.
+    assert_eq!(titles, ["The Problem", "The lanes", "The ask"], "{:#}", d["spine"]);
+    let unsaid = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("unsaid")), "slides": slides,
+                "outline": { "bigIdea": "x", "beats": [{ "name": "A", "claim": " " }] } }),
+    )
+    .await;
+    assert!(text(&unsaid).contains("at least one beat with a claim"), "{}", text(&unsaid));
+    let nowhere = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("nowhere")), "slides": slides, "modality": "carrier pigeon" }),
+    )
+    .await;
+    assert!(text(&nowhere).contains("no way a deck is delivered"), "{}", text(&nowhere));
 
     // An agent's deck, written slide by slide (lift-up M1): `deck_create`'s blank slide taken by
     // the first, the spine begun, each slide's beat with its notes and the fields health reads.
@@ -601,6 +662,95 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&unknown).contains("no beat `nowhere`"), "{}", text(&unknown));
+    // A slide in other words than Narrato's is refused, naming what it gave (lift-up 10-25b FUNC-5).
+    let titled = call(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&planned), "slide": { "title": "Tidewater", "intensity": 0.8, "tone": 0.2 } }),
+    )
+    .await;
+    let said = text(&titled);
+    assert!(
+        said.contains("none of `slideTitle`, `keyBullets`, or `layoutSuggestion`") && said.contains("`title`"),
+        "{said}"
+    );
+    // Slides in the names an agent reaches for keep what they declare, by slide_write and by
+    // deck_generate alike (lift-up 10-25b FUNC-5): `intensity` and `tone`, clamped.
+    let natural = |k: usize| {
+        let mut slide = slides["slides"][k].clone();
+        let fields = slide.as_object_mut().unwrap();
+        fields.remove("expectedIntensity");
+        fields.remove("expectedValence");
+        fields.insert("intensity".into(), json!(0.9));
+        fields.insert("tone".into(), json!(-1.5));
+        slide
+    };
+    let told = ok(&client, "slide_write", json!({ "bundle": path(&planned), "slide": natural(2) })).await;
+    let d = read(&planned);
+    let beat = beats(&d).into_iter().find(|b| b["id"] == told["beat"]).unwrap();
+    assert_eq!(
+        (beat["media"]["narrato"]["intensity"].clone(), beat["media"]["narrato"]["valence"].clone()),
+        (json!(0.9), json!(-1.0)),
+        "{beat:#}"
+    );
+    let generated = scratch("editors-ops").join("natural");
+    let all: Vec<Value> = (0..slides["slides"].as_array().unwrap().len()).map(natural).collect();
+    let written = json!({ "executiveSummary": "Tidewater", "slides": all });
+    ok(&client, "deck_generate", json!({ "bundle": path(&generated), "slides": written, "theme": "ember" })).await;
+    for beat in beats(&read(&generated)) {
+        let narrato = &beat["media"]["narrato"];
+        assert_eq!((narrato["intensity"].clone(), narrato["valence"].clone()), (json!(0.9), json!(-1.0)), "{beat:#}");
+    }
+    // A word for a number is refused by both, naming the field (and the slide, of several).
+    let mut worded = natural(2);
+    worded["tone"] = json!("hopeful");
+    let one = call(&client, "slide_write", json!({ "bundle": path(&planned), "slide": worded })).await;
+    assert!(text(&one).contains("`tone` is a number from"), "{}", text(&one));
+    let mut all = written.clone();
+    all["slides"][3] = worded;
+    let many = call(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&scratch("editors-ops").join("worded")), "slides": all, "theme": "ember" }),
+    )
+    .await;
+    assert!(text(&many).contains("slide 4: the slide's `tone` is a number from"), "{}", text(&many));
+    client.cancel().await.unwrap();
+}
+
+/// Slides told in a planned spine's beats out of order stand in the spine's order (lift-up 10-25c
+/// STAB-3): the first beat's, the third's, then the second's between them, and no W426.
+#[tokio::test(flavor = "multi_thread")]
+async fn slides_told_out_of_order_stand_in_the_spines_order() {
+    let root = scratch("spine-order");
+    let client = connect_in(&root).await;
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let dir = root.join("ordered");
+    ok(&client, "deck_create", json!({ "bundle": path(&dir), "theme": "ember", "title": "Tidewater" })).await;
+    let spine = json!({ "sections": [{ "id": "why", "title": "Why now", "beats": [
+        { "id": "stakes", "claim": "Coastal towns lose a season to every storm", "states": [] },
+        { "id": "answer", "claim": "Tidewater keeps the harbor open", "states": [] },
+        { "id": "ask", "claim": "Eighteen million crosses the Atlantic", "states": [] },
+    ] }] });
+    ok(&client, "spine_update", json!({ "bundle": path(&dir), "spine": spine })).await;
+    let mut firsts = std::collections::BTreeMap::new();
+    for (k, beat) in [(0, "stakes"), (1, "ask"), (2, "answer")] {
+        let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slides["slides"][k], "beat": beat }))
+            .await;
+        assert_eq!(w["errors"], json!(0), "{w:#}");
+        firsts.insert(beat, w["slide"][0].as_str().unwrap().to_string());
+    }
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let played: Vec<&str> = (d["states"].as_array().unwrap().iter())
+        .filter(|s| s.get("slide").is_none())
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(played, ["stakes", "answer", "ask"].map(|b| firsts[b].as_str()), "{played:?}");
+    let lint = ok(&client, "deck_lint", json!({ "bundle": path(&dir) })).await;
+    let codes: Vec<&str> = (lint["findings"].as_array().unwrap().iter()).filter_map(|f| f["code"].as_str()).collect();
+    assert!(!codes.contains(&"W426"), "{codes:?}");
     client.cancel().await.unwrap();
 }
 
@@ -748,6 +898,14 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(made.is_error, Some(true));
     assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
     assert!(!here.join("q4").exists());
+    // Nor muxed into a video as its sound (lift-up 20261025b SEC-2).
+    let audio = path(&elsewhere.join("credentials"));
+    let out = path(&here.join("q3.mp4"));
+    let video =
+        call(&client, "deck_export", json!({ "bundle": deck, "format": "mp4", "out": out, "audio": audio })).await;
+    assert_eq!(video.is_error, Some(true));
+    assert!(text(&video).contains("is outside where this server reads"), "{}", text(&video));
+    assert!(!here.join("q3.mp4").exists());
     // Under its folder, nothing hidden: no key, no cloud credentials, no git hook.
     std::fs::create_dir_all(here.join(".ssh")).unwrap();
     std::fs::create_dir_all(here.join(".aws")).unwrap();
@@ -768,6 +926,14 @@ async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
     assert_eq!(made.is_error, Some(true));
     assert!(text(&made).contains("is outside where this server reads"), "{}", text(&made));
     assert!(!here.join("q5").exists());
+    // Nor by a bundle that is itself a folder there in a hidden one: its folder is no root of its
+    // own (lift-up 20261031 SEC-3).
+    std::fs::create_dir_all(here.join(".aws/empty")).unwrap();
+    let inside = path(&here.join(".aws/empty"));
+    let made = call(&client, "deck_create", json!({ "bundle": inside, "theme": "dusk", "data": hidden })).await;
+    assert_eq!(made.is_error, Some(true));
+    assert!(text(&made).contains("in no hidden folder"), "{}", text(&made));
+    assert!(!here.join(".aws/empty/deck.json").exists());
     // And only what the tool writes, by its name: no notes, no shell's start-up file.
     let notes = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": "notes.txt" })).await;
     assert_eq!(notes.is_error, Some(true));

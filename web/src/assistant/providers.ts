@@ -43,11 +43,15 @@ export type Message =
   | { role: "tool"; results: Result[] };
 
 /** One answer of the model: what it said, the tools it calls, and why it stopped. */
+/** The reasons Gemini gives for an answer it withheld, as scaena-narrato reads them. */
+const BLOCKED: unknown[] = ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII"];
+
 export interface Turn {
   text: string;
   calls: Call[];
   /** `tools`: it waits for its calls' results. `end`: its answer is done. `length`: it ran
-   * out of room. */
+   * out of room. `refused`: the model or its provider's safety system declined to answer
+   * (lift-up 20261031 REL-5), as scaena-chat's `Stop::Refused` reads it. */
   stop: "tools" | "end" | "length" | "refused" | "other";
   raw?: unknown;
   /** Tokens in and out, as the provider counts them. */
@@ -99,7 +103,25 @@ async function json(response: Response): Promise<any> {
   return body;
 }
 
-const at = (base: string | undefined, fallback: string, path: string) => `${(base || fallback).replace(/\/+$/, "")}${path}`;
+/** Why `base`, an API address typed beside a key, may not have the key: `https://` and a host, or
+ * `http://` to this machine alone (`localhost`, `127.0.0.1`, `[::1]`), for a proxy on it; else
+ * the key would cross the network in the clear with every call. Nothing where it may, as
+ * `scaena_narrato::providers::checked_base` says (lift-up 20261025 SEC-2). */
+export function refusedBase(base: string): string | undefined {
+  const said = `${base.trim()}: an API address takes https://, or http:// to this machine (localhost, 127.0.0.1), so the key never crosses the network in the clear`;
+  const match = /^(https?):\/\/([^/?#]*)/i.exec(base.trim());
+  if (!match) return said;
+  const [, scheme, host] = match;
+  if (scheme.toLowerCase() === "https") return host && !host.includes("@") ? undefined : said;
+  const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d*)?$/i.test(host);
+  return local ? undefined : said;
+}
+
+/** `path` at `base`, the provider's own `fallback` where none is given. An address
+ * [`refusedBase`] refuses is never asked: the settings refuse it as it is typed, and this is the
+ * last guard, asking the provider's own instead. */
+const at = (base: string | undefined, fallback: string, path: string) =>
+  `${(base && !refusedBase(base) ? base : fallback).replace(/\/+$/, "")}${path}`;
 
 /** `schema` with every `$ref` to its `$defs` written in place, and no `$schema`: what each
  * provider takes, whatever it makes of references. */
@@ -211,7 +233,6 @@ export const anthropic: Provider = {
     const answered = await answer("anthropic", response, ask.onText, ask.onChunk);
     const content = (answered.content ?? []) as { type: string; text?: string; id?: string; name?: string; input?: unknown }[];
     const reason = answered.stop_reason;
-    // A refusal is said as one (lift-up 20261025c REL-1), as scaena-chat's adapters say it.
     const stop = reason === "tool_use" ? "tools" : reason === "end_turn" ? "end" : reason === "max_tokens" ? "length" : reason === "refusal" ? "refused" : "other";
     return {
       text: content.flatMap((c) => (c.type === "text" && c.text ? [c.text] : [])).join("\n\n"),
@@ -264,7 +285,9 @@ export const openai: Provider = {
           }),
         });
       } else {
-        for (const r of m.results) messages.push({ role: "tool", tool_call_id: r.id, content: r.json });
+        // A call that failed says so, as Gemini's `error` and Anthropic's `is_error` do: a refused
+        // patch never reads as done (lift-up 20261025c STAB-5).
+        for (const r of m.results) messages.push({ role: "tool", tool_call_id: r.id, content: r.error ? JSON.stringify({ error: parsed(r.json) }) : r.json });
         // A tool's message holds text alone: the frames it drew follow as the user's.
         const frames = m.results.filter((r) => r.png);
         if (frames.length)
@@ -307,16 +330,9 @@ export const openai: Provider = {
       text: typeof message.content === "string" ? message.content : "",
       calls,
       // An answer that ran out of room says so, its calls or not: the last may be cut off (REL-1).
+      // Declined, by the model or the content filter: its calls are not what it meant.
       stop:
-        reason === "length"
-          ? "length"
-          : reason === "content_filter" || (typeof message.refusal === "string" && message.refusal)
-            ? "refused"
-            : calls.length
-              ? "tools"
-              : reason === "stop"
-                ? "end"
-                : "other",
+        reason === "length" ? "length" : reason === "content_filter" || typeof message.refusal === "string" ? "refused" : calls.length ? "tools" : reason === "stop" ? "end" : "other",
       usage: answered.usage && { input: answered.usage.prompt_tokens ?? 0, output: answered.usage.completion_tokens ?? 0 },
     };
   },
@@ -324,10 +340,6 @@ export const openai: Provider = {
 
 /** A call's arguments, which OpenAI sends as text: what they say, or the text itself, which
  * the tool then refuses as arguments that are not an object. */
-/** Gemini's reasons for an answer it blocked, which a person hears as a refusal, as scaena-chat's
- * `GEMINI_REFUSED` (lift-up 20261025c REL-1). */
-const GEMINI_REFUSED = ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII"];
-
 function parsed(text: string): unknown {
   try {
     return text ? JSON.parse(text) : {};
@@ -402,7 +414,7 @@ export const gemini: Provider = {
       stop:
         reason === "MAX_TOKENS"
           ? "length"
-          : GEMINI_REFUSED.includes(reason) || answered.promptFeedback?.blockReason
+          : answered.promptFeedback?.blockReason || BLOCKED.includes(reason)
             ? "refused"
             : calls.length
               ? "tools"

@@ -21,7 +21,7 @@
 //
 // `?bundle=` is a bundle's directory or its deck file (by default the bundle the build names,
 // the site's demo deck (PLAN 2.7), or else the revenue example), `opfs:NAME` for one the
-// browser keeps, or `folder:NAME` for a folder opened before; `?painter=` chooses who paints,
+// browser keeps, or `folder:KEY` for a folder opened before, by the key it is kept under; `?painter=` chooses who paints,
 // as in the player. Play opens the player on the bundle as it was last saved.
 //
 // On a page `scaena serve` serves (`?serve`, PLAN 2.11), the bundle is a folder on disk, which a
@@ -53,7 +53,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { themes } from "@scaena/themes";
-import { familySections } from "./theme-families";
+import { themeGallery } from "./theme-gallery";
 import { panel } from "./assistant/panel";
 import { TOOLS, writer } from "./writing";
 import { load } from "./assistant/keys";
@@ -114,6 +114,7 @@ import { type Selected, typingKeys } from "./typing";
 import { themePanel } from "./theme-panel";
 import { versionsPanel } from "./versions";
 import { offline } from "./offline";
+import { encodes, UNENCODED } from "./movie";
 
 const params = new URLSearchParams(location.search);
 const painter = (params.get("painter") ?? "auto") as Painter;
@@ -206,19 +207,71 @@ function renamedIn(source: string, renamed: [string, string][]): string {
   return renamed.reduce((text, [from, to]) => text.split(JSON.stringify(from)).join(JSON.stringify(to)), source);
 }
 
-/** Folders the editor was given, kept by name across reloads: a File System Access handle
- * keeps in IndexedDB, and asks again for leave to write. */
+/** Folders the editor was given, kept across reloads: a File System Access handle keeps in
+ * IndexedDB, and asks again for leave to write. Each is kept under a key of its own, never its
+ * name, which another folder may share (lift-up 20261031 REL-2); one kept by its name before
+ * still opens by it. The database is closed once each call's transaction ends. */
 function folders<T>(mode: IDBTransactionMode, act: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
-    const db = indexedDB.open("scaena", 1);
-    db.onupgradeneeded = () => db.result.createObjectStore("folders");
+    // Version 2 keeps each folder as `{ handle, name }`, found by its name without reading any
+    // handle back; version 1 kept the bare handle under its name, which still opens.
+    const db = indexedDB.open("scaena", 2);
+    db.onupgradeneeded = () => {
+      const store = db.result.objectStoreNames.contains("folders") ? db.transaction!.objectStore("folders") : db.result.createObjectStore("folders");
+      if (!store.indexNames.contains("name")) store.createIndex("name", "name");
+    };
     db.onerror = () => reject(db.error);
     db.onsuccess = () => {
-      const request = act(db.result.transaction("folders", mode).objectStore("folders"));
+      const tx = db.result.transaction("folders", mode);
+      const close = () => db.result.close();
+      tx.oncomplete = close;
+      tx.onabort = close;
+      tx.onerror = close;
+      const request = act(tx.objectStore("folders"));
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     };
   });
+}
+
+/** A folder as the store keeps it: its handle and its name, or, kept before, the bare handle. */
+type KeptFolder = { handle: FileSystemDirectoryHandle; name: string } | FileSystemDirectoryHandle;
+const handleOf = (kept: KeptFolder | undefined) => (kept && "handle" in kept ? kept.handle : kept);
+
+/** Each folder's key in the store, as it was kept or found there. */
+const folderKeys = new WeakMap<FileSystemDirectoryHandle, string>();
+/** The folders this page kept or found, by their keys: a folder opened again by another handle
+ * is told by them first, and none is read back from the store again. */
+const foldersHere = new Map<string, FileSystemDirectoryHandle>();
+
+/** Whether `a` and `b` are one folder. */
+const same = (a: FileSystemDirectoryHandle, b: FileSystemDirectoryHandle) => a.isSameEntry(b).catch(() => false);
+
+/** Keep `handle` in the store, under the key a handle to the same folder has there, else a new
+ * one: the key, which the page's address and the folder's recovery copy name it by. Only the
+ * folders kept under its name are read back to tell (lift-up 20261031 REL-2). */
+async function keepFolder(handle: FileSystemDirectoryHandle): Promise<string> {
+  let key = folderKeys.get(handle);
+  for (const [k, here] of foldersHere) if (key === undefined && (await same(handle, here))) key = k;
+  if (key === undefined) {
+    const named = await folders<IDBValidKey[]>("readonly", (store) => store.index("name").getAllKeys(handle.name));
+    // A folder kept before by its bare name.
+    if ((await folders<number>("readonly", (store) => store.count(handle.name))) > 0) named.push(handle.name);
+    for (const k of named) {
+      if (typeof k !== "string" || foldersHere.has(k)) continue;
+      const old = handleOf(await folders<KeptFolder | undefined>("readonly", (store) => store.get(k)));
+      if (old && (await same(handle, old))) {
+        key = k;
+        break;
+      }
+    }
+  }
+  key ??= crypto.randomUUID();
+  const kept: KeptFolder = { handle, name: handle.name };
+  await folders("readwrite", (store) => store.put(kept, key));
+  folderKeys.set(handle, key);
+  foldersHere.set(key, handle);
+  return key;
 }
 
 /** The dialog that makes a deck from a prompt, once wired: whether one is being made. */
@@ -234,6 +287,8 @@ let current:
   | {
       close: (lost?: boolean) => Promise<void> | void;
       unsaved: () => boolean;
+      /** Save it where it is kept, or in this browser: whether it was saved. */
+      save: () => Promise<unknown>;
       say: (text: string) => void;
       /** The deck's story read: its score (narrative USE-2). */
       story: () => Promise<number>;
@@ -243,6 +298,32 @@ let current:
       typeTitle: () => Promise<boolean>;
     }
   | undefined;
+
+/** What a person answers when changes not saved would be lost: save them first, go on without
+ * them, or do neither. */
+type Unsaved = "save" | "discard" | "cancel";
+
+/** Ask about changes not saved (lift-up 20261031 ATTR-3), as a presentation app asks: Save, the
+ * one that loses nothing, in focus; `discard` the words of the button that goes on without them,
+ * Don't Save unless said; Cancel, or Escape, doing neither. The dialog says what asks it
+ * (`data-for`): `open`, `disk`, or `play`. */
+function unsavedAsked(kind: "open" | "disk" | "play", said: string, discard = "Don't Save"): Promise<Unsaved> {
+  const dialog = $<HTMLDialogElement>("#unsaved");
+  if (dialog.open) dialog.close("cancel");
+  dialog.dataset.for = kind;
+  dialog.querySelector("[data-said]")!.textContent = said;
+  dialog.querySelector<HTMLButtonElement>('button[value="discard"]')!.textContent = discard;
+  dialog.returnValue = "";
+  return new Promise((answered) => {
+    dialog.addEventListener(
+      "close",
+      () => answered(dialog.returnValue === "save" || dialog.returnValue === "discard" ? dialog.returnValue : "cancel"),
+      { once: true },
+    );
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>('button[value="save"]')!.focus();
+  });
+}
 
 /** A bundle as a person names it when it does not open: its file, its folder, or its name. */
 function namedFor(source: Source): string {
@@ -260,12 +341,20 @@ function namedFor(source: Source): string {
 async function open(source: Source, asked = false) {
   // Changes not saved, lost as the person agreed, asked here or before: no copy keeps them, so none
   // is offered onto another deck that is named alike.
-  const lost = current?.unsaved() ?? false;
-  if (lost && !asked && !confirm("The deck open is not saved. Open another and lose what is not saved?")) return;
+  let lost = current?.unsaved() ?? false;
+  if (lost && !asked) {
+    // Save first, lose what is not saved, or open nothing (lift-up 20261031 ATTR-3).
+    const answer = await unsavedAsked("open", "The deck open has changes not saved. Save them before opening another?");
+    if (answer === "cancel") return;
+    if (answer === "save") {
+      if (!(await current?.save())) return;
+      lost = current?.unsaved() ?? false;
+    }
+  }
   $("#status").textContent = "Opening…";
   let stage: Stage;
   try {
-    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker);
+    stage = await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true);
   } catch (e) {
     const why = `${namedFor(source)} can't be opened: ${said(e)}`;
     if (current) current.say(why);
@@ -281,10 +370,13 @@ async function open(source: Source, asked = false) {
 
 /** The page's address names where the bundle is kept, so a reload opens it there. A served
  * bundle's address names it already. */
-function address(where: Where | undefined) {
+function address(where: Where | undefined, folder?: FileSystemDirectoryHandle) {
   if (!where || where.kind === "serve") return;
+  // A folder by its key in the store, which no other folder of its name shares (REL-2).
+  const key = where.kind === "folder" ? folder && folderKeys.get(folder) : where.name;
+  if (key === undefined) return;
   const url = new URL(location.href);
-  url.searchParams.set("bundle", `${where.kind}:${where.name}`);
+  url.searchParams.set("bundle", `${where.kind}:${key}`);
   window.history.replaceState(null, "", url);
 }
 
@@ -413,7 +505,6 @@ async function controls() {
   folder.onclick = async () => {
     const handle = await window.showDirectoryPicker!({ id: "scaena", mode: "readwrite" }).catch(() => undefined);
     if (!handle) return;
-    await folders("readwrite", (store) => store.put(handle, handle.name));
     await open({ folder: handle }).catch(failed);
   };
   const file = $<HTMLInputElement>("#open-file");
@@ -427,19 +518,9 @@ async function controls() {
   // New (PLAN 2.12): a title and a theme that ships.
   const making = $<HTMLDialogElement>("#making");
   const title = $<HTMLInputElement>("#making-name");
-  const theme = $<HTMLSelectElement>("#making-theme");
-  theme.replaceChildren(...familySections());
-  // The theme chosen, as its title slide drawn at build (PLAN T.0c).
-  const preview = $<HTMLImageElement>("#making-preview");
-  const previewed = () => {
-    const chosen = themes[theme.value];
-    preview.hidden = !chosen;
-    if (!chosen) return;
-    preview.src = chosen.thumbnail;
-    preview.alt = `A title slide in ${theme.value}`;
-  };
-  theme.onchange = previewed;
-  previewed();
+  // The themes that ship, chosen by their title slides drawn at build (PLAN T.0c, lift-up 10-25b
+  // ATTR-1).
+  const theme = themeGallery($("#making-themes"), "making-theme");
   $<HTMLButtonElement>("#new-deck").onclick = () => {
     making.returnValue = "";
     making.showModal();
@@ -482,9 +563,12 @@ async function first(): Promise<Source> {
     const source = sourceOf(bundle, fallback);
     return served && "url" in source ? { ...source, serve: serving } : source;
   }
-  const name = bundle.slice("folder:".length);
-  const handle = await folders<FileSystemDirectoryHandle | undefined>("readonly", (store) => store.get(name));
-  if (!handle) throw new Error(`no folder named ${name} was opened here: open it again`);
+  const key = bundle.slice("folder:".length);
+  const handle = handleOf(await folders<KeptFolder | undefined>("readonly", (store) => store.get(key)));
+  if (!handle) throw new Error("the folder this address names was not opened here: open it again");
+  folderKeys.set(handle, key);
+  foldersHere.set(key, handle);
+  const name = handle.name;
   if ((await handle.queryPermission({ mode: "readwrite" })) === "granted") return { folder: handle };
   const again = $<HTMLButtonElement>("#again");
   again.textContent = `Open the folder ${name} again`;
@@ -525,6 +609,8 @@ const describes = invertedEffects.of((tr) => tr.effects.filter((e) => e.is(descr
 const describing = (words: string) => words.replace(/\s*·\s*⌘Z undoes it$/, "");
 
 async function edit(source: Source, opened?: Stage) {
+  // A folder is kept under its own key, which its address and its recovery copy name (REL-2).
+  if ("folder" in source) await keepFolder(source.folder).catch((e: unknown) => console.warn(`The folder was not kept for next time: ${said(e)}`));
   // The deck of files as it opened, by its digest: what keys its recovery copy.
   const files = "files" in source ? source.files : "recovered" in source ? source.recovered : undefined;
   const openedAs = files?.["deck.json"] ? await sha256(files["deck.json"]) : undefined;
@@ -540,7 +626,7 @@ async function edit(source: Source, opened?: Stage) {
   // The toolbar's icons, its File menu, and its keys (lift-up ATTR-5).
   toolbar($("#toolbar"));
   const play = $<HTMLAnchorElement>("#play");
-  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker));
+  const stage = opened ?? (await Stage.open($<HTMLCanvasElement>("#stage"), source, painter, worker, true));
   stage.onError = failed;
   /** On a served page, the deck's source on disk, where the folder keeps one (PLAN 2.11). */
   const scnOnDisk = "url" in source && source.serve && (await onDisk()).source ? new URL("deck.scn", source.url) : undefined;
@@ -641,6 +727,7 @@ async function edit(source: Source, opened?: Stage) {
    * made deck's or a single file's, is its name and its deck as it opened: another deck of the
    * name, made or opened anew, is offered nothing of this one. */
   const copyKey = () => {
+    if (where?.kind === "folder") return `folder:${(folderHandle && folderKeys.get(folderHandle)) ?? where.name}`;
     if (where) return `${where.kind}:${where.name}`;
     if ("url" in source) return `url:${new URL(source.url, location.href).href}`;
     if ("create" in source) return `new:${source.create.title}`;
@@ -729,7 +816,7 @@ async function edit(source: Source, opened?: Stage) {
     $<HTMLButtonElement>("#save-as").hidden = where?.kind === "serve";
     scheduleCopy();
   };
-  address(where);
+  address(where, folderHandle);
   tell();
   void listKept();
 
@@ -812,6 +899,8 @@ async function edit(source: Source, opened?: Stage) {
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             version++;
+            // A claim the last edit left behind is that source's to restate (lift-up FUNC-2).
+            unoffer();
             clearTimeout(pending);
             // Where each state starts moves with the change until the source is compiled again:
             // the cursor an undo puts back is in the state it was in. The source the worker made
@@ -1025,37 +1114,44 @@ async function edit(source: Source, opened?: Stage) {
   /** The words for the state shown (PLAN 2.99): its objects by what they show, the theme's names
    * said. Asked for each time the state shown is inspected. */
   let lexicon: Lexicon | undefined;
-  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): the status
-   * says so in a person's words and Update, beside it, restates the claim in the slide's words, a
-   * patch by the user, one step to undo. A headline taken away has no words to restate it in. */
+  /** A beat's claim its slide said before an edit and says no more (lift-up FUNC-2): said beside
+   * the status in a person's words, with Update, which restates the claim in the slide's words, a
+   * patch by the user, one step to undo, and Keep, which lets it be. A headline taken away has no
+   * words to restate it in: the offer says to restate it in the Story tab, with OK. The offer is
+   * the source's the edit left, as the Mac's restate bar is: what the status says after it (the
+   * gesture's own words, what lint finds) leaves it standing, and the next change to the source,
+   * an undo among them, takes it away (`unoffer`, from the source's update listener). */
+  const offering = $<HTMLSpanElement>("#offer");
   const restate = $<HTMLButtonElement>("#restate");
-  let restating: { said: string; fix: unknown[] } | undefined;
+  const keepClaim = $<HTMLButtonElement>("#keep-claim");
+  let restating: { fix: unknown[] } | undefined;
   const quoted = (words: string) => `“${words.length > 60 ? `${words.slice(0, 59)}…` : words}”`;
-  /** `kept`: the status the edit's own gesture said goes first, so what it did is still said. */
-  async function restated(before: string, after: string, kept = false) {
+  function unoffer() {
+    restating = undefined;
+    offering.textContent = "";
+    [offering.hidden, restate.hidden, keepClaim.hidden] = [true, true, true];
+  }
+  async function restated(before: string, after: string) {
     const found = await stage.restated(after, before).catch(() => [] as Restated[]);
     const one = found[0];
     if (!one || view.state.doc.toString() !== after) return;
     const slide = slideOf(one.state).replace(/, step \d+$/, "");
-    const offer =
-      one.says !== undefined && one.fix?.length
-        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(one.says)}?`
+    const says = one.fix?.length ? one.says : undefined;
+    offering.textContent =
+      says !== undefined
+        ? `${slide}'s story still says ${quoted(one.claim)}. Update it to ${quoted(says)}?`
         : `${slide}'s story still says ${quoted(one.claim)}, which the slide no longer says: restate it in the Story tab`;
-    const gesture = kept ? status.textContent?.trim() : "";
-    const said = gesture ? `${gesture} · ${offer}` : offer;
-    say(said);
-    restating = one.fix?.length ? { said, fix: one.fix } : undefined;
-    restate.hidden = restating === undefined;
+    restating = says !== undefined && one.fix ? { fix: one.fix } : undefined;
+    keepClaim.textContent = restating ? "Keep" : "OK";
+    keepClaim.title = restating ? "Keep the story's claim for this slide as it is" : "Put this away: the claim stays as it is";
+    [offering.hidden, restate.hidden, keepClaim.hidden] = [false, restating === undefined, false];
   }
-  /** The status says something else: what Update would restate goes with it. */
-  observing(new MutationObserver(() => {
-    if (restating && status.textContent !== restating.said) [restating, restate.hidden] = [undefined, true];
-  })).observe(status, { childList: true, characterData: true, subtree: true });
-  restate.addEventListener("click", async () => {
+  heed(keepClaim, "click", unoffer);
+  heed(restate, "click", async () => {
     const now = showing();
     const ask = restating;
     if (!now || !ask) return;
-    [restating, restate.hidden] = [undefined, true];
+    unoffer();
     try {
       const { source, edited } = await stage.make(() => view.state.doc.toString(), ask.fix, now.index, format());
       made(source, edited, "the story's claim");
@@ -1092,7 +1188,7 @@ async function edit(source: Source, opened?: Stage) {
     const changes = change(before, source);
     const effects = said ? [described.of(describing(said))] : [];
     view.dispatch({ changes, effects, userEvent: "input.canvas", annotations: isolateHistory.of("full") });
-    void restated(before, source, true);
+    void restated(before, source);
   };
   /** The node selected, its look chosen from the theme in the inspector (PLAN 2.33): each choice a
    * patch, as each gesture on the canvas is. */
@@ -1135,6 +1231,7 @@ async function edit(source: Source, opened?: Stage) {
         void load("geoapify").then((kept) => (kept?.key ? board.refreshMap(node, kept.key, how) : say("No Geoapify key is kept: Insert › Map… keeps one"))),
       // The tab a finding's field stands in (lift-up ATTR-4), and the timeline under the canvas.
       reveal: (on) => tab(on === "animate" ? "animate" : "inspector"),
+      focus: (node, said) => board.focusLines(node, said),
       timeline: (show) => {
         if (show !== undefined) hiding("cue", !show);
         return !hidden("cue");
@@ -1447,6 +1544,7 @@ async function edit(source: Source, opened?: Stage) {
   const rehearsing = rehearsal(stage, $("#rehearsing"), $("#rehearsal-notes"), $<HTMLDialogElement>("#rehearsed"), $("#preview"), {
     slots: async () => (showing() || last?.valid ? stage.timeline(format()) : undefined),
     format,
+    at: () => shown,
     notes: (state) => stage.notes(state),
     show: (index) => void show(index),
     keep: async (ops, what) => {
@@ -2185,7 +2283,7 @@ async function edit(source: Source, opened?: Stage) {
     }
     if ("folder" in to) {
       folderHandle = to.folder;
-      await folders("readwrite", (store) => store.put(to.folder, to.folder.name));
+      await keepFolder(to.folder).catch((e: unknown) => console.warn(`The folder was not kept for next time: ${said(e)}`));
     }
     return took(done, sent, files);
   }
@@ -2213,13 +2311,27 @@ async function edit(source: Source, opened?: Stage) {
     }
     savedSource = renamedIn(sent, done.renamed);
     filedSaved = files;
-    void Promise.all([discard(was), discard(copyKey())]).catch(() => {});
-    address(where);
+    // After any copy being kept as the save was asked for, which would else write what was saved
+    // as not saved once this discard ran (lift-up 20261031 REL-3).
+    const now = copyKey();
+    copying = copying
+      .then(() => {
+        copied = new Map();
+        return Promise.all([discard(was), discard(now)]);
+      })
+      .then(() => {})
+      .catch(() => {});
+    address(where, folderHandle);
     tell();
     void listKept();
     // The save recorded the edits since the last: they are versions now.
     void versioning.refresh();
-    const saved = `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
+    // A history that could not be read is said once, by the save that kept it aside (REL-1).
+    const saved = done.again
+      ? `Saved, ${many(done.files, "file")}. Its history could not be read: it is kept aside as ${done.again}, and the history begins again`
+      : done.unrecorded
+        ? `Saved, ${many(done.files, "file")}. ${done.unrecorded}`
+        : `Saved, ${many(done.files, "file")}${done.recorded ? ", and the changes kept in its history" : ""}`;
     say(saved);
     // Kept in this browser: the browser is asked to keep it for good (lift-up 10-24b REL-4), and a
     // refusal is said after whatever the status says by then (what was saved, or what Play said of
@@ -2262,9 +2374,10 @@ async function edit(source: Source, opened?: Stage) {
    * speaker notes left out (lift-up 20261025 SEC-3). Each is made in the worker: nothing is
    * sent anywhere. */
   async function exportAs(
-    as: "png" | "slides" | "pdf" | "html",
+    as: "png" | "slides" | "pdf" | "html" | "movie",
     width?: number,
     notes = false,
+    fps = 30,
   ): Promise<{ file: string; bytes: ArrayBuffer } | undefined> {
     await settled();
     let what: Export;
@@ -2287,6 +2400,15 @@ async function edit(source: Source, opened?: Stage) {
     } else if (as === "pdf") {
       what = { kind: "pdf", notes };
       file = notes ? `${name} - Notes.pdf` : `${name}.pdf`;
+    } else if (as === "movie") {
+      // The deck as it plays (lift-up 20261031 FUNC-2), encoded by the browser's own encoder.
+      if (!encodes()) {
+        say(`Not exported: ${UNENCODED}`);
+        return;
+      }
+      const shownIn = format();
+      what = { kind: "movie", fps, width: width ?? board.size()[0], format: shownIn, name };
+      file = `${name}${shownIn ? ` (${shownIn.replace(/[^\w.-]+/g, "x")})` : ""}.webm`;
     } else {
       const page = await fetch(new URL("standalone.html", document.baseURI)).catch(() => undefined);
       if (!page?.ok) {
@@ -2299,12 +2421,14 @@ async function edit(source: Source, opened?: Stage) {
     say(`Exporting ${file}…`);
     let bytes: ArrayBuffer;
     try {
-      bytes = await stage.export(view.state.doc.toString(), what);
+      // A movie is painted frame by frame: how far it has come is said as it goes.
+      const progress = as === "movie" ? (done: number, of: number) => say(`Exporting ${file}… ${Math.floor((100 * done) / Math.max(of, 1))}%`) : undefined;
+      bytes = await stage.export(view.state.doc.toString(), what, progress);
     } catch (e) {
       say(`Not exported: ${said(e)}`);
       return;
     }
-    const type = { png: "image/png", slides: "application/zip", pdf: "application/pdf", html: "text/html" }[as];
+    const type = { png: "image/png", slides: "application/zip", pdf: "application/pdf", html: "text/html", movie: "video/webm" }[as];
     const url = URL.createObjectURL(new Blob([bytes], { type }));
     Object.assign(document.createElement("a"), { href: url, download: file }).click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -2584,6 +2708,17 @@ async function edit(source: Source, opened?: Stage) {
       { label: "Make Code", group: "Type", where: ["node"], applies: () => prose(), run: () => board.coded(picked()[0], "code") },
       { label: "Not Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "prose") },
       { label: "Tidy Code", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.coded(picked()[0], "tidy") },
+      // A walkthrough (PLAN 2.140): the lines a step is about, the rest set back, each one patch
+      // that leaves the states after it as they were.
+      {
+        label: "Focus on These Lines",
+        group: "Type",
+        where: ["node"],
+        applies: () => isCode() && board.caretIn(picked()[0]),
+        run: () => board.focusTouched(picked()[0]),
+      },
+      { label: "Clear Focus", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.focusLines(picked()[0], "") },
+      { label: "Walk Through Lines…", group: "Type", where: ["node"], applies: () => isCode(), run: () => board.walk(picked()[0]) },
       // A text's words, by the model the assistant uses, offered to take or leave (PLAN 2.101).
       ...(["proofread", "tighten", "rewrite"] as const).map(
         (kind): Command => ({
@@ -2822,6 +2957,7 @@ async function edit(source: Source, opened?: Stage) {
         run: () => exportAs("pdf", undefined, true).catch(failed),
       },
       { label: "Export the deck as one HTML file", applies: () => last?.valid === true, run: () => exportAs("html").catch(failed) },
+      { label: "Export the deck as a movie…", applies: () => last?.valid === true, run: () => openExport("movie") },
       { label: "Play", applies: () => !play.hidden, run: () => play.click() },
       { label: "New deck…", run: () => $("#new-deck").click() },
       { label: "New deck from a prompt…", run: () => $("#new-prompt").click() },
@@ -2939,9 +3075,13 @@ async function edit(source: Source, opened?: Stage) {
       if (!dirty()) return void take(paths).catch(failed);
       again.textContent = "Changed on disk: take it";
       again.hidden = false;
-      again.onclick = () => {
-        if (confirm("Take the deck as it is on disk, and lose the changes here not saved?")) void take(["deck.json"]).catch(failed);
-      };
+      // Keep the changes here, saved over the deck on disk; take the deck on disk, losing them; or
+      // neither, asked in the editor's own words (lift-up 20261031 ATTR-3).
+      again.onclick = () =>
+        void unsavedAsked("disk", "The deck changed on disk. Save the changes made here over it, or take it as it is on disk and lose them?", "Take It from Disk").then((answer) => {
+          if (answer === "save") void save().catch(failed);
+          else if (answer === "discard") void take(["deck.json"]).catch(failed);
+        });
     };
     hearing = listen({ changed, broke: () => scnOnDisk && changed(["deck.scn"]) });
   }
@@ -2978,14 +3118,20 @@ async function edit(source: Source, opened?: Stage) {
   const exportWidth = $<HTMLInputElement>("#exporting-width");
   const exportNote = $("#exporting-note");
   const withNotes = $<HTMLInputElement>("#exporting-with-notes");
-  type ExportAs = "png" | "slides" | "pdf" | "html";
+  const exportFps = $<HTMLSelectElement>("#exporting-fps");
+  type ExportAs = "png" | "slides" | "pdf" | "html" | "movie";
   const chosenExport = () => exporting.querySelector<HTMLInputElement>("input[name=as]:checked")!.value as ExportAs;
   /** What the export chosen makes, said under the choices. */
   const noteExport = () => {
     const as = chosenExport();
-    const sized = as === "png" || as === "slides";
+    const sized = as === "png" || as === "slides" || as === "movie";
     $("#exporting-size").hidden = !sized;
     exportWidth.disabled = !sized;
+    $("#exporting-rate").hidden = as !== "movie";
+    exportFps.disabled = as !== "movie";
+    // A browser with no encoder makes no movie, and says so before it is asked (lift-up 20261031
+    // FUNC-2).
+    $<HTMLButtonElement>("#exporting-go").disabled = as === "movie" && !encodes();
     // A PDF prints the presenter's notes, and a single file keeps them, only where they are asked
     // for: a single file is what a speaker sends the room (lift-up 20261025 SEC-3; Jay's call,
     // 2026-10-25).
@@ -3009,6 +3155,11 @@ async function edit(source: Source, opened?: Stage) {
       pdf: notes
         ? "A page for each slide at its last state, drawn smaller, the notes you read for it under it, notes too long for the page going on to the next: text that copies and searches, tagged for a screen reader."
         : "A page for each slide at its last state: vector paths, text in subset fonts that copies and searches as the deck reads, tagged for a screen reader.",
+      movie: !encodes()
+        ? UNENCODED
+        : whole
+          ? `The deck as it plays: each slide's transition and builds, then its hold, paced by its beats where it has none${format() ? `, in ${format()}` : ""}: ${pixels}, ${exportFps.value} frames a second, VP9 in WebM. Each frame is painted here, which takes a while for a long deck.`
+          : "A width in whole pixels: the height keeps the canvas's aspect.",
       html: `The player and the deck in one file that plays in a browser with no network, its fonts subset to what the deck draws${
         notes
           ? ", with the speaker notes, the sources each beat cites, and what was planned for it, which anyone who opens the file can read"
@@ -3030,15 +3181,18 @@ async function edit(source: Source, opened?: Stage) {
     noteExport();
     exporting.returnValue = "";
     exporting.showModal();
-    (as === "png" || as === "slides" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
+    (as === "png" || as === "slides" || as === "movie" ? exportWidth : $<HTMLButtonElement>("#exporting-go")).focus();
   };
   $<HTMLButtonElement>("#export").onclick = () => openExport();
   exporting.onclose = () => {
     if (exporting.returnValue !== "export") return;
     const as = chosenExport();
-    void exportAs(as, as === "png" || as === "slides" ? Number(exportWidth.value) : undefined, (as === "pdf" || as === "html") && withNotes.checked).catch(
-      failed,
-    );
+    void exportAs(
+      as,
+      as === "png" || as === "slides" || as === "movie" ? Number(exportWidth.value) : undefined,
+      (as === "pdf" || as === "html") && withNotes.checked,
+      Number(exportFps.value),
+    ).catch(failed);
   };
   onkeydown = (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
@@ -3111,6 +3265,8 @@ async function edit(source: Source, opened?: Stage) {
   current = {
     close: (lost) => {
       clearTimeout(pending);
+      // A rehearsal running stops with its deck, saying nothing of it (lift-up 20261031 STAB-5).
+      rehearsing.stop(true);
       let gone: Promise<void> | undefined;
       if (lost) {
         clearTimeout(copyTimer);
@@ -3127,6 +3283,7 @@ async function edit(source: Source, opened?: Stage) {
       return gone;
     },
     unsaved,
+    save: () => save(),
     say,
     story: async () => (await stage.health(view.state.doc.toString())).score,
     models: (provider, key, base) => stage.models(provider, key, base),
@@ -3145,7 +3302,7 @@ async function edit(source: Source, opened?: Stage) {
         void discard(copyKey());
         where = kept;
         name = kept.name;
-        address(where);
+        address(where, folderHandle);
         tell();
       }
     },
@@ -3169,8 +3326,18 @@ async function edit(source: Source, opened?: Stage) {
     play.href = playingFrom();
     const fresh = unkept();
     if (!fresh && !dirty()) return;
-    if (!fresh && !confirm("The deck has changes not saved, which the player would not play. Save it first?")) return;
     e.preventDefault();
+    if (fresh) return playSaved();
+    // Save, or play the deck as last saved, or neither: asked in the editor's own words (lift-up
+    // 20261031 ATTR-3). The player's window opens on the answer, a click of its own.
+    void unsavedAsked("play", "The deck has changes not saved, which the player would not play. Save them first?", "Play as Saved").then((answer) => {
+      if (answer === "save") playSaved();
+      else if (answer === "discard") window.open(playingFrom(), "_blank");
+    });
+  };
+  /** Save the deck, then play it, the player's window opened now and sent to it once it is. */
+  const playSaved = () => {
+    const fresh = unkept();
     const opened = window.open("about:blank", "_blank");
     void save().then(
       (done) => {
@@ -3220,8 +3387,9 @@ async function edit(source: Source, opened?: Stage) {
       saveAs,
       download,
       /** Export (PLAN 2.54): `png` (the state shown, `width` pixels wide), `slides` (every slide so,
-       * in one zip, PLAN 2.122), `pdf`, or `html`, as the Export dialog does; the file's name and
-       * bytes, also downloaded. */
+       * in one zip, PLAN 2.122), `pdf`, `html`, or `movie` (`width` wide, `fps` frames a second,
+       * lift-up 20261031 FUNC-2), as the Export dialog does; the file's name and bytes, also
+       * downloaded. */
       exportAs,
       /** Drop a file named `name` at `at` in the source (the cursor by default). */
       drop: (name: string, bytes: ArrayBuffer, at?: number) => drop([new File([bytes], name)], at ?? view.state.selection.main.head),

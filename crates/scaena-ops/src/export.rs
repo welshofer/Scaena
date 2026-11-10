@@ -61,6 +61,10 @@ pub struct Request {
     /// presenter's own copy. Without it, a single file is the room's, those left out (lift-up
     /// 20261025 SEC-3; Jay's call, 2026-10-25). Only a PDF or a single file.
     pub notes: bool,
+    /// A video's chroma: `444` keeps every pixel's color, a master's (H.264 High 4:4:4, VP9
+    /// profile 1, ProRes 4444). Without it, 4:2:0, and ProRes 4:2:2. Any other value is refused,
+    /// naming it (lift-up 20261031 ATTR-5).
+    pub chroma: Option<String>,
 }
 
 /// What a single-file HTML export does with the presenter's words: each state's and beat's
@@ -228,6 +232,19 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
     }
     if req.audio.is_some() && video.is_none() {
         return Err(OpsError::new("`audio` (--audio) sets a video's sound track: `format` mp4, webm, or prores"));
+    }
+    match req.chroma.as_deref() {
+        None => {}
+        Some(_) if video.is_none() => {
+            return Err(OpsError::new("`chroma` (--chroma) sets a video's chroma: `format` mp4, webm, or prores"));
+        }
+        Some("444") => {}
+        Some(other) => {
+            return Err(OpsError::new(format!(
+                "`chroma` (--chroma) `{other}`: a video's chroma is `444`, a master that keeps every pixel's color; \
+                 without it, 4:2:0 (ProRes 4:2:2)"
+            )));
+        }
     }
     if req.painter == crate::render::Painter::Gpu && video.is_none() {
         return Err(OpsError::new(
@@ -726,6 +743,13 @@ fn images(
     let (ext, svg_format) = if format == Format::Svg { ("svg", true) } else { ("png", false) };
     let (mut files, mut total, mut pixels) = (Vec::new(), 0_u64, [0, 0]);
     let mut painter = CpuPainter::default();
+    // How each state's nodes read, for an SVG's alt texts, as the PDF tags them (lift-up 20261031 FUNC-1).
+    let mut readings: HashMap<String, HashMap<String, scaena_core::reading::Reading>> = HashMap::new();
+    if svg_format {
+        for snap in scaena_core::resolve_states(&b.deck)? {
+            readings.insert(snap.state_id.clone(), scaena_core::reading::readings(&b.deck, &snap));
+        }
+    }
     engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
         let (name, title) = names.get(state).cloned().unwrap_or_else(|| (state.to_string(), state.to_string()));
         let scale = match size {
@@ -733,7 +757,8 @@ fn images(
             None => 1.0,
         };
         let bytes = if svg_format {
-            let settings = SvgSettings { scale, title: Some(title), lang: lang.clone() };
+            let readings = readings.get(state).cloned().unwrap_or_default();
+            let settings = SvgSettings { scale, title: Some(title), lang: lang.clone(), readings };
             pixels = list.viewport.map(|v| (v * scale).round() as u32);
             svg(&list, &assets, &settings).map_err(|e| OpsError::new(format!("{state}: {e}")))?.into_bytes()
         } else {
@@ -965,6 +990,9 @@ fn export_video(
         chapters: chapters.clone(),
         title: b.deck.meta.as_ref().and_then(|m| m.title.clone()),
         comment: b.deck.meta.as_ref().and_then(|m| m.description.clone()),
+        chroma444: req.chroma.as_deref() == Some("444"),
+        // The reel's length, so the sound is cut where its frames end on any ffmpeg.
+        frames: Some(reel.frames),
         ..VideoSettings::default()
     };
     // Each state's cue is laid out once, when its first frame comes; frames only sample it.

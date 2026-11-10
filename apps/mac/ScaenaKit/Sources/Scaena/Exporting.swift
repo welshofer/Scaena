@@ -55,27 +55,37 @@ enum Exporting {
         }
     }
 
+    /// What VoiceOver is told once `kind` is made (lift-up 10-25c USE-1).
+    static func made(_ kind: Kind) -> String {
+        switch kind {
+        case .pdf: "The PDF is made"
+        case .notes: "The PDF with the notes is made"
+        case .png: "The PNG is made"
+        case .slides: "A PNG of every slide is made"
+        }
+    }
+
     /// An export's bytes written into a folder of its own as `name`: what the Share sheet and
     /// Quick Look are given, and which each takes away once it is done (lift-up REL-5).
     static func file(_ data: Data, named name: String) throws -> URL {
         try ExportFolders.write(data, named: name)
     }
 
-    /// The export's file name: the deck's title, and for a PNG its state.
+    /// The export's file name: the deck's title, and for a PNG its slide and step as the window
+    /// says them, "Slide 3, step 2", never the state's id (lift-up 10-25b ATTR-3).
     static func name(_ kind: Kind, of editor: DeckEditor) -> String {
         let safe = title(of: editor)
         switch kind {
         case .pdf: return "\(safe).pdf"
         case .notes: return "\(safe) - Notes.pdf"
-        case .png(let state, _): return "\(safe) – \(state).png"
+        case .png(let state, _): return "\(safe) – \(Words.slide(state, in: editor.slots)).png"
         case .slides: return "\(safe) - Slides.zip"
         }
     }
 
     /// The deck's title, as a file's name may hold it.
     static func title(of editor: DeckEditor) -> String {
-        let read = try? editor.session.tool("deck_read", [:])
-        let title = read?.result["deck"]?["meta"]?["title"]?.string ?? "Deck"
+        let title = (try? editor.session.title()).flatMap { $0 } ?? "Deck"
         return title.components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>")).joined(separator: "-")
     }
 

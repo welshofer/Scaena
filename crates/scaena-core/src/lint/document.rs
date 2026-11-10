@@ -521,7 +521,9 @@ impl Rule for W322Idle {
 
 /// The patch that takes `id` out of the motion at `pointer` in state `i`'s `choreography`: out of
 /// its targets where it has others, else the motion goes, and a sequence or a parallel it leaves
-/// with none goes with it.
+/// with none goes with it. Each removal first tests what it removes is as lint found it, so a fix
+/// applied after another that moved what it points at fails, and `lint --fix` passes it over
+/// rather than taking a neighbour out (lift-up 20261031 STAB-3).
 fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<Value> {
     let base = format!("/states/{i}/choreography");
     let Some(rest) = pointer.strip_prefix(&base) else { return Vec::new() };
@@ -531,7 +533,10 @@ fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<
         && targets.len() > 1
         && let Some(k) = targets.iter().position(|t| t.as_str() == Some(id))
     {
-        return vec![serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") })];
+        return vec![
+            serde_json::json!({ "op": "test", "path": format!("{pointer}/target"), "value": targets }),
+            serde_json::json!({ "op": "remove", "path": format!("{pointer}/target/{k}") }),
+        ];
     }
     let mut steps: Vec<&str> = rest.split('/').skip(1).collect();
     while steps.len() >= 3 {
@@ -542,7 +547,12 @@ fn untargeted(choreography: &[Value], i: usize, pointer: &str, id: &str) -> Vec<
             break;
         }
     }
-    vec![serde_json::json!({ "op": "remove", "path": format!("{base}/{}", steps.join("/")) })]
+    let gone = format!("/{}", steps.join("/"));
+    let Some(was) = root.pointer(&gone) else { return Vec::new() };
+    vec![
+        serde_json::json!({ "op": "test", "path": format!("{base}{gone}"), "value": was }),
+        serde_json::json!({ "op": "remove", "path": format!("{base}{gone}") }),
+    ]
 }
 
 /// Every choreography target in `item`, with its pointer.
@@ -1019,5 +1029,48 @@ mod tests {
             { "text": "M" }
         ] }));
         assert_eq!((words(&text), words(&runs)), (5, 5));
+    }
+
+    /// W322's fixes applied one after another, as `lint --fix` applies them, a fix that fails
+    /// passed over: what is left of the deck's second state's choreography.
+    fn fixed(choreography: Value) -> Value {
+        let mut doc = serde_json::json!({
+            "scaena": crate::FORMAT_VERSION,
+            "canvas": { "width": 1920, "height": 1080 },
+            "nodes": {
+                "a": { "type": "text", "text": "A", "at": { "in": "canvas" } },
+                "b": { "type": "text", "text": "B", "at": { "in": "canvas" } },
+                "c": { "type": "text", "text": "C", "at": { "in": "canvas" } }
+            },
+            "states": [{ "id": "one" }, { "id": "two", "props": { "c": {} }, "choreography": choreography }]
+        });
+        let deck = crate::Deck::from_value(&doc).unwrap();
+        let found: Vec<Finding> =
+            crate::lint::lint_document(&deck, None).into_iter().filter(|f| f.code == "W322").collect();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        for f in found {
+            let mut next = doc.clone();
+            if crate::patch::apply(&mut next, f.fix.as_deref().unwrap_or_default()).is_ok() {
+                doc = next;
+            }
+        }
+        doc["states"][1]["choreography"].clone()
+    }
+
+    /// Two idle targets of one motion, or two idle motions, before one that enters: their fixes
+    /// never take out the motion on `c`, which enters (lift-up 20261031 STAB-3).
+    #[test]
+    fn idle_motions_fixed_together_leave_the_one_that_moves() {
+        let targets = fixed(serde_json::json!([{ "target": ["a", "b", "c"], "enter": "fade" }]));
+        let left = targets[0]["target"].as_array().unwrap();
+        assert!(left.contains(&serde_json::json!("c")) && !left.contains(&serde_json::json!("a")), "{targets}");
+        let items = fixed(serde_json::json!([
+            { "target": "a", "enter": "fade" },
+            { "target": "b", "enter": "fade" },
+            { "target": "c", "enter": "fade" }
+        ]));
+        let items = items.as_array().unwrap();
+        assert!(items.iter().any(|i| i["target"] == "c"), "{items:?}");
+        assert!(!items.iter().any(|i| i["target"] == "a"), "{items:?}");
     }
 }

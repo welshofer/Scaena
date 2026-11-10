@@ -5,7 +5,6 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Args;
-use scaena_narrato::brief::MODALITIES;
 use scaena_narrato::pictures::{self, Look, Quality};
 use scaena_narrato::{Brief, Generation, Outline, Provider, Request, Settings, Step};
 use scaena_ops::create::ThemeSource;
@@ -124,9 +123,14 @@ pub struct GenerateArgs {
     /// taken out, or added), then `--from-outline FILE` writes the slides to it.
     #[arg(long, conflicts_with = "slides")]
     outline: Option<PathBuf>,
+    /// With `--outline`: where the outline twice comes back but does not read, write the slides
+    /// without one, on the arc already chosen, and make the deck, rather than stop.
+    #[arg(long, requires = "outline")]
+    allow_no_outline: bool,
     /// Make the deck from the outline `--outline` wrote, as edited: the slides follow its beats,
-    /// in its order, each carrying its claim.
-    #[arg(long, conflicts_with_all = ["slides", "outline"])]
+    /// in its order, each carrying its claim. With `--slides`, the outline those slides were
+    /// written to, each slide's `beatIndex` counting its beats.
+    #[arg(long, conflicts_with = "outline")]
     from_outline: Option<PathBuf>,
 }
 
@@ -434,13 +438,16 @@ struct Kept {
     json: bool,
     research: Option<PathBuf>,
     slides: Option<PathBuf>,
+    /// The outline the slides are written to, as settled, which a resumed run writes them to again
+    /// (lift-up 10-25c FUNC-1).
+    outline: Option<PathBuf>,
     /// The arc the slides were written on, which a resumed run must take.
     arc: Option<String>,
 }
 
 impl Kept {
     fn new(dir: &Path, json: bool) -> Kept {
-        Kept { dir: dir.join(KEPT), json, research: None, slides: None, arc: None }
+        Kept { dir: dir.join(KEPT), json, research: None, slides: None, outline: None, arc: None }
     }
 
     /// `text` kept as `name`, where the disk takes it: one that refuses only means the run
@@ -464,6 +471,15 @@ impl Kept {
 
     fn slides(&mut self, text: &str) {
         self.slides = self.keep("slides.json", text);
+    }
+
+    /// The outline `generation` settled, with its arc, as `--outline` writes one for
+    /// `--from-outline`.
+    fn outline(&mut self, generation: &Generation) {
+        let Some(outline) = generation.outline() else { return };
+        let arc = generation.arc().map(|a| a.selection.as_str()).unwrap_or_default();
+        let written = serde_json::json!({ "arc": arc, "bigIdea": outline.big_idea, "beats": outline.beats });
+        self.outline = self.keep("outline.json", &format!("{written:#}\n"));
     }
 
     /// The folder taken away, once the deck is made, or on a run that kept nothing.
@@ -498,6 +514,7 @@ impl Kept {
             Some(slides) => {
                 flag(&mut args, "slides", path(Some(slides)).as_deref());
                 flag(&mut args, "arc", self.arc.as_deref().or(a.arc.as_deref()));
+                flag(&mut args, "from-outline", path(self.outline.as_deref()).as_deref());
             }
             None => {
                 flag(&mut args, "provider", a.provider.as_deref());
@@ -602,6 +619,11 @@ fn env(vars: &[&str]) -> Option<String> {
 /// written elsewhere, into a new bundle. Exit 1 when the deck has errors, 2 when what was given
 /// is not what it takes or a call failed.
 pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
+    // An address the key goes to over plain http, off this machine, is refused before any call
+    // (lift-up 20261025 SEC-2).
+    for base in [&a.base, &a.picture_base].into_iter().flatten() {
+        scaena_narrato::providers::checked_base(base).map_err(|e| anyhow!(e))?;
+    }
     let provider = match &a.provider {
         Some(name) => {
             Provider::named(name).ok_or_else(|| anyhow!("`{name}` is no provider: anthropic, openai, or gemini"))?
@@ -679,16 +701,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         bail!("`{name}` is no arc of Narrato's: {}", names.join(", "));
     }
     let modality = match &a.modality {
-        Some(m) => Some(
-            MODALITIES
-                .iter()
-                .find(|(id, label)| id.eq_ignore_ascii_case(m) || label.eq_ignore_ascii_case(m))
-                .map(|(_, label)| label.to_string())
-                .with_context(|| {
-                    let ids: Vec<&str> = MODALITIES.iter().map(|(id, _)| *id).collect();
-                    format!("`{m}` is no way a deck is delivered: {}", ids.join(", "))
-                })?,
-        ),
+        Some(m) => Some(scaena_narrato::brief::modality(m).map_err(|e| anyhow!(e))?),
         None => None,
     };
     let topic = match (&a.prompt, &a.slides) {
@@ -767,6 +780,8 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
     generation.give_sources(scaena_ops::narrative::provenance(&grounding.given));
     match &a.slides {
+        // Slides written to an outline are read once it is settled, on its arc (lift-up 10-25c FUNC-1).
+        Some(_) if a.from_outline.is_some() => {}
         Some(path) => {
             generation.choose_arc(a.arc.as_deref());
             let text = written.as_deref().unwrap_or_default();
@@ -800,14 +815,38 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             eprintln!("outlining…");
         }
         generation.outline_first().map_err(|e| anyhow!(e))?;
-        // Asked again, as the slides are, where the provider is busy (narrative REL-1).
-        while generation.step() == Step::Outline {
+        // Asked again, as the slides are, where the provider is busy (narrative REL-1), and once
+        // more where it comes back but does not read (lift-up REL-3).
+        while generation.step() == Step::Outline && generation.unread().is_none() {
             let request = generation.request(key, &grounding.documents).expect("the outline is asked");
             let reply = fetch(&agent, &request);
             (generation.answer(reply.status, &reply.status_text, &reply.body, reply.after.as_deref()))
                 .map_err(|e| anyhow!("the outline: {e}"))?;
             waited(&generation, json);
         }
+        // Twice unreadable: written without one where the person allowed it, the arc paid for
+        // kept; else stopped, saying the choice (lift-up REL-3).
+        if let Some(why) = generation.unread().map(str::to_string) {
+            if !a.allow_no_outline {
+                bail!(
+                    "the outline did not read: {why}. Write the deck without one, on the arc chosen: scaena generate {} {:?} --arc {:?}, or ask again with --outline {} --allow-no-outline",
+                    dir.display(),
+                    generation.brief().topic,
+                    chosen.selection,
+                    path.display()
+                );
+            }
+            generation.skip_outline().map_err(|e| anyhow!(e))?;
+            if !json {
+                eprintln!("outline: not read ({why}); writing the slides without one");
+            }
+        }
+    }
+    // The outline written, for the person to settle; none where it was passed over.
+    if let Some(path) = &a.outline
+        && generation.outline().is_some()
+    {
+        let chosen = generation.arc().cloned().expect("the arc is chosen");
         let outline = generation.outline().expect("the outline is written");
         let written = serde_json::json!({
             "arc": chosen.selection,
@@ -857,6 +896,11 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         generation.settle(&outline).map_err(|e| anyhow!("{}: {e}", path.display()))?;
         if !json {
             eprintln!("outline: {} beats from {}", outline.beats.len(), path.display());
+        }
+        kept.outline(&generation);
+        if let Some(slides) = &a.slides {
+            let text = written.as_deref().unwrap_or_default();
+            generation.written(text, false).map_err(|e| anyhow!("{}: {e}", slides.display()))?;
         }
     }
     let (painting, unpictured) = match painter(&a, &agent)? {
@@ -963,6 +1007,12 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
             (Some(why), false) => println!("  {why}"),
             (None, _) => {}
         }
+        // Where the deck sends its audience, so nobody is left not knowing it links anywhere
+        // (lift-up 20261025 SEC-4).
+        for l in &made.links {
+            let shown = l.href.trim_start_matches("mailto:").trim_start_matches("https://");
+            println!("  linked: {shown} on slide {}", l.slide);
+        }
         // Each change let go, and what lint found (lift-up USE-4).
         for r in &made.refused {
             println!("  slide {} kept as made: the model asked for {}. {}", r.slide, r.what, r.why);
@@ -993,4 +1043,30 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
     }
     Ok(if !made.created.created || made.created.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        a: GenerateArgs,
+    }
+
+    /// A run that kept slides written to an outline goes on from both (lift-up 10-25c FUNC-1).
+    #[test]
+    fn going_on_from_kept_slides_writes_them_to_the_kept_outline() {
+        let a = Cli::parse_from(["generate", "/d", "Tidewater", "--from-outline", "/mine.json"]).a;
+        let mut kept = Kept::new(Path::new("/d"), true);
+        kept.slides = Some(PathBuf::from("/d/.generating/slides.json"));
+        kept.outline = Some(PathBuf::from("/d/.generating/outline.json"));
+        kept.arc = Some("Problem\u{2013}Solution".into());
+        let resume = kept.resume(&a, Path::new("/d")).unwrap();
+        assert!(resume.contains("--slides /d/.generating/slides.json"), "{resume}");
+        assert!(resume.contains("--from-outline /d/.generating/outline.json"), "{resume}");
+        assert!(!resume.contains("/mine.json"), "{resume}");
+    }
 }
