@@ -52,6 +52,8 @@
 // - At 2560 × 1440 and twice the density (lift-up ATTR-2), the slide fills the room the bar
 //   leaves, and in fullscreen the screen, painted at the size it is shown in device pixels by
 //   WebGPU, and by the CPU painter at the canvas's own size, scaled up.
+// - The engine stopped mid-show (lift-up 20261110 STAB-4) starts again, the state it stopped on
+//   shown again; one that stops it twice stands under a notice that → goes on past it.
 // Exits 1 on any failure.
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -151,6 +153,11 @@ try {
   // Each drawn with an icon of the set that ships, not a character of a font (lift-up 20261031 ATTR-2).
   const drawn = await player.evaluate(() => ["back", "on", "full", "present"].every((id) => document.querySelector(`#${id} > svg path`)?.getAttribute("d")?.startsWith("M")));
   check(drawn && !(await player.evaluate(() => document.querySelector(".loading"))), "its buttons are drawn with the icons that ship, and the spinner has gone once the deck opened");
+  // What the bar holds hidden stays hidden: the bar's own look for its controls is no reason to
+  // show one, "A new version is ready" least of all, which a page with no new version showed
+  // (editor dogfood 1).
+  const unhidden = await player.evaluate(() => [...document.querySelectorAll(".bar [hidden]")].filter((e) => e.checkVisibility()).map((e) => e.id || e.textContent));
+  check(unhidden.length === 0, `nothing the bar holds hidden shows: ${JSON.stringify(unhidden)}`);
   /** Where the slide stands, and the room the bar at the window's foot leaves it: the window's
    * height in fullscreen. */
   const standing = (page) =>
@@ -647,8 +654,11 @@ try {
   check(at.index === slideAt(count), `its Slides button opens it too, and End then Return goes to slide ${count}`);
   // In a format of another shape, 9:16, each slide is drawn in it, never stretched to 16:9 (lift-up
   // 20261031 ATTR-1).
-  await turnTo("9:16");
+  // Opened before the player turns to it: the navigator open as the format turns draws every slide
+  // again in it, as one opened only after the turn is heard does.
   await presenter.keyboard.press("n");
+  await presenter.waitForFunction((n) => window.scaena.navigator()?.drawn === n, count, { timeout: 10000 }).catch(() => {});
+  await turnTo("9:16");
   // Each picture drawn in it, taller than wide (a canvas not yet drawn is 300 × 150).
   await presenter
     .waitForFunction(
@@ -675,7 +685,20 @@ try {
   // L: the laser, pointed from the slide the presenter view shows, drawn on the room's.
   await presenter.keyboard.press("l");
   await player.waitForFunction(() => window.scaena.laser().on, null, { timeout: 5000 }).catch(() => {});
-  const shownBox = await presenter.locator("#stage").boundingBox();
+  // The presenter's slide as it stands now, read until two reads in a row agree: the view may
+  // still be settling its column (the next slide, the beat's words) as the walk gets here, and a
+  // box read before it settles puts the pointer elsewhere on the slide than meant.
+  const stageBox = async () => {
+    let was = await presenter.locator("#stage").boundingBox();
+    for (let i = 0; i < 40; i++) {
+      await presenter.waitForTimeout(50);
+      const now = await presenter.locator("#stage").boundingBox();
+      if (now && was && ["x", "y", "width", "height"].every((k) => Math.abs(now[k] - was[k]) < 0.5)) return now;
+      was = now;
+    }
+    return was;
+  };
+  let shownBox = await stageBox();
   await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4);
   await presenter.mouse.move(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, { steps: 3 });
   // The move's three steps are three points, each its own message: wait for the last.
@@ -692,8 +715,16 @@ try {
   check(centered(mirrored), `and it draws the dot where it points: ${mirrored}`);
   // A black screen takes the dot with the slide, though the presenter's pointer still points over
   // its slide, clear of what it says in the middle, and the slide back brings it back there.
+  const beforeB = await stageBox();
   await presenter.keyboard.press("b");
   await player.waitForFunction(() => window.scaena.blank() === "black", null, { timeout: 5000 }).catch(() => {});
+  shownBox = await stageBox();
+  // B blackens the room and never moves the presenter's own slide under the pointer: what it says
+  // of the room stands over the slide, taking no room beside it.
+  check(
+    ["x", "y", "width", "height"].every((k) => Math.abs(shownBox[k] - beforeB[k]) < 0.5),
+    `B leaves the presenter's slide where it stood: ${JSON.stringify(beforeB)} then ${JSON.stringify(shownBox)}`,
+  );
   await presenter.mouse.move(shownBox.x + shownBox.width / 4, shownBox.y + shownBox.height / 4, { steps: 3 });
   const quarter = (p) => p && Math.abs(p[0] - 0.25) < 0.01 && Math.abs(p[1] - 0.25) < 0.01;
   await player.waitForFunction(() => window.scaena.laser().point?.[0] < 0.3, null, { timeout: 5000 }).catch(() => {});
@@ -1020,6 +1051,38 @@ try {
     .then(() => true, () => false);
   check(blocked, `a presenter view the browser blocks is said: ${await first.textContent("#status")}`);
   await fresh.close();
+
+  // The engine stopped mid-show (lift-up 20261110 STAB-4), as one out of memory stops: the player
+  // starts it again from the deck and shows the state it stopped on, saying so; a state that stops
+  // it again is not drawn again, a notice over the stage saying → goes on past it, which it does.
+  {
+    const page = await context.newPage();
+    const meant = (text) => text.includes("as asked, to test the editor's recovery");
+    page.on("pageerror", (e) => meant(e.message) || failures.push(`crash: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && !meant(m.text()) && failures.push(`crash: console: ${m.text()}`));
+    await page.goto(url(revenue));
+    await page.waitForFunction(() => window.scaena, null, { timeout: 120000 });
+    await page.evaluate(() => window.scaena.seek(2));
+    const stopped = async (n) => {
+      await page.evaluate(() => window.scaena.die());
+      await page.waitForFunction((n) => window.scaena.restarts() === n, n, { timeout: 90000 });
+    };
+    await stopped(1);
+    await page.waitForFunction(() => window.scaena.fault() === null, null, { timeout: 10000 }).catch(() => {});
+    const once = await page.evaluate(() => ({ at: window.scaena.at().index, fault: window.scaena.fault(), status: document.querySelector("#status").textContent }));
+    check(once.at === 2 && once.fault === null, `the engine started again shows the state it stopped on: ${JSON.stringify(once)}`);
+    check(once.status.includes("was started again on this slide"), `the bar says the engine was started again: ${once.status}`);
+    check((await page.locator(".fault").isHidden()), "a slide drawn again shows no notice over it");
+    await stopped(2);
+    const twice = await page.evaluate(() => ({ fault: window.scaena.fault(), words: document.querySelector(".fault")?.textContent ?? "" }));
+    check(twice.fault === 2 && (await page.locator(".fault").isVisible()), `a state that stops the engine again is not drawn again, a notice over it: ${JSON.stringify(twice)}`);
+    check(twice.words.includes("This slide could not be drawn; → goes on past it."), `the notice says → goes on past it: ${twice.words}`);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => window.scaena.at().index === 3 && window.scaena.fault() === null, null, { timeout: 10000 }).catch(() => {});
+    const past = await page.evaluate(() => ({ at: window.scaena.at().index, fault: window.scaena.fault() }));
+    check(past.at === 3 && past.fault === null && (await page.locator(".fault").isHidden()), `→ goes on past it, the notice gone: ${JSON.stringify(past)}`);
+    await page.close();
+  }
 
   // Full sharpness (lift-up ATTR-2): at 2560 × 1440 and twice the density, the slide fills the
   // room the bar leaves, and in fullscreen the screen, and its frames are painted at the size it
