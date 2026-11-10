@@ -8,10 +8,10 @@
 // to GitHub, and nowhere else. A deck in a script the theme's fonts do not draw takes the script's
 // font, fetched from google/fonts at the commit the shipped fonts come from, held to its digest,
 // and kept in the browser's cache for the next deck (PLAN G.22, ADR-0027).
-import { Making, scriptChecked, scriptFor, scriptTaken, writable } from "@scaena/wasm";
+import { Making, scriptChecked, scriptFor, scriptTaken, writable, zipFiles } from "@scaena/wasm";
 import { findIcons, type IconSet, iconSet } from "./icon-set";
 import { atMost } from "./most";
-import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, PictureJob, StoryOutline } from "./protocol";
+import type { Choices, FetchedMap, Generate, Generated, GeneratingEvent, Health, MapAsk, MapPlace, Paid, PictureJob, StoryOutline } from "./protocol";
 import { answered } from "./words";
 
 type Generator = typeof import("@scaena/generator");
@@ -93,6 +93,12 @@ export async function slideBuilt(
 /** The one slide a model's `answer` holds, as Narrato writes a slide. */
 export async function oneAnswered(answer: string): Promise<Record<string, unknown>> {
   return JSON.parse((await generator()).oneAnswered(answer)) as Record<string, unknown>;
+}
+
+/** `files`, a bundle's by their paths, as one `.scaena` zip, as they stand: a deck made that would
+ * not open, to download (lift-up 20261110 REL-1). */
+export function zipped(files: Record<string, ArrayBuffer>): Uint8Array {
+  return zipFiles(new Map(Object.entries(files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
 }
 
 /** What a brief may ask, as Narrato knows it. */
@@ -264,12 +270,15 @@ export type Decision = { settled: StoryOutline } | { arc?: string } | { without:
 /** The deck `job` asks for, made in `given`: the bundle's files by their paths, what it came
  * to, and its title. `hear` hears how far it has come. With `job.outline`, the outline is
  * written first and `settle` shows it to the person, whose decision the slides follow (narrative
- * FUNC-1); without, the slides are written at once. */
+ * FUNC-1); without, the slides are written at once. `keep` hears each part paid for as it
+ * arrives, which a run that fails after it goes on from (`job.paid`), the calls it stands for
+ * not made again (lift-up 20261110 REL-1). */
 export async function generate(
   job: Generate,
   given: Theme,
   hear: (event: GeneratingEvent) => void,
   settle?: (outlined: Outlined) => Promise<Decision>,
+  keep: (paid: Paid) => void = () => {},
 ): Promise<{ files: Map<string, Uint8Array>; made: Generated; title: string }> {
   // Before a file is read or a call is paid for: the script's font where the theme's fonts do
   // not draw the language (PLAN G.22), and a deck in letters they still cannot draw refused, as
@@ -297,9 +306,15 @@ export async function generate(
       const read = JSON.parse(sources.take(fetching)) as { name: string; kind: string };
       hear({ kind: "read", name: read.name, what: read.kind });
     }
-    if (job.research) {
+    // Deep research paid for before: its report, as the source it became, packed first as the
+    // research is; else asked for, and kept.
+    const paid = job.paid ?? {};
+    if (paid.researched) {
+      const read = JSON.parse(sources.researched(paid.researched.name, paid.researched.text)) as { name: string; kind: string };
+      hear({ kind: "read", name: read.name, what: read.kind });
+    } else if (job.research) {
       try {
-        await research(g, brief, asking, job, sources, hear);
+        keep({ researched: await research(g, brief, asking, job, sources, hear) });
       } catch (e) {
         // A research that fails goes on from the files and links given, where there are any
         // (lift-up 10-25b REL-4); with none, the deck would be grounded in nothing.
@@ -315,15 +330,40 @@ export async function generate(
       hear({ kind: "grounded", name: given.name, what: given.kind, kilobytes: Math.ceil(given.bytes / 1024), cut: given.truncated });
     }
     try {
-      const outlining = Boolean(job.outline && settle);
-      if (job.arc) generation.chooseArc(job.arc);
-      if (job.arc && outlining) generation.outlineFirst();
+      // What was paid for before, taken as it stands: the arc, the outline the person settled,
+      // and the slides the model wrote, none of them asked for again.
+      const arc = paid.arc ?? job.arc;
+      const outlining = Boolean(job.outline && settle) && !paid.settled && !paid.slides;
+      if (arc) generation.chooseArc(arc);
+      if (paid.arc) hear({ kind: "chose", arc: paid.arc });
+      if ((paid.settled || paid.slides) && !arc) generation.chooseArc(undefined);
+      if (paid.settled) {
+        const now = JSON.parse(generation.settle(JSON.stringify(paid.settled))) as { outline?: StoryOutline | null };
+        hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
+      }
+      if (paid.slides) {
+        const at = JSON.parse(generation.written(paid.slides)) as { written?: number | null; truncated?: boolean | null };
+        hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+      }
+      if (arc && outlining) generation.outlineFirst();
       for (let asked = generation.request(job.key); asked; asked = generation.request(job.key)) {
         const step = generation.step();
-        hear(step === "arc" ? { kind: "choosing" } : step === "outline" ? { kind: "outlining" } : { kind: "writing", slides: generation.target() });
+        // The rest of slides cut short (lift-up REL-2), written on from those in.
+        const partial = step === "rest" ? ((JSON.parse(generation.standing()) as { partial?: number | null }).partial ?? 0) : 0;
+        hear(
+          step === "arc"
+            ? { kind: "choosing" }
+            : step === "outline"
+              ? { kind: "outlining" }
+              : step === "rest"
+                ? { kind: "continuing", written: partial, slides: generation.target() }
+                : { kind: "writing", slides: generation.target() },
+        );
         const reply = await send(JSON.parse(asked));
         const answer = read(WRITERS[job.provider], reply, () => generation.answer(reply.status, reply.statusText, reply.body, reply.after));
         const at = JSON.parse(answer) as {
+          step?: string;
+          unrested?: string | null;
           arc?: string;
           reasoning?: string | null;
           fallback?: string | null;
@@ -343,6 +383,7 @@ export async function generate(
         }
         if (step === "arc") {
           hear({ kind: "chose", arc: at.arc ?? "", fallback: at.fallback ?? undefined });
+          if (at.arc) keep({ arc: at.arc });
           // The outline before the slides (narrative FUNC-1): the next request is the outline's.
           if (outlining) generation.outlineFirst();
         } else if (step === "outline") {
@@ -358,14 +399,21 @@ export async function generate(
           } else if ("settled" in decided) {
             const now = JSON.parse(generation.settle(JSON.stringify(decided.settled))) as { outline?: StoryOutline | null };
             hear({ kind: "settled", beats: now.outline?.beats.length ?? 0 });
+            if (now.outline) keep({ settled: now.outline });
           } else {
             // Another arc, chosen with no call, and outlined again.
             generation.chooseArc(decided.arc || undefined);
             generation.outlineFirst();
             const chosen = JSON.parse(generation.standing()) as { arc?: string };
             hear({ kind: "chose", arc: chosen.arc ?? decided.arc ?? "" });
+            if (chosen.arc) keep({ arc: chosen.arc });
           }
-        } else hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+        } else if (at.step !== "rest") {
+          if (at.unrested) hear({ kind: "unrested", why: at.unrested });
+          hear({ kind: "wrote", slides: at.written ?? 0, truncated: at.truncated ?? false });
+          const slides = generation.writtenText();
+          if (slides) keep({ slides });
+        }
       }
       await giveIcons(generation, hear);
       const painted = job.pictures ? await paint(g, generation, job.pictures, theme, hear) : undefined;
@@ -581,7 +629,7 @@ async function research(
   job: Generate,
   sources: InstanceType<Generator["Sources"]>,
   hear: (event: GeneratingEvent) => void,
-) {
+): Promise<{ name: string; text: string }> {
   const researching = new g.Research(brief, asking);
   try {
     hear({ kind: "researching", topic: job.brief.topic });
@@ -604,7 +652,8 @@ async function research(
       if (next.wait) await wait(next.wait);
       asked = next.send!;
     }
-    sources.research(researching);
+    const { name, text } = JSON.parse(sources.research(researching)) as { name: string; text: string };
+    return { name, text };
   } finally {
     researching.free();
   }

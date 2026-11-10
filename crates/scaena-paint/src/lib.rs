@@ -811,7 +811,10 @@ mod convert {
             .with_caps(cap)
             .with_join(join)
             .with_miter_limit(f64::from(miter_limit))
-            .with_dashes(f64::from(dash_offset), dash.iter().map(|d| f64::from(*d)))
+            .with_dashes(
+                f64::from(dash_offset),
+                scaena_core::displaylist::dashes(dash, width).iter().map(|d| f64::from(*d)),
+            )
     }
 
     /// A display-list paint as a peniko brush: a color, or a gradient interpolated in
@@ -1193,6 +1196,41 @@ pub mod cpu {
     pub(crate) mod tests {
         use super::*;
         use scaena_core::displaylist::{Blend, Color, Paint, Path};
+
+        /// A dash of zeros, or of lengths too small to see, strokes solid: kurbo would walk a
+        /// segment for each period, a billion along a line across the canvas (lift-up 20261031
+        /// REL-1).
+        #[test]
+        fn a_dash_of_no_length_strokes_solid() {
+            for dash in [&[0.0, 0.0][..], &[1e-6, 1e-6]] {
+                assert!(
+                    stroke(
+                        4.0,
+                        scaena_core::displaylist::Cap::Butt,
+                        scaena_core::displaylist::Join::Miter,
+                        4.0,
+                        dash,
+                        0.0
+                    )
+                    .dash_pattern
+                    .is_empty(),
+                    "{dash:?}"
+                );
+            }
+            assert_eq!(
+                stroke(
+                    4.0,
+                    scaena_core::displaylist::Cap::Butt,
+                    scaena_core::displaylist::Join::Miter,
+                    4.0,
+                    &[4.0, 2.0],
+                    0.0
+                )
+                .dash_pattern
+                .as_slice(),
+                [4.0, 2.0]
+            );
+        }
 
         /// PLAN 0.1 smoke test: `vello_cpu` links and rasterizes. A pixel-aligned opaque
         /// fill lands exactly, with nothing outside it, both at the architecture's

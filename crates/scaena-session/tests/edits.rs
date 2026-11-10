@@ -374,6 +374,8 @@ fn theme_ops(r: &mut Rng, theme: &Value, values: &BTreeMap<String, Vec<Value>>) 
             0 => json!({ "op": "remove", "path": path }),
             1 => json!({ "op": "add", "path": path, "value": value }),
             2 => json!({ "op": "move", "from": path, "path": to }),
+            // Now and then the whole theme, from its root (lift-up 20261031 SEC-4).
+            3 if r.below(4) == 0 => json!({ "op": "copy", "from": "", "path": to }),
             3 => json!({ "op": "copy", "from": path, "path": to }),
             4 => json!({ "op": "test", "path": path, "value": value }),
             _ => json!({ "op": "replace", "path": path, "value": value }),
@@ -559,6 +561,7 @@ fn tool_call(r: &mut Rng, b: &Bundle, states: &[String], values: &BTreeMap<Strin
             set!("query", json!(r.pick(&["rocket", "", "-", "arrow up", "\u{1F680}", "zzqx"])));
             set!("weight", json!(r.pick(&["regular", "fill", "bold", ""])));
             set!("limit", r.pick(&[json!(0), json!(3), json!(u64::MAX), json!(-1), json!(null)]).clone());
+            set!("paths", r.pick(&[json!(true), json!(false), json!("yes")]).clone());
         }
         "slide_write" => {
             let slide = json!({
