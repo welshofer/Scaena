@@ -535,6 +535,17 @@ fn loose(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
+/// A source's name as an id would be made of it: its file's extension off, its letters and digits
+/// alone, in lower case: `Trails budget.CSV` and `trails-budget` alike.
+fn stem(s: &str) -> String {
+    let s = s.trim();
+    let s = s
+        .rsplit_once('.')
+        .filter(|(b, e)| !b.is_empty() && (1..=5).contains(&e.len()) && e.chars().all(|c| c.is_ascii_alphanumeric()))
+        .map_or(s, |(b, _)| b);
+    s.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
 /// A data source kept from a sheet, or why it was not.
 #[derive(Debug, Clone, Serialize)]
 pub struct Kept {
@@ -2249,7 +2260,7 @@ pub fn writable(
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(), OpsError> {
     let Some((language, letters)) =
-        language.and_then(|l| LETTERS.iter().find(|(name, _)| name.eq_ignore_ascii_case(l.trim())))
+        language.and_then(scaena_narrato::brief::named).and_then(|l| LETTERS.iter().find(|(name, _)| *name == l))
     else {
         return Ok(());
     };
@@ -2525,6 +2536,11 @@ fn assemble(
             meta["narrative"]["brief"][key] = json!(value);
         }
     }
+    // Its language too, by the name Narrato knows it by, so health, the assistant, and the
+    // notes read the deck in it (lift-up 10-25b STAB-2).
+    if let Some(language) = brief.language.as_deref().map(str::trim).filter(|l| !l.is_empty()) {
+        meta["narrative"]["brief"]["language"] = json!(scaena_narrato::brief::named(language).unwrap_or(language));
+    }
     if narrative.truncated {
         meta["narrative"]["truncated"] = json!(true);
     }
@@ -2749,7 +2765,7 @@ fn media(slide: &Slide) -> Value {
 
 /// The BCP 47 tag of a language the brief names by its English name.
 fn language_tag(language: &str) -> Option<&'static str> {
-    Some(match language {
+    Some(match scaena_narrato::brief::named(language)? {
         "English" => "en",
         "Spanish" => "es",
         "French" => "fr",
@@ -4637,6 +4653,9 @@ impl Slots<'_> {
             .map(str::trim)
             .filter(|s| !s.is_empty());
         let said = match (wrote, self.grounded) {
+            // The model's words that are only the source's id or its file's stem say it once, by
+            // its name: "trails-budget" for trails-budget.csv (W1 dogfood 5).
+            (Some(w), Some(g)) if stem(w) == stem(g) => g.to_string(),
             (Some(w), Some(g)) if !loose(w).contains(&loose(g)) => format!("{w} \u{b7} {g}"),
             (Some(w), _) => w.to_string(),
             (None, Some(g)) => g.to_string(),
@@ -6664,8 +6683,12 @@ fn chart_node(
     };
     let y_title = match (on_axis(subtitle), chart.series.first().and_then(|s| s.name.as_deref())) {
         (Some(subtitle), _) => Some(titled(subtitle)),
-        (None, Some(name)) if !several => Some(titled(name)),
-        _ => chart.unit.clone(),
+        (None, Some(name)) if !several && !name.trim().is_empty() => Some(titled(name)),
+        // Several series' unit alone says the scale where nothing else on the chart does, and
+        // their names would make a long title; one series with no name is titled by nothing,
+        // "$" over values that carry none saying less than no title (W1 dogfood 5).
+        _ if several => chart.unit.clone(),
+        _ => None,
     };
     let mut y = json!({ "field": "value", "type": "quantitative", "format": format!(",.{decimals}f") });
     let alt = described(chart, kind, y_title.as_deref(), lang);
@@ -9754,6 +9777,28 @@ mod tests {
         assert_eq!(node["annotations"][1]["text"], "286", "{node:#}");
     }
 
+    /// A value axis is titled by what it plots, with its unit: one series with no name by
+    /// nothing, never "$" alone, and several series by their unit alone, which is all that says
+    /// their scale (W1 dogfood 5).
+    #[test]
+    fn a_value_axis_is_never_titled_by_its_unit_alone() {
+        let budget = |series: Value| -> Value {
+            let chart: ChartData = serde_json::from_value(json!({
+                "categories": ["2024", "2025", "2026"], "series": series, "unit": "$",
+            }))
+            .unwrap();
+            chart_node(&chart, "d", "bar-chart", ["Trail budget", ""], None, "en", json!({}))
+        };
+        assert_eq!(budget(json!([{ "name": "Budget", "values": [120, 140, 180] }]))["y"]["title"], "Budget ($)");
+        for series in [json!([{ "values": [120, 140, 180] }]), json!([{ "name": " ", "values": [120, 140, 180] }])] {
+            let node = budget(series);
+            assert!(node["y"].get("title").is_none(), "{node:#}");
+        }
+        // Several series with no subtitle keep their unit alone: it is all that says the scale.
+        let several = json!([{ "name": "Asked", "values": [1, 2, 3] }, { "name": "Granted", "values": [1, 2, 2] }]);
+        assert_eq!(budget(several)["y"]["title"], "$");
+    }
+
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".
     #[test]
     fn a_series_is_named_as_a_whole_word() {
@@ -10076,6 +10121,25 @@ mod tests {
                 .values()
                 .all(|n| n.get("runs").is_none() || n.get("text").is_none())
         );
+    }
+
+    /// A language named as a person writes it ("german", "Deutsch", "de") sets the deck's tag
+    /// and is kept in its brief by the name Narrato knows (lift-up 10-25b STAB-2).
+    #[test]
+    fn a_language_named_any_way_sets_the_decks_tag_and_stays_in_its_brief() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        for said in ["german", "Deutsch", "de", " GERMAN "] {
+            let mut talk = climate();
+            talk.brief.language = Some(said.into());
+            let made = deck_as(&talk, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+            assert_eq!(made.deck["meta"]["lang"], "de", "{said}");
+            assert_eq!(made.deck["meta"]["narrative"]["brief"]["language"], "German", "{said}");
+        }
+        let mut talk = climate();
+        talk.brief.language = Some("Klingon".into());
+        let made = deck_as(&talk, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+        assert!(made.deck["meta"].get("lang").is_none());
+        assert_eq!(made.deck["meta"]["narrative"]["brief"]["language"], "Klingon");
     }
 
     /// A web address written over `http:` links over `https:`, and a made deck says each address it
@@ -11445,7 +11509,12 @@ mod tests {
         assert!(grounded.contains(fact), "{grounded:?}");
         // Where the model's words already name the source, it is said once.
         slides[7].chart_data.as_mut().unwrap().source_id = Some("Notes.md, Tidewater".into());
-        assert!(credits(&made(slides)).contains(&"Source: Notes.md, Tidewater".to_string()));
+        assert!(credits(&made(slides.clone())).contains(&"Source: Notes.md, Tidewater".to_string()));
+        // Where the model's words are only the source's id, its file's stem, it is said once, by
+        // its name (W1 dogfood 5).
+        slides[7].chart_data.as_mut().unwrap().source_id = Some("notes".into());
+        assert_eq!(credits(&made(slides)), ["Source: notes.md", "Source: notes.md"]);
+        assert_eq!((stem("trails-budget"), stem("Trails Budget.CSV")), ("trailsbudget".into(), "trailsbudget".into()));
     }
 
     #[test]
