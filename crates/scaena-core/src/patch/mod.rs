@@ -524,7 +524,9 @@ pub enum SemanticOp {
     /// slide's first state, since a slide shows them whole. A layout
     /// tracks (SPEC §2.2), so it is written where it lives: in the latest state that sets it,
     /// from `id` back along what it tracks, and each state that takes it from there changes
-    /// with it; in `id` where none sets it. The rest are `id`'s own. A transition that is a
+    /// with it; in `id` where none sets it. Its `notes` are written where the presenter reads
+    /// them: the beat's, where `id` has none of its own and opens the first beat that names it;
+    /// else `id`'s own. The rest are `id`'s own. A transition that is a
     /// bare duration, or none, stays bare while its duration is all it sets, and becomes an
     /// object to take another key. `null` takes a value away where it lives: a layout taken
     /// away shows what is under it, and a transition left with nothing cuts. A state's `notes`
