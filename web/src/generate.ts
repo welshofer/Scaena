@@ -316,7 +316,16 @@ export async function generate(
     if (paid.researched) {
       const read = JSON.parse(sources.researched(paid.researched.name, paid.researched.text)) as { name: string; kind: string };
       hear({ kind: "read", name: read.name, what: read.kind });
-    } else if (job.research) keep({ researched: await research(g, brief, asking, job, sources, hear) });
+    } else if (job.research) {
+      try {
+        keep({ researched: await research(g, brief, asking, job, sources, hear) });
+      } catch (e) {
+        // A research that fails goes on from the files and links given, where there are any
+        // (lift-up 10-25b REL-4); with none, the deck would be grounded in nothing.
+        if (!sources.count) throw e;
+        hear({ kind: "unresearched", why: said(e) });
+      }
+    }
     const generation = new g.Generation(brief, asking, sources);
     // What each source gave, said before a call is paid for (narrative USE-5): the sources share
     // a million bytes, the first given taking it first, and one cut short, or given no room, says
