@@ -176,7 +176,7 @@ struct StoryPanel: View {
                 // A figure no source backs, in a deck made from sources, cites one of them (W1's
                 // dogfood 5), as the browser's Story row does: the sources by name, the one chosen
                 // added to the slide's beat's evidence, one step to undo; held with the fixes while
-                // the source does not compile.
+                // the story is as last read, the source not compiling.
                 if !grounded.isEmpty, run.contains(where: { $0.kind == "source" }) {
                     Menu("Cite a Source…") {
                         ForEach(grounded, id: \.name) { source in
@@ -184,7 +184,8 @@ struct StoryPanel: View {
                         }
                     }
                     .fixedSize()
-                    .disabled(asLastRead || !editor.compiles)
+                    // Held as the row's fixes are, by one rule: while the story is as last read.
+                    .disabled(asLastRead)
                     .accessibilityIdentifier("story-cite")
                 }
                 // The slide it is about shown first: a question begins with what the window shows,
