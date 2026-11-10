@@ -692,8 +692,11 @@ try {
     const first = JSON.stringify({ executiveSummary: written.executiveSummary, slides: written.slides.slice(0, 3) });
     const cut = `${first.slice(0, -2)}, {"slideTitle": "Cut`;
     state.slides = JSON.stringify({ content: [{ type: "text", text: cut }], stop_reason: "max_tokens" });
+    // The rest's last slide titled in words of its own, so the deck made is not the one the slides
+    // whole make, which the walk after this one makes and waits to see.
+    const rest = written.slides.slice(3).map((s, i, all) => (i === all.length - 1 ? { ...s, slideTitle: `${s.slideTitle}, written on` } : s));
     state.rest = JSON.stringify({
-      content: [{ type: "text", text: JSON.stringify({ executiveSummary: "", slides: written.slides.slice(3) }) }],
+      content: [{ type: "text", text: JSON.stringify({ executiveSummary: "", slides: rest }) }],
       stop_reason: "end_turn",
     });
   }
