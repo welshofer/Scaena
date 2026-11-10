@@ -55,6 +55,16 @@ enum Exporting {
         }
     }
 
+    /// What VoiceOver is told once `kind` is made (lift-up 10-25c USE-1).
+    static func made(_ kind: Kind) -> String {
+        switch kind {
+        case .pdf: "The PDF is made"
+        case .notes: "The PDF with the notes is made"
+        case .png: "The PNG is made"
+        case .slides: "A PNG of every slide is made"
+        }
+    }
+
     /// An export's bytes written into a folder of its own as `name`: what the Share sheet and
     /// Quick Look are given, and which each takes away once it is done (lift-up REL-5).
     static func file(_ data: Data, named name: String) throws -> URL {

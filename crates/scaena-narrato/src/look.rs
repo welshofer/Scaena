@@ -226,10 +226,9 @@ fn labelled(bullet: &str) -> bool {
 /// were by more than [`longest`] allows; as many bullets, each labelled where it was. The first
 /// change a slide is given stands. Words or bullets that change a figure are not taken (REL-2).
 pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
-    let start = text.find('{').ok_or("the answer holds no JSON object")?;
-    let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
+    let within = crate::answer::json_within(text).ok_or("the answer holds no JSON object")?;
     let value: Value =
-        serde_json::from_str(&text[start..=end]).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
+        serde_json::from_str(within).map_err(|e| format!("the answer is not the JSON asked for: {e}"))?;
     let slides = value.get("slides").and_then(Value::as_array).ok_or("the answer has no `slides`")?;
     let mut out: Vec<Change> = Vec::new();
     for asked in slides {
