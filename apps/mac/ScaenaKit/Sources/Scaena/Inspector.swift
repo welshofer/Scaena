@@ -523,7 +523,7 @@ struct Inspector: View {
 
     /// Choose `value` for `prop` on every node selected: one patch.
     private func chooseAll(_ prop: String, _ value: JSONValue, in state: String) {
-        make(selected.map { ["op": "choose", "node": .string($0), "prop": .string(prop), "value": value, "state": .string(state)] })
+        make(choosing(selected, prop, value, in: state))
     }
 
     /// `node` placed by the box `to`, canvas units, where it was left: the `place` a drag there
