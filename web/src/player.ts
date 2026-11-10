@@ -967,6 +967,8 @@ function slideNavigator(
     const height = Math.round(NAVIGATED * devicePixelRatio);
     const byState = new Map(options().map((li) => [li.dataset.state, li]));
     await stage.thumbnails(height, {}, format, all.map((s) => s.last), (thumb) => {
+      // A drawing for a list since drawn again, in another format, is not this list's.
+      if (drawn !== key) return;
       const canvas = byState.get(thumb.state)?.querySelector("canvas");
       if (!canvas || !thumb.pixels || !thumb.width || !thumb.height) return;
       canvas.width = thumb.width;
@@ -1011,6 +1013,11 @@ function slideNavigator(
   return {
     /** Open it on the slide the room sees, or close it. */
     toggle: () => (dialog.open ? dialog.close() : open()),
+    /** Draw it again, where it is open, in the format the player shows now (editor dogfood 1): a
+     * format turned while it is open, or heard only after N opened it, drew no slide anew. */
+    reformatted: () => {
+      if (dialog.open) void build(shown()[1]).then(() => mark(focus));
+    },
     /** Its slides as each is named, which is marked, and how many are drawn, or null while closed. */
     reads: () =>
       dialog.open
@@ -1323,7 +1330,9 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     blanked.textContent = sees;
     document.body.classList.toggle("blanking", !!sees);
     document.body.classList.toggle("lasering", !!data.laser);
+    const reformatted = data.format !== shownFormat;
     [shownAt, shownFormat] = [data.index, data.format];
+    if (reformatted) navigating.reformatted();
     latest = data;
     void follow();
   };

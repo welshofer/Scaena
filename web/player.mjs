@@ -647,8 +647,11 @@ try {
   check(at.index === slideAt(count), `its Slides button opens it too, and End then Return goes to slide ${count}`);
   // In a format of another shape, 9:16, each slide is drawn in it, never stretched to 16:9 (lift-up
   // 20261031 ATTR-1).
-  await turnTo("9:16");
+  // Opened before the player turns to it: the navigator open as the format turns draws every slide
+  // again in it, as one opened only after the turn is heard does.
   await presenter.keyboard.press("n");
+  await presenter.waitForFunction((n) => window.scaena.navigator()?.drawn === n, count, { timeout: 10000 }).catch(() => {});
+  await turnTo("9:16");
   // Each picture drawn in it, taller than wide (a canvas not yet drawn is 300 × 150).
   await presenter
     .waitForFunction(
