@@ -987,6 +987,9 @@ export interface Health {
   /** The big idea the settled outline names, the one sentence the audience should remember
    * (lift-up 10-24b FUNC-1). */
   bigIdea?: string;
+  /** Where slides lint finds an error on hold the score down (ADR-0032 item 1): those slides by
+   * number, the cap they set, and the score the deck would have had (W1's dogfood 5). */
+  capped?: { slides: number[]; cap: number; score: number };
 }
 
 /** A picture a person asks for in the editor (PLAN 2.107): what it shows, in their words; made as

@@ -116,6 +116,8 @@ private func anthropic(_ text: String, cut: Bool = false) -> Data {
     // Then each slide's notes written for the talk, the cover's taken (lift-up 10-25 ATTR-2).
     #expect(heard.contains(.noting(slides: made.layouts.count)))
     #expect(heard.contains(.noted(slides: 1)))
+    // The rest say why they were not taken, and what they keep (W1's dogfood 6).
+    #expect(heard.contains(.unnoted("Slides 2–5's notes not written by the model, Narrato's drafts kept")))
     #expect(made.looked?.first?.slide == 1)
     let looked = await asked.requests.filter { ($0.body ?? "").contains("art director") }
     #expect(looked.count == 1)

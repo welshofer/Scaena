@@ -165,7 +165,7 @@
             "const": "source"
           },
           {
-            "description": "Its headline names a topic (\"Q3 by product\") where a content slide states its point: in a\ndeck health reads in English, three to six words with no verb and no question\n(lift-up 10-25b FUNC-4).",
+            "description": "Its headline names a topic (\"Q3 by product\") where a content slide states its point: in a\ndeck health reads in English, three to six words with no verb and no question\n(lift-up 10-25b FUNC-4). Information, or a warning where a line under it says the claim,\nwhich belongs in the headline, a topic of a word or two as well (\"Some history\"; W1's\ndogfood 3).",
             "type": "string",
             "const": "label"
           }
@@ -176,6 +176,28 @@
         "type": "object",
         "properties": { "says": { "type": "string" }, "patch": { "type": "array", "items": true } },
         "required": ["says", "patch"]
+      },
+      "Capped": {
+        "description": "The score held down by the slides that do not stand.",
+        "type": "object",
+        "properties": {
+          "slides": {
+            "description": "The slides lint finds an error on, by number from 1.",
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 }
+          },
+          "cap": {
+            "description": "The cap they set: the clean slides' share, less ten for each.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "score": {
+            "description": "The score the deck would have had without the cap, over it.",
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["slides", "cap", "score"]
       }
     },
     "required": [
@@ -233,6 +255,10 @@
       "bigIdea": {
         "description": "The big idea the deck's settled outline names (`meta.narrative.outline`): the one sentence\nthe audience should remember, which the editors show above the curve.",
         "type": ["string", "null"]
+      },
+      "capped": {
+        "description": "Where slides lint finds an error on cap the score (ADR-0032 item 1): those slides, the cap,\nand the score the deck would have had, so the editors can say why it fell (W1's dogfood 5).\nNone where nothing caps it.",
+        "anyOf": [{ "$ref": "#/$defs/Capped" }, { "type": "null" }]
       }
     }
   }
