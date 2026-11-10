@@ -124,6 +124,18 @@ extension XCTestCase {
         return false
     }
 
+    /// `element` tapped until `done` holds: waited on for `seconds`, then tapped once more where
+    /// the tap was lost and `element` still stands to be tapped, as a loaded simulator drops a tap
+    /// as it drops a key. Whether `done` came to hold.
+    @MainActor
+    func tapped(_ element: XCUIElement, seconds: TimeInterval = 10, until done: () -> Bool) -> Bool {
+        element.tap()
+        if wait(seconds, done) { return true }
+        guard element.exists, element.isHittable else { return done() }
+        element.tap()
+        return wait(seconds, done)
+    }
+
     /// A moment for what was shown to be painted: the canvas paints at the display's next refresh.
     func settle(_ seconds: TimeInterval = 2) {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "painted")], timeout: seconds)

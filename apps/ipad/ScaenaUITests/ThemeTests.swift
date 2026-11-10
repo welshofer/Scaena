@@ -164,14 +164,16 @@ final class ThemeTests: XCTestCase {
             guard pick.waitForExistence(timeout: 5) else {
                 throw Unseen(description: "the keywords have no color to pick: \(app.debugDescription)")
             }
-            pick.tap()
+            // Each tap waited on by what it opens, and tapped once more where it was lost
+            // (`tapped`), as each ⌘Z is pressed.
             let muted = app.buttons.matching(NSPredicate(format: "label == 'Muted Text'")).firstMatch
-            guard muted.waitForExistence(timeout: 5) else {
+            guard tapped(pick, until: { muted.exists }) else {
                 keep(app, as: "no-code-menu")
                 throw Unseen(description: "the keywords' colors offer no Muted Text: \(app.debugDescription)")
             }
-            muted.tap()
-            XCTAssertTrue(wait(10) { "\(pick.label) \(pick.value as? String ?? "")".contains("Muted Text") }, "the keywords are not Muted Text: \(pick.debugDescription)")
+            XCTAssertTrue(
+                tapped(muted) { "\(pick.label) \(pick.value as? String ?? "")".contains("Muted Text") },
+                "the keywords are not Muted Text: \(pick.debugDescription)")
             keep(app, as: "theme-code-named")
             XCTAssertTrue(
                 pressed("z", .command, in: app) { "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent") },
