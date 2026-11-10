@@ -1074,7 +1074,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
 
     let balance = &m.content_balance;
     let mut short = Vec::new();
-    if balance.avg_bullets_per_slide < 2.0 {
+    // The slides balance counts, those not made to make one point (ADR-0032 item 3): where none
+    // lists a point, "0 points each" says nothing of the deck, so say which they were (W1's
+    // dogfood 5).
+    let pointed: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible() && !read[i].one_idea).collect();
+    if pointed.iter().all(|&i| bullets(&read[i]) == 0) {
+        short.push(match pointed.is_empty() {
+            true => "every slide makes one point by design, so none lists points to count".to_string(),
+            false => {
+                let (named, _) = slides_named(&pointed);
+                format!("no slide balance counts makes a list of points: {named}. The rest make one point by design")
+            }
+        });
+    } else if balance.avg_bullets_per_slide < 2.0 {
         short
             .push(format!("slides make {} points each, where two to five read as full", balance.avg_bullets_per_slide));
     }
@@ -1714,6 +1726,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
     }
     let mut unnoted = Vec::new();
+    let mut aloud = Vec::new();
     for (i, s) in read.iter().enumerate() {
         let k = i + 1;
         let points = most.get(i).copied().unwrap_or(0);
@@ -1751,9 +1764,29 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
             unnoted.push(i);
         }
+        if reads_aloud(s) {
+            aloud.push(i);
+        }
     }
     // The slides with nothing for the presenter to say, as one finding at the first of them: a
     // deck written by hand has no notes on any, and a row for each would bury the rest.
+    // The slides whose notes say what the slide shows, as one finding at the first of them: the
+    // room reads it there, and a presenter who reads it aloud again tells them nothing (W1's
+    // dogfood 4).
+    if let Some(&first) = aloud.first() {
+        let (named, many) = slides_named(&aloud);
+        let each = if many { "each" } else { "it" };
+        find(
+            &read[first].id,
+            Severity::Info,
+            Kind::Notes,
+            format!("The notes for {named} read the slide aloud: nearly every word of them is on {each}."),
+            format!(
+                "Rewrite the notes for {named} to tell the room what {each} does not show: why it matters, the story or example behind it, and the line that leads on."
+            ),
+            None,
+        );
+    }
     if let Some(&first) = unnoted.first() {
         let (named, many) = slides_named(&unnoted);
         let (have, each) = if many { ("have", "each") } else { ("has", "it") };
@@ -2018,6 +2051,43 @@ fn content_words(text: &str) -> std::collections::BTreeSet<String> {
         .filter(|w| w.chars().count() > 3 && w.chars().any(char::is_alphabetic) && !w.chars().any(unspaced))
         .map(str::to_string)
         .collect()
+}
+
+/// The share of a slide's notes' words that are its own (`READ_ALOUD`) past which its notes read
+/// it aloud, and the fewest words of notes that are read so: a deck's notes as Narrato writes them
+/// say a fifth to a half of theirs, and a note of a word or two says too little to judge.
+const READ_ALOUD: (usize, usize) = (3, 4);
+const READ_ALOUD_WORDS: usize = 3;
+
+/// Whether `slide`'s notes say what it shows: three in four of their content words or more are
+/// its headline's and body's (W1's dogfood 4).
+fn reads_aloud(slide: &SlideForHealth) -> bool {
+    let notes = content_words(&slide.notes);
+    let shown = content_words(&format!("{} {}", slide.title, slide.body));
+    let own = notes.intersection(&shown).count();
+    if notes.len() >= READ_ALOUD_WORDS && own * READ_ALOUD.1 >= notes.len() * READ_ALOUD.0 {
+        return true;
+    }
+    // Notes that are a line of the slide again, the headline or one of its lines, read it aloud
+    // at any length (W1's dogfood 5: "- We rebuilt 52 miles, not 40." under that headline).
+    let lines: Vec<_> = std::iter::once(slide.title.as_str()).chain(slide.body.lines()).map(line_said).collect();
+    let said: Vec<_> = slide.notes.lines().map(line_said).filter(|l| !l.is_empty()).collect();
+    !said.is_empty() && said.iter().all(|l| lines.contains(l))
+}
+
+/// What a line says, as notes that read it aloud are matched to it: its words, small, and its
+/// figures by value and unit, the words that name a figure's unit folded into the figure, so
+/// "184,000 dollars" says what "$184,000" says and "- We rebuilt 52 miles." what its headline does.
+fn line_said(line: &str) -> std::collections::BTreeSet<String> {
+    let written = figures(line);
+    let units: Vec<&str> = written.iter().map(|f| f.unit.as_str()).collect();
+    let mut said = scaena_core::sort::set(written.iter().map(|f| format!("{}|{}", f.value, f.unit)));
+    for w in line.split(|c: char| !c.is_alphabetic()).filter(|w| !w.is_empty()) {
+        if !units.contains(&unit_of(w).as_str()) {
+            said.insert(w.to_lowercase());
+        }
+    }
+    said
 }
 
 /// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
@@ -2943,6 +3013,48 @@ mod tests {
         assert_eq!(found(&of(&dogfood("keynote", idea, said))), 0, "a close that says it lands it");
     }
 
+    /// Notes that read the slide aloud are coached, as one finding at the first (W1's dogfood 4):
+    /// the fleet pitch's notes are each its headline again, the cover's aside, and its slides 2 to
+    /// 10 are named; the keynote's, which tell what its slides do not show, are not.
+    #[test]
+    fn notes_that_read_the_slide_aloud_are_coached() {
+        let aloud = |h: &Health| -> Vec<Finding> {
+            (h.findings.iter()).filter(|f| f.kind == Kind::Notes && f.says.contains("aloud")).cloned().collect()
+        };
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        let found = aloud(&fleet);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].slide, 2);
+        assert_eq!(found[0].severity, Severity::Info);
+        assert_eq!(
+            found[0].says,
+            "The notes for slides 2, 3, 4, 5, 6, 7, 8, 9 and 10 read the slide aloud: nearly every word of them is on each."
+        );
+        assert!(found[0].ask.starts_with("Rewrite the notes for slides 2, 3, 4"), "{}", found[0].ask);
+        assert!(aloud(&of(&dogfood("keynote", "", |_| {}))).is_empty());
+        // Notes that are the headline word for word read it aloud at any length (W1's dogfood 5),
+        // a figure's unit said in words or in its sign alike.
+        let echoed = |slides: &mut Vec<answer::Slide>| {
+            for s in slides.iter_mut() {
+                s.speaker_notes = "Thanks.".into();
+            }
+            slides[2].slide_title = "We rebuilt 52 miles, not 40".into();
+            slides[2].speaker_notes = "- We rebuilt 52 miles, not 40.".into();
+            slides[7].slide_title = "The award was $184,000".into();
+            slides[7].speaker_notes = "The award was 184,000 dollars.".into();
+        };
+        let found = aloud(&of(&dogfood("fleet", "", echoed)));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].says.starts_with("The notes for slides 3 and 8 read the slide aloud"), "{}", found[0].says);
+        // Notes that tell the room more than the slide shows are not found.
+        let told = |slides: &mut Vec<answer::Slide>| {
+            for s in slides.iter_mut().skip(1) {
+                s.speaker_notes = "Pause here, and ask who has stayed late rebuilding a route by hand.".into();
+            }
+        };
+        assert!(aloud(&of(&dogfood("fleet", "", told))).is_empty());
+    }
+
     /// A figure a slide writes in a deck made from its sources, where the slide names none, is
     /// asked where it comes from (W1's dogfood 4): the fleet pitch's "38%" fuel cut cites nothing,
     /// though the deck was made from the pilot's sheet. The slides that cite it, the cover's date,
@@ -3080,6 +3192,25 @@ mod tests {
         assert!(topics(&of(&dogfood("keynote", "", bare))).is_empty());
         // One finding a slide: the label the plain topic headline gets is the warning here.
         assert_eq!(weak.findings.iter().filter(|f| f.kind == Kind::Label && f.slide == 3).count(), 1);
+    }
+
+    /// Where no slide balance counts lists a point, balance says which slides it counted rather
+    /// than "0 points each" (W1's dogfood 5): the grant renewal's content slides are big numbers
+    /// and statements, which make one point by design, and its cover, chart, and close list none.
+    /// The score is as before.
+    #[test]
+    fn balance_says_which_slides_it_counted_where_none_lists_points() {
+        let h = of(&dogfood("grant", "", |_| {}));
+        assert!(
+            h.balance.says.starts_with(
+                "No slide balance counts makes a list of points: slides 1, 7 and 9. The rest make one point by design"
+            ),
+            "{}",
+            h.balance.says
+        );
+        // A deck whose counted slides list points says how many, as before.
+        let fleet = of(&dogfood("fleet", "", |_| {}));
+        assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's

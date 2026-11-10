@@ -829,6 +829,10 @@
           "plan": {
             "description": "The plan of the beat that tells it, its intensity and tone (editor dogfood 3): none where\nthe deck has no spine, or the beat declares neither.",
             "anyOf": [{ "$ref": "#/$defs/PlanChoice" }, { "type": "null" }]
+          },
+          "cites": {
+            "description": "What the beat that tells it cites (W1's dogfood 5): where an editor adds a source the deck\nwas grounded in, `source:NAME`; none where no beat tells it.",
+            "anyOf": [{ "$ref": "#/$defs/CiteChoice" }, { "type": "null" }]
           }
         },
         "required": ["state", "fields", "furniture"]
@@ -893,6 +897,16 @@
           }
         },
         "required": ["beat", "at", "intensities", "tones"]
+      },
+      "CiteChoice": {
+        "description": "What a slide's beat cites as its evidence (SPEC §2.6): data, assets, addresses, and the\nsources the deck was grounded in (`source:NAME`), written by JSON Patch at `at`, its\n`evidence`, one patch: `add` at `at` where it cites nothing yet, else at `at/-`.",
+        "type": "object",
+        "properties": {
+          "beat": { "description": "The beat, by its id.", "type": "string" },
+          "at": { "description": "The JSON Pointer to the beat's `evidence`.", "type": "string" },
+          "evidence": { "description": "What it cites now.", "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["beat", "at", "evidence"]
       },
       "Suggestion": {
         "description": "One layout a state may take, and what lint finds in the state laid out in it.",

@@ -251,6 +251,13 @@ final class ScaenaDocument: ReferenceFileDocument {
         undo?.setActionName(Self.answerStep)
     }
 
+    /// A slide the assistant's model wrote, from Write This Slide Again… or Add a Slide About…
+    /// (lift-up FUNC-1): one step to undo, named `named`.
+    func wroteSlide(_ before: String, undo: UndoManager?, named: String) {
+        keep(before, undo: undo)
+        undo?.setActionName(named)
+    }
+
     /// What an answer's step of undo is called (lift-up 10-25 FUNC-4): the Edit menu's Undo
     /// Assistant’s Edits takes back every edit of the answer.
     static let answerStep = "Assistant’s Edits"

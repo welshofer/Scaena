@@ -78,6 +78,23 @@ pub struct StateChoices {
     /// the deck has no spine, or the beat declares neither.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<PlanChoice>,
+    /// What the beat that tells it cites (W1's dogfood 5): where an editor adds a source the deck
+    /// was grounded in, `source:NAME`; none where no beat tells it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cites: Option<CiteChoice>,
+}
+
+/// What a slide's beat cites as its evidence (SPEC §2.6): data, assets, addresses, and the
+/// sources the deck was grounded in (`source:NAME`), written by JSON Patch at `at`, its
+/// `evidence`, one patch: `add` at `at` where it cites nothing yet, else at `at/-`.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct CiteChoice {
+    /// The beat, by its id.
+    pub beat: String,
+    /// The JSON Pointer to the beat's `evidence`.
+    pub at: String,
+    /// What it cites now.
+    pub evidence: Vec<String>,
 }
 
 /// What an inspector offers of the plan a beat declares for its slide (editor dogfood 3), as a
@@ -845,16 +862,29 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
     });
     let fields = fields.collect();
     let furniture = furniture_choice(deck, theme, state, snapshots[i].layout.as_deref());
-    Ok(StateChoices { state: state.into(), fields, said: None, furniture, plan: plan_choice(deck, state) })
+    let (plan, cites) = (plan_choice(deck, state), cite_choice(deck, state));
+    Ok(StateChoices { state: state.into(), fields, said: None, furniture, plan, cites })
+}
+
+/// The first beat, in spine order, that tells `state`, by its section's index and its own.
+fn telling<'d>(deck: &'d Deck, state: &str) -> Option<(usize, usize, &'d crate::document::Beat)> {
+    let sections = deck.spine.iter().flat_map(|s| s.sections.iter().enumerate());
+    sections
+        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+        .find(|(_, _, beat)| beat.states.iter().any(|id| id == state))
+}
+
+/// What the first beat that tells `state` cites (W1's dogfood 5).
+fn cite_choice(deck: &Deck, state: &str) -> Option<CiteChoice> {
+    let (s, b, beat) = telling(deck, state)?;
+    let at = format!("/spine/sections/{s}/beats/{b}/evidence");
+    Some(CiteChoice { beat: beat.id.clone(), at, evidence: beat.evidence.clone() })
 }
 
 /// The plan of the first beat, in spine order, that tells `state`, where it declares an
 /// intensity or a tone in its `media.narrato` (editor dogfood 3).
 fn plan_choice(deck: &Deck, state: &str) -> Option<PlanChoice> {
-    let sections = deck.spine.iter().flat_map(|s| s.sections.iter().enumerate());
-    let (s, b, beat) = sections
-        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
-        .find(|(_, _, beat)| beat.states.iter().any(|id| id == state))?;
+    let (s, b, beat) = telling(deck, state)?;
     let narrato = beat.media.as_ref()?.get("narrato")?;
     let (intensity, tone) =
         (narrato.get("intensity").and_then(Value::as_f64), narrato.get("valence").and_then(Value::as_f64));

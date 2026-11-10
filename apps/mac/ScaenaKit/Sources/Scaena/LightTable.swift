@@ -24,6 +24,9 @@ struct LightTable: View {
     /// What a touch holds in a keyboard's place (lift-up FUNC-4): Select held, a tap adds a slide or
     /// takes it out, as ⌘ and a click do.
     var touch: TouchHeld? = nil
+    /// Write This Slide Again…, `true`, or Add a Slide About… for a slide, by its first state
+    /// (lift-up FUNC-1).
+    var asking: ((String, Bool) -> Void)? = nil
     /// The slide last clicked: where Shift+click selects from.
     @State private var anchor: String?
     @FocusState private var focused: Bool
@@ -59,6 +62,20 @@ struct LightTable: View {
                                 headline: editor.slots.first { $0.state == slide.last }?.headline
                             )
                             .accessibilityActions { actions(slide, in: slides) }
+                            .contextMenu {
+                                // One slide written by the assistant's model (lift-up FUNC-1), as
+                                // the slide list's menu and the Slide menu write one.
+                                if let asking, let first = slide.states.first {
+                                    Button("Write This Slide Again…", systemImage: "arrow.trianglehead.2.clockwise") {
+                                        asking(first, true)
+                                    }
+                                    .disabled(!editor.valid || editor.assisting)
+                                    Button("Add a Slide About…", systemImage: "plus.rectangle.on.rectangle") {
+                                        asking(slide.last, false)
+                                    }
+                                    .disabled(!editor.valid || editor.assisting)
+                                }
+                            }
                             .onTapGesture(count: 2) { show(slide.states.first ?? slide.id) }
                             .onTapGesture { click(slide.id, in: slides) }
                             .draggable(slide.id)
