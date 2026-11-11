@@ -208,6 +208,12 @@ pub struct Finding {
     /// The figure a `source` finding found no source for, as the slide writes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub figure: Option<String>,
+    /// Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to
+    /// its beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the
+    /// editors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is
+    /// the person's (ADR-0032, item 4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -1319,6 +1325,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ask,
                 fix,
                 figure: None,
+                path: None,
             });
         }
     };
@@ -1513,6 +1520,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[first].id, Severity::Info, Kind::Arc, says, ask, None);
     }
+    // The beat a slide was written for, by the settled outline's name, else the arc's.
+    let named_beat = |id: &str| -> Option<String> {
+        let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
+        beats.get(k).map(|b| b.trim().to_string()).filter(|b| !b.is_empty())
+    };
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
         let k = i + 1;
@@ -1533,7 +1545,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 (
                     format!("Slide {k} was planned {hotter} than its place in the talk."),
                     format!(
-                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity, or move it {moved}."
+                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity{}, or move it {moved}.",
+                        named_beat(&d.slide_id).map(|name| format!(", in its beat, {name}")).unwrap_or_default()
                     ),
                 )
             }
@@ -2114,6 +2127,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
             Some(fix),
         );
+    }
+    // Each `arc` finding says where its slide's plan is written, for an agent.
+    for f in findings.iter_mut().filter(|f| f.kind == Kind::Arc) {
+        f.path = at(&f.state, "intensity");
     }
     // Each `source` finding says the figure it found no source for.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
@@ -3861,8 +3878,14 @@ mod tests {
         let theme: Theme = serde_json::from_str(&dusk).unwrap();
         let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
         assert_eq!(offered.intensity, Some(plan));
+        // An agent over MCP is told where the plan is written, and the beat by its name (R1's
+        // MCP dogfood): the inspector's place for it, and still no patch.
+        let path = bend.path.clone().expect("where its plan is written");
+        assert_eq!(path, format!("{}/intensity", offered.at));
+        assert!(bend.fix.is_none());
+        assert!(bend.ask.contains("by its Intensity, in its beat, "), "{}", bend.ask);
         let place = h.slides.iter().find(|s| s.state == state).unwrap().curve;
-        let op = json!({ "op": "add", "path": format!("{}/intensity", offered.at), "value": place });
+        let op = json!({ "op": "add", "path": path, "value": place });
         let mut replanned = deck.clone();
         scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
         let after = of(&replanned);
