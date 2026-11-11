@@ -1,0 +1,158 @@
+{
+  "bundle": "ferry",
+  "slides": {
+    "executiveSummary": "Cove Island ferry ridership has grown every year since 2021, the 11:40 sailing turned away 9,800 riders in 2025, and a fourth daily sailing at about $1.1M a year would carry them.",
+    "slides": [
+      {
+        "slideTitle": "Add a midday sailing to the Cove Island ferry",
+        "subtitle": "A request to the finance committee",
+        "layoutSuggestion": "Title",
+        "keyBullets": [],
+        "beatIndex": 0,
+        "beatName": "Setup",
+        "expectedIntensity": 0.3,
+        "expectedValence": 0.2,
+        "speakerNotes": "Good morning. I'm asking the committee for one thing today: a fourth daily sailing on the Cove Island ferry, starting next year. Everything that follows is why."
+      },
+      {
+        "slideTitle": "Ridership has grown every year since 2021",
+        "layoutSuggestion": "Line Chart",
+        "keyBullets": [
+          "Riders a year, 2021 to 2025"
+        ],
+        "beatIndex": 0,
+        "beatName": "Setup",
+        "expectedIntensity": 0.45,
+        "expectedValence": 0.4,
+        "chartData": {
+          "categories": [
+            "2021",
+            "2022",
+            "2023",
+            "2024",
+            "2025"
+          ],
+          "series": [
+            {
+              "name": "Riders",
+              "values": [
+                412000,
+                468000,
+                521000,
+                566000,
+                604000
+              ]
+            }
+          ],
+          "sourceId": "ferry"
+        },
+        "speakerNotes": "Start with demand. Ridership has risen every single year since 2021, from 412,000 to 604,000 riders, and it has not levelled off."
+      },
+      {
+        "slideTitle": "9,800 riders were turned away at midday in 2025",
+        "layoutSuggestion": "Big Number",
+        "keyBullets": [
+          "9,800",
+          "riders turned away from the full 11:40 sailing in 2025"
+        ],
+        "beatIndex": 1,
+        "beatName": "Problem",
+        "expectedIntensity": 0.7,
+        "expectedValence": -0.5,
+        "speakerNotes": "Here is what that growth costs us. In 2025 the 11:40 sailing filled up and we turned 9,800 people away at the dock: riders who wanted to pay us and could not board."
+      },
+      {
+        "slideTitle": "Turnaways have five-folded in four years",
+        "layoutSuggestion": "Bar Chart",
+        "keyBullets": [
+          "Midday riders turned away, 2021 to 2025"
+        ],
+        "beatIndex": 1,
+        "beatName": "Problem",
+        "expectedIntensity": 0.65,
+        "expectedValence": -0.4,
+        "chartData": {
+          "categories": [
+            "2021",
+            "2022",
+            "2023",
+            "2024",
+            "2025"
+          ],
+          "series": [
+            {
+              "name": "Midday turnaways",
+              "values": [
+                1900,
+                3100,
+                4800,
+                7200,
+                9800
+              ]
+            }
+          ],
+          "sourceId": "ferry"
+        },
+        "speakerNotes": "And it is getting worse fast. Turnaways went from 1,900 in 2021 to 9,800 last year, five times as many in four years, and the midday is where it happens."
+      },
+      {
+        "slideTitle": "A fourth sailing at 1:10 carries the riders we turn away",
+        "layoutSuggestion": "Bullet List",
+        "keyBullets": [
+          "Runs 1:10 pm daily, between the full 11:40 and the 3:30",
+          "Uses the spare boat already in the fleet",
+          "Costs about $1.1M a year to run"
+        ],
+        "beatIndex": 2,
+        "beatName": "Solution",
+        "expectedIntensity": 0.6,
+        "expectedValence": 0.5,
+        "speakerNotes": "The fix is a fourth sailing at 1:10, between the full 11:40 and the 3:30. It uses the spare boat already in the fleet, so there is no capital ask, only about $1.1M a year to run it."
+      },
+      {
+        "slideTitle": "Fund the midday sailing from 2026",
+        "layoutSuggestion": "Closing",
+        "keyBullets": [
+          "Approve $1.1M a year for a fourth daily sailing"
+        ],
+        "beatIndex": 3,
+        "beatName": "Ask",
+        "expectedIntensity": 0.7,
+        "expectedValence": 0.6,
+        "speakerNotes": "So the ask is simple: approve about $1.1M a year for a fourth daily sailing from 2026, and we will come back in twelve months with the ridership to show you what it did."
+      }
+    ]
+  },
+  "topic": "A midday sailing for the Cove Island ferry",
+  "audience": "The Bay Transit Authority board's finance committee",
+  "goal": "Persuade",
+  "minutes": 10,
+  "modality": "in-person",
+  "data": [
+    {
+      "id": "ferry",
+      "file": "data/ferry.csv"
+    }
+  ],
+  "outline": {
+    "bigIdea": "A fourth daily sailing, at about $1.1M a year, carries the riders the ferry now turns away.",
+    "beats": [
+      {
+        "name": "Setup",
+        "claim": "Ridership has grown every year since 2021."
+      },
+      {
+        "name": "Problem",
+        "claim": "The midday boat is full, and riders are turned away."
+      },
+      {
+        "name": "Solution",
+        "claim": "A 1:10 sailing on the spare boat carries them for about $1.1M a year."
+      },
+      {
+        "name": "Ask",
+        "claim": "Fund the midday sailing from 2026."
+      }
+    ]
+  }
+}
