@@ -3192,15 +3192,126 @@ const COMMON: [&str; 105] = [
 
 /// The words of more than three letters that join a sentence's parts in `language`, which a turn's
 /// ask never names as one to carry across: [`GERMAN`] in a German deck (R1's agent dogfood 3:
-/// "sich", "zwei", and "voll" were named), else [`COMMON`], English's, as before.
+/// "sich", "zwei", and "voll" were named), [`FRENCH`] in a French one (W1's dogfood 10: "sans",
+/// "pour", "plus", and "chaque" were), else [`COMMON`], English's, as before.
 fn joining(language: Option<&str>) -> &'static [&'static str] {
     let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
     let head = tag.split(['-', '_', ' ']).next().unwrap_or_default();
-    match matches!(head, "de" | "deu" | "ger" | "german" | "deutsch") {
-        true => &GERMAN,
-        false => &COMMON,
+    match head {
+        "de" | "deu" | "ger" | "german" | "deutsch" => &GERMAN,
+        "fr" | "fra" | "fre" | "french" | "fran\u{e7}ais" | "francais" => &FRENCH,
+        _ => &COMMON,
     }
 }
+
+/// Words of more than three letters a French sentence holds that say nothing of what it is about:
+/// those that join its parts, the counts to twelve, and the words that only weigh another.
+const FRENCH: [&str; 104] = [
+    "ainsi",
+    "alors",
+    "apr\u{e8}s",
+    "aucun",
+    "aucune",
+    "aussi",
+    "autre",
+    "autres",
+    "avant",
+    "avec",
+    "avoir",
+    "avons",
+    "beaucoup",
+    "bien",
+    "cela",
+    "celle",
+    "celles",
+    "celui",
+    "cependant",
+    "certains",
+    "cette",
+    "ceux",
+    "chaque",
+    "cinq",
+    "comme",
+    "comment",
+    "dans",
+    "depuis",
+    "deux",
+    "donc",
+    "dont",
+    "douze",
+    "elle",
+    "elles",
+    "encore",
+    "entre",
+    "\u{e9}tait",
+    "\u{e9}taient",
+    "\u{ea}tre",
+    "fait",
+    "faire",
+    "font",
+    "huit",
+    "jamais",
+    "jusqu",
+    "leur",
+    "leurs",
+    "lors",
+    "lorsque",
+    "mais",
+    "m\u{ea}me",
+    "m\u{ea}mes",
+    "moins",
+    "neuf",
+    "notre",
+    "nous",
+    "onze",
+    "parce",
+    "parmi",
+    "pendant",
+    "peut",
+    "peuvent",
+    "plus",
+    "plut\u{f4}t",
+    "pour",
+    "pourquoi",
+    "presque",
+    "puis",
+    "quand",
+    "quatre",
+    "quel",
+    "quelle",
+    "quelles",
+    "quels",
+    "quelque",
+    "quelques",
+    "rien",
+    "sans",
+    "sept",
+    "selon",
+    "sera",
+    "seront",
+    "seul",
+    "seule",
+    "sinon",
+    "sont",
+    "sous",
+    "suis",
+    "tandis",
+    "tant",
+    "toujours",
+    "tous",
+    "tout",
+    "toute",
+    "toutes",
+    "tr\u{e8}s",
+    "trois",
+    "vers",
+    "voici",
+    "voil\u{e0}",
+    "votre",
+    "vous",
+    "avez",
+    "vraiment",
+];
 
 /// Words of more than three letters a German sentence holds that say nothing of what it is about:
 /// those that join its parts, the counts to twelve, and the words that only weigh another.
@@ -4375,7 +4486,8 @@ mod tests {
 
     /// A turn's ask names no German joining word to carry across in a German deck (R1's agent
     /// dogfood 3: "sich", "zwei", and "voll" were named), the words the slide is about in their
-    /// place; an English deck's words to leave out are English's, as before.
+    /// place; a French deck's are French's (W1's dogfood 10); an English deck's words to leave
+    /// out are English's, as before.
     #[test]
     fn a_german_turn_names_no_joining_word_to_carry() {
         let slide = |title: &str| SlideForHealth { title: title.into(), ..SlideForHealth::default() };
@@ -4386,6 +4498,16 @@ mod tests {
         );
         assert_eq!(carried(&was, &next, joining(Some("de-DE"))), carried(&was, &next, &GERMAN));
         assert!(carried(&was, &next, joining(None)).contains("\u{201c}sich\u{201d}"), "English's list keeps it");
+        // A French deck's joining words are French's (W1's dogfood 10).
+        let (was, next) = (
+            slide("Sans la navette, je ne viendrais plus au march\u{e9}"),
+            slide("Chaque mois co\u{fb}te 185 k\u{20ac}"),
+        );
+        assert_eq!(
+            carried(&was, &next, joining(Some("French"))),
+            ", such as \u{201c}navette\u{201d}, \u{201c}viendrais\u{201d} or \u{201c}march\u{e9}\u{201d}"
+        );
+        assert_eq!(carried(&was, &next, joining(Some("fr-FR"))), carried(&was, &next, &FRENCH));
         let (was, next) = (slide("Their pilot proved the routes"), slide("Kiosks open soon"));
         assert_eq!(
             carried(&was, &next, joining(Some("en"))),
