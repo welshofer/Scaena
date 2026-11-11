@@ -3627,16 +3627,27 @@ pub(crate) fn figures_in(text: &str) -> Vec<String> {
 }
 
 /// Where the number whose first digit is at `start` ends: its digits, the marks between them,
-/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end.
+/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end. A
+/// plain space groups them too, as French is typed ("1 240 000"), where every group before it is
+/// of digits alone, the first of one to three and the rest of three: never a year and a count
+/// ("2025 120"), nor a decimal and what follows it ("2,4 000") (agent dogfood 4).
 fn digits(chars: &[char], start: usize) -> usize {
     let mut end = start;
     while end < chars.len() {
         let c = chars[end];
-        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}')
-            && end > start
-            && (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
+        let three = (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
             && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
-        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped) {
+        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}') && end > start && three;
+        let typed = c == ' ' && end > start && three && {
+            // The groups before this space: digits alone, split by plain spaces, the first of one
+            // to three and each after it of three.
+            let before: String = chars[start..end].iter().collect();
+            let groups: Vec<&str> = before.split(' ').collect();
+            (groups.iter().all(|g| !g.is_empty() && g.chars().all(|c| c.is_ascii_digit())))
+                && groups[0].len() <= 3
+                && groups[1..].iter().all(|g| g.len() == 3)
+        };
+        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped || typed) {
             break;
         }
         end += 1;
@@ -8365,6 +8376,18 @@ mod tests {
         assert_eq!(figure("Der Umsatz stieg auf 538 TEUR").as_deref(), Some("538 TEUR"));
         // A word that only begins so is no unit of the figure.
         assert_eq!(figures_in("240 TEURE Sachen"), ["240".to_string()]);
+
+        // Thousands grouped by a plain space, as French is typed, are one figure (agent dogfood 4):
+        // "1 240 000", never "1". Never a year and a count, a decimal and what follows it, or a
+        // group that is not of three.
+        assert_eq!(figure("1 240 000 trajets en 2025").as_deref(), Some("1 240 000"));
+        assert_eq!(figure("310 000 \u{20ac} par an").as_deref(), Some("310 000 \u{20ac}"));
+        assert_eq!(figure("38 200 au centre").as_deref(), Some("38 200"));
+        assert_eq!(figures_in("en 2025 120 v\u{e9}los"), ["2025".to_string(), "120".to_string()]);
+        assert_eq!(figures_in("2,4 000 fois"), ["2,4".to_string(), "000".to_string()]);
+        assert_eq!(figures_in("3 1000 4"), ["3".to_string(), "1000".to_string(), "4".to_string()]);
+        assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
+        assert_eq!(figure("Les 3 200 v\u{e9}los du parc").as_deref(), Some("3 200"));
     }
 
     #[test]
@@ -8993,6 +9016,10 @@ mod tests {
         has(&number, "claim", "without power after Storm Elsa, October 2023");
         let (_, number) = made("Big Number", &["12 hours", "median first reply time on a support ticket"]);
         has(&number, "number", "12 hours");
+        // A figure whose thousands a plain space groups, as French is typed, stays whole: "1"
+        // alone drew a figure its writer never wrote (agent dogfood 4).
+        let (_, number) = made("Big Number", &["1 240 000", "trips in 2025, 18% more than in 2024"]);
+        has(&number, "number", "1 240 000");
         // A funnel's stage keeps its figure beside its name.
         let (_, funnel) = made(
             "Funnel",
