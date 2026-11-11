@@ -22,6 +22,11 @@ struct ScaenaApp: App {
         // the app saved.
         if UserDefaults.standard.bool(forKey: "b1AsShipped") { Self.putBackB1() }
         #endif
+        #if DEBUG && os(iOS)
+        // What schedules timers and display links on the main run loop, watched from launch, before
+        // any window's chrome makes its own, where the app is asked to report (lift-up 20261110).
+        TimerReport.start()
+        #endif
         // The GPU every canvas paints with, made as the app starts rather than when the first deck
         // shows (gate 3); on a queue of its own, since making it blocks. A failure here is said
         // again, by the surface that needs it.

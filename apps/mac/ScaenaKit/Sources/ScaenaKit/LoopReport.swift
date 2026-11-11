@@ -23,10 +23,6 @@ public enum LoopReport {
     private static var woke: CFTimeInterval?
     private static var since = CACurrentMediaTime()
     private static var wasBusy = false
-    /// The wakes since the loop was last said that ran its timers, and that ran its sources: a
-    /// display link fires as a source, a `Timer` and a `TimelineView`'s schedule as a timer.
-    private static var timers = 0
-    private static var sources = 0
     /// The glass views laid out at no size, as last said.
     private static var zero: [String] = []
     /// Each display link's ticks since the loop was last said, by what each tick did.
@@ -37,13 +33,15 @@ public enum LoopReport {
         guard asked, observer == nil else { return }
         let activities =
             CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
-            | CFRunLoopActivity.beforeTimers.rawValue | CFRunLoopActivity.beforeSources.rawValue
         let watching = CFRunLoopObserverCreateWithHandler(nil, activities, true, Int.max) { _, activity in
             MainActor.assumeIsolated { seen(activity) }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), watching, .commonModes)
         observer = watching
         log.debug("watching the main run loop")
+        #if os(iOS)
+        TimerReport.start()
+        #endif
     }
 
     /// A display link's tick, by the link's view (`link`), and what it did (`did`): "painted", "no
@@ -61,8 +59,6 @@ public enum LoopReport {
 
     private static func seen(_ activity: CFRunLoopActivity) {
         let now = CACurrentMediaTime()
-        if activity.contains(.beforeTimers) { timers += 1 }
-        if activity.contains(.beforeSources) { sources += 1 }
         if activity.contains(.afterWaiting) {
             wakes += 1
             woke = now
@@ -81,8 +77,13 @@ public enum LoopReport {
                 "\(link): " + did.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
             }
             let share = Int((awake / over * 100).rounded())
+            #if os(iOS)
+            let others = TimerReport.running()
+            #else
+            let others: [String] = []
+            #endif
             log.debug(
-                "main loop woke \(wakes) times in \(over, format: .fixed(precision: 1)) s, awake \(share)%, \(timers) timer passes, \(sources) source passes; links: \(links.isEmpty ? "none ticked" : links.joined(separator: "; "), privacy: .public)"
+                "main loop woke \(wakes) times in \(over, format: .fixed(precision: 1)) s, awake \(share)%; links: \(links.isEmpty ? "none ticked" : links.joined(separator: "; "), privacy: .public); other links running: \(others.isEmpty ? "none" : others.joined(separator: "; "), privacy: .public)"
             )
         }
         #if os(iOS)
@@ -95,8 +96,6 @@ public enum LoopReport {
         #endif
         wasBusy = busy
         wakes = 0
-        timers = 0
-        sources = 0
         awake = 0
         since = now
         ticks = [:]
