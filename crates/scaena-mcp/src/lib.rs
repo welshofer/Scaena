@@ -661,6 +661,12 @@ pub struct DeckFind {
     /// Whole words only: a match that neither begins nor ends inside a word.
     #[serde(default)]
     pub words: bool,
+    /// Only these kinds of words: `text` (the slides' texts), `alt` (descriptions), `notes`,
+    /// `claim` (the spine's beats' claims), `chart` (what a chart or a table writes), `data`
+    /// (the cells of its data); every kind without it. `["text"]` replaces a slide's words and
+    /// leaves the claims the outline settled as they are.
+    #[serde(default)]
+    pub kinds: Vec<scaena_core::patch::Kind>,
     /// Replace every match with this, in one patch: a `replace_text` where each text lives.
     #[serde(default)]
     pub replace: Option<String>,
@@ -1207,7 +1213,7 @@ impl Scaena {
         Parameters(a): Parameters<DeckFind>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::find::Searched>, String> {
-        let query = Query { find: a.find, case: a.case, words: a.words };
+        let query = Query { find: a.find, case: a.case, words: a.words, kinds: a.kinds };
         let author = author(&context);
         blocking(move || {
             let b = held_if(a.replace.is_some(), &a.bundle, author)?;
