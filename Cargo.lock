@@ -3354,6 +3354,7 @@ dependencies = [
  "scaena-ops",
  "scaena-paint",
  "scaena-resources",
+ "scaena-sources",
  "scaena-store",
  "schemars",
  "serde",

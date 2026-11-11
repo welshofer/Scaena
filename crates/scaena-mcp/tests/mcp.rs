@@ -1993,3 +1993,124 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
     assert_eq!(made["unset"][0]["words"], "A second line no place of the chart sets", "{made:#}");
     client.cancel().await.unwrap();
 }
+
+/// `deck_generate` of `slides` into `bundle`, grounded in `sources`.
+async fn generated(client: &Client, bundle: &Path, slides: &Value, sources: Value) -> CallToolResult {
+    call(client, "deck_generate", json!({ "bundle": path(bundle), "slides": slides, "sources": sources })).await
+}
+
+/// `deck_generate`'s `sources` (agent dogfood 3, R1's (8)): each rule a source is held to, its
+/// refusal naming `sources[i]`, the bundle never made. A file under this server's folder, in no
+/// hidden folder, through no link out of it, a regular file of at most 256 MB; an address a public
+/// `https` one, never SEC's, read only where the server was handed a reader, its user and password
+/// taken off before it is read and never kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generates_sources_are_held_to_what_the_server_may_read() {
+    let root = scratch("sources");
+    let here = root.join("here");
+    let away = root.join("away");
+    std::fs::create_dir_all(here.join(".notes")).unwrap();
+    std::fs::create_dir_all(here.join("notes")).unwrap();
+    std::fs::create_dir_all(&away).unwrap();
+    std::fs::write(here.join(".notes/brief.md"), "# The brief\n").unwrap();
+    std::fs::write(away.join("brief.md"), "# The brief\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(away.join("brief.md"), here.join("linked.md")).unwrap();
+    // Past the 256 MB a source may be, sparse, so nothing is written to disk but its length.
+    std::fs::File::create(here.join("big.csv")).unwrap().set_len((256 << 20) + 1).unwrap();
+    std::fs::write(
+        here.join("sales.csv"),
+        "month,revenue_keur,new_customers\n2026-01,412,38\n2026-02,398,35\n2026-03,455,44\n",
+    )
+    .unwrap();
+    std::fs::write(here.join("report.md"), "# H1 report\n\nTwo branches would cost 240 TEUR.\n").unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let slides = json!({ "executiveSummary": "H1", "slides": catalog["slides"].as_array().unwrap()[..5] });
+    // What the server's reader was asked, in place of the web.
+    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = asked.clone();
+    let reader: scaena_mcp::SourceReader = std::sync::Arc::new(move |spec: &str| {
+        seen.lock().unwrap().push(spec.to_string());
+        Ok(scaena_sources::Source {
+            name: spec.to_string(),
+            kind: scaena_sources::Kind::Html,
+            text: "Ridership rose.".into(),
+            sheets: Vec::new(),
+            pdf: None,
+        })
+    });
+    let served = scaena_mcp::Scaena::default().with_dir(here.clone()).with_sources(reader);
+    let client = serve(served, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let refused = |result: &CallToolResult, field: &str, why: &str| {
+        assert_eq!(result.is_error, Some(true), "{field}: {}", text(result));
+        let said = text(result);
+        assert!(said.contains(&format!("sources[0].{field}")), "{said}");
+        assert!(said.contains(why), "{why}: {said}");
+    };
+    let cases = [
+        ("hidden", json!([{ "file": ".notes/brief.md" }]), "file", "outside where this server reads"),
+        ("parent", json!([{ "file": "../away/brief.md" }]), "file", "outside where this server reads"),
+        ("away", json!([{ "file": path(&away.join("brief.md")) }]), "file", "outside where this server reads"),
+        ("folder", json!([{ "file": "notes" }]), "file", "is no file"),
+        ("big", json!([{ "file": "big.csv" }]), "file", "past the 256 MB"),
+        ("http", json!([{ "url": "http://example.com/report" }]), "url", "public https address"),
+        ("numeric", json!([{ "url": "https://127.1/report" }]), "url", "public https address"),
+        ("private", json!([{ "url": "https://10.0.0.8/report" }]), "url", "public https address"),
+        ("sec", json!([{ "url": "sec:AAPL" }]), "url", "SEC asks each request"),
+    ];
+    for (dir, sources, field, why) in cases {
+        refused(&generated(&client, &here.join(dir), &slides, sources).await, field, why);
+        assert!(!here.join(dir).exists(), "{dir}: no bundle is made");
+    }
+    #[cfg(unix)]
+    {
+        refused(
+            &generated(&client, &here.join("linked"), &slides, json!([{ "file": "linked.md" }])).await,
+            "file",
+            "outside where",
+        );
+        assert!(!here.join("linked").exists());
+    }
+    assert!(asked.lock().unwrap().is_empty(), "nothing refused was asked of the web: {:?}", asked.lock().unwrap());
+    // The second of two refusals is named by its own place.
+    let second =
+        generated(&client, &here.join("second"), &slides, json!([{ "file": "report.md" }, { "url": "sec:AAPL" }]))
+            .await;
+    assert!(text(&second).contains("sources[1].url"), "{}", text(&second));
+
+    // Given, each is kept by its name or its address, its sheet a data source, no bytes copied;
+    // the address read and kept with no user or password.
+    let sources = json!([
+        { "file": "report.md" },
+        { "file": "sales.csv" },
+        { "url": "https://user:secret@example.com/ridership.html" }
+    ]);
+    let made = generated(&client, &here.join("made"), &slides, sources).await;
+    assert_ne!(made.is_error, Some(true), "{}", text(&made));
+    let made = made.structured_content.unwrap();
+    assert_eq!(*asked.lock().unwrap(), ["https://example.com/ridership.html"]);
+    let names: Vec<&str> = made["sources"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["report.md", "sales.csv", "https://example.com/ridership.html"], "{made:#}");
+    assert_eq!(made["sources"][2]["address"], json!("https://example.com/ridership.html"));
+    assert!(made["kept"][0]["id"].is_string(), "the CSV is kept as data: {made:#}");
+    let deck = std::fs::read_to_string(here.join("made/deck.json")).unwrap();
+    assert!(!deck.contains("secret") && !deck.contains("user:"), "no user or password is kept");
+    let d: Value = serde_json::from_str(&deck).unwrap();
+    let kept: Vec<&str> =
+        d["meta"]["narrative"]["sources"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(kept, ["report.md", "sales.csv", "https://example.com/ridership.html"]);
+    assert!(!here.join("made/report.md").exists() && !here.join("made/assets/report.md").exists(), "no copy");
+    client.cancel().await.unwrap();
+
+    // A server handed no reader reads no address.
+    let bare = connect_in(&here).await;
+    refused(
+        &generated(&bare, &here.join("unreached"), &slides, json!([{ "url": "https://example.com/report" }])).await,
+        "url",
+        "reaches no web",
+    );
+    assert!(!here.join("unreached").exists());
+    bare.cancel().await.unwrap();
+}

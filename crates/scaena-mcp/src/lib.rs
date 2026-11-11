@@ -53,6 +53,21 @@ impl std::fmt::Debug for Reach {
     }
 }
 
+/// What reads a web source `deck_generate` is given (`sources`' `url`): the client's, which the CLI
+/// hands the server, as `scaena generate --source` reads one, so the server links no HTTP client.
+/// It reads only a public `https` address, each redirect held to one, and refuses the rest.
+pub type SourceReader = Arc<dyn Fn(&str) -> Result<scaena_sources::Source, String> + Send + Sync>;
+
+/// A [`SourceReader`], or none, and no web source is read.
+#[derive(Clone, Default)]
+pub struct Sourcing(Option<SourceReader>);
+
+impl std::fmt::Debug for Sourcing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Sourcing(a reader)" } else { "Sourcing(none)" })
+    }
+}
+
 /// A tool's arguments, as rmcp's own `Parameters` takes them, save that one that does not read
 /// is named in the error by its field (dogfood 3, `scaena_ops::arguments`). rmcp's macros find
 /// a tool's arguments by this name.
@@ -90,6 +105,8 @@ pub struct Scaena {
     wait: Duration,
     /// What makes `map_fetch`'s requests.
     reach: Reach,
+    /// What reads `deck_generate`'s web sources.
+    sourcing: Sourcing,
     /// Where `out` may be written besides beside a bundle; the working directory without it.
     dir: Option<PathBuf>,
     /// The home folder, which is never such a place; `$HOME` without it.
@@ -112,6 +129,7 @@ impl Default for Scaena {
             exports: Arc::default(),
             wait: EXPORT_WAIT,
             reach: Reach::default(),
+            sourcing: Sourcing::default(),
             dir: None,
             home: None,
             lints: Arc::default(),
@@ -129,6 +147,12 @@ impl Scaena {
     /// The same server, its requests outside this machine made by `transport` (ADR-0030).
     pub fn with_transport(mut self, transport: Arc<dyn scaena_objects::Transport + Send + Sync>) -> Self {
         self.reach = Reach(Some(transport));
+        self
+    }
+
+    /// The same server, its web sources read by `reader`.
+    pub fn with_sources(mut self, reader: SourceReader) -> Self {
+        self.sourcing = Sourcing(Some(reader));
         self
     }
 
@@ -160,6 +184,56 @@ impl Scaena {
     /// path an agent was told reads nothing else the user can, into a bundle that is shared.
     fn readable(&self, file: &Path, bundle: &str) -> Result<PathBuf, OpsError> {
         self.within(&file.to_string_lossy(), bundle, "reads")
+    }
+
+    /// `deck_generate`'s `sources[i]` held to what this server may read, before anything is read or
+    /// asked (agent dogfood 3): a file as [`Self::readable`] holds a data file, under this server's
+    /// folder or the bundle's, in no hidden folder, through no link out of them, a regular file of
+    /// at most 256 MB; an address a public `https` one or a GitHub repository, its user and
+    /// password taken off, never sent nor kept; SEC's filings refused, since SEC asks each request
+    /// to name who makes it, which this server does not say for the user. Each refusal names
+    /// `sources[i]`.
+    fn source_held(&self, i: usize, given: &GivenSource, bundle: &str) -> Result<Sourced, String> {
+        let at = |field: &str, why: String| format!("sources[{i}].{field}: {why}");
+        match given {
+            GivenSource::File { file } => {
+                let (real, _) = self.held(file, bundle, "reads").map_err(|e| at("file", e.message))?;
+                let meta = std::fs::metadata(&real).map_err(|e| at("file", format!("{file}: {e}")))?;
+                if !meta.is_file() {
+                    return Err(at("file", format!("{file} is no file: give a file a deck is grounded in")));
+                }
+                if meta.len() > SOURCE_MOST {
+                    return Err(at("file", format!("{file} is past the 256 MB a source may be: give a smaller one")));
+                }
+                let name = real.file_name().map_or_else(|| file.clone(), |n| n.to_string_lossy().into_owned());
+                Ok(Sourced::File { real, name })
+            }
+            GivenSource::Url { url } => {
+                let url = url.trim();
+                if url.to_ascii_lowercase().starts_with("sec:") {
+                    return Err(at(
+                        "url",
+                        "SEC asks each request to name who makes it, which this server does not say for you: \
+                         ground a deck in filings with `scaena generate --source sec:TICKER --sec-contact EMAIL`"
+                            .into(),
+                    ));
+                }
+                let url = without_userinfo(url);
+                match scaena_sources::fetch::remote(&url).map_err(|e| at("url", e.to_string()))? {
+                    Some(scaena_sources::fetch::Remote::Sec { .. }) => {
+                        Err(at("url", "SEC's filings are read by `scaena generate --source sec:TICKER`".into()))
+                    }
+                    Some(_) if self.sourcing.0.is_none() => Err(at(
+                        "url",
+                        format!("{url}: this server reaches no web; give the page as a file under its folder"),
+                    )),
+                    Some(_) => Ok(Sourced::Url(url)),
+                    None => {
+                        Err(at("url", format!("{url}: a web source is a public https address, or github:OWNER/REPO")))
+                    }
+                }
+            }
+        }
     }
 
     /// The theme file a tool reads, held as [`Self::readable`] holds a data file. A theme that
@@ -256,6 +330,29 @@ impl Scaena {
             Some(root) => Ok((real.clone(), root.clone())),
             None => Err(refused()),
         }
+    }
+}
+
+/// The most a source file may be, as a bundle's file may be (`scaena_store::UNZIPPED.entry`).
+const SOURCE_MOST: u64 = 256 << 20;
+
+/// A source `deck_generate` was given, held to what this server may read ([`Scaena::source_held`]):
+/// a file by where it really is and the name the deck keeps it by, or an address.
+#[derive(Debug)]
+enum Sourced {
+    File { real: PathBuf, name: String },
+    Url(String),
+}
+
+/// `url` with no user or password before its host: `https://user:pass@host/x` is
+/// `https://host/x`, so neither is sent nor kept in the deck (agent dogfood 3).
+fn without_userinfo(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else { return url.to_string() };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, path) = rest.split_at(end);
+    match authority.rsplit_once('@') {
+        Some((_, host)) => format!("{scheme}://{host}{path}"),
+        None => url.to_string(),
     }
 }
 
@@ -422,6 +519,14 @@ pub fn stdio() -> std::io::Result<()> {
 /// [`stdio`], `map_fetch`'s requests made by `transport`: the CLI's (ADR-0030).
 pub fn stdio_with(transport: Arc<dyn scaena_objects::Transport + Send + Sync>) -> std::io::Result<()> {
     serve_stdio(Scaena::default().with_transport(transport))
+}
+
+/// [`stdio_with`], its web sources read by `reader`.
+pub fn stdio_with_sources(
+    transport: Arc<dyn scaena_objects::Transport + Send + Sync>,
+    reader: SourceReader,
+) -> std::io::Result<()> {
+    serve_stdio(Scaena::default().with_transport(transport).with_sources(reader))
 }
 
 fn serve_stdio(scaena: Scaena) -> std::io::Result<()> {
@@ -1068,6 +1173,32 @@ pub struct DeckGenerate {
     /// each figure no source backs comes from.
     #[serde(default)]
     pub data: Vec<scaena_ops::create::Attach>,
+    /// What the deck is grounded in besides its data: each a `file` (Markdown, text, RTF, HTML,
+    /// CSV, Excel, Word, PowerPoint, or a PDF), under this server's folder or the bundle's and in
+    /// no hidden folder, at most 256 MB, or a `url`, a public `https` page or `github:OWNER/REPO`.
+    /// Each is kept among the deck's sources by its file's name or its address (no bytes of it
+    /// are copied in), each sheet a data source as `data` keeps one, and a slide whose
+    /// `sourceRef` names it cites it. SEC's filings are `scaena generate --source sec:TICKER`'s.
+    #[serde(default)]
+    pub sources: Vec<GivenSource>,
+}
+
+/// A source `deck_generate` is given: a file, or an address.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum GivenSource {
+    File { file: String },
+    Url { url: String },
+}
+
+/// A source a deck was grounded in, as it keeps it: its name, what it is, and its address where
+/// it has one.
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Grounded {
+    pub name: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 }
 
 /// An outline written beside the slides (lift-up 10-25c FUNC-1).
@@ -1159,6 +1290,13 @@ pub struct DeckGenerated {
     /// Each data file given, attached as a source by its id.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
+    /// Each of `sources`, as the deck keeps it among its sources: its name, what it is, and its
+    /// address where it has one.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<Grounded>,
+    /// Each sheet `sources` gave, kept as a data source (or why not).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<scaena_ops::narrative::Kept>,
     /// Each chart that names a data source and was not drawn from it: the slide, the source it
     /// named, and why it kept its own rows.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -1817,8 +1955,15 @@ impl Scaena {
         for d in &mut data {
             d.file = self.readable(&d.file, &a.bundle).map_err(failure)?;
         }
+        // Each source held before anything is read or asked of the web (agent dogfood 3).
+        let held = (a.sources.iter().enumerate())
+            .map(|(i, s)| self.source_held(i, s, &a.bundle))
+            .collect::<Result<Vec<_>, String>>()
+            .map_err(|message| failure(OpsError::new(message)))?;
+        let reader = self.sourcing.0.clone();
         blocking(move || {
             let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
+            let grounds = read_sources(held, reader.as_ref())?;
             let data = (data.into_iter())
                 .map(|d| {
                     let bytes = std::fs::read(&d.file)
@@ -1834,6 +1979,7 @@ impl Scaena {
                 a.arc.as_deref(),
                 outline.as_ref(),
                 &data,
+                &grounds,
             )?;
             if made.created.created && a.history {
                 scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;
@@ -1846,6 +1992,14 @@ impl Scaena {
                 fell: made.fell,
                 unset: made.unset,
                 attached: made.attached,
+                sources: (grounds.iter())
+                    .map(|s| Grounded {
+                        name: s.name.clone(),
+                        kind: s.kind.name().to_string(),
+                        address: scaena_sources::address(&s.name, s.kind),
+                    })
+                    .collect(),
+                kept: made.kept,
                 unbound: made.unbound,
                 fixed: made.fixed,
             })
@@ -1853,6 +2007,38 @@ impl Scaena {
         .await
         .map(Json)
     }
+}
+
+/// Each source [`Scaena::source_held`] holds, read: a file's bytes by `scaena_sources::read`, kept
+/// by its file's name; an address by `reader`, the client's. Two by one name are refused, so a
+/// slide's `sourceRef` names one.
+fn read_sources(held: Vec<Sourced>, reader: Option<&SourceReader>) -> Result<Vec<scaena_sources::Source>, OpsError> {
+    let mut out: Vec<scaena_sources::Source> = Vec::new();
+    for (i, h) in held.into_iter().enumerate() {
+        let source = match h {
+            Sourced::File { real, name } => {
+                let bytes = std::fs::read(&real)
+                    .map_err(|e| OpsError::new(format!("sources[{i}].file: reading {name}: {e}")))?;
+                let mut source = scaena_sources::read(&name, &bytes)
+                    .map_err(|e| OpsError::new(format!("sources[{i}].file: {name}: {e}")))?;
+                source.name = name;
+                source
+            }
+            Sourced::Url(url) => {
+                let reader =
+                    reader.ok_or_else(|| OpsError::new(format!("sources[{i}].url: this server reaches no web")))?;
+                reader(&url).map_err(|e| OpsError::new(format!("sources[{i}].url: {e}")))?
+            }
+        };
+        if out.iter().any(|s| s.name == source.name) {
+            return Err(OpsError::new(format!(
+                "sources[{i}]: another source is named {}: give each one a name of its own",
+                source.name
+            )));
+        }
+        out.push(source);
+    }
+    Ok(out)
 }
 
 /// What the server tells a client as it connects: the model in a sentence, the loop, and where
@@ -1971,6 +2157,24 @@ mod tests {
         std::fs::write(&bundle, "{}").unwrap();
         let ok = at(Path::new("/")).within(&path(&own.join("frame.png")), &path(&bundle), "writes").unwrap();
         assert_eq!(ok, std::fs::canonicalize(&own).unwrap().join("frame.png"));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A source `deck_generate` is given is held as a written file is (agent dogfood 3): a server
+    /// started at home, or at the disk's root, reads none of the user's files into a deck, and
+    /// says so by `sources[i]`.
+    #[test]
+    fn a_source_at_home_is_read_by_no_server_of_its_own() {
+        let home = scratch("home-source");
+        std::fs::write(home.join("notes.md"), "# Private\n").unwrap();
+        let nowhere = home.join("no-bundle");
+        for dir in [Path::new("/"), home.as_path()] {
+            let server = Scaena { dir: Some(dir.to_path_buf()), home: Some(home.clone()), ..Scaena::default() };
+            let given = GivenSource::File { file: path(&home.join("notes.md")) };
+            let err = server.source_held(2, &given, &path(&nowhere)).unwrap_err();
+            assert!(err.starts_with("sources[2].file: "), "{err}");
+            assert!(err.contains("keep the bundle in a folder of its own"), "{err}");
+        }
         let _ = std::fs::remove_dir_all(&home);
     }
 

@@ -196,6 +196,9 @@ pub struct Generated {
     /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
+    /// Each sheet a source given (`deck_generate`'s `sources`) holds, kept as a data source.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<Kept>,
     /// Each chart that names a data source and was not drawn from it, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unbound: Vec<Unbound>,
@@ -657,7 +660,7 @@ fn stem(s: &str) -> String {
 }
 
 /// A data source kept from a sheet, or why it was not.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct Kept {
     pub sheet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1177,6 +1180,7 @@ pub fn from_slides(
     arc: Option<&str>,
     outline: Option<&Outline>,
     data: &[(Attach, Vec<u8>)],
+    grounds: &[scaena_sources::Source],
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
@@ -1218,8 +1222,9 @@ pub fn from_slides(
     generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
     // Each data file given is a source the deck is grounded in, by its file's name: a chart says
     // it as its source, and the beat of a slide whose `sourceRef` names it cites it (agent
-    // dogfood 3), as a file `--source` gave is.
-    if !data.is_empty() {
+    // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
+    // and its address where it has one; none of its text is packed, since no model reads it.
+    if !data.is_empty() || !grounds.is_empty() {
         let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
         let given = (data.iter())
             .map(|(req, bytes)| Provenance {
@@ -1229,6 +1234,13 @@ pub fn from_slides(
                 bytes: bytes.len(),
                 truncated: false,
             })
+            .chain(grounds.iter().map(|s| Provenance {
+                name: s.name.clone(),
+                kind: s.kind.name().to_string(),
+                url: scaena_sources::address(&s.name, s.kind),
+                bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
+                truncated: false,
+            }))
             .collect();
         generation.give_sources(given);
     }
@@ -1265,6 +1277,15 @@ pub fn from_slides(
                 }
             }
         }
+        // Each sheet a source gave kept as a data source, as `--source` keeps one, its figures
+        // quoted, before the charts that name one are drawn from it.
+        let write = if grounds.is_empty() {
+            write
+        } else {
+            let (write, kept) = keeping(write, &scaena_sources::tables(grounds))?;
+            made.kept = kept;
+            write
+        };
         let (write, unbound) = binding(write)?;
         made.unbound = unbound;
         crate::create::make(dir, write)?;
@@ -2474,6 +2495,7 @@ pub fn making(
         fell: made.fell,
         unset: made.unset,
         attached: Vec::new(),
+        kept: Vec::new(),
         unbound: Vec::new(),
         fixed: Vec::new(),
         fitted: Vec::new(),

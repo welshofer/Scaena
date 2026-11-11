@@ -55,6 +55,23 @@
         },
         "additionalProperties": false,
         "required": ["id", "file"]
+      },
+      "GivenSource": {
+        "description": "A source `deck_generate` is given: a file, or an address.",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": { "file": { "type": "string" } },
+            "additionalProperties": false,
+            "required": ["file"]
+          },
+          {
+            "type": "object",
+            "properties": { "url": { "type": "string" } },
+            "additionalProperties": false,
+            "required": ["url"]
+          }
+        ]
       }
     },
     "type": "object",
@@ -143,6 +160,11 @@
         "type": "array",
         "items": { "$ref": "#/$defs/Attach" },
         "default": []
+      },
+      "sources": {
+        "description": "What the deck is grounded in besides its data: each a `file` (Markdown, text, RTF, HTML,\nCSV, Excel, Word, PowerPoint, or a PDF), under this server's folder or the bundle's and in\nno hidden folder, at most 256 MB, or a `url`, a public `https` page or `github:OWNER/REPO`.\nEach is kept among the deck's sources by its file's name or its address (no bytes of it\nare copied in), each sheet a data source as `data` keeps one, and a slide whose\n`sourceRef` names it cites it. SEC's filings are `scaena generate --source sec:TICKER`'s.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/GivenSource" }
       }
     },
     "additionalProperties": false,
@@ -199,6 +221,27 @@
         },
         "required": ["slide", "words", "layout"]
       },
+      "Grounded": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "address": { "type": ["string", "null"] }
+        },
+        "required": ["name", "kind"]
+      },
+      "Kept": {
+        "type": "object",
+        "properties": {
+          "sheet": { "type": "string" },
+          "id": { "type": ["string", "null"] },
+          "source": { "type": ["string", "null"] },
+          "rows": { "type": ["integer", "null"], "minimum": 0 },
+          "why": { "type": ["string", "null"] },
+          "quoted": { "type": ["integer", "null"], "minimum": 0 }
+        },
+        "required": ["sheet"]
+      },
       "Unbound": {
         "type": "object",
         "properties": {
@@ -209,7 +252,7 @@
         "required": ["slide", "source", "why"]
       }
     },
-    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "unbound", "fixed"],
+    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "sources", "kept", "unbound", "fixed"],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -219,6 +262,8 @@
       "fell": { "type": "array", "items": { "$ref": "#/$defs/Fell" } },
       "unset": { "type": "array", "items": { "$ref": "#/$defs/Unset" } },
       "attached": { "type": "array", "items": { "type": "string" } },
+      "sources": { "type": "array", "items": { "$ref": "#/$defs/Grounded" } },
+      "kept": { "type": "array", "items": { "$ref": "#/$defs/Kept" } },
       "unbound": { "type": "array", "items": { "$ref": "#/$defs/Unbound" } },
       "fixed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } }
     }
