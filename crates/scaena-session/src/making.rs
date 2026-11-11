@@ -183,7 +183,7 @@ impl Making {
     /// slide's figures otherwise, which the report and the deck keep (W1 dogfood 9): what
     /// `relook` is then given, a change that asks nothing else taken away.
     pub fn figured(&mut self, mut changes: Vec<Change>) -> Vec<Change> {
-        let said = scaena_ops::narrative::figured(&mut changes);
+        let said = scaena_ops::narrative::figures_let_go(&mut changes);
         if let Some(write) = &mut self.write {
             refuse_too(&mut self.made, write, said);
         }

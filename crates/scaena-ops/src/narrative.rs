@@ -1548,7 +1548,7 @@ pub fn looked(
     // here (W1 dogfood 9); a title that drops what its beat claims, or names a topic where the
     // slide stated its point, is let go before the deck is made again (W1's dogfood 8).
     let mut changes = changes;
-    let mut titled = figured(&mut changes);
+    let mut titled = figures_let_go(&mut changes);
     let (changes, held) = held(shown.narrative, &before.0.layouts, changes);
     titled.extend(held);
     if changes.is_empty() {
@@ -1763,7 +1763,7 @@ pub fn refusals(
 /// What the model asked on each of `changes` that the answer's reading let go for writing the
 /// slide's figures otherwise (W1 dogfood 9), taken off them as the deck keeps it, a change that
 /// asks nothing else taken away.
-pub fn figured(changes: &mut Vec<Change>) -> Vec<Refused> {
+pub fn figures_let_go(changes: &mut Vec<Change>) -> Vec<Refused> {
     let mut said = Vec::new();
     for change in changes.iter_mut() {
         let slide = change.slide;
