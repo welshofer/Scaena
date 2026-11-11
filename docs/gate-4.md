@@ -3,7 +3,7 @@
 Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence so far. Every task of Phase 4 has landed (4.1–4.13). What the gate still needs is a real iPad. CI's iPad is a simulator on a virtual Mac: its GPU lacks what vello needs, so it paints with the CPU painter, and its timings are a virtual machine's.
 
 **Where it stands:**
-- **Criterion 1** (same pixels as the web player, on an iPad's GPU). The same frame is met on CI's simulator: the torture deck's display lists there are the goldens'. The same pixels on an iPad's GPU wait on an iPad, since vello never runs on the simulator.
+- **Criterion 1** (same pixels as the web player, on an iPad's GPU). The same frame is met on CI's simulator: the torture deck's display lists there are the goldens'. The criterion's CPU half is held there too: every state at rest, painted by the iPad's CPU painter, within SPEC §13.5 of the goldens' pixels, which the web player's painters are held to. The same pixels on an iPad's GPU wait on an iPad, since vello never runs on the simulator.
 - **Criterion 2** (first frame under 300 ms on an M-series iPad) waits on an iPad. `just ipad-gate UDID` reads it there, in release, with one command.
 - **Criterion 3** (no text layout where a deck is drawn) is met, held by the test that holds gate 3's. The source pane's `UITextView` is TextKit in chrome, on Jay's call for gate 3.
 - **Criterion 4** (each edit by touch the Mac's patch, and one step of undo) is met for touch on the simulator:
@@ -17,7 +17,8 @@ Phase 4's exit criteria (PLAN, "Exit criteria (gate 4)"), each with its evidence
   - ScaenaKit's `theTortureDeckDrawsTheGoldensDisplayLists` opens the torture deck from its files, as the app does. Every state at rest digests to the goldens (`tests/golden/torture/raw.fnv1a`), as the web player's engine does (PLAN 0.8).
   - CI runs it on the simulator. Gate 4's own tests carry the deck and the digests (below), so an iPad runs the same test on its own engine, built in release.
   - On CI's simulator, all 60 of the torture deck's states at rest draw the goldens' display lists (`gate 4, criterion 1: 60 of the torture deck's 60 states …`).
-- **Same pixels.** The iPad paints with vello on Metal, as the Mac does (`LayerPainter`).
+- **Same pixels, by the CPU painter: criterion 1's CPU half.** ScaenaKit's `theTortureDeckPaintsTheGoldensPixelsByTheCPUPainter` paints every state of the torture deck at rest with the CPU painter the engine built for the iPad carries, and holds each to its golden raster (`tests/golden/torture/<state>.png`) by SPEC §13.5's metric (`scaena_paint::diff`, through the C ABI's `scaena_pixels_against`), the metric the web player's painters are held to the same goldens by. The goldens were painted on Linux; the iPad's CPU painter runs its own SIMD path, so the metric, not the bytes, is the bar. It prints how far each state is off, and how many are exact (`gate 4, criterion 1, the CPU painter's pixels, …`). Gate 4's bundle carries the rasters at rest, copied from the repository as it is built (`torture-rasters`), so an iPad runs it in `just ipad-gate` beside the vello check. This is the CPU half alone: vello on an iPad's GPU is the other.
+- **Same pixels, by the GPU.** The iPad paints with vello on Metal, as the Mac does (`LayerPainter`).
   - On the simulator, Metal is Apple's second GPU family alone. It has no indirect dispatch, which vello asks for. So a layer there is painted by the CPU painter and shown through the same blit (ADR-0004 finding 23).
   - CI's `aSurfacePaintsOnMetalWhatTheCPUPainterPaints` therefore checks the blit on the simulator, not vello. There the layer's pixels are the CPU painter's own, 0.000 of a level off on average.
   - On an iPad, the same test asks for vello. It holds B1's cover on a layer to the CPU painter's pixels: a channel under one level off on average (SPEC §13.5). It prints how far off.
@@ -109,3 +110,9 @@ About half an hour, with an M-series iPad on iPadOS 26 and a Mac with Xcode and 
 7. Play B1 with an external display or AirPlay: the stage goes there, and the presenter's view stays on the iPad. Join from an iPhone's Remote with the code the presenter shows. Ask the assistant something with a key from its sheet.
 
 What the run finds is logged here and in PLAN's gate log.
+
+## Candidates for CI's simulator
+
+What else the simulator could prove before the run on an iPad, not yet built:
+- **The presenter's Remote… sheet** as an iPad UI test: Play, then Remote…, shows a code of eight digits in two groups of four. ScaenaKit's `RemoteTests` already join over the loopback.
+- **An external display**, if the simulator can attach one from the command line: the stage on the display's scene and the presenter's view on the iPad (PLAN 4.8), as a `PresentingTests` case.

@@ -240,6 +240,29 @@ public final class ScaenaSession {
         return Pixels(rgba: rgba, width: Int(painted.width), height: Int(painted.height))
     }
 
+    /// How a frame painted is held to a golden by SPEC §13.5's metric (`scaena_paint::diff`):
+    /// whether it passes, the pixels the ΔE rule judges and how many are over it, the largest ΔE
+    /// and channel step, the pixels that differ at all, and all of it said in a line.
+    public struct Held: Decodable, Sendable {
+        public let passes: Bool
+        public let compared: Int
+        public let over: Int
+        public let maxDeltaE: Double
+        public let maxChannel: Int
+        public let differing: Int
+        public let said: String
+    }
+
+    /// `state` at rest, painted by the CPU painter as wide as `golden`, a PNG, and held to it by
+    /// SPEC §13.5's metric, the torture goldens' and the web player's painters' (gate 4, criterion
+    /// 1's CPU half); thrown where it cannot be painted, the PNG read, or the sizes differ.
+    public func held(_ state: String, to golden: Data) throws -> Held {
+        let answer = golden.withUnsafeBytes { raw in
+            scaena_pixels_against(handle, state, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), raw.count)
+        }
+        return try Self.decode(answer, as: Held.self)
+    }
+
     /// The deck as a PDF (PLAN 3.8): a page for each slide at its last state, the bytes `scaena
     /// export --format pdf` writes, as the browser's PDF module draws them; with `notes`, each
     /// slide smaller with the presenter's notes under it, the bytes `--notes` writes.
