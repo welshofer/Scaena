@@ -81,7 +81,10 @@
         "description": "Something to look at on one slide: what it says, what to ask the assistant, and, where one\nis safe, a fix.",
         "type": "object",
         "properties": {
-          "state": { "description": "The slide's first state.", "type": "string" },
+          "state": {
+            "description": "The step it was read at, which an editor shows: the slide's first state for a finding about\nits notes or its plan, or that it does not stand, else its last, built whole.",
+            "type": "string"
+          },
           "slide": { "description": "The slide's number, from 1.", "type": "integer", "minimum": 0 },
           "severity": { "$ref": "#/$defs/Severity" },
           "kind": { "$ref": "#/$defs/Kind" },
@@ -95,6 +98,10 @@
           "path": {
             "description": "Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to\nits beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the\neditors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is\nthe person's (ADR-0032, item 4).",
             "type": ["string", "null"]
+          },
+          "field": {
+            "description": "The one field the finding asks to edit, where it asks for one: a slide's headline, its\nnotes, its intensity, or its part's claim; none where it asks for the slide's words at\nlarge, or for a cut, a move, or a source.",
+            "anyOf": [{ "$ref": "#/$defs/Field" }, { "type": "null" }]
           }
         },
         "required": ["state", "slide", "severity", "kind", "says", "ask"]
@@ -180,6 +187,23 @@
         "type": "object",
         "properties": { "says": { "type": "string" }, "patch": { "type": "array", "items": true } },
         "required": ["says", "patch"]
+      },
+      "Field": {
+        "description": "What a finding asks a person to edit, where it is one field of the slide an editor opens for\nit (W2's editor dogfood 6), so an editor need not read the ask's words for it.",
+        "oneOf": [
+          { "description": "The slide's headline.", "type": "string", "const": "headline" },
+          { "description": "The notes the presenter reads for it.", "type": "string", "const": "notes" },
+          {
+            "description": "The intensity its beat plans it at (`media.narrato.intensity`, the finding's `path`).",
+            "type": "string",
+            "const": "intensity"
+          },
+          {
+            "description": "The claim the settled outline holds for the part of the talk it opens.",
+            "type": "string",
+            "const": "claim"
+          }
+        ]
       },
       "Capped": {
         "description": "The score held down by the slides that do not stand.",

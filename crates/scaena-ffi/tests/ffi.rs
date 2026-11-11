@@ -1095,6 +1095,30 @@ fn text_typed_in_place_is_the_patch_the_browsers_typing_makes() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A quoted figure typed over (dogfood-5 item 13), as the browser's typing says it: one the words
+/// still say keeps its quote and is told nothing; one changed is told by its source and column.
+#[test]
+fn a_figure_typed_over_says_what_it_quotes_no_more() {
+    let s = revenue();
+    let quote = json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+    let style = json!({ "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": { "quote": quote } });
+    assert_eq!(call(s, "typed", json!({ "ops": [style] })), true);
+    assert_eq!(call(s, "unquoted", Value::Null), json!([]), "a look given unquotes nothing");
+    let over = json!({ "op": "replace_text", "node": "title", "state": "revenue", "from": 8, "to": 13, "text": "about $19.4" });
+    assert_eq!(call(s, "typed", json!({ "ops": [over] })), true);
+    assert_eq!(call(s, "unquoted", Value::Null), json!([]), "the words still say it");
+    let from = "Revenue about ".chars().count();
+    let changed = json!({ "op": "replace_text", "node": "title", "state": "revenue", "from": from, "to": from + 5, "text": "$19.5" });
+    assert_eq!(call(s, "typed", json!({ "ops": [changed] })), true);
+    assert_eq!(
+        call(s, "unquoted", Value::Null),
+        json!([{ "node": "title", "figure": "$19.4", "data": "q3", "column": "revenue" }])
+    );
+    // The source by the name the window says it in, as the browser's editor names it.
+    assert_eq!(call(s, "words", json!({ "state": "revenue" }))["sources"]["q3"], "Q3 Revenue");
+    unsafe { scaena_session_free(s) };
+}
+
 /// Code typed in place (PLAN 2.139), as the browser's typing makes it: Make Code one patch, its
 /// carets saying its tab stops; a key answered as a code editor answers it, `{ text, from, to }`
 /// in UTF-16 code units, which a `replace_text` then makes; Tidy Code nothing where it is tidy;
