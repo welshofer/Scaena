@@ -7527,6 +7527,8 @@ mod tests {
         assert_eq!(typeset("up 18%", "en"), "up 18%");
         assert_eq!(typeset("die 50%-Grenze", "de"), "die 50%-Grenze");
         assert_eq!(typeset(&typeset("+18%", "de"), "de"), "+18\u{a0}%");
+        // The look's guard reads one figure either way.
+        assert!(scaena_narrato::same_figures("EBITDA +18%", &typeset("EBITDA +18%", "de")));
         // Set once, words stay as they are.
         let once = typeset("1,2 Mio. \u{20ac} am 12. November", "de");
         assert_eq!(typeset(&once, "de"), once);
@@ -7675,6 +7677,11 @@ mod tests {
         assert!(faithful_of(&["$50: feeds a family for a week at harborhouse.org"], &[linked]));
         // A card's number is no part of a figure it does not begin.
         assert!(faithful_of(&["10% churn"], &[text("figure", "1"), text("body", "10% churn")]));
+        // A percent set apart from its figure, as `typeset` sets one in German, is drawn whole
+        // with its sign, and not without it (W1's German dogfood).
+        let apart = ["+18\u{a0}%: EBITDA im Jahr"];
+        assert!(faithful_of(&apart, &[text("figure", "+18\u{a0}%"), text("body", "EBITDA im Jahr")]));
+        assert!(!faithful_of(&apart, &[text("figure", "+18"), text("body", "EBITDA im Jahr")]));
     }
 
     #[test]
