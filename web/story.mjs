@@ -29,7 +29,8 @@
 //   after it, Escape's words and what lint finds; Update restates the claim and the offer goes; an
 //   undo of the typing takes the offer away; Keep lets it be and changes nothing (lift-up FUNC-2).
 // - On dogfood 9's keynote, every slide a row's words name is a button that shows it at its last
-//   step, built whole (lift-up 20261110), the big idea's "slides 10–11" each; and a read again
+//   step, built whole (lift-up 20261110), the big idea's "slides 10–11" each, the deck told a big
+//   idea its close never says; and a read again
 //   after slide 5's notes are deepened keeps the open rows where they stood, what is new after
 //   them (editor dogfood 6).
 // - A row told by its kind alone keeps its place as its slide moves (editor dogfood 6): on the
@@ -496,10 +497,16 @@ try {
   await (async () => {
     const bundle = "target/web-story/keynote";
     await rm(bundle, { recursive: true, force: true });
+    // Its close quotes the big idea it was written to ("where people already are"), which lands
+    // it; told a big idea the close never says, the big idea's row names the close's slides.
+    const outline = JSON.parse(await readFile("docs/examples/dogfood-9/keynote.outline.json", "utf8"));
+    outline.bigIdea = "Every neighborhood deserves a librarian it can reach without a car.";
+    await mkdir("target/web-story", { recursive: true });
+    await writeFile("target/web-story/keynote.outline.json", JSON.stringify(outline));
     execFileSync(
       "cargo",
       ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", bundle, "Taking the library to where people are",
-        "--slides", "docs/examples/dogfood-9/keynote.slides.json", "--from-outline", "docs/examples/dogfood-9/keynote.outline.json",
+        "--slides", "docs/examples/dogfood-9/keynote.slides.json", "--from-outline", "target/web-story/keynote.outline.json",
         "--no-look", "--pictures", "none", "--audience", "the library board and city council", "--goal", "Persuade",
         "--length", "11-15 slides", "--modality", "keynote"],
       { stdio: "inherit" },

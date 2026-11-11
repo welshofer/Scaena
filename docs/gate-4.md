@@ -43,6 +43,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went. As on
   - the machine is a virtual Mac.
 
   It holds the test to five seconds, so that a gross regression shows. The job runs the gate's own command too (`apps/ipad/gate.sh`, below), so that the command keeps working, and prints the simulator's readings.
+- **Release, weekly.** The gate's run on an iPad is built in release, and CI's pull requests build in debug. So the weekly run, a manual one, and a ready pull request that changes `apps/ipad/gate.sh` or `apps/ipad/project.yml` also run `apps/ipad/gate.sh --release`, gate 4's tests built in release on the simulator, and build the app in release. What release alone breaks, what `#if DEBUG` holds or the optimizer, then shows before the run on an iPad does. Its readings are still a virtual Mac's, not the gate's.
 - **The simulator's reading**, from the first run of `gate.sh` on CI: B1 open to first frame in 26 ms, painted by the CPU painter.
 
   | | open → first frame | files and session | timeline | surface | first frame | a second surface |
@@ -88,6 +89,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went. As on
   - ScaenaKit's tests: a drag's patch keeps the source it replaced, for the window's undo, and a burst of typing is one step.
 - **Undo by touch** came from writing this gate. An iPad without a keyboard had no Undo to touch: no ⌘Z, and the menu bar a swipe from the top away. So the toolbar has Undo beside View and Zoom, as Keynote's does on the iPad (PLAN 4.11).
 - **The Pencil.** Its hover outlines what a press would take, read from the boxes the pointer's hover reads (PLAN 4.5). On the simulator, a pointer stands in for it. The Pencil itself waits on an iPad, as do Scribble, the software keyboard, and dictation (PLAN 4.4), and PageDown and PageUp from a keyboard (PLAN 4.12): the simulator's keyboard sends neither, so `KeysTests` turns the slides by them only on an iPad, and ScaenaKit's `pageDownAndPageUpAreTheIPadCanvassOwnKeyCommands` holds the commands and what they do.
+- **The software keyboard and iOS's hardware-keyboard mode.** CI's UI tests type with XCTest's hardware keys in two passes (`apps/ipad/app-test.sh`): most with the app launched `-softwareKeyboard NO`, a debug build's text input then bringing up no software keyboard (`CanvasKeys.inputView`), and the two that need the software keyboard with it up. The first pass tests keys with no software keyboard shown, not iOS's own hardware-keyboard mode or its shortcuts bar: the simulator's Connect Hardware Keyboard did not keep the software keyboard down, headless or in Simulator.app (#1067's runs). Those wait on an iPad's keyboard.
 
 ## The run on an iPad
 

@@ -240,6 +240,20 @@ pub fn bind(
     if node["x"]["type"] == "temporal" && table.types[x] != ColumnType::Date {
         if years(deck, files, id, &table, x) {
             dated = Some(table.columns[x].clone());
+            // Its years typed as dates, what it marks by a year marks that year's first day,
+            // as lint then reads its rows (R1's ferry).
+            let first_day = |place: &mut Value| {
+                if let Some(y) = place.as_str().filter(|y| y.len() == 4 && y.bytes().all(|b| b.is_ascii_digit())) {
+                    *place = json!(format!("{y}-01-01"));
+                }
+            };
+            for note in node.get_mut("annotations").and_then(Value::as_array_mut).into_iter().flatten() {
+                match note.pointer_mut("/at/x") {
+                    Some(Value::Array(ends)) => ends.iter_mut().for_each(first_day),
+                    Some(one) => first_day(one),
+                    None => {}
+                }
+            }
         } else {
             node["x"]["type"] = json!("ordinal");
         }
@@ -512,6 +526,24 @@ mod tests {
         node["annotations"] = json!([{ "kind": "highlight", "at": { "x": "2025" } }]);
         bind(&mut node, &chart, &deck, &files, "ferry").unwrap();
         assert_eq!(node["annotations"][0]["at"]["x"], json!("2025"));
+    }
+
+    /// A line along years that types its number column of years as dates marks its years as
+    /// that column then reads them, each year's first day (R1's ferry, after #1056).
+    #[test]
+    fn a_line_that_types_its_years_as_dates_marks_them_so() {
+        let (deck, files) = ferry(false);
+        let (mut node, chart) = by_year("line", "Riders", &[412000.0, 468000.0, 521000.0, 566000.0, 604000.0]);
+        node["x"]["type"] = json!("temporal");
+        node["annotations"] = json!([
+            { "kind": "highlight", "at": {} },
+            { "kind": "rule", "at": { "x": "2021" }, "text": "2021" },
+            { "kind": "band", "at": { "x": ["2022", "2025"] }, "text": "since 2022" }
+        ]);
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "ferry"), Ok(Some("year".into())));
+        assert_eq!(node["annotations"][1]["at"]["x"], json!("2021-01-01"));
+        assert_eq!(node["annotations"][2]["at"]["x"], json!(["2022-01-01", "2025-01-01"]));
+        assert_eq!(node["annotations"][1]["text"], json!("2021"), "its words as written");
     }
 
     /// A series named by what it measures binds to the column named so with its unit's words

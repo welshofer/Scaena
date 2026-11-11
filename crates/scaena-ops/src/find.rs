@@ -35,7 +35,9 @@ pub struct Searched {
 /// The deck's words that `query` matches, and the cells of its data files that it matches.
 pub fn find(b: &Bundle, query: &Query) -> Result<Vec<Found>, OpsError> {
     let mut found = scaena_core::patch::find(&b.deck.to_value()?, query).map_err(OpsError::new)?;
-    found.extend(in_files(b, query)?);
+    if query.seeks(scaena_core::patch::Kind::Data) {
+        found.extend(in_files(b, query)?);
+    }
     Ok(found)
 }
 

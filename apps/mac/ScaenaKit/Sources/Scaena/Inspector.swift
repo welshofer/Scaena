@@ -109,6 +109,11 @@ struct Inspector: View {
                 if let furniture = choices?.furniture, furniture.placed {
                     FurnitureSection(furniture: furniture, make: make)
                 }
+                // The plan of the beat that tells the slide (editor dogfood 3), as the browser's
+                // Format tab offers it.
+                if let plan = choices?.plan {
+                    PlanSection(plan: plan, make: make)
+                }
             }
             // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
             // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
@@ -1625,6 +1630,69 @@ private struct FurnitureSection: View {
         } footer: {
             Text(furniture.shown ? "This slide shows them." : "This slide doesn’t show them.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// The plan of the beat that tells the slide (editor dogfood 3), as the browser's Format tab offers
+/// it: its Intensity and Tone, each a slider that says its value in the engine's words as it is
+/// held and, let go, plans it by one JSON Patch, one step to undo. It draws nothing on the slide.
+private struct PlanSection: View {
+    let plan: PlanChoice
+    let make: ([JSONValue]) -> Void
+    @FocusState private var focused: PlanChoice.Key?
+
+    var body: some View {
+        Section {
+            ForEach(PlanChoice.Key.allCases) { key in
+                PlanSlider(plan: plan, key: key, focus: $focused, make: make)
+                    .id("field-\(key.rawValue)")
+            }
+        } header: {
+            Text("Plan")
+        } footer: {
+            Text("What the beat that tells this slide plans, which the Story reads its words against.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// One measure of a beat's plan: a slider from one end of its range to the other, its word beside
+/// it, planned when let go, and where the beat declares none, in the middle until it is planned.
+private struct PlanSlider: View {
+    let plan: PlanChoice
+    let key: PlanChoice.Key
+    var focus: FocusState<PlanChoice.Key?>.Binding
+    let make: ([JSONValue]) -> Void
+    @State private var value = 0.0
+
+    /// What the slider shows unmoved: the plan, or the middle where the beat declares none, so
+    /// passing through it plans nothing.
+    private var shown: Double { plan.value(key) ?? key.middle }
+
+    var body: some View {
+        LabeledContent(key.label) {
+            HStack {
+                Slider(value: $value, in: key.range, step: 0.05) {
+                    Text(key.label)
+                } onEditingChanged: { editing in
+                    guard !editing, value != shown else { return }
+                    make(plan.planning(key, to: value))
+                }
+                .labelsHidden()
+                .focused(focus, equals: key)
+                .accessibilityValue(plan.said(key, value))
+                .accessibilityIdentifier("plan-\(key.rawValue)")
+                Text(plan.said(key, value))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 64, alignment: .leading)
+            }
+        }
+        .onChange(of: shown, initial: true) { _, now in value = now }
+        // Moved by the keys, it is planned as the focus leaves it, as a drag is once let go.
+        .onChange(of: focus.wrappedValue) { was, now in
+            guard was == key, now != key, value != shown else { return }
+            make(plan.planning(key, to: value))
         }
     }
 }

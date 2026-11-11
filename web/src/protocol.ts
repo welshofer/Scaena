@@ -1658,6 +1658,9 @@ export type GeneratingEvent =
   | { kind: "looked"; slides: number }
   | { kind: "unlooked"; why: string }
   | { kind: "refused"; slide: number; what: string; why: string }
+  /** A chart that names a data source the deck keeps and is not drawn from it, and why (W1
+   * dogfood 9). */
+  | { kind: "unbound"; slide: number; source: string; why: string }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
@@ -1694,6 +1697,8 @@ export interface Generated {
   links?: { slide: number; href: string }[];
   /** Each change the model asked that lint found its slide worse for, let go (lift-up USE-4). */
   refused?: { slide: number; what: string; why: string }[];
+  /** Each chart that names a data source and is not drawn from it, and why (agent dogfood). */
+  unbound?: { slide: number; source: string; why: string }[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
