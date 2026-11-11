@@ -111,11 +111,48 @@ Errors:
      - `remove_slide` and `move_slide` keep the spine whole: a beat a removal empties goes, and a beat that tells only the slide moves with it.
      - `add_state` with `beat` adds a build to its beat.
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
+   - Each op is written as **The ops, as written** below shows it; one that does not read says its shape after why.
 9. **Look.**
    - Render a state, view the PNG, fix what is wrong, and repeat.
    - `--t <ms>` renders a frame inside the state's cue (its transition, then its motions), and `--format 9:16` another of the deck's formats.
    - Rendering needs the deck's font files in the bundle; `deck_create` copies them.
 10. **Report:** beats, states, the lint summary, the health score with its findings, and anything you could not express without an override.
+
+## The ops, as written
+
+Each semantic op of a patch (`deck_patch`'s `ops`, `scaena patch`), its required keys first and each optional one marked `?`, a value in capitals its kind: an `ID` a node's, a `STATE` a state's, a `CHAR` a character's offset in a text, and `PROP/KEY` one key of a property (`transition/ease`, `features/kern`). JSON Patch (`add`, `replace`, `remove`, `move`, `copy`, `test`) is written as RFC 6902 writes it, `{ "op": "replace", "path": "/spine/sections/0/beats/0/claim", "value": "…" }`. `docs/schema/patch.schema.json` (the resource `scaena://schema/patch`) says what each key takes.
+
+```
+{ "op": "add_node", "id": ID, "node": NODE, "state"?: STATE, "props"?: PROPS, "after"?: ID }
+{ "op": "remove_node", "id": ID }
+{ "op": "rename_node", "id": ID, "to": ID }
+{ "op": "show_node", "node": ID, "state": STATE, "props"?: PROPS }
+{ "op": "hide_node", "node": ID, "state": STATE }
+{ "op": "delete_node", "node": ID, "state": STATE, "everywhere"?: BOOL }
+{ "op": "group", "id": ID, "nodes": [ID, …], "state"?: STATE }
+{ "op": "ungroup", "group": ID }
+{ "op": "set_prop", "node": ID, "prop": "PROP" | "PROP/KEY", "value": VALUE, "state"?: STATE }
+{ "op": "place", "node": ID, "at": AT, "state"?: STATE, "fork"?: BOOL, "format"?: FORMAT, "anew"?: BOOL }
+{ "op": "set_text", "node": ID, "text": TEXT, "state"?: STATE }
+{ "op": "replace_text", "node": ID, "from": CHAR, "to": CHAR, "text": TEXT, "state"?: STATE, "fork"?: BOOL }
+{ "op": "style_text", "node": ID, "from": CHAR, "to": CHAR, "look": LOOK, "state"?: STATE, "fork"?: BOOL }
+{ "op": "list", "node": ID, "from": CHAR, "to": CHAR, "kind"?: "bullet" | "number" | null, "level"?: N, "by"?: N, "state"?: STATE, "fork"?: BOOL }
+{ "op": "choose", "node": ID, "prop": "PROP" | "PROP/KEY", "value": VALUE, "state"?: STATE, "fork"?: BOOL }
+{ "op": "annotate", "node": ID, "index"?: N, "annotation"?: ANNOTATION | null, "state"?: STATE, "fork"?: BOOL }
+{ "op": "bind_data", "node": ID, "data": "@SOURCE", "source"?: SOURCE, "state"?: STATE }
+{ "op": "apply_preset", "node": ID, "preset": PRESET, "motion"?: MOTION, "state"?: STATE }
+{ "op": "time_motion", "node": ID, "motion": MOTION, "state": STATE, "delay"?: MS, "duration"?: DURATION }
+{ "op": "add_state", "state": { "id": STATE, … }, "after"?: STATE, "before"?: STATE, "beat"?: BEAT }
+{ "op": "move_state", "id": STATE, "after"?: STATE, "before"?: STATE }
+{ "op": "remove_state", "id": STATE }
+{ "op": "move_slide", "slide": STATE, "after"?: STATE, "before"?: STATE }
+{ "op": "duplicate_slide", "slide": STATE }
+{ "op": "remove_slide", "slide": STATE }
+{ "op": "rename_state", "id": STATE, "to": STATE }
+{ "op": "set_state", "id": STATE, "prop": "layout" | "hold" | "notes" | "furniture" | "transition" | "transition/KEY", "value": VALUE, "fork"?: BOOL }
+{ "op": "furnish", "number"?: BOOL, "footer"?: TEXT }
+{ "op": "retheme", "theme": THEME }
+```
 
 ## What layout will tell you
 

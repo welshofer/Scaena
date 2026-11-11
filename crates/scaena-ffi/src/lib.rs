@@ -795,6 +795,42 @@ pub unsafe extern "C" fn scaena_pixels(
     }
 }
 
+/// `state` at rest on the deck's own canvas, painted by the CPU painter as wide as the PNG `png`
+/// (`len` bytes), and held to it by SPEC §13.5's metric (`scaena_paint::diff`), the one the torture
+/// goldens and the web player's painters are held by: what gate 4 holds the iPad's pixels to the
+/// web player's by, its first criterion's CPU half (`docs/gate-4.md`). `{"ok": {"passes",
+/// "compared", "over", "maxDeltaE", "maxChannel", "differing", "said"}}`, or `{"error":
+/// {"message"}}` where the state cannot be painted, the PNG not read, or the two differ in size.
+/// A string to free.
+///
+/// # Safety
+/// `session` is a live handle; `state` a NUL-terminated string; `png` `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_pixels_against(
+    session: *mut ScaenaSession,
+    state: *const c_char,
+    png: *const u8,
+    len: usize,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let state = unsafe { text(state, "state") }?;
+        let png = unsafe { self::bytes(png, len, "png") }?;
+        let golden = scaena_paint::Raster::from_png(png).map_err(said)?;
+        let painted = session.0.pixels(state, f64::INFINITY, golden.width).map_err(said)?;
+        let d = scaena_paint::diff::compare(&golden, &painted).map_err(said)?;
+        Ok(json!({
+            "passes": d.passes(),
+            "compared": d.compared,
+            "over": d.over,
+            "maxDeltaE": d.max_delta_e,
+            "maxChannel": d.max_channel,
+            "differing": d.differing,
+            "said": d.to_string(),
+        }))
+    }))
+}
+
 /// `state` at `t_ms` (infinity: at rest) in `format`, one of the deck's formats, or its own canvas
 /// where null, painted by the CPU painter `height` pixels high, the width keeping the format's
 /// aspect: what the editor paints beside the canvas, a format at a time (PLAN 2.62, 3.16). Each

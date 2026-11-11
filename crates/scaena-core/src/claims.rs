@@ -56,7 +56,9 @@ pub fn restated(before: &Deck, before_snaps: &[Snapshot], after: &Deck, after_sn
             }
             let path = format!("/spine/sections/{s}/beats/{b}/claim");
             // What the slide says now: a text that said the claim before, in the state it said it
-            // in, else in the last state that shows it; none where every such text was taken away.
+            // in, else in the last state that shows it; else the headline a slide written in its
+            // place shows (`slide_write`'s `replace`, agent dogfood 2); none where every such text
+            // was taken away and no headline stands in its place.
             let sayers: Vec<(&str, &str)> = (then.iter())
                 .flat_map(|(state, said)| said.iter().map(move |(node, w)| (state.as_str(), node.as_str(), w)))
                 .filter(|(_, _, w)| holds(w, &beat.claim))
@@ -67,12 +69,20 @@ pub fn restated(before: &Deck, before_snaps: &[Snapshot], after: &Deck, after_sn
                 let (_, w) = said.iter().find(|(node, _)| sayers.contains(&(state.as_str(), node.as_str())))?;
                 Some((state.clone(), words(w)))
             });
-            let last = there.or_else(|| {
-                now.iter().rev().find_map(|(state, said)| {
-                    let (_, w) = said.iter().find(|(node, _)| sayers.iter().any(|(_, n)| n == node))?;
-                    Some((state.clone(), words(w)))
+            let last = there
+                .or_else(|| {
+                    now.iter().rev().find_map(|(state, said)| {
+                        let (_, w) = said.iter().find(|(node, _)| sayers.iter().any(|(_, n)| n == node))?;
+                        Some((state.clone(), words(w)))
+                    })
                 })
-            });
+                .or_else(|| {
+                    let gone = |node: &str| !after_snaps.iter().any(|s| s.nodes.contains_key(node));
+                    (sayers.iter().all(|(_, node)| gone(node)))
+                        .then(|| headline(after_snaps, &beat.states))
+                        .flatten()
+                        .map(|(state, w)| (state, words(&w)))
+                });
             let state = last
                 .as_ref()
                 .map(|(state, _)| state.clone())
@@ -111,6 +121,18 @@ fn shown(snaps: &[Snapshot], states: &[String]) -> Vec<(String, Vec<(String, Str
             (s.state_id.clone(), words)
         })
         .collect()
+}
+
+/// The first headline the slides `states` are on show, in the deck's order: a claim set in a
+/// heading's role, by its state.
+fn headline(snaps: &[Snapshot], states: &[String]) -> Option<(String, String)> {
+    let slides: Vec<&str> =
+        snaps.iter().filter(|s| states.contains(&s.state_id)).map(|s| s.slide_id.as_str()).collect();
+    (snaps.iter().filter(|s| slides.contains(&s.slide_id.as_str()))).find_map(|s| {
+        let (_, p) =
+            s.nodes.iter().find(|(_, p)| p.get("semantic").and_then(Value::as_str) == Some("claim") && heading(p))?;
+        Some((s.state_id.clone(), words(p))).filter(|(_, w)| !w.trim().is_empty())
+    })
 }
 
 /// Whether any claim `shown` holds `claim`'s words, or is held in them.
@@ -201,6 +223,26 @@ mod tests {
         let was = deck(Some("Sales were flat."), "Sales were flat.");
         let found = between(&was, &deck(None, "Sales were flat."));
         assert_eq!(found.len(), 1);
+        assert_eq!((found[0].says.as_deref(), found[0].fix.len()), (None, 0));
+    }
+
+    /// A slide written in another's place (`slide_write`'s `replace`), its headline a node of
+    /// its own, is reported with the fix that sets the claim to that headline (agent dogfood 2).
+    #[test]
+    fn a_slide_written_in_its_place_is_reported_with_its_new_headline() {
+        let was = deck(Some("Sales were flat."), "Sales were flat.");
+        let mut now = deck(None, "Sales were flat.").to_value().unwrap();
+        now["nodes"]["h-2"] = json!({ "type": "text", "role": "headline", "text": "Sales grew 12% in Q3.",
+            "semantic": "claim", "at": { "in": "main" } });
+        now["states"][0]["props"]["h-2"] = json!({});
+        let found = between(&was, &Deck::from_json(&now.to_string()).unwrap());
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].state.as_str(), found[0].says.as_deref()), ("a", Some("Sales grew 12% in Q3.")));
+        assert_eq!(found[0].fix[1]["value"], "Sales grew 12% in Q3.");
+        // A claim that is no heading stands in for none.
+        let mut body = now.clone();
+        body["nodes"]["h-2"]["role"] = json!("body");
+        let found = between(&was, &Deck::from_json(&body.to_string()).unwrap());
         assert_eq!((found[0].says.as_deref(), found[0].fix.len()), (None, 0));
     }
 

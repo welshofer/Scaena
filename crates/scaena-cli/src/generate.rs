@@ -1093,6 +1093,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         for f in &made.fell {
             println!("  slide {}: \u{201c}{}\u{201d} set as {}: {}", f.slide, f.asked, f.layout, f.why);
         }
+        for u in &made.unset {
+            println!("  slide {}: \u{201c}{}\u{201d} is in no place of `{}`", u.slide, u.words, u.layout);
+        }
         for u in &made.unbound {
             println!("  slide {}: its chart keeps its own rows, not {}'s: {}", u.slide, u.source, u.why);
         }
