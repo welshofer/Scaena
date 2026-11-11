@@ -1003,15 +1003,17 @@ const THANKS: [&str; 16] = [
 ];
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// next steps, or questions, or headed with thanks or questions (ADR-0032 item 6).
+/// next steps, or questions, or headed with thanks or questions alone (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
         // Next steps and the floor opened belong to a close too, before or after its last word
-        // (dogfood pass 9).
+        // (dogfood pass 9). A headline closes only where it thanks the room or opens the floor in
+        // three words or fewer: an FAQ headed "Questions every support lead asks us first"
+        // answers them in the talk (the calibration against a reader).
         layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
-            || THANKS.iter().any(|t| title.starts_with(t))
+            || (THANKS.iter().any(|t| title.starts_with(t)) && title.split_whitespace().count() <= 3)
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -3593,6 +3595,24 @@ mod tests {
             big.says
         );
         assert_ne!(big.slide, of_last[0] + 1, "not the last outlined beat's first slide, which stands before the end");
+    }
+
+    /// A headline closes the talk only where it thanks the room or opens the floor in three words
+    /// or fewer (the calibration against a reader): launch's FAQ, "Questions every support lead
+    /// asks us first", answers them in the talk, so it is no calm close and its cooler plan is
+    /// found; headed "Questions?", it closes, and is not.
+    #[test]
+    fn a_slide_headed_with_questions_closes_only_where_it_opens_the_floor() {
+        let cooler = |deck: &Value| {
+            of(deck)
+                .findings
+                .into_iter()
+                .any(|f| f.kind == Kind::Arc && f.slide == 13 && f.says.contains("planned cooler"))
+        };
+        let faq = dogfood("launch", "", |_| {});
+        assert!(cooler(&faq), "{:#?}", of(&faq).findings);
+        let floor = dogfood("launch", "", |slides| slides[12].slide_title = "Questions?".into());
+        assert!(!cooler(&floor), "{:#?}", of(&floor).findings);
     }
 
     /// A dogfood deck (`tests/fixtures/dogfood`) as its writer wrote it, its slides first changed
