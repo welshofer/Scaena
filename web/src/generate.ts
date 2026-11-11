@@ -451,6 +451,9 @@ export async function generate(
         const unbound = making.unbound();
         if (unbound) making.rebound(g.bound(unbound));
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
+        // Each chart that names a source and is not drawn from it, said as the CLI says it (W1
+        // dogfood 9), so a data edit that leaves it as it was surprises no one.
+        for (const u of made.unbound ?? []) hear({ kind: "unbound", ...u });
         const files = making.files();
         if (!files) {
           const errors = made.created.findings.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
@@ -819,10 +822,12 @@ async function look(
       }
     }
     if (!looking) return;
-    // A title that drops what its beat claims, or names a topic where the slide stated its
-    // point, let go before the deck is made again, as natively (W1's dogfood 8), and said with
-    // the rest of what was let go.
+    // What it asked that writes a slide's figures otherwise, let go as each answer was read,
+    // kept by the report beside what lint finds worse and said with it (W1 dogfood 9); then a
+    // title that drops what its beat claims, or names a topic where the slide stated its point,
+    // let go before the deck is made again, as natively (W1's dogfood 8).
     const asked = changes.length;
+    changes.splice(0, changes.length, ...(JSON.parse(making.figured(JSON.stringify(changes))) as { slide: number }[]));
     const held = JSON.parse(generation.held(JSON.stringify(changes), layouts)) as { changes: { slide: number }[]; refused: unknown[] };
     making.refuse(JSON.stringify(held.refused));
     changes.splice(0, changes.length, ...held.changes);

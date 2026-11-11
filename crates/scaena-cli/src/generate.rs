@@ -1082,7 +1082,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         }
         // Each change let go, and what lint found (lift-up USE-4).
         for r in &made.refused {
-            println!("  slide {} kept as made: the model asked for {}. {}", r.slide, r.what, r.why);
+            println!("  slide {} kept as made: the model asked for {}. {}", r.slide, r.what, sentence(&r.why));
         }
         if made.pictures > 0 {
             println!("  pictures: {}", made.pictures);
@@ -1124,6 +1124,16 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     Ok(if !made.created.created || made.created.errors > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS })
 }
 
+/// `why` as a sentence of its own: its first letter a capital, a full stop at its end, as the
+/// browser's dialog and the Mac's window say a change let go (W1 dogfood 9).
+fn sentence(why: &str) -> String {
+    let mut chars = why.chars();
+    let mut out: String = chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default();
+    if !out.is_empty() && !out.ends_with(['.', '!', '?']) {
+        out.push('.');
+    }
+    out
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1133,6 +1143,15 @@ mod tests {
     struct Cli {
         #[command(flatten)]
         a: GenerateArgs,
+    }
+
+    /// A change let go is said as a sentence whether its why came from lint, "Its text runs past
+    /// its place.", or from its figures, "it drops 2,475, …" (W1 dogfood 9).
+    #[test]
+    fn a_change_let_go_is_said_as_a_sentence() {
+        assert_eq!(sentence("it drops 2,475, which the slide wrote"), "It drops 2,475, which the slide wrote.");
+        assert_eq!(sentence("Its text runs past its place."), "Its text runs past its place.");
+        assert_eq!(sentence(""), "");
     }
 
     /// A run that kept slides written to an outline goes on from both (lift-up 10-25c FUNC-1).

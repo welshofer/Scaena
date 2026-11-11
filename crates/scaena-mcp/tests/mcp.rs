@@ -1622,6 +1622,35 @@ async fn a_hero_figure_quotes_the_cell_of_the_data_given() {
     client.cancel().await.unwrap();
 }
 
+/// R1's ferry call (`tests/ferry.generate.json`, agent dogfood 2), after #1056: its line chart of
+/// riders by year binds first and types `year` as dates; its bar chart of turnaways binds after,
+/// reading the column as dates, so what it lights by a year names that year's row. The deck it
+/// makes lints 0; on main it lit "2025" and lint found E103.
+#[tokio::test(flavor = "multi_thread")]
+async fn r1s_ferry_deck_binds_both_its_charts_and_lints_clean() {
+    let root = scratch("ferry-call");
+    let client = connect_in(&root).await;
+    std::fs::create_dir_all(root.join("data")).unwrap();
+    std::fs::write(
+        root.join("data/ferry.csv"),
+        "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2022,468000,90.4,1872,3100\n2023,521000,89.8,2084,4800\n2024,566000,88.1,2264,7200\n2025,604000,86.9,2416,9800\n",
+    )
+    .unwrap();
+    let mut call: Value = serde_json::from_str(include_str!("ferry.generate.json")).unwrap();
+    let bundle = root.join("ferry");
+    call["bundle"] = json!(path(&bundle));
+    let made = ok(&client, "deck_generate", call).await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap();
+    let charts: Vec<&Value> = d["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "chart").collect();
+    assert_eq!(charts.len(), 2);
+    assert!(charts.iter().all(|c| c["data"] == "@ferry"), "{charts:#?}");
+    assert_eq!(d["data"]["ferry"]["schema"]["year"], json!("date"));
+    let lint = ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await;
+    assert_eq!(lint["errors"], json!(0), "{lint:#}");
+    client.cancel().await.unwrap();
+}
+
 /// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
 /// the second and third too once the first has typed `year` as dates (B2), "On time" to
 /// `on_time_pct` with its unit's words aside, and a series named for no column says the file's
