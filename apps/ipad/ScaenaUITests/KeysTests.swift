@@ -87,12 +87,14 @@ final class KeysTests: XCTestCase {
                 throw Unseen(description: "the arrows nudged nothing: \(before) → \(title.frame)")
             }
             keep(app, as: "stepped")
-            // Each ⌘Z waited on by the nudge it takes back: a bare z the canvas passes on, doing nothing.
-            for step in 1...8 {
-                let was = title.frame.minX
-                try chord("z", .command, named: "⌘Z, nudge \(step) of 8", in: app) { title.frame.minX < was - 0.1 }
+            // Eight ⌘Z, one try, waited on by the title standing where it stood: one nudge's undo can
+            // move its frame by less than XCUITest reads, so each is not waited on alone (#1102's
+            // run, where eight whole ⌘Z took back two nudges each for two of them). A bare z the
+            // canvas passes on, doing nothing; a try that finds a nudge left sends eight again, and
+            // the undo stack holds the nudges alone, so a ⌘Z past them takes back nothing.
+            try chord("z", .command, named: "⌘Z ×8, every nudge taken back", times: 8, in: app) {
+                abs(title.frame.minX - before.minX) < 0.5
             }
-            XCTAssertTrue(wait(5) { abs(title.frame.minX - before.minX) < 0.5 }, "⌘Z left a nudge: \(title.frame)")
         }
 
         try XCTContext.runActivity(named: "After ⌘Z the keys are still the canvas's: Escape, then Tab") { _ in

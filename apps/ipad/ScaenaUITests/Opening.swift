@@ -126,15 +126,19 @@ extension XCTestCase {
     /// the chord is sent again, three tries in all. A chord that takes effect on a later try is
     /// said, in the test's activities and in `log.txt`, as "chord arrived bare N times", so a run
     /// keeps the evidence; one that never takes effect throws, naming it and its tries. What the
-    /// chord does is never taken on trust: `done` is the premise, held on every try.
+    /// chord does is never taken on trust: `done` is the premise, held on every try. A chord pressed
+    /// `times` over is one try, waited on by what all of them do together.
     @MainActor
     func chord(
-        _ key: String, _ modifiers: XCUIElement.KeyModifierFlags, named name: String, in app: XCUIApplication,
-        seconds: TimeInterval = 5, restoring restore: () throws -> Void = {}, until done: () -> Bool
+        _ key: String, _ modifiers: XCUIElement.KeyModifierFlags, named name: String, times: Int = 1,
+        in app: XCUIApplication, seconds: TimeInterval = 5, restoring restore: () throws -> Void = {},
+        until done: () -> Bool
     ) throws {
         let tries = 3
         for attempt in 1...tries {
-            app.typeKey(key, modifierFlags: modifiers)
+            for _ in 0..<times {
+                app.typeKey(key, modifierFlags: modifiers)
+            }
             if wait(seconds, done) {
                 if attempt > 1 { saidBare(attempt - 1, name) }
                 return
