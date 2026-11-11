@@ -1446,6 +1446,25 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
         "{node:#}"
     );
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bound) })).await["errors"], json!(0));
+    // The Data tab's edit redraws it: January from 1,840 to 1,850, and the chart reads 1,850.
+    let id = {
+        let d: Value = serde_json::from_str(&std::fs::read_to_string(bound.join("deck.json")).unwrap()).unwrap();
+        d["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "chart").unwrap().0.clone()
+    };
+    let january = || async {
+        let inspected = ok(&client, "deck_inspect", json!({ "bundle": path(&bound), "data": true })).await;
+        let rows = inspected["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|s| s["data"].get(&id).cloned())
+            .unwrap_or_else(|| panic!("no state reads {id}: {inspected:#}"));
+        rows["rows"][0].clone()
+    };
+    assert_eq!(january().await[1], json!(1840.0));
+    let edits = json!([{ "op": "set", "row": 0, "column": "sunday_visits", "value": 1850 }]);
+    ok(&client, "data_edit", json!({ "bundle": path(&bound), "source": "sunday-visits", "edits": edits })).await;
+    assert_eq!(january().await[1], json!(1850.0));
     let words = root.join("words");
     let made = ok(
         &client,
