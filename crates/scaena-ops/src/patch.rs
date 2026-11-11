@@ -557,7 +557,8 @@ mod tests {
         let b = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
         let report = |ops: Value, verbose: bool| reported(&b, &ops, true, verbose).unwrap();
         let cut = report(json!([{ "op": "remove_slide", "slide": "revenue" }]), false);
-        assert_eq!(cut.ops, [json!({ "op": "remove_slide", "slide": "revenue" })]);
+        // The ops given are the agent's own: echoed only when asked for (agent dogfood 2).
+        assert!(cut.ops.is_none());
         assert_eq!(
             cut.summary,
             Summary {
@@ -573,9 +574,10 @@ mod tests {
             Summary { slides_moved: vec!["intro".into()], beats_moved: vec!["opening".into()], ..Summary::default() }
         );
         assert!(moved.patch.is_some_and(|p| !p.is_empty()));
+        assert_eq!(moved.ops, Some(vec![json!({ "op": "move_slide", "slide": "intro", "after": "close" })]));
         let told =
             report(json!([{ "op": "replace", "path": "/spine/sections/1/beats/0/claim", "value": "Up." }]), false);
-        assert!(told.ops.is_empty());
+        assert!(told.ops.is_none());
         assert_eq!(
             told.summary,
             Summary { json_patch: 1, beats_changed: vec!["doubled".into()], ..Summary::default() }
