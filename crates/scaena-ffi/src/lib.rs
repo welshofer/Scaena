@@ -1856,6 +1856,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let at = optional("at").and_then(scaena_session::store::seconds);
             json!(s.typing(&Value::Array(ops), at).map_err(said)?)
         }
+        // The figures the last text typed made words, each quoting its data no more, with the
+        // source and column it quoted (dogfood-5 item 13): what the window says, with ⌘Z.
+        "unquoted" => value(serde_json::to_value(s.unquoted()))?,
         // The beats whose claim a slide said in the deck `before` (the source as a burst of
         // typing began) compiles to and says no longer now, each with its fix (lift-up FUNC-2).
         "restated" => value(serde_json::to_value(s.restated(arg("before")?)))?,

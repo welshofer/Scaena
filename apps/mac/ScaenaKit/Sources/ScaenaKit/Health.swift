@@ -73,6 +73,39 @@ public struct Health: Decodable, Sendable {
     /// The big idea the settled outline names, the one sentence the audience should remember,
     /// where it names one (lift-up 10-24b FUNC-1).
     public let bigIdea: String?
+    /// Where slides lint finds an error on cap the score (ADR-0032 item 1, W1's dogfood 5): those
+    /// slides by number from 1, the cap they set, and the score the deck would have had without it.
+    /// None where nothing caps it.
+    public let capped: Capped?
+
+    /// The score held down by the slides that do not stand.
+    public struct Capped: Decodable, Equatable, Sendable {
+        public let slides: [Int]
+        public let cap: Int
+        public let score: Int
+    }
+}
+
+extension Health {
+    /// What holds the score down, as the browser's Story says it (`story.ts`'s `cappedSaid`):
+    /// "Capped at 81 while slide 2 has an error; 94 without.", in its parts, each slide's with the
+    /// state that shows it, where health reads one. None where nothing caps the score.
+    public var cappedParts: [(words: String, state: String?)] {
+        guard let capped, !capped.slides.isEmpty else { return [] }
+        var parts: [(words: String, state: String?)] = [("Capped at \(capped.cap) while ", nil)]
+        for (i, n) in capped.slides.enumerated() {
+            if i > 0 { parts.append((i == capped.slides.count - 1 ? " and " : ", ", nil)) }
+            parts.append(("slide \(n)", slides.indices.contains(n - 1) ? slides[n - 1].state : nil))
+        }
+        parts.append((" \(capped.slides.count == 1 ? "has" : "have") an error; \(capped.score) without.", nil))
+        return parts
+    }
+
+    /// `cappedParts` as one sentence.
+    public var cappedSaid: String? {
+        let parts = cappedParts
+        return parts.isEmpty ? nil : parts.map { $0.words }.joined()
+    }
 }
 
 extension Health {
