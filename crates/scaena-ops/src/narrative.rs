@@ -1594,10 +1594,13 @@ pub fn looked(
 /// names a topic where the title stated its point ([`names_topic`]). A rewrite that keeps every
 /// word the title said flattens nothing, and is taken.
 /// What else the change asks stands. A cover, a divider, and a closing, which health holds to no
-/// point either, by the layouts the deck was made in (`layouts`), are left to the look.
+/// point either, by the layouts the deck was made in (`layouts`), are left to the look. What the
+/// look's reader let go for a figure the slide wrote (`Change::refigured`) is said too (W1's
+/// dogfood 9). [`looked`] holds the changes so; the browser's look, which builds the deck again
+/// in the generator's module, asks it there.
 ///
 /// [`names_topic`]: crate::health::names_topic
-fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
+pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
     use crate::health::{CLOSING, FRAMING};
     let framing = |index: usize| {
         index == 0 || layouts.get(index).is_some_and(|l| FRAMING.contains(&l.as_str()) || CLOSING.contains(&l.as_str()))
@@ -1621,6 +1624,11 @@ fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec
     let mut kept = Vec::new();
     let mut refused = Vec::new();
     for mut change in changes {
+        // What the look's reader let go for a figure the slide wrote, said (W1's dogfood 9).
+        const REFIGURED: &str = "it changes a figure the slide wrote";
+        for what in std::mem::take(&mut change.refigured) {
+            refused.push(Refused { slide: change.slide, what, why: REFIGURED.to_string() });
+        }
         let index = change.slide.wrapping_sub(1);
         if let (Some(title), Some(slide)) = (change.title.clone(), narrative.slides.get(index))
             && !framing(index)
@@ -8162,6 +8170,7 @@ mod tests {
             subtitle: None,
             bullets: Some(vec!["EBITDA +18% im Jahr".into(), "Umsatz stabil".into()]),
             why: "Tighter.".into(),
+            ..Change::default()
         };
         let (looked, layouts) = changed(&talk, &[change]);
         let made = deck_as(&looked, &theme, &Pictures::new(), &layouts).unwrap();
@@ -10106,6 +10115,30 @@ mod tests {
         assert!(made.refused.is_empty(), "{:#?}", made.refused);
         // A health finding's label check reads the same words a topic.
         assert!(crate::health::names_topic("Measurement", 1) && !crate::health::names_topic("Measurement", 3));
+    }
+
+    /// What the look's reader let go for a figure the slide wrote is said and kept, beside lint's
+    /// refusals, whether or not the change asked anything else (W1's dogfood 9).
+    #[test]
+    fn a_look_change_let_go_for_its_figures_is_kept_in_the_deck() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let n = route9();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let before = (made, write.unwrap());
+        let refigured =
+            Change { slide: 9, why: "Shorter.".into(), refigured: vec!["its bullets".into()], ..Change::default() };
+        let (kept, refused) = held(&n, &before.0.layouts, vec![refigured.clone()]);
+        assert!(kept.is_empty(), "{kept:?}");
+        assert_eq!(refused.len(), 1);
+        assert_eq!((refused[0].slide, refused[0].what.as_str()), (9, "its bullets"));
+        assert_eq!(refused[0].why, "it changes a figure the slide wrote");
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, write) =
+            looked(shown, vec![refigured], before, Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        assert_eq!(made.refused, refused);
+        let kept = &write.deck.meta.as_ref().unwrap().extra["narrative"]["refused"];
+        assert_eq!(kept[0]["why"], "it changes a figure the slide wrote", "{kept:#}");
     }
 
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says

@@ -90,6 +90,8 @@ export function said(event: GeneratingEvent): string {
       return `Notes not written for the talk: ${event.why}`;
     case "refused":
       return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
+    case "unbound":
+      return `Slide ${event.slide}: its chart keeps its own rows, not ${event.source}’s: ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":

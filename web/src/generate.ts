@@ -451,6 +451,9 @@ export async function generate(
         const unbound = making.unbound();
         if (unbound) making.rebound(g.bound(unbound));
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
+        // Each chart that names a sheet and keeps its own rows, said as the CLI says it (W1's
+        // dogfood 9).
+        for (const u of made.unbound ?? []) hear({ kind: "unbound", ...u });
         const files = making.files();
         if (!files) {
           const errors = made.created.findings.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
@@ -819,6 +822,15 @@ async function look(
       }
     }
     if (!looking) return;
+    // Held as the CLI's look holds them (W1's dogfood 8 and 9): a title that drops its beat's
+    // claim or names a topic, and words that change a figure, let go and kept in the deck.
+    const layouts = (JSON.parse(making.report()) as Generated).layouts;
+    const held = JSON.parse(generation.held(JSON.stringify(changes), JSON.stringify(layouts))) as {
+      changes: { slide: number }[];
+      refused: unknown[];
+    };
+    if (held.refused.length) making.refuse(JSON.stringify(held.refused));
+    changes.splice(0, changes.length, ...held.changes);
     if (!changes.length) {
       if (unanswered) {
         making.unlooked(unanswered);

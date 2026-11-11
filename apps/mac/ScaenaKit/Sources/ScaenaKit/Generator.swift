@@ -186,6 +186,8 @@ public enum GeneratingStep: Equatable, Sendable {
     case unnoted(String)
     /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     case refused(slide: Int, what: String, why: String)
+    /// A chart that names a sheet kept and is drawn from its own rows, and why (W1's dogfood 9).
+    case unbound(slide: Int, source: String, why: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
@@ -243,6 +245,7 @@ public enum GeneratingStep: Equatable, Sendable {
         case .noted(let slides): "\(slides) \(slides == 1 ? "slide's" : "slides'") notes written for the talk"
         case .unnoted(let why): "Notes not written for the talk: \(why)"
         case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
+        case .unbound(let slide, let source, let why): "Slide \(slide): its chart keeps its own rows, not \(source)’s: \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
         case .unfitted(let why): "Not rewritten to fit: \(why)"
@@ -285,6 +288,16 @@ public struct Generated: Decodable, Sendable {
     public struct Refused: Decodable, Sendable, Equatable {
         public let slide: Int
         public let what: String
+        public let why: String
+    }
+
+    /// Each chart that names a sheet kept and was not drawn from it, and why (agent dogfood).
+    public let unbound: [Unbound]?
+
+    /// A chart left on its own rows: its slide's number, the source it names, and why.
+    public struct Unbound: Decodable, Sendable, Equatable {
+        public let slide: Int
+        public let source: String
         public let why: String
     }
 
@@ -1412,6 +1425,9 @@ public final class Generator {
             fit = fitting.fit
         }
         let generated: Generated = try step("report")
+        // Each chart that names a sheet and keeps its own rows, said as the CLI says it (W1's
+        // dogfood 9).
+        for u in generated.unbound ?? [] { hear(.unbound(slide: u.slide, source: u.source, why: u.why)) }
         var error: UnsafeMutablePointer<CChar>?
         guard let session = scaena_generator_open(handle, &error) else { throw ScaenaError.taking(error) }
         return (ScaenaSession(handle: session), generated)

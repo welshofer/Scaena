@@ -179,6 +179,15 @@ impl Making {
         Ok(Relooked::Kept)
     }
 
+    /// What the model asked that was let go before the deck was built again (`held`: a title that
+    /// drops its beat's claim or names a topic, words that change a figure), kept in the deck's
+    /// `meta.narrative.refused` and said in the report, as lint's refusals are (W1's dogfood 9).
+    pub fn refuse(&mut self, refused: Vec<scaena_ops::narrative::Refused>) {
+        if let Some(write) = &mut self.write {
+            refuse(&mut self.made, write, refused);
+        }
+    }
+
     /// The look failed, or what it asked was not kept: why, which the report says.
     pub fn unlooked(&mut self, why: String) {
         self.made.unlooked = Some(why);

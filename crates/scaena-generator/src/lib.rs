@@ -552,6 +552,18 @@ impl Generation {
         Ok(serde_json::to_string(&changes).expect("changes are JSON"))
     }
 
+    /// `changes` (as `lookAnswer` gives them) held as `scaena look`'s are before the deck is
+    /// built again, `layouts` (JSON `[id]`) the ones it was made in: JSON `{ changes, refused }`,
+    /// what stands and what was let go, a title that drops its beat's claim or names a topic and
+    /// words that change a figure (W1's dogfood 8 and 9), for `Making.refuse` to keep.
+    pub fn held(&self, changes: &str, layouts: &str) -> Result<String, JsError> {
+        let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
+        let changes: Vec<scaena_narrato::look::Change> = serde_json::from_str(changes).map_err(error)?;
+        let layouts: Vec<String> = serde_json::from_str(layouts).map_err(error)?;
+        let (changes, refused) = scaena_ops::narrative::held(narrative, &layouts, changes);
+        Ok(json!({ "changes": changes, "refused": refused }).to_string())
+    }
+
     /// The deck `deck` builds, built again with `changes` (as `lookAnswer` gives them, PLAN
     /// G.13): their words in the narrative, each slide in the layout one asks for. What
     /// `Making.relook` takes.

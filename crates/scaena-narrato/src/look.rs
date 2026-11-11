@@ -64,6 +64,11 @@ pub struct Change {
     pub bullets: Option<Vec<String>>,
     /// What the model saw, in a sentence.
     pub why: String,
+    /// What it asked that [`read`] let go for changing a figure the slide wrote, each said as the
+    /// look's refusals are ("the title “…”", "its bullets"), so the deck keeps a record of it
+    /// (W1's dogfood 9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refigured: Vec<String>,
 }
 
 impl Change {
@@ -224,7 +229,8 @@ fn labelled(bullet: &str) -> bool {
 /// The changes an answer asks for, each kept where it names a slide shown, changes something,
 /// and keeps to what the slide may take: one of its other layouts; words no longer than they
 /// were by more than [`longest`] allows; as many bullets, each labelled where it was. The first
-/// change a slide is given stands. Words or bullets that change a figure are not taken (REL-2).
+/// change a slide is given stands. Words or bullets that change a figure are not taken (REL-2),
+/// and are said in the change's `refigured`; a change that asks nothing else is kept for that.
 pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
     let within = crate::answer::json_within(text).ok_or("the answer holds no JSON object")?;
     let value: Value =
@@ -238,12 +244,25 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
             continue;
         }
         let said = |key: &str| asked.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
-        let words = |key: &str, was: &str, most: usize| {
+        let mut refigured: Vec<String> = Vec::new();
+        let mut words = |key: &str, was: &str, most: usize, what: &str| {
             let now = said(key);
-            (!now.is_empty() && now != was && now.chars().count() <= most && crate::same_figures(was, &now))
-                .then_some(now)
+            if now.is_empty() || now == was || now.chars().count() > most {
+                return None;
+            }
+            if !crate::same_figures(was, &now) {
+                refigured.push(format!("{what} \u{201c}{now}\u{201d}"));
+                return None;
+            }
+            Some(now)
         };
         let layout = Some(said("layout")).filter(|l| s.options.iter().any(|o| &o.id == l));
+        let title = words("title", &s.title, title_longest(&s.title, s.room), "the title");
+        let subtitle = if s.subtitle.is_empty() {
+            None
+        } else {
+            words("subtitle", &s.subtitle, longest(&s.subtitle), "the subtitle")
+        };
         let bullets = asked
             .get("bullets")
             .and_then(Value::as_array)
@@ -252,21 +271,19 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
                 now.len() == s.bullets.len()
                     && now != &s.bullets
                     && now.iter().zip(&s.bullets).all(|(now, was)| {
-                        !now.is_empty()
-                            && now.chars().count() <= longest(was)
-                            && labelled(now) == labelled(was)
-                            && crate::same_figures(was, now)
+                        !now.is_empty() && now.chars().count() <= longest(was) && labelled(now) == labelled(was)
                     })
             });
-        let change = Change {
-            slide: number,
-            layout,
-            title: words("title", &s.title, title_longest(&s.title, s.room)),
-            subtitle: words("subtitle", &s.subtitle, longest(&s.subtitle)).filter(|_| !s.subtitle.is_empty()),
-            bullets,
-            why: said("why"),
+        // Bullets that would take but for a figure changed are let go whole, and said.
+        let bullets = match bullets {
+            Some(now) if !now.iter().zip(&s.bullets).all(|(now, was)| crate::same_figures(was, now)) => {
+                refigured.push("its bullets".to_string());
+                None
+            }
+            b => b,
         };
-        if change.changes() {
+        let change = Change { slide: number, layout, title, subtitle, bullets, why: said("why"), refigured };
+        if change.changes() || !change.refigured.is_empty() {
             out.push(change);
         }
     }
@@ -467,10 +484,20 @@ mod tests {
         let mut longer = tightened.clone();
         longer[0] = "Clean the grid: triple renewables by 2030 and double storage, worldwide, every year".into();
         assert!(read(&answer(&longer), &s).unwrap().is_empty());
-        // A figure rounded, or dropped, is not the slide's evidence tightened (REL-2).
+        // A figure rounded, or dropped, is not the slide's evidence tightened (REL-2): nothing of
+        // it is taken, and what was let go is said (W1's dogfood 9).
         let mut rounded = tightened.clone();
         rounded[2] = "Cut methane: about 70% from fossil fuels".into();
-        assert!(read(&answer(&rounded), &s).unwrap().is_empty());
+        let read_back = read(&answer(&rounded), &s).unwrap();
+        assert_eq!(read_back.len(), 1);
+        assert!(!read_back[0].changes(), "{read_back:?}");
+        assert_eq!(read_back[0].refigured, ["its bullets"]);
+        // So is a title that changes its figure, beside a layout that is taken.
+        let title = json!({ "slides": [{ "slide": 2, "layout": "quadrants", "title": "The path to net zero by 2060",
+            "subtitle": "", "bullets": [], "why": "w" }] });
+        let read_back = read(&title.to_string(), &s).unwrap();
+        assert_eq!((read_back[0].layout.as_deref(), read_back[0].title.as_deref()), (Some("quadrants"), None));
+        assert_eq!(read_back[0].refigured, ["the title \u{201c}The path to net zero by 2060\u{201d}"]);
         // A subtitle where the slide has none is not one to tighten.
         let given = json!({ "slides": [{ "slide": 2, "layout": "", "title": "", "subtitle": "New words", "bullets": [], "why": "" }] });
         assert!(read(&given.to_string(), &s).unwrap().is_empty());

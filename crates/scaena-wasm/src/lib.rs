@@ -2026,6 +2026,13 @@ impl Making {
         serde_json::to_string(&relooked).map_err(js)
     }
 
+    /// What the generator's `held` let go of the model's changes, JSON `[{ slide, what, why }]`,
+    /// kept in the deck and said in the report (W1's dogfood 9).
+    pub fn refuse(&mut self, refused: &str) -> Result<(), JsError> {
+        self.0.refuse(serde_json::from_str(refused).map_err(js)?);
+        Ok(())
+    }
+
     /// The look failed, or what it asked was not kept: why, which the report says.
     pub fn unlooked(&mut self, why: String) {
         self.0.unlooked(why);
