@@ -36,12 +36,12 @@ export interface StoryEditor {
   /** Check `state`'s words against its beat's claim by the writing tools' model, which offers
    * the headline rewritten to carry it (narrative FUNC-4). */
   check(state: string): void;
-  /** The words that head the slide whose first state is `slide`, as the deck reads now, where a
+  /** The words that head the step `slide` of a slide, as the deck reads now, where a
    * text heads it: what its row names it by, since health names a slide by its beat's claim
    * (editor dogfood 4). */
   headline(slide: string): string | undefined;
-  /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
-   * its marks on the canvas stand for (editor dogfood 4). */
+  /** What lint last found wrong on the slide `slide` is a step of, any step of it: what its marks
+   * on the canvas stand for (editor dogfood 4). */
   issues(slide: string): Finding[];
   /** What lint last found in the deck, a state's or every state's: what the worker reads health
    * beside. */
