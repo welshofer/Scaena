@@ -27,6 +27,8 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
+  /** Show `state` and the Format tab's `field` for it, scrolled to and in focus (editor dogfood 6). */
+  field(state: string, field: Field): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
   make(ops: unknown[], done: string): Promise<void>;
   /** Put `question` to the assistant: its tab shown, the question in its box. */
@@ -54,8 +56,26 @@ export interface StoryEditor {
   /** What the beat that tells `state` cites, where one does. */
   cites(state: string): Promise<CiteChoice | undefined>;
   say(text: string): void;
+  /** Say what an edit answered after what the status says of the edit itself (editor dogfood 6). */
+  answered(text: string): void;
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
+}
+
+/** A field of the Format tab a finding's to-do names: the slide's plan's Intensity, and its
+ * presenter's notes (editor dogfood 6). */
+export type Field = "intensity" | "notes";
+
+/** What the button that opens each field says. */
+const FIELD: Record<Field, string> = { intensity: "Set its Intensity", notes: "Edit its notes" };
+
+/** The field of the Format tab a finding's to-do names, by the `field` health gives it, else by
+ * where its `path` says its plan is written: none where it names none of the Format tab's. A
+ * headline is typed on the canvas, and a claim offers Check the claim. Never read from the ask's
+ * words. */
+export function fieldOf(f: HealthFinding): Field | undefined {
+  if (f.field === "intensity" || f.field === "notes") return f.field;
+  return f.path?.endsWith("/intensity") ? "intensity" : undefined;
 }
 
 /** The findings about what a slide claims, whose rows offer Check the claim: its claim not carried,
@@ -236,9 +256,50 @@ function places(findings: HealthFinding[]) {
   };
 }
 
+/** What a finding is about, in a few words after its slide's ("slide 2's plan"): what an edit
+ * answered is said by them (editor dogfood 6). */
+const ABOUT: Record<HealthFinding["kind"], string> = {
+  title: "title", empty: "empty place", turn: "turn", arc: "plan", intensity: "intensity", tone: "tone",
+  drift: "beat", layout: "layout", claim: "claim", bigIdea: "big idea", story: "story", dense: "points",
+  notes: "notes", pacing: "length", link: "link", look: "change let go", source: "source", label: "headline",
+};
+
+/** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
+ * on a slide `after` still reads: what an edit answered. A slide taken away, or another deck
+ * opened, answers nothing. */
+export function answered(before: Health, after: Health): HealthFinding[] {
+  const was = places(before.findings);
+  const now = places(after.findings);
+  const found = new Map(after.findings.flatMap((f) => now.keys(f).map((k) => [k, 0] as const)));
+  const states = new Set(after.slides.map((s) => s.state));
+  return before.findings.filter((f) => states.has(f.state) && was.at(found, f) === undefined);
+}
+
+/** What an edit answered, as the status and the score's line say it: "Answers 2 of the Story's
+ * findings: slide 2's plan and intensity", each slide's in order, the talk's length its own. */
+export function answeredSaid(gone: HealthFinding[]): string {
+  const bySlide = new Map<number, string[]>();
+  let length = false;
+  for (const f of gone) {
+    if (f.kind === "pacing") length = true;
+    else {
+      const about = bySlide.get(f.slide) ?? [];
+      if (!about.includes(ABOUT[f.kind])) about.push(ABOUT[f.kind]);
+      bySlide.set(f.slide, about);
+    }
+  }
+  const and = (words: string[]) => (words.length < 3 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`);
+  const said = [...bySlide].sort(([a], [b]) => a - b).map(([n, about]) => `slide ${n}'s ${and(about)}`);
+  if (length) said.push("the talk's length");
+  return `Answers ${gone.length} of the Story's findings: ${said.join("; ")}`;
+}
+
 /** How long the panel waits after an edit before it reads the deck again, in ms: the Mac's
  * Story panel's pause (lift-up PERF-1). */
 const PAUSE = 700;
+
+/** How long what an edit answered stands beside the score, in ms. */
+const ANSWERED = 8000;
 
 /** The arc as the graph draws it, `width` by `height`: the arc's beats as bands under it, each
  * named where it has room; the curve; the intensity each slide declares and what its words read,
@@ -341,6 +402,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   stale.dataset.stale = "";
   stale.setAttribute("role", "status");
   score.before(stale);
+  /** What the last edit answered, beside the score for a moment (editor dogfood 6). */
+  const told = Object.assign(document.createElement("p"), { hidden: true });
+  told.dataset.answered = "";
+  told.setAttribute("role", "status");
+  score.after(told);
+  let telling: ReturnType<typeof setTimeout> | undefined;
   const listed = list.getAttribute("aria-label") ?? "";
   /** The score as last said, so the live region speaks only when it changes. */
   let scored = "";
@@ -398,8 +465,21 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     try {
       const [got, sources] = await Promise.all([stage.health(editor.source()), editor.sources().catch(() => [])]);
       if (asked !== asking) return;
+      // What the edits since the last read answered, said once (editor dogfood 6).
+      const gone = health && !into.dataset.stale ? answered(health, got) : [];
       health = got;
       grounded = sources;
+      if (gone.length) {
+        const text = answeredSaid(gone);
+        editor.answered(text);
+        told.textContent = text;
+        told.hidden = false;
+        clearTimeout(telling);
+        telling = setTimeout(() => {
+          told.hidden = true;
+          told.textContent = "";
+        }, ANSWERED);
+      }
       asLastRead(false);
       draw();
     } catch (e) {
@@ -550,6 +630,16 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
           editor.say(`Not fixed: ${said(e)}`);
         }
       });
+      actions.append(button);
+    }
+    // A to-do that names a field of the Format tab offers it, the field in focus (editor dogfood 6).
+    const fields = [...new Set(run.map(fieldOf).filter((f): f is Field => f !== undefined))];
+    for (const field of fields) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.field = field;
+      button.textContent = FIELD[field];
+      button.addEventListener("click", () => void editor.field(state, field));
       actions.append(button);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and

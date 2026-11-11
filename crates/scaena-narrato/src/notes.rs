@@ -189,10 +189,104 @@ pub fn counted(text: &str) -> usize {
 }
 
 /// Whether every figure `now` writes is one `given` writes: notes may say a figure again, and
-/// never one the slide and its draft do not (REL-2).
+/// never one the slide and its draft do not (REL-2). A name's digits are no figure (W1's dogfood
+/// 8): notes may name "Route 9" or "Q3" where the slides beside them do not.
 fn figures_given(given: &str, now: &str) -> bool {
     let known = crate::figures(given);
-    crate::figures(now).iter().all(|f| known.contains(f))
+    crate::figures(&unnamed(now)).iter().all(|f| known.contains(f))
+}
+
+/// Words that size an amount: a number after one is a figure, never a name's.
+const SIZING: [&str; 16] = [
+    "over",
+    "about",
+    "under",
+    "nearly",
+    "almost",
+    "around",
+    "some",
+    "top",
+    "just",
+    "only",
+    "up",
+    "down",
+    "above",
+    "below",
+    "roughly",
+    "approximately",
+];
+
+/// `text` with the digits of each name it writes blanked, as the builder reads a name
+/// (`scaena_ops::narrative::named`): digits set against the letters before them ("Q3", "FY26",
+/// "p99"), a year after such a name ("Q3 2026"), and a whole number of one to three digits after a
+/// capitalized word within a clause, standing alone ("Route 9", "Gate 12"), never a figure with a
+/// sign, a unit, a decimal, or a percent ("Revenue 12%", "Page 3.5"), nor after a word that sizes
+/// an amount ("Over 500").
+fn unnamed(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = chars.clone();
+    let mut at = 0;
+    while at < chars.len() {
+        if !chars[at].is_ascii_digit() || (at > 0 && chars[at - 1].is_ascii_digit()) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        let mut end = start;
+        while end < chars.len() && chars[end].is_ascii_digit() {
+            end += 1;
+        }
+        let letter = |c: char| c.is_alphabetic();
+        let after = chars.get(end).copied();
+        // Digits that run on into a decimal, a group, a percent, a unit, or a word are a figure.
+        let alone = match after {
+            None => true,
+            Some(c) => {
+                c.is_whitespace()
+                    || (",;:)!?".contains(c) && !chars.get(end + 1).is_some_and(char::is_ascii_digit))
+                    || (c == '.' && !chars.get(end + 1).is_some_and(char::is_ascii_digit))
+            }
+        };
+        // The word before, and whether it opens its sentence.
+        let word_end = if start > 0 && chars[start - 1] == ' ' { Some(start - 1) } else { None };
+        // In reading order: its first letter first.
+        let word: Vec<char> = word_end
+            .map(|e| {
+                let mut w: Vec<char> = chars[..e].iter().rev().take_while(|c| c.is_alphanumeric()).copied().collect();
+                w.reverse();
+                w
+            })
+            .unwrap_or_default();
+        let word_start = word_end.map(|e| e - word.len());
+        let opens = word_start.is_none_or(|w| {
+            chars[..w].iter().rev().find(|c| !c.is_whitespace()).is_none_or(|c| ".!?;:\"\u{201c}".contains(*c))
+        });
+        // Words that size an amount set before it are no name: "Over 500", "About 40".
+        let sizing = {
+            let w: String = word.iter().collect::<String>().to_lowercase();
+            SIZING.contains(&w.as_str())
+        };
+        let set_against = start > 0 && letter(chars[start - 1]);
+        let year = end - start == 4 && matches!((chars[start], chars[start + 1]), ('1', '9') | ('2', '0'));
+        let dated = year
+            && word.len() <= 6
+            && word.iter().any(char::is_ascii_digit)
+            && word.first().copied().is_some_and(letter);
+        let titled = alone
+            && (1..=3).contains(&(end - start))
+            && word.len() >= 2
+            && word.first().is_some_and(|c| c.is_uppercase())
+            && word.iter().all(|c| c.is_alphabetic())
+            && !opens
+            && !sizing;
+        if set_against || dated || titled {
+            for c in &mut out[start..end] {
+                *c = ' ';
+            }
+        }
+        at = end;
+    }
+    out.into_iter().collect()
 }
 
 /// The notes an answer gives, each a slide's number and its words, kept where it names a slide
@@ -445,7 +539,42 @@ mod tests {
         assert!(super::read(&answer(&[(2, words(60, ""))]), &s).unwrap().is_empty());
         assert!(super::read(&answer(&[(2, words(400, ""))]), &s).unwrap().is_empty());
         assert!(super::read(&answer(&[(2, words(170, "It is 1.5°C."))]), &s).unwrap().is_empty());
+        // A name's digits are no figure (W1's dogfood 8): notes that name "Route 9" or "Q3" beside
+        // the slide's own 1.2°C are kept; a figure of their own is still not.
+        let named = words(170, "It is 1.2°C, and riders of Route 9 felt it in Q3.");
+        assert_eq!(super::read(&answer(&[(2, named.clone())]), &s).unwrap(), vec![(2, named)]);
+        let added = words(170, "It is 1.2°C, and riders of Route 9 saw 12% more.");
+        assert!(super::read(&answer(&[(2, added)]), &s).unwrap().is_empty(), "12% is a figure of its own");
         assert!(super::read("no json", &s).is_err());
+    }
+
+    /// Dogfood 8's slide 8: its notes say the slide's own 12% and the route by its name, which no
+    /// slide beside it writes; they are kept. Said with a figure no slide writes, they are not.
+    #[test]
+    fn a_names_digits_are_no_figure() {
+        let s = vec![Spoken {
+            slide: 8,
+            title: "12% more riders in the first year of zero fares".into(),
+            words: vec!["12%".into(), "more riders in the first year of zero fares".into()],
+            budget: 40,
+            before: "$590,000 a year in fares the city would forgo".into(),
+            after: "How we would know it worked".into(),
+            ..Spoken::default()
+        }];
+        let notes = "Kansas City saw 12% more riders in a year. I tell the council what this means for the people who ride Route 9 every day, why it matters to this budget, and what the next slide answers.";
+        let answer = |n: &str| json!({ "notes": [{ "slide": 8, "notes": n }] }).to_string();
+        assert_eq!(read(&answer(notes), &s).unwrap(), vec![(8, notes.to_string())]);
+        let more = notes.replace("in a year", "in a year, and 30% more in two");
+        assert_eq!(read_all(&answer(&more), &s).unwrap().dropped, vec![(8, Dropped::Figure)]);
+        // Where the digits are a name's, and where they are a figure.
+        assert_eq!(
+            unnamed("ride Route 9 every day, in Q3 2026 and FY26"),
+            "ride Route   every day, in Q       and FY  "
+        );
+        assert_eq!(
+            unnamed("Revenue 12% and Page 3.5; Over 500 riders, and About 40"),
+            "Revenue 12% and Page 3.5; Over 500 riders, and About 40"
+        );
     }
 
     /// Each slide whose notes were not taken says why, and what it keeps (W1's dogfood 6).

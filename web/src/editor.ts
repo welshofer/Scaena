@@ -1555,11 +1555,33 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       if (f.state !== undefined) await showState(f.state);
     },
     words: () => lexicon,
+    // After what the status says of the edit, while it says it of the source as it stands.
+    answered: (text) => {
+      say(told && toldOf === view.state.doc.toString() ? `${told} · ${text}` : text);
+      if (reported) status.textContent = `${told} — ${reported}`;
+    },
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });
     },
     show: showState,
+    // The slide shown, its Format tab, and the field there scrolled to and in focus, once the tab
+    // has drawn the slide's choices (editor dogfood 6).
+    field: async (state, field) => {
+      await showState(state);
+      tab("inspector");
+      const sought = field === "notes" ? '#inspector textarea[data-prop="notes"]' : `#look-plan-${field}`;
+      for (let waited = 0; waited < 5000; waited += 50) {
+        const found = document.querySelector<HTMLElement>(sought);
+        if (found?.checkVisibility()) {
+          found.scrollIntoView({ block: "center" });
+          found.focus();
+          return;
+        }
+        await new Promise((ok) => setTimeout(ok, 50));
+      }
+      say(`The Format tab offers no ${field === "notes" ? "notes" : "Intensity"} for this slide`);
+    },
     make: async (ops, done) => {
       // Held while the assistant has the deck, saying why, as the Mac's Story says it (lift-up
       // 20261110 deferred): the fix is not lost, only not made yet.
