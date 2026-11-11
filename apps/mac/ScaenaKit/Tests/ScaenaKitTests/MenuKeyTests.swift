@@ -28,6 +28,9 @@ import Testing
     #expect(MenuKey.of("\\", shift: true, option: false) == .alignCenter)
     #expect(MenuKey.of("]", shift: true, option: false) == .alignRight)
     #expect(MenuKey.of("d", shift: true, option: false) == .duplicateSlide)
+    // ⌥⌘K is Remote…, beside Play's ⌥⌘P and Rehearse's ⌥⌘R; ⌘K stays Add Link (lift-up 20261110).
+    #expect(MenuKey.of("k", shift: false, option: true) == .remote)
+    #expect(MenuKey.of("k", shift: false, option: false) == .link)
     let keys = MenuKey.allCases.map { "\($0.key.character) \($0.modifiers.rawValue)" }
     #expect(Set(keys).count == keys.count, "no two commands share a key: \(keys)")
 }
@@ -42,4 +45,18 @@ import Testing
     #expect(try session.tool("deck_patch", ["ops": .array(patch)]).edited)
     let field = try session.choices(state: "cover", node: "title").fields.first { $0.prop == "align/x" }
     #expect(field?.value?.string == "end")
+}
+
+/// The Play menu's Remote… takes its key from `MenuKey.remote`, so the Mac's menu and the iPad's
+/// menu bar show ⌥⌘K and Help finds it (lift-up 20261110). Read from the app's source: the chord
+/// itself cannot be pressed on the simulator, which delivers it without its modifiers
+/// (`docs/gate-4.md`), and the menus are the app's, which no ScaenaKit test builds.
+@Test func thePlayMenusRemoteTakesItsKeyFromMenuKey() throws {
+    let menus = try String(
+        contentsOf: repository.appending(path: "apps/mac/ScaenaKit/Sources/Scaena/Menus.swift"), encoding: .utf8)
+    let lines = menus.components(separatedBy: "\n")
+    let remote = try #require(lines.firstIndex { $0.contains("Button(\"Remote…\")") }, "no Remote… in the Play menu")
+    #expect(
+        lines[remote + 1].contains(".keyboardShortcut(MenuKey.remote.key, modifiers: MenuKey.remote.modifiers)"),
+        "Remote… takes another key: \(lines[remote + 1])")
 }

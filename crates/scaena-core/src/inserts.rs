@@ -470,11 +470,13 @@ pub fn fresh(deck: &Deck, base: &str) -> String {
         .expect("some number is free")
 }
 
-/// `name` as an id (SPEC §3.2): lowercase, each run of other characters a `-`, starting with
-/// a letter (else `prefix-` first), 64 characters at most.
+/// `name` as an id (SPEC §3.2): lowercase, a Latin letter with a mark as its letter alone ("Pão" as
+/// `pao`, W1's dogfood 11, where it broke the id as `p-o`), each run of other characters a `-`,
+/// starting with a letter (else `prefix-` first), 64 characters at most.
 pub fn slug(name: &str, prefix: &str) -> String {
     let mut out = String::new();
-    for c in name.chars().map(|c| c.to_ascii_lowercase()) {
+    let folded: String = name.chars().flat_map(char::to_lowercase).map(plain).collect();
+    for c in folded.chars() {
         match c {
             'a'..='z' | '0'..='9' | '_' => out.push(c),
             _ if !out.is_empty() && !out.ends_with('-') => out.push('-'),
@@ -487,6 +489,34 @@ pub fn slug(name: &str, prefix: &str) -> String {
     let out: String = out.chars().take(56).collect();
     let out = out.trim_end_matches('-').to_string();
     if is_valid_id(&out) { out } else { prefix.to_string() }
+}
+
+/// A lowercase Latin letter with a mark as the letters an id writes for it ("ã" `a`, "ß" `ss`, "œ"
+/// `oe`); any other character as it is, a `str` of it.
+fn plain(c: char) -> std::borrow::Cow<'static, str> {
+    let folded = match c {
+        '\u{e0}'..='\u{e5}' | '\u{101}' | '\u{103}' | '\u{105}' => "a",
+        '\u{e6}' => "ae",
+        '\u{e7}' | '\u{107}' | '\u{10d}' => "c",
+        '\u{10f}' | '\u{111}' | '\u{f0}' => "d",
+        '\u{e8}'..='\u{eb}' | '\u{113}' | '\u{117}' | '\u{119}' | '\u{11b}' => "e",
+        '\u{11f}' => "g",
+        '\u{ec}'..='\u{ef}' | '\u{12b}' | '\u{12f}' | '\u{131}' => "i",
+        '\u{142}' | '\u{13e}' | '\u{13a}' => "l",
+        '\u{f1}' | '\u{144}' | '\u{148}' => "n",
+        '\u{f2}'..='\u{f6}' | '\u{f8}' | '\u{14d}' | '\u{151}' => "o",
+        '\u{153}' => "oe",
+        '\u{159}' | '\u{155}' => "r",
+        '\u{15b}' | '\u{15f}' | '\u{161}' | '\u{219}' => "s",
+        '\u{df}' => "ss",
+        '\u{163}' | '\u{165}' | '\u{21b}' => "t",
+        '\u{f9}'..='\u{fc}' | '\u{16b}' | '\u{16f}' | '\u{171}' | '\u{173}' => "u",
+        '\u{fd}' | '\u{ff}' => "y",
+        '\u{17a}' | '\u{17c}' | '\u{17e}' => "z",
+        '\u{fe}' => "th",
+        _ => return std::borrow::Cow::Owned(c.to_string()),
+    };
+    std::borrow::Cow::Borrowed(folded)
 }
 
 /// A role's name as a text says it at first: `big-number` as "Big number".
@@ -522,6 +552,16 @@ mod tests {
         assert_eq!(slug("Team Photo 2026", "image"), "team-photo-2026");
         assert_eq!(slug("2026 plan", "image"), "image-2026-plan");
         assert_eq!(slug("--", "image"), "image");
+        // A letter with a mark is its letter alone, never a break (W1's dogfood 11: "Pão Nosso" made
+        // `p-o-nosso`); a script of its own is no Latin letter, and makes none.
+        assert_eq!(slug("Pão Nosso: o semestre em números", "slide"), "pao-nosso-o-semestre-em-numeros");
+        assert_eq!(slug("Approches existantes", "section"), "approches-existantes");
+        assert_eq!(slug("Coût de la Ligne", "slide"), "cout-de-la-ligne");
+        assert_eq!(slug("Größe und Übersicht", "slide"), "grosse-und-ubersicht");
+        assert_eq!(slug("ÉQUIPE ÇA", "slide"), "equipe-ca");
+        assert_eq!(slug("Œuvre", "slide"), "oeuvre");
+        assert_eq!(slug("Łódź 2026", "slide"), "lodz-2026");
+        assert_eq!(slug("売上高", "slide"), "slide");
         assert!(is_valid_id(&slug(&"x".repeat(200), "image")));
         assert_eq!(sentence("big-number"), "Big number");
         let deck = Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
