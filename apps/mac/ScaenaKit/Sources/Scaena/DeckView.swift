@@ -168,6 +168,9 @@ struct DeckView: View {
     // The window's parts, each its own expression: one modifier chain over all of them is more
     // than the compiler type-checks in reasonable time.
     var body: some View {
+        #if DEBUG
+        let _ = BodyReport.evaluated("DeckView") { Self._logChanges() }
+        #endif
         // While the themes are offered, the window waits on them as it waited on a sheet: its
         // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
         closing(presented(watched(undoing(window.disabled(choosingTheme)))))
@@ -403,6 +406,9 @@ struct DeckView: View {
     /// chart, or a table inserted; the deck shared, and the assistant; and the inspector's tabs.
     /// Every item is in the menus too, with its key there.
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        #if DEBUG
+        let _ = BodyReport.evaluated("DeckView's toolbar") {}
+        #endif
         ToolbarItemGroup(placement: leading) {
             viewing
             zooming
@@ -1178,6 +1184,9 @@ struct DeckView: View {
                 .onChange(of: typedLine) { _, _ in lift("line") }
                 #endif
                 .onChange(of: zoom) { _, now in
+                    #if DEBUG
+                    BodyReport.set("zoom, by DeckView")
+                    #endif
                     if zoomTaken { keptZoom = now.kept }
                 }
             }

@@ -347,12 +347,20 @@ public struct ScaenaCanvas: PlatformViewRepresentable {
     #endif
 
     private func update(_ view: ScaenaView) {
+        #if DEBUG
+        BodyReport.set("update, of ScaenaCanvas")
+        #endif
         if view.session !== session { view.session = session }
         if view.state != state { view.state = state }
         view.revision = revision
         view.onPainted = painted
         let playhead = $playhead
-        view.onPlayhead = { playhead.wrappedValue = $0 }
+        view.onPlayhead = {
+            #if DEBUG
+            BodyReport.set("playhead, by ScaenaCanvas")
+            #endif
+            playhead.wrappedValue = $0
+        }
         view.show(self.playhead)
     }
 }
