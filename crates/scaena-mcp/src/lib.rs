@@ -965,10 +965,12 @@ pub struct DeckGenerate {
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
     /// `Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;
     /// `Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name
-    /// that could not be taken is in the result's `fell`, with why), `keyBullets`,
-    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
-    /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
-    /// `chartData` where a chart is drawn.
+    /// that could not be taken, or that had no place for every bullet and was set as a list,
+    /// is in the result's `fell`, with why), `keyBullets` (a chart's layout sets the first, its
+    /// takeaway, alone: each after it no place sets is in `unset`), `speakerNotes`, `beatIndex`
+    /// and `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),
+    /// `expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is
+    /// drawn.
     pub slides: Map<String, Value>,
     /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
     /// or a theme file. `dusk` without it.
@@ -1110,6 +1112,10 @@ pub struct DeckGenerated {
     /// from 1, what it asked, the layout it took, and why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<scaena_ops::narrative::Fell>,
+    /// Each item a slide's layout sets in none of its places: the slide, by its number from 1, the
+    /// item's words as written, and the layout. Give it a slide, a layout, or the notes of its own.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<scaena_ops::narrative::Unset>,
     /// Each data file given, attached as a source by its id.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
@@ -1697,7 +1703,8 @@ impl Scaena {
         claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a \
         beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s \
         blank slide. Its set of texts held to one size and lint's fixes \
-        taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, \
+        taken, as a made deck's are; what no fix mends is in `left`, a text past its place first, and each item \
+        its layout sets in none of its places (a chart's takes its takeaway alone) in `unset`. One patch, \
         refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only \
         with `verbose`), with the slide's states, layout, and beat: a beat whose claim the slide it takes the \
         place of said, and its new headline does not, is in `restated`, with the `fix` that sets the claim to \
@@ -1795,6 +1802,7 @@ impl Scaena {
                 fallback: made.fallback,
                 layouts: made.layouts,
                 fell: made.fell,
+                unset: made.unset,
                 attached: made.attached,
                 unbound: made.unbound,
                 fixed: made.fixed,

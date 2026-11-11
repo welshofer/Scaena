@@ -1788,7 +1788,8 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
     let plain = root.join("plain");
     ok(&client, "deck_generate", json!({ "bundle": path(&plain), "slides": deck(catalog["slides"][1].clone()) })).await;
     ok(&client, "data_attach", json!({ "bundle": path(&plain), "id": "trails", "file": "budget.csv" })).await;
-    let w = ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors, "trails") })).await;
+    let w =
+        ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors.clone(), "trails") })).await;
     assert!(w.get("unbound").is_none(), "{w:#}");
     let d = read(&plain);
     assert!(
@@ -1801,5 +1802,13 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
         (json!("temporal"), json!("date"))
     );
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&plain) })).await["errors"], json!(0));
+    // A chart's layout sets its takeaway alone: a bullet after it is said in `unset`, by
+    // slide_write and by deck_generate alike (agent dogfood 2).
+    let mut two = chart(visitors, "trails");
+    two["keyBullets"] = json!(["Visitors a year, 2022 to 2026", "A second line no place of the chart sets"]);
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": two.clone(), "dry_run": true })).await;
+    assert_eq!(w["unset"][0]["words"], "A second line no place of the chart sets", "{w:#}");
+    let made = ok(&client, "deck_generate", json!({ "bundle": path(&root.join("unset")), "slides": deck(two) })).await;
+    assert_eq!(made["unset"][0]["words"], "A second line no place of the chart sets", "{made:#}");
     client.cancel().await.unwrap();
 }
