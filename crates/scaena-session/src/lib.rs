@@ -2006,7 +2006,8 @@ impl Session {
     /// [`Session::inserting`] of `insert`, whatever offered it. In each other format the deck lays
     /// out anew (ADR-0020) where it would land on what draws there (lint E101) or not fit its
     /// cells (E100), it takes a place of its own there, found as it is in the format shown, so
-    /// the insert leaves no format in error.
+    /// the insert leaves no format in error. On a step a build by bullet made, it enters on the
+    /// slide's first state ([`scaena_core::builds::entering`]), so it stands on every step.
     #[cfg(feature = "editor")]
     fn inserting_offer(
         &mut self,
@@ -2015,6 +2016,9 @@ impl Session {
         at: [f32; 2],
         named: Option<&str>,
     ) -> Result<scaena_ops::inspect::Added, Error> {
+        // On a step a build by bullet made, it enters on the slide's first (lift-up 20261110).
+        let entering = scaena_core::builds::entering(&self.deck, state).to_string();
+        let state = entering.as_str();
         let mut added = self.inserting_here(state, &insert, at, named)?;
         let shown = self.format.clone();
         let colliding = self.colliding(&added.patch, state, &added.id)?;
@@ -2521,6 +2525,9 @@ impl Session {
         state: &str,
         at: [f32; 2],
     ) -> Result<scaena_ops::clipboard::Pasted, Error> {
+        // As Insert's, on a build's step it enters on the slide's first (lift-up 20261110).
+        let entering = scaena_core::builds::entering(&self.deck, state).to_string();
+        let state = entering.as_str();
         let id = scaena_core::inserts::fresh(&self.deck, &clip.node);
         self.duration(state)?;
         let engine = self.engine.as_mut().expect("built for the span");
@@ -3352,6 +3359,43 @@ mod tests {
             s.add_file(&format!("fonts/{name}"), read(&format!("fonts/{name}")));
         }
         s
+    }
+
+    /// Insert on a step a build by bullet made enters on the slide's first, so it stands on every
+    /// step of the slide whichever is shown; on a step a person made, it enters there, as before
+    /// (lift-up 20261110, editor dogfood 6). A paste goes as Insert goes.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn what_is_inserted_on_a_builds_step_stands_on_its_slide() {
+        let mut s = b1();
+        let by = || assistant::Caller { author: "user", at: None };
+        // `refuse-2`, a step a build made: it says only which of the list's paragraphs it draws.
+        let k = s.deck.state_index("refuse-2").unwrap();
+        let path = format!("/states/{k}/props/items");
+        let built = serde_json::json!([{ "op": "replace", "path": path, "value": { "paragraphs": [1, 1] } }]);
+        s.tool("deck_patch", serde_json::json!({ "ops": built }), by()).unwrap();
+        let n = s.inserts().iter().position(|i| i.label == "Text · body").unwrap();
+        let entered = |added: &scaena_ops::inspect::Added| {
+            let add = added.patch.iter().find(|op| op["op"] == "add_node").unwrap();
+            add["state"].as_str().unwrap().to_string()
+        };
+        let added = s.inserting("refuse-2", n, [960.0, 900.0], None).unwrap();
+        assert_eq!(entered(&added), "refuse", "on a build's step, from the slide's first");
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by()).unwrap();
+        for state in ["refuse", "refuse-2", "refuse-3"] {
+            assert!(s.boxes(state).unwrap().iter().any(|b| b.node == added.id), "{state} shows it");
+        }
+        let first = added.id;
+        // `goal-why`, a step a person made, its body's words written there: what enters there stays there.
+        let added = s.inserting("goal-why", n, [960.0, 900.0], None).unwrap();
+        assert_eq!(entered(&added), "goal-why", "on a person's step, from that step");
+        s.tool("deck_patch", serde_json::json!({ "ops": added.patch }), by()).unwrap();
+        assert!(!s.boxes("goal").unwrap().iter().any(|b| b.node == added.id));
+        // A paste, as Insert.
+        let clip = s.copying("refuse", &[first.as_str()]).unwrap();
+        let pasted = s.pasting(&clip, "refuse-2", [960.0, 300.0]).unwrap();
+        let add = pasted.patch.iter().find(|op| op["op"] == "add_node").unwrap();
+        assert_eq!(add["state"], "refuse");
     }
 
     /// Insert with no pointer pressed (editor dogfood 5): under the slide's words, its edge on

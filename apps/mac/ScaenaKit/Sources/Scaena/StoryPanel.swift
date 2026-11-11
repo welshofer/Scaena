@@ -53,7 +53,7 @@ struct StoryPanel: View {
                             HStack(spacing: 0) {
                                 ForEach(parts.indices, id: \.self) { i in
                                     if let state = parts[i].state {
-                                        Button(parts[i].words) { edits.go(state) }
+                                        Button(parts[i].words) { edits.go(editor.entered(state)) }
                                             .buttonStyle(.borderless)
                                     } else {
                                         Text(parts[i].words).foregroundStyle(.secondary)
@@ -64,7 +64,9 @@ struct StoryPanel: View {
                                 Text(said).foregroundStyle(.secondary)
                                 HStack {
                                     ForEach(parts.indices.filter { parts[$0].state != nil }, id: \.self) { i in
-                                        Button("Show \(parts[i].words)") { if let state = parts[i].state { edits.go(state) } }
+                                        Button("Show \(parts[i].words)") {
+                                            if let state = parts[i].state { edits.go(editor.entered(state)) }
+                                        }
                                             .buttonStyle(.borderless)
                                     }
                                 }
@@ -97,7 +99,7 @@ struct StoryPanel: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("story-big-idea")
                     }
-                    ArcGraph(slides: health.slides, beats: health.beats ?? []) { edits.go($0) }
+                    ArcGraph(slides: health.slides, beats: health.beats ?? []) { edits.go(editor.entered($0)) }
                         .frame(height: 110)
                     ArcLegend()
                 }
@@ -126,10 +128,11 @@ struct StoryPanel: View {
                 Text(why).foregroundStyle(.secondary)
             }
         }
-        // A slide a row's words name shows it (editor dogfood 6).
+        // A slide a row's words name shows it, at its last step, built whole (editor dogfood 6,
+        // lift-up 20261110).
         .environment(\.openURL, OpenURLAction { url in
             guard url.scheme == "scaena-state" else { return .discarded }
-            edits.go(String(url.absoluteString.dropFirst("scaena-state:".count)))
+            edits.go(editor.entered(String(url.absoluteString.dropFirst("scaena-state:".count))))
             return .handled
         })
         .opacity(asLastRead ? 0.6 : 1)

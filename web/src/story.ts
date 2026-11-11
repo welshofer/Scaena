@@ -27,6 +27,8 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
+  /** Show the slide `state` is a state of, entered at its last step, built whole. */
+  enter(state: string): Promise<void>;
   /** Show `state` and the Format tab's `field` for it, scrolled to and in focus, or for its headline,
    * typing begun in it with its words selected (editor dogfood 6). */
   field(state: string, field: Field): Promise<void>;
@@ -388,14 +390,14 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   // so its buttons are heard here.
   score.addEventListener("click", (e) => {
     const state = (e.target as Element).closest<HTMLElement>("[data-capped-slide]")?.dataset.cappedSlide;
-    if (state) void editor.show(state);
+    if (state) void editor.enter(state);
   });
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
   // A slide a row's words name shows it (editor dogfood 6): the rows are drawn anew at each read,
   // so their buttons are heard here.
   into.querySelector<HTMLElement>("[data-findings]")!.addEventListener("click", (e) => {
     const state = (e.target as Element).closest<HTMLElement>("[data-to-slide]")?.dataset.toSlide;
-    if (state) void editor.show(state);
+    if (state) void editor.enter(state);
   });
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
@@ -519,7 +521,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     idea.innerHTML = h.bigIdea ? `<span>The big idea</span>\u201c${html(h.bigIdea)}\u201d` : "";
     arc.innerHTML = arcGraph(h);
     for (const g of arc.querySelectorAll<SVGGElement>("[data-state]")) {
-      g.addEventListener("click", () => void editor.show(g.dataset.state!));
+      g.addEventListener("click", () => void editor.enter(g.dataset.state!));
     }
     // What to do first, open; the rest folded under one "N more", open again as it was left.
     const { open, more } = triage(h);

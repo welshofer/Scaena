@@ -157,6 +157,17 @@ import Testing
     #expect(editor.state(from: "nowhere", by: 1) == nil, "none from a state the deck lacks")
 }
 
+/// A slide is entered at its last step, built whole, as the browser enters one (lift-up 20261110,
+/// editor dogfood 6): B1's goal at goal-bar, from its first state or a step; the cover, a slide of
+/// one state, at itself; and a state the deck lacks, itself.
+@Test func aSlideIsEnteredAtItsLastStep() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    #expect(editor.entered("goal") == "goal-bar")
+    #expect(editor.entered("goal-why") == "goal-bar")
+    #expect(editor.entered("cover") == "cover")
+    #expect(editor.entered("nowhere") == "nowhere")
+}
+
 /// B1's files by their paths in it, `deck.json` changed by `edit`.
 private func b1Files(_ edit: (String) throws -> String) throws -> [String: Data] {
     let root = b1.resolvingSymlinksInPath()

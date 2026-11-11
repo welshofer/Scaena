@@ -268,7 +268,30 @@ struct CanvasMenu: UIViewRepresentable {
             animator: any UIEditMenuInteractionAnimating
         ) {
             menuLog.debug("will present")
+            #if DEBUG
+            // Who has the keyboard once the menu shows (lift-up 20261110): #985 found the app's
+            // window key and the menu's view its first responder, yet a hardware ⌘Z reaching
+            // nothing of the app, its menu bar's Undo included, while the edit menu was up.
+            Task { @MainActor [weak interaction] in
+                try? await Task.sleep(for: .milliseconds(400))
+                let window = interaction?.view?.window?.windowScene?.keyWindow
+                let first = window.flatMap { Self.firstResponder(in: $0) }.map { String(describing: type(of: $0)) }
+                let mine = interaction?.view?.isFirstResponder == true
+                menuLog.debug(
+                    "menu shown: key window \(window.map { String(describing: type(of: $0)) } ?? "none", privacy: .public), first responder \(first ?? "none", privacy: .public), the menu's view \(mine ? "has" : "lacks", privacy: .public) the keys")
+            }
+            #endif
         }
+
+        #if DEBUG
+        @MainActor private static func firstResponder(in view: UIView) -> UIView? {
+            if view.isFirstResponder { return view }
+            for inside in view.subviews {
+                if let found = firstResponder(in: inside) { return found }
+            }
+            return nil
+        }
+        #endif
 
         func editMenuInteraction(
             _ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
