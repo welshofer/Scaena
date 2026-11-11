@@ -69,4 +69,53 @@ final class PresentingTests: XCTestCase {
             keep(app, as: "ended")
         }
     }
+
+    /// The toolbar's Play held opens its menu, as a presentation app's Play does, and its Remote…
+    /// shows the code a remote joins with (lift-up 20261110): an iPad with no keyboard's way to
+    /// Remote…, with no menu bar. Let a remote play the deck, and the sheet shows eight digits (in
+    /// two groups of four as drawn, `Remote.shown`, which ScaenaKit's `RemoteTests` holds; the code's
+    /// label reads them one by one); let it not, and the code goes.
+    @MainActor
+    func testPlayHeldOffersRemoteAndItsCode() throws {
+        let app = launched()
+        try openB1(in: app)
+        let play = app.buttons.matching(NSPredicate(format: "label == 'Play'")).firstMatch
+        XCTAssertTrue(play.waitForExistence(timeout: 10), "no Play: \(app.debugDescription)")
+        settle()
+        play.press(forDuration: 1.2)
+        let remote = app.buttons.matching(NSPredicate(format: "label == 'Remote…'")).firstMatch
+        guard remote.waitForExistence(timeout: 10) else {
+            keep(app, as: "play-menu-not-shown")
+            throw Unseen(description: "Play held offered no Remote…: \(app.debugDescription)")
+        }
+        keep(app, as: "play-menu")
+        XCTAssertTrue(
+            app.buttons.matching(NSPredicate(format: "label == 'Rehearse Slideshow'")).firstMatch.exists,
+            "Play held offered no Rehearse Slideshow")
+        remote.tap()
+        let on = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'remote-on'")).firstMatch
+        guard on.waitForExistence(timeout: 10) else {
+            keep(app, as: "remote-not-opened")
+            throw Unseen(description: "Remote… opened no sheet: \(app.debugDescription)")
+        }
+        let isOn = { (on.value as? String) == "1" }
+        XCTAssertFalse(isOn(), "Remote… opened let on")
+        // The switch stands at the row's trailing end, its label before it.
+        let flip = { on.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap() }
+        flip()
+        let code = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'remote-code'")).firstMatch
+        guard code.waitForExistence(timeout: 10) else {
+            keep(app, as: "remote-no-code")
+            throw Unseen(description: "let on, Remote… shows no code: \(app.debugDescription)")
+        }
+        keep(app, as: "remote-code")
+        XCTAssertTrue(isOn(), "the switch reads off with the code shown")
+        let digits = code.label.hasPrefix("Code ") ? code.label.dropFirst(5).split(separator: " ") : []
+        XCTAssertEqual(digits.count, 8, "the code reads \(code.label)")
+        XCTAssertTrue(digits.allSatisfy { $0.count == 1 && $0.allSatisfy(\.isNumber) }, "the code reads \(code.label)")
+        flip()
+        XCTAssertTrue(wait(5) { !code.exists }, "let off, Remote… still shows a code: \(code.label)")
+        app.buttons.matching(NSPredicate(format: "label == 'Done'")).firstMatch.tap()
+        XCTAssertTrue(wait(5) { !on.exists }, "Done left Remote… up")
+    }
 }

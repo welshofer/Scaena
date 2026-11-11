@@ -509,11 +509,19 @@ pub fn quoting_slide(
 /// The sources of `cells` a figure of `text` is the value of, each once: where the figure, as
 /// written, is exactly one cell's value, no other cell holding it, and its units agree; a year
 /// and a figure that says too little to stand on its value cite nothing.
-fn cited_in(text: &str, cells: &[Cell], locale: &Locale) -> Vec<String> {
+///
+/// Where the slide names no source of its own, `sourced` false, a line the figure is written on
+/// must also name the cell's column, a word of it or its initials, as a quote's words must, a
+/// figure set alone (a big number) read with the slide's words: a value one cell
+/// holds is too little alone to say where a figure is from (W1's dogfood 10: "9 % de chiffre
+/// d'affaires" is no district's 9 %).
+fn cited_in(text: &str, cells: &[Cell], locale: &Locale, sourced: bool) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for f in figures(text, locale).iter().filter(|f| !year(f)) {
         let mut found: Vec<&Cell> = Vec::new();
+        let mut written = None;
         for reading in readings(f).into_iter().filter(|r| r.telling) {
+            written.get_or_insert(reading.span);
             let span = &text[reading.span.0..reading.span.1];
             let Ok(format) = NumberFormat::parse(&reading.format) else { continue };
             for cell in cells {
@@ -524,7 +532,15 @@ fn cited_in(text: &str, cells: &[Cell], locale: &Locale) -> Vec<String> {
         }
         let Some(first) = found.first() else { continue };
         let one = |c: &&Cell| c.source == first.source && c.column == first.column && c.row == first.row;
-        if found.iter().all(one) && fits(first, f) && !out.iter().any(|s| s == first.source) {
+        // Each line the figure is written on, a line of the figure alone (a hero's) read with the
+        // slide's words, as its meaning stands beside it.
+        let told = sourced
+            || written.is_some_and(|(from, to)| {
+                let figure = &text[from..to];
+                (text.lines().filter(|l| l.contains(figure)))
+                    .any(|l| names(first, if l.trim() == figure.trim() { text } else { l }))
+            });
+        if found.iter().all(one) && fits(first, f) && told && !out.iter().any(|s| s == first.source) {
             out.push(first.source.to_string());
         }
     }
@@ -534,7 +550,8 @@ fn cited_in(text: &str, cells: &[Cell], locale: &Locale) -> Vec<String> {
 /// `doc`, a deck as JSON, with each beat whose slide writes a figure that is one cell's value of
 /// the sources named `sources`, as [`cited_in`] reads it, citing that source in its evidence
 /// (`@id`), so health finds its figure sourced (W1 dogfood 9 F5). A citation says less than a
-/// quote, so the words around the figure need not name the cell's column. How many beats it
+/// quote, so where the slide names the sheet's own file the words around the figure need not
+/// name the cell's column; where it names no source, its line must (W1's dogfood 10). How many beats it
 /// cited a source for.
 pub fn citing(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> usize {
     let Ok(deck) = Deck::from_json(&doc.to_string()) else { return 0 };
@@ -560,13 +577,45 @@ pub fn citing(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> u
             .collect::<Vec<_>>()
             .join("\n")
     };
+    // The deck's sources by name and address, each with whether it holds sheets a figure could
+    // be a cell of (a CSV, a workbook, SEC's figures) or only words (a PDF, a page).
+    let given: Vec<(String, Option<String>, bool)> = (doc.pointer("/meta/narrative/sources").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            let name = s["name"].as_str()?.to_string();
+            let kind = s["kind"].as_str().unwrap_or_default();
+            let sheets = matches!(kind, "csv" | "workbook" | "sec filings");
+            Some((name, s["url"].as_str().map(str::to_string), sheets))
+        })
+        .collect();
+    // The sources given that a beat's evidence names as its slide's, each with whether it holds
+    // sheets. A name no source given carries, an address the model wrote, neither skips nor
+    // vouches: its figure is held to its line's words. Where every source given that is named
+    // holds only words, the slide's figure is that source's, never a cell that happens to hold
+    // the same value (W1's dogfood 10: "9 % de chiffre d'affaires", from a page, is no
+    // district's 9 %).
+    let named = |evidence: &Value| -> Vec<bool> {
+        (evidence.as_array().into_iter().flatten())
+            .filter_map(Value::as_str)
+            .filter(|e| !e.starts_with('@'))
+            .filter_map(|e| {
+                let name = e.strip_prefix("source:").unwrap_or(e);
+                given.iter().find(|(n, url, _)| n == name || url.as_deref() == Some(name)).map(|g| g.2)
+            })
+            .collect()
+    };
     let mut cites: Vec<(usize, usize, Vec<String>)> = Vec::new();
     for (s, section) in doc.pointer("/spine/sections").and_then(Value::as_array).into_iter().flatten().enumerate() {
         for (b, beat) in section["beats"].as_array().into_iter().flatten().enumerate() {
+            let named = named(&beat["evidence"]);
+            if !named.is_empty() && named.iter().all(|sheets| !sheets) {
+                continue;
+            }
             let shown = beat["states"].as_array().into_iter().flatten().filter_map(Value::as_str);
             let words: Vec<String> =
                 shown.filter_map(|id| states.iter().find(|st| st["id"] == id)).map(&words_of_state).collect();
-            let cited = cited_in(&words.join("\n"), &cells, locale);
+            let cited = cited_in(&words.join("\n"), &cells, locale, named.iter().any(|sheets| *sheets));
             if !cited.is_empty() {
                 cites.push((s, b, cited));
             }
@@ -817,5 +866,45 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
         assert_eq!(cite("Since 2021, more boats", json!([])), json!([]), "a year cites nothing");
         assert_eq!(cite("Up 12 in a week", json!([])), json!([]), "too little to stand on");
         assert_eq!(cite("$86.9 a ride", json!([])), json!([]), "a percent column is no amount in dollars");
+        // A beat that names a source of words as its slide's, a page or a PDF, cites no cell
+        // that happens to hold its figure; one that names the sheet's own file still does
+        // (W1's dogfood 10).
+        let given_as = |text: &str, evidence: Value| -> Value {
+            let (mut doc, files) = deck(&[("t", text)], csv, None);
+            doc["data"]["kpi"]["schema"]["year"] = json!("number");
+            doc["meta"]["narrative"]["sources"] = json!([
+                { "name": "ferry.csv", "kind": "csv" },
+                { "name": "review.pdf", "kind": "pdf" },
+                { "name": "https://example.org/ferry", "kind": "web page", "url": "https://example.org/ferry" }
+            ]);
+            doc["spine"] = json!({ "sections": [{ "id": "a", "beats": [{ "id": "b", "claim": "c", "states": ["s"], "evidence": evidence }] }] });
+            citing(&mut doc, &files, &["kpi".into()]);
+            doc["spine"]["sections"][0]["beats"][0]["evidence"].clone()
+        };
+        let given = |evidence: Value| given_as("Turnaways have five-folded to 9,800", evidence);
+        assert_eq!(given(json!(["https://example.org/ferry"])), json!(["https://example.org/ferry"]));
+        assert_eq!(given(json!(["source:review.pdf"])), json!(["source:review.pdf"]));
+        assert_eq!(given(json!(["source:ferry.csv"])), json!(["source:ferry.csv", "@kpi"]));
+        assert_eq!(
+            given(json!(["source:review.pdf", "source:ferry.csv"])),
+            json!(["source:review.pdf", "source:ferry.csv", "@kpi"])
+        );
+        assert_eq!(given(json!([])), json!(["@kpi"]), "its line names the column, turnaways");
+        // A slide that names no source cites a cell only where its line names the cell's column
+        // (W1's dogfood 10): a bare value one cell holds is too little.
+        assert_eq!(cite("Fines rose to 9,800", json!([])), json!([]), "no word of midday_turnaways");
+        assert_eq!(
+            given_as("Fines rose to 9,800", json!(["source:ferry.csv"])),
+            json!(["source:ferry.csv", "@kpi"]),
+            "the sheet's own file given vouches"
+        );
+        // An address no source given carries, as a model writes one, neither skips nor vouches:
+        // the figure's line must name the column.
+        let unknown = "https://some-agency.gov/report";
+        assert_eq!(given_as("Fines rose to 9,800", json!([unknown])), json!([unknown]));
+        assert_eq!(given_as("Turnaways rose to 9,800", json!([unknown])), json!([unknown, "@kpi"]));
+        // A big number set alone is read with the slide's words, its meaning beside it.
+        assert_eq!(cite("9,800\nriders turned away at midday in 2025", json!([])), json!(["@kpi"]));
+        assert_eq!(cite("9,800\nfines this year", json!([])), json!([]));
     }
 }

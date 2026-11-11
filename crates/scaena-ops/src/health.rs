@@ -2967,8 +2967,10 @@ fn line_said(line: &str) -> std::collections::BTreeSet<String> {
 /// `sentence` as a finding quotes it in the middle of one of its own: without its closing stop, so
 /// the sentence after the quote reads "…already are”. Rewrite", never "…already are.”. Rewrite"
 /// (W1's dogfood 3 and 4). A question or an exclamation keeps its mark, which says how it reads.
+/// A full stop of a script set without spaces goes too, "…用意します”. Read", never
+/// "…用意します。”. Read" (health read of a Japanese deck).
 fn unstopped(sentence: &str) -> &str {
-    sentence.trim_end().trim_end_matches('.').trim_end()
+    sentence.trim_end().trim_end_matches(['.', '\u{3002}', '\u{ff61}']).trim_end()
 }
 
 /// A beat's name as a sentence says it (W1's dogfood 8): a name written as a heading and its
@@ -5178,6 +5180,20 @@ mod tests {
         }
         // A word in a spaced script is read as before.
         assert_eq!(named("40 miles of trail, 38% more"), [one("40", "40", "mile"), one("38%", "38", "%")].concat());
+    }
+
+    /// A quoted sentence's full stop comes off before the finding's own sentence goes on, in a
+    /// script set without spaces as in English (health read of a Japanese deck: the big idea was
+    /// quoted "…用意します。”. Read the closing slide 7").
+    #[test]
+    fn a_quoted_sentence_loses_its_full_stop_in_any_script() {
+        assert_eq!(
+            unstopped("駅北の分館で、増え続ける利用者に席を用意します。"),
+            "駅北の分館で、増え続ける利用者に席を用意します"
+        );
+        assert_eq!(unstopped("席を用意します｡ "), "席を用意します");
+        assert_eq!(unstopped("Fund the branch library."), "Fund the branch library");
+        assert_eq!(unstopped("本当にできますか？"), "本当にできますか？", "a question keeps its mark");
     }
 
     /// A figure a German or French slide sets apart from its percent, currency, or scale is named
