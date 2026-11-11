@@ -139,6 +139,22 @@ extension XCTestCase {
         return wait(seconds, done)
     }
 
+    /// The keyboard the pass this test runs in has (`apps/ipad/app-test.sh`, lift-up 20261110):
+    /// `hardware`, the simulator's hardware keyboard connected, so the software keyboard stays
+    /// down; `software`, none connected, so it comes up while a text is typed in; nil where the
+    /// test is run otherwise, as from Xcode, with whichever keyboard the simulator has.
+    var keyboardPass: String? {
+        ProcessInfo.processInfo.environment["SCAENA_KEYBOARD"]
+    }
+
+    /// Whether the software keyboard is up: a keyboard taller than the bar of shortcuts iPadOS
+    /// leaves at the screen's foot while a hardware keyboard is connected.
+    @MainActor
+    func softwareKeyboardUp(in app: XCUIApplication) -> Bool {
+        let keyboard = app.keyboards.firstMatch
+        return keyboard.exists && keyboard.frame.height > 100
+    }
+
     /// A moment for what was shown to be painted: the canvas paints at the display's next refresh.
     func settle(_ seconds: TimeInterval = 2) {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "painted")], timeout: seconds)

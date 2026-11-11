@@ -13,6 +13,19 @@ engine_log() { [ -f "$root/target/ipad/engine.log" ] && { echo "--- target/ipad/
 cd "$here"
 xcodegen generate --quiet
 udid=$("$here/simulator.sh")
+# Each test runs in a pass with the keyboard it needs (lift-up 20261110). Most run with the
+# simulator's hardware keyboard connected, as KeysTests drives the canvas by one: with none, each
+# key XCTest types in a text hides the software keyboard, which iOS brings back moments later, and
+# on CI that flapping has left XCTest's wait for the app to go idle unended, each event then waiting
+# out its two minutes. The tests that need the software keyboard up run after, in a pass of their
+# own with it disconnected; none is left out. Each test reads its pass from `SCAENA_KEYBOARD`
+# (`TEST_RUNNER_` hands it to the tests) and holds it: no software keyboard in the first, and one
+# in the second.
+software=(
+  ScaenaUITests/TouchTests/testTheKeyboardKeepsTheLineTypedInAboveIt
+  ScaenaUITests/KeysTests/testTypingInCodeSettles
+)
+"$here/keyboard.sh" "$udid" hardware
 destination="platform=iOS Simulator,arch=arm64,id=$udid"
 built="$root/target/ipad/derived"
 xcodebuild build-for-testing -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
@@ -30,22 +43,47 @@ cp -R "$root/tests/bench/b1.scaena" "$documents/b1.scaena"
 # one before it left (ScaenaApp's `putBackB1`).
 cp -R "$root/tests/bench/b1.scaena" "$container/Library/b1-shipped.scaena"
 results="$root/target/ipad/Scaena.xcresult"
-rm -rf "$results"
+softly="$root/target/ipad/Scaena-software-keyboard.xcresult"
+rm -rf "$results" "$softly"
 # What the app says at the debug level while the tests run, kept beside the screenshots: where
 # each key went (PLAN 4.6), and how long the GPU, each deck, and each canvas's surface took to open.
+# The stream ends as the device shuts down between the passes, and is started again after.
 said="$root/target/ipad/log.txt"
-xcrun simctl spawn "$udid" log stream --level debug --style compact \
-  --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault)) OR (process == "ScaenaApp" AND subsystem == "com.apple.SwiftUI" AND category == "Changed Body Properties")' >"$said" 2>&1 &
-logging=$!
+: >"$said"
+listen() {
+  xcrun simctl spawn "$udid" log stream --level debug --style compact \
+    --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault)) OR (process == "ScaenaApp" AND subsystem == "com.apple.SwiftUI" AND category == "Changed Body Properties")' >>"$said" 2>&1 &
+  logging=$!
+}
 status=0
 # A test held up past ten minutes fails by its name, its screenshot and result bundle kept, and the
 # run goes on to the next: a hang no longer takes the job to its limit unseen. The slowest test
 # that passes takes some four and a half minutes on CI's simulator (TouchTests.testTheCanvasByTouch).
-xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
-  -derivedDataPath "$built" -resultBundlePath "$results" \
-  -test-timeouts-enabled YES -maximum-test-execution-time-allowance 600 || status=$?
-[ "$status" -eq 0 ] || engine_log
+tests() {
+  xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
+    -derivedDataPath "$built" -test-timeouts-enabled YES -maximum-test-execution-time-allowance 600 "$@" || status=$?
+}
+listen
+echo "--- the UI tests with the hardware keyboard connected" >>"$said"
+TEST_RUNNER_SCAENA_KEYBOARD=hardware tests -resultBundlePath "$results" "${software[@]/#/-skip-testing:}"
 kill "$logging" 2>/dev/null || true
+"$here/keyboard.sh" "$udid" software
+listen
+echo "--- the UI tests with the software keyboard" >>"$said"
+TEST_RUNNER_SCAENA_KEYBOARD=software tests -resultBundlePath "$softly" "${software[@]/#/-only-testing:}"
+kill "$logging" 2>/dev/null || true
+[ "$status" -eq 0 ] || engine_log
+# The two passes as one result bundle, so their counts, failures, and screenshots are read as one
+# run's; where the second pass left no bundle, the first is read alone.
+both="$root/target/ipad/Scaena-both.xcresult"
+rm -rf "$both"
+if [ -d "$softly" ] && [ -d "$results" ] && xcrun xcresulttool merge "$results" "$softly" --output-path "$both" >/dev/null; then
+  rm -rf "$results" "$softly"
+  mv "$both" "$results"
+elif [ -d "$softly" ]; then
+  echo "the two passes' result bundles did not merge: the software keyboard's pass is read apart" >&2
+  "$here/results.sh" "$softly"
+fi
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 cp "$said" "$root/target/ipad/shots/log.txt" 2>/dev/null || true
 # What SwiftUI finds wrong in how the app's views are made (a change handler run twice in a frame,

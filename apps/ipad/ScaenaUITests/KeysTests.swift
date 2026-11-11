@@ -347,6 +347,13 @@ final class KeysTests: XCTestCase {
             guard typing.waitForExistence(timeout: 5) else {
                 throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
             }
+            if keyboardPass == "hardware" {
+                // The pass connects the simulator's hardware keyboard, so the software one never
+                // comes up and flaps with each key: held here, where it came up without it.
+                XCTAssertFalse(
+                    wait(4) { softwareKeyboardUp(in: app) },
+                    "the software keyboard came up with the hardware keyboard connected: \(app.keyboards.firstMatch.frame)")
+            }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
             settle(1)
             keep(app, as: "tab-in-code")
@@ -404,6 +411,10 @@ final class KeysTests: XCTestCase {
         app.typeKey("\n", modifierFlags: [])
         guard typing.waitForExistence(timeout: 5) else {
             throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
+        }
+        // The test is of the software keyboard up: in its pass, held to have come.
+        if keyboardPass == "software", !wait(10, { softwareKeyboardUp(in: app) }) {
+            throw Unseen(description: "typing in code brought no software keyboard: \(app.debugDescription)")
         }
         app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
         // What a tab typed and the keyboard brought have had time to finish.
