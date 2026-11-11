@@ -206,7 +206,7 @@ impl Scaena {
                     return Err(at("file", format!("{file} is past the 256 MB a source may be: give a smaller one")));
                 }
                 let name = real.file_name().map_or_else(|| file.clone(), |n| n.to_string_lossy().into_owned());
-                Ok(Sourced::File { real, name })
+                Ok(Sourced::File { real, name, size: meta.len() })
             }
             GivenSource::Url { url } => {
                 let url = url.trim();
@@ -234,6 +234,35 @@ impl Scaena {
                 }
             }
         }
+    }
+
+    /// Each of `deck_generate`'s `sources` held ([`Self::source_held`]), at most [`SOURCES_MOST`]
+    /// of them, their files at most [`SOURCES_TOTAL`] together, as a bundle's files are
+    /// (`scaena_store::UNZIPPED`'s total): one call reads no more into the server's memory,
+    /// the source that crosses it named (agent dogfood 3).
+    fn sources_held(&self, sources: &[GivenSource], bundle: &str) -> Result<Vec<Sourced>, String> {
+        if sources.len() > SOURCES_MOST {
+            return Err(format!(
+                "sources: {} given, past the {SOURCES_MOST} a deck is grounded in at once: give the ones its slides cite",
+                sources.len()
+            ));
+        }
+        let mut total = 0u64;
+        let mut out = Vec::new();
+        for (i, given) in sources.iter().enumerate() {
+            let held = self.source_held(i, given, bundle)?;
+            if let Sourced::File { size, .. } = &held {
+                total += size;
+                if total > SOURCES_TOTAL {
+                    return Err(format!(
+                        "sources[{i}].file: the files come to {} MB with it, past the 1 GB the sources may be together",
+                        total.div_ceil(1 << 20)
+                    ));
+                }
+            }
+            out.push(held);
+        }
+        Ok(out)
     }
 
     /// The theme file a tool reads, held as [`Self::readable`] holds a data file. A theme that
@@ -336,11 +365,18 @@ impl Scaena {
 /// The most a source file may be, as a bundle's file may be (`scaena_store::UNZIPPED.entry`).
 const SOURCE_MOST: u64 = 256 << 20;
 
+/// The most `deck_generate`'s source files may be together, as a bundle's files may be
+/// (`scaena_store::UNZIPPED.total`).
+const SOURCES_TOTAL: u64 = 1 << 30;
+
+/// The most sources `deck_generate` is given at once.
+const SOURCES_MOST: usize = 16;
+
 /// A source `deck_generate` was given, held to what this server may read ([`Scaena::source_held`]):
 /// a file by where it really is and the name the deck keeps it by, or an address.
 #[derive(Debug)]
 enum Sourced {
-    File { real: PathBuf, name: String },
+    File { real: PathBuf, name: String, size: u64 },
     Url(String),
 }
 
@@ -1173,9 +1209,10 @@ pub struct DeckGenerate {
     /// each figure no source backs comes from.
     #[serde(default)]
     pub data: Vec<scaena_ops::create::Attach>,
-    /// What the deck is grounded in besides its data: each a `file` (Markdown, text, RTF, HTML,
-    /// CSV, Excel, Word, PowerPoint, or a PDF), under this server's folder or the bundle's and in
-    /// no hidden folder, at most 256 MB, or a `url`, a public `https` page or `github:OWNER/REPO`.
+    /// What the deck is grounded in besides its data, at most 16: each a `file` (Markdown, text,
+    /// RTF, HTML, CSV, Excel, Word, PowerPoint, or a PDF), under this server's folder or the
+    /// bundle's and in no hidden folder, at most 256 MB and 1 GB with the others, or a `url`, a
+    /// public `https` page or `github:OWNER/REPO`.
     /// Each is kept among the deck's sources by its file's name or its address (no bytes of it
     /// are copied in), each sheet a data source as `data` keeps one, and a slide whose
     /// `sourceRef` names it cites it. SEC's filings are `scaena generate --source sec:TICKER`'s.
@@ -1956,10 +1993,7 @@ impl Scaena {
             d.file = self.readable(&d.file, &a.bundle).map_err(failure)?;
         }
         // Each source held before anything is read or asked of the web (agent dogfood 3).
-        let held = (a.sources.iter().enumerate())
-            .map(|(i, s)| self.source_held(i, s, &a.bundle))
-            .collect::<Result<Vec<_>, String>>()
-            .map_err(|message| failure(OpsError::new(message)))?;
+        let held = self.sources_held(&a.sources, &a.bundle).map_err(|message| failure(OpsError::new(message)))?;
         let reader = self.sourcing.0.clone();
         blocking(move || {
             let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
@@ -2016,7 +2050,7 @@ fn read_sources(held: Vec<Sourced>, reader: Option<&SourceReader>) -> Result<Vec
     let mut out: Vec<scaena_sources::Source> = Vec::new();
     for (i, h) in held.into_iter().enumerate() {
         let source = match h {
-            Sourced::File { real, name } => {
+            Sourced::File { real, name, .. } => {
                 let bytes = std::fs::read(&real)
                     .map_err(|e| OpsError::new(format!("sources[{i}].file: reading {name}: {e}")))?;
                 let mut source = scaena_sources::read(&name, &bytes)

@@ -2115,3 +2115,32 @@ async fn deck_generates_sources_are_held_to_what_the_server_may_read() {
     assert!(!here.join("unreached").exists());
     bare.cancel().await.unwrap();
 }
+
+/// `deck_generate`'s source files together are held to the 1 GB a bundle's files may be, so one
+/// call reads no more into the server's memory, the one that crosses it named; and at most 16
+/// sources are given at once (the coordinator's review of #1084). Sparse files: nothing is
+/// written to disk but their lengths, and none is read.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generates_sources_are_held_to_a_gigabyte_together() {
+    let root = scratch("sources-total");
+    let client = connect_in(&root).await;
+    for k in 0..5 {
+        std::fs::File::create(root.join(format!("part-{k}.csv"))).unwrap().set_len(250 << 20).unwrap();
+    }
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let slides = json!({ "executiveSummary": "H1", "slides": catalog["slides"].as_array().unwrap()[..5] });
+    // 250 MB each: the fifth comes to 1,250 MB with the four before it.
+    let five: Vec<Value> = (0..5).map(|k| json!({ "file": format!("part-{k}.csv") })).collect();
+    let result = generated(&client, &root.join("five"), &slides, json!(five)).await;
+    assert_eq!(result.is_error, Some(true), "{}", text(&result));
+    assert!(text(&result).contains("sources[4].file: the files come to 1250 MB"), "{}", text(&result));
+    assert!(!root.join("five").exists());
+    // Seventeen sources, whatever they are, are too many.
+    let many: Vec<Value> = (0..17).map(|k| json!({ "url": format!("https://example.com/{k}") })).collect();
+    let result = generated(&client, &root.join("many"), &slides, json!(many)).await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(text(&result).contains("sources: 17 given, past the 16"), "{}", text(&result));
+    client.cancel().await.unwrap();
+}
