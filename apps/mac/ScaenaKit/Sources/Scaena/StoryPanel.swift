@@ -425,7 +425,7 @@ struct ArcLegend: View {
                 Circle().fill(ArcGraph.color("bends")).frame(width: 7, height: 7)
                 Text("Off the curve")
                 Circle().fill(ArcGraph.color("drifted")).frame(width: 7, height: 7).padding(.leading, 6)
-                Text("Out of its beat. Higher is more intense.")
+                Text("Outside its part of the talk. Higher is more intense.")
             }
             HStack(spacing: 4) {
                 Rectangle().fill(.primary.opacity(0.7)).frame(width: 14, height: 0.75)
