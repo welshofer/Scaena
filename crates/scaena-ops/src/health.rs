@@ -3192,13 +3192,15 @@ const COMMON: [&str; 105] = [
 
 /// The words of more than three letters that join a sentence's parts in `language`, which a turn's
 /// ask never names as one to carry across: [`GERMAN`] in a German deck (R1's agent dogfood 3:
-/// "sich", "zwei", and "voll" were named), else [`COMMON`], English's, as before.
+/// "sich", "zwei", and "voll" were named), [`FRENCH`] in a French one (health's English-only
+/// sweep, item 3), else [`COMMON`], English's, as before.
 fn joining(language: Option<&str>) -> &'static [&'static str] {
     let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
     let head = tag.split(['-', '_', ' ']).next().unwrap_or_default();
-    match matches!(head, "de" | "deu" | "ger" | "german" | "deutsch") {
-        true => &GERMAN,
-        false => &COMMON,
+    match head {
+        "de" | "deu" | "ger" | "german" | "deutsch" => &GERMAN,
+        "fr" | "fra" | "fre" | "french" | "français" | "francais" => &FRENCH,
+        _ => &COMMON,
     }
 }
 
@@ -3215,6 +3217,20 @@ const GERMAN: [&str; 119] = [
     "sondern", "sowie", "über", "unser", "unsere", "unter", "viel", "viele", "vier", "voll", "waren", "weil", "weiter",
     "welche", "wenig", "weniger", "wenn", "werden", "wieder", "will", "wird", "wollen", "wurde", "wurden", "zehn",
     "zwei", "zwischen", "zwölf", "alle",
+];
+
+/// Words of more than three letters a French sentence holds that say nothing of what it is about:
+/// those that join its parts, the counts to twelve, and the words that only weigh another.
+const FRENCH: [&str; 108] = [
+    "ainsi", "alors", "après", "assez", "aucun", "aucune", "aussi", "autre", "autres", "avant", "avec", "avez",
+    "avoir", "avons", "beaucoup", "bien", "ceci", "cela", "celle", "celles", "celui", "certains", "cette", "ceux",
+    "chaque", "chez", "cinq", "comme", "comment", "contre", "dans", "depuis", "déjà", "deux", "doit", "doivent",
+    "donc", "dont", "douze", "elle", "elles", "encore", "enfin", "entre", "était", "étaient", "être", "êtes", "fait",
+    "faire", "huit", "jamais", "leur", "leurs", "lors", "lorsque", "mais", "même", "mêmes", "moins", "neuf", "notre",
+    "nous", "onze", "parce", "pendant", "peut", "peuvent", "plus", "pour", "pourquoi", "puis", "quand", "quatre",
+    "quel", "quelle", "quelles", "quels", "quelque", "quelques", "quoi", "sans", "selon", "sept", "sera", "seront",
+    "sinon", "sommes", "sont", "sous", "souvent", "surtout", "tandis", "tant", "toujours", "tous", "tout", "toute",
+    "toutes", "très", "trois", "trop", "vers", "voici", "voilà", "votre", "vous", "vraiment",
 ];
 
 /// The words of more than three letters a big idea is about: `content_words` less [`COMMON`].
@@ -4413,6 +4429,46 @@ mod tests {
             .map(|f| f.ask.clone())
             .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
         assert!(ask.contains("such as \u{201c}risiken\u{201d} or \u{201c}zeigen\u{201d}:"), "{ask}");
+    }
+
+    /// A turn's ask names no French joining word to carry across in a French deck (health's
+    /// English-only sweep, item 3), as a German deck's names no German one: "ainsi", "notre", and
+    /// "toutes" give way to the words the slide is about.
+    #[test]
+    fn a_french_turn_names_no_joining_word_to_carry() {
+        let slide = |title: &str| SlideForHealth { title: title.into(), ..SlideForHealth::default() };
+        let (was, next) =
+            (slide("Ainsi notre réseau dessert toutes les communes"), slide("Les risques et comment les limiter"));
+        assert_eq!(
+            carried(&was, &next, joining(Some("French"))),
+            ", such as \u{201c}réseau\u{201d}, \u{201c}dessert\u{201d} or \u{201c}communes\u{201d}"
+        );
+        assert_eq!(carried(&was, &next, joining(Some("fr-FR"))), carried(&was, &next, &FRENCH));
+        assert_eq!(carried(&was, &next, joining(Some("français"))), carried(&was, &next, &FRENCH));
+        assert!(carried(&was, &next, joining(None)).contains("\u{201c}ainsi\u{201d}"), "English's list keeps it");
+
+        // On the board deck told in French, slide 9 turns from slide 8, which says little but its
+        // joining words beside two that tell.
+        let turned = |slides: &mut Vec<answer::Slide>| {
+            for (k, title) in
+                ["Deux risques pèsent encore", "Calendrier jusqu\u{2019}à fin 2027"].into_iter().enumerate()
+            {
+                let s = &mut slides[7 + k];
+                s.slide_title = title.into();
+                s.key_bullets = vec![];
+                s.layout_suggestion = "Statement".into();
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", turned);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("French");
+        let h = of(&deck);
+        let ask = (h.findings.iter())
+            .find(|f| f.kind == Kind::Turn && f.slide == 9)
+            .map(|f| f.ask.clone())
+            .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
+        assert!(ask.contains("such as \u{201c}risques\u{201d} or \u{201c}pèsent\u{201d}:"), "{ask}");
     }
 
     /// Balance's line says how many slides its average is over, where it counts fewer than the
