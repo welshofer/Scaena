@@ -28,10 +28,11 @@
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
 //   after it, Escape's words and what lint finds; Update restates the claim and the offer goes; an
 //   undo of the typing takes the offer away; Keep lets it be and changes nothing (lift-up FUNC-2).
-// - On dogfood 9's keynote, every slide a row's words name is a button that shows it, the pacing row's
-//   "slides 1, 5 and 11" each; and a read again after slide 5's notes are deepened keeps the open
-//   rows where they stood, the pacing row's though it moves to another slide, what is new after
-//   them (editor dogfood 6).
+// - On dogfood 9's keynote, every slide a row's words name is a button that shows it, the big idea's
+//   "slides 10–11" each; and a read again after slide 5's notes are deepened keeps the open rows
+//   where they stood, what is new after them (editor dogfood 6).
+// - What an edit answered is said: the plan set for its place answers slide 2's two findings,
+//   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
 //   place is asked by its Intensity; the Format tab offers its beat's Intensity and Tone, each said
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
@@ -517,37 +518,51 @@ try {
     const after = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].declared, bend.slide);
     const still = await page.evaluate((s) => window.scaena.story.health().findings.some((f) => f.kind === "arc" && f.state === s), bend.state);
     check(Math.abs(after - Number(to)) < 1e-9 && !still, `planned for its place (${after}), it bends no more`);
+    // What the edit answered is said (editor dogfood 6): the plan set for its place answers both of
+    // slide 2's findings, its plan and the intensity its words were asked for, after what the status
+    // said of the edit, and beside the score.
+    const answeredText = `Answers 2 of the Story's findings: slide ${bend.slide}'s plan and intensity`;
+    await page.waitForFunction((t) => document.querySelector("#story > p[data-answered]")?.textContent === t, answeredText, { timeout: 30000 }).catch(() => {});
+    const toldNow = await page.evaluate(() => ({
+      status: document.querySelector("#status").textContent,
+      beside: document.querySelector("#story > p[data-answered]")?.textContent,
+      shown: !document.querySelector("#story > p[data-answered]")?.hidden,
+    }));
+    check(
+      toldNow.status.startsWith(`Slide ${bend.slide}: Intensity Building`) && toldNow.status.includes(` · ${answeredText}`) && toldNow.beside === answeredText && toldNow.shown,
+      `what the edit answered is said, in the status and beside the score: ${JSON.stringify(toldNow)}`,
+    );
     await page.locator(".cm-content").focus();
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the plan back");
 
-    // Every slide a row's words name is a button that shows it (editor dogfood 6): the pacing row's
-    // "Deepen the notes of slides 1, 5 and 11" reaches each of the three, not its own slide alone.
+    // Every slide a row's words name is a button that shows it (editor dogfood 6): the big idea's
+    // row, "The close, slides 10–11, never lands the big idea", reaches each of the two, not its own
+    // slide alone.
     await tab(page, "story");
     // Read again since the plan came back: its bend is found again.
     await page.waitForFunction((st) => window.scaena.story.health()?.findings.some((f) => f.kind === "arc" && f.state === st), bend.state, { timeout: 60000 }).catch(() => {});
     await page.click("#story [data-more] summary").catch(() => {});
-    const pacing = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "pacing"));
-    const named = [...(pacing?.ask.match(/slides ([\d, and]+), the shortest/)?.[1] ?? "").matchAll(/\d+/g)].map((m) => Number(m[0]));
+    const close = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "bigIdea"));
+    const named = [...(close?.says.match(/slides (\d+)–(\d+)/) ?? []).slice(1)].map(Number);
     const linked = await page.evaluate(
-      (k) => [...document.querySelectorAll(`#story [data-findings] li[data-slide="${k}"] p[data-todo="pacing"] [data-to-slide]`)].map((b) => [b.textContent, b.dataset.toSlide]),
-      pacing?.slide,
+      (k) => [...document.querySelectorAll(`#story [data-findings] li[data-slide="${k}"] p[data-kind="bigIdea"] [data-to-slide]`)].map((b) => [b.textContent, b.dataset.toSlide]),
+      close?.slide,
     );
     const states = await page.evaluate(() => window.scaena.story.health().slides.map((s) => s.state));
     check(
-      named.length === 3 && JSON.stringify(linked) === JSON.stringify(named.map((n) => [String(n), states[n - 1]])),
-      `the pacing row's to-do names each of its slides by a button: ${JSON.stringify(linked)} of ${named}`,
+      named.length === 2 && JSON.stringify(linked) === JSON.stringify(named.map((n) => [String(n), states[n - 1]])),
+      `the big idea's row names each of its slides by a button: ${JSON.stringify(linked)} of ${named}`,
     );
     const last = named[named.length - 1];
-    await page.click(`#story [data-findings] li[data-slide="${pacing.slide}"] p[data-todo="pacing"] [data-to-slide="${states[last - 1]}"]`);
+    await page.click(`#story [data-findings] li[data-slide="${close.slide}"] p[data-kind="bigIdea"] [data-to-slide="${states[last - 1]}"]`);
     await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, states[last - 1], { timeout: 30000 }).catch(() => {});
     check(await page.evaluate((st) => window.scaena.canvas.boxed() === st, states[last - 1]), `a press on slide ${last} shows it`);
 
-    // The row a person works stays where it stood (editor dogfood 6): slide 5's notes deepened as
-    // the pacing row asks move that row to the next shortest beat's slide, and the words told bring
-    // a finding new to the Story ("behind" read as grave); the open rows read again keep their
-    // places, the pacing row's among them, and what is new comes after them.
+    // The row a person works stays where it stood (editor dogfood 6): slide 5's notes deepened with
+    // words that bring a finding new to the Story ("behind" read as grave), which triage would put
+    // first; the open rows read again keep their places, and what is new comes after them.
     const rows = () =>
       page.evaluate(() =>
         [...document.querySelectorAll("#story [data-findings] > li[data-slide]")].map((li) => ({
@@ -556,30 +571,28 @@ try {
         })),
       );
     const stood = await rows();
-    const fifth = states[pacing.slide - 1];
-    await page.click(`#story [data-findings] li[data-slide="${pacing.slide}"] [data-show]`);
+    const fifth = states[4];
+    await page.evaluate((st) => window.scaena.story.health() && document.querySelector(`#story [data-arc] [data-state="${st}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })), fifth);
     await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, fifth, { timeout: 30000 }).catch(() => {});
     await tab(page, "inspector");
     const notes = page.locator('textarea[data-prop="notes"]');
     await notes.waitFor({ timeout: 30000 });
     const told = await notes.inputValue();
     const deepened = await page.evaluate(() => window.scaena.source());
+    const before = await page.evaluate(() => JSON.stringify(window.scaena.story.health()));
     await notes.fill(`${told}\nI was behind a woman at the laundromat on Fifth who had never had a card; she left with two. The man behind her asked for one for his son.`);
     await notes.blur();
     await page.waitForFunction((w) => window.scaena.source() !== w, deepened, { timeout: 30000 }).catch(() => {});
     await tab(page, "story");
-    await page
-      .waitForFunction((k) => window.scaena.story.health()?.findings.find((f) => f.kind === "pacing")?.slide !== k, pacing.slide, { timeout: 60000 })
-      .catch(() => {});
-    const moved = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "pacing")?.slide);
-    check(moved !== undefined && moved !== pacing.slide, `deepened, slide ${pacing.slide}'s notes move the pacing row to slide ${moved}`);
+    await page.waitForFunction((b) => JSON.stringify(window.scaena.story.health()) !== b, before, { timeout: 60000 }).catch(() => {});
     const now = await rows();
-    const pacingAt = (list) => list.findIndex((r) => r.kinds.includes("pacing"));
-    const kept = (r) => stood.some((s) => r.kinds.some((k) => s.kinds.includes(k) && (k === "pacing" || s.slide === r.slide)));
+    const kept = (r) => stood.some((s) => s.slide === r.slide && r.kinds.some((k) => s.kinds.includes(k)));
     const firstNew = now.findIndex((r) => !kept(r));
+    check(firstNew !== -1, `the words told bring a row new to the Story: ${JSON.stringify(stood)} → ${JSON.stringify(now)}`);
+    const keptBefore = stood.filter((s) => now.some((r) => s.slide === r.slide && r.kinds.some((k) => s.kinds.includes(k))));
     check(
-      pacingAt(now) === pacingAt(stood) && (firstNew === -1 || now.slice(firstNew).every((r) => !kept(r))),
-      `read again, the rows keep their places, the pacing row's at ${pacingAt(stood)}, and what is new comes after: ${JSON.stringify(stood)} → ${JSON.stringify(now)}`,
+      now.slice(firstNew).every((r) => !kept(r)) && JSON.stringify(now.slice(0, firstNew).map((r) => r.slide)) === JSON.stringify(keptBefore.map((s) => s.slide)),
+      `read again, the rows keep their places, and what is new comes after: ${JSON.stringify(stood)} → ${JSON.stringify(now)}`,
     );
     await page.locator(".cm-content").focus();
     await page.keyboard.press("Control+z");
