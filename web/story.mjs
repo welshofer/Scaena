@@ -28,9 +28,10 @@
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
 //   after it, Escape's words and what lint finds; Update restates the claim and the offer goes; an
 //   undo of the typing takes the offer away; Keep lets it be and changes nothing (lift-up FUNC-2).
-// - On dogfood 9's keynote, every slide a row's words name is a button that shows it, the big idea's
-//   "slides 10–11" each; and a read again after slide 5's notes are deepened keeps the open rows
-//   where they stood, what is new after them (editor dogfood 6).
+// - On dogfood 9's keynote, every slide a row's words name is a button that shows it at its last
+//   step, built whole (lift-up 20261110), the big idea's "slides 10–11" each; and a read again
+//   after slide 5's notes are deepened keeps the open rows where they stood, what is new after
+//   them (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
@@ -555,10 +556,18 @@ try {
       named.length === 2 && JSON.stringify(linked) === JSON.stringify(named.map((n) => [String(n), states[n - 1]])),
       `the big idea's row names each of its slides by a button: ${JSON.stringify(linked)} of ${named}`,
     );
+    // Each shows its slide at its last step, built whole (lift-up 20261110).
+    const entered = (state) =>
+      page.evaluate((state) => {
+        const { slots } = window.scaena.last();
+        const slide = slots.find((s) => s.state === state)?.slide ?? state;
+        return slots.filter((s) => (s.slide ?? s.state) === slide).at(-1)?.state;
+      }, state);
     const last = named[named.length - 1];
+    const lastAt = await entered(states[last - 1]);
     await page.click(`#story [data-findings] li[data-slide="${close.slide}"] p[data-kind="bigIdea"] [data-to-slide="${states[last - 1]}"]`);
-    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, states[last - 1], { timeout: 30000 }).catch(() => {});
-    check(await page.evaluate((st) => window.scaena.canvas.boxed() === st, states[last - 1]), `a press on slide ${last} shows it`);
+    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, lastAt, { timeout: 30000 }).catch(() => {});
+    check(await page.evaluate((st) => window.scaena.canvas.boxed() === st, lastAt), `a press on slide ${last} shows it, at ${lastAt}`);
 
     // The row a person works stays where it stood (editor dogfood 6): slide 5's notes deepened with
     // words that bring a finding new to the Story ("behind" read as grave), which triage would put
@@ -573,7 +582,8 @@ try {
     const stood = await rows();
     const fifth = states[4];
     await page.evaluate((st) => window.scaena.story.health() && document.querySelector(`#story [data-arc] [data-state="${st}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })), fifth);
-    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, fifth, { timeout: 30000 }).catch(() => {});
+    const fifthAt = await entered(fifth);
+    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, fifthAt, { timeout: 30000 }).catch(() => {});
     await tab(page, "inspector");
     const notes = page.locator('textarea[data-prop="notes"]');
     await notes.waitFor({ timeout: 30000 });
@@ -613,7 +623,13 @@ try {
         capped.said === `Capped at ${capped.capped.cap} while slide ${capped.capped.slides[0]} has an error; ${capped.capped.score} without.`,
       `the score says what caps it, and what it would be: ${JSON.stringify(capped)}`,
     );
-    const cappedState = await page.evaluate((n) => window.scaena.story.health().slides[n - 1]?.state, capped.capped?.slides?.[0]);
+    const cappedFirst = await page.evaluate((n) => window.scaena.story.health().slides[n - 1]?.state, capped.capped?.slides?.[0]);
+    // At its last step, built whole (lift-up 20261110).
+    const cappedState = await page.evaluate((state) => {
+      const { slots } = window.scaena.last();
+      const slide = slots.find((s) => s.state === state)?.slide ?? state;
+      return slots.filter((s) => (s.slide ?? s.state) === slide).at(-1)?.state;
+    }, cappedFirst);
     await page.click("#story [data-score] [data-capped-slide]").catch((e) => failures.push(`no capped slide to press: ${e.message}`));
     await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, cappedState, { timeout: 30000 }).catch(() => {});
     check(await page.evaluate((st) => window.scaena.canvas.boxed() === st, cappedState), `a press on its slide shows it: ${cappedState}`);
