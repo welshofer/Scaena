@@ -403,7 +403,12 @@ try {
     await past.waitForFunction(() => window.scaena.source().split("more").length > 40, null, { timeout: 60000 }).catch(() => {});
     // Every line selected: the selection's bands run down past the desk, over where the bars are.
     await past.keyboard.press("Control+a");
-    await past.waitForTimeout(1500);
+    // Every state linted for the source as typed: the strip under the desk then has its thumbnails
+    // and its counts as they stand, which that lint draws again when it lands (#960's red).
+    await past
+      .waitForFunction(() => window.scaena.last()?.whole && window.scaena.canvas.typed?.()?.sending !== true, null, { timeout: 60000 })
+      .catch(() => {});
+    await past.waitForFunction(() => document.querySelectorAll("#overlay svg .text-selection").length > 0, null, { timeout: 10000 }).catch(() => {});
     const where = await past.evaluate(() => {
       const desk = document.querySelector("#desk").getBoundingClientRect();
       const bands = [...document.querySelectorAll("#overlay svg .text-selection")].map((r) => r.getBoundingClientRect().bottom);
@@ -417,9 +422,18 @@ try {
       await past.evaluate((v) => (document.querySelector("#overlay svg").style.visibility = v), shown ? "" : "hidden");
       return past.screenshot({ clip: under });
     };
-    const bare = await shot(false);
-    const drawn = await shot(true);
-    check(bare.equals(drawn), "nothing of the overlay draws past the desk, over the bars under it");
+    // Shown between two shots of it hidden that agree, so the page under the desk stood still
+    // meanwhile: what differs is then the overlay's alone. A page still repainting after 20 s fails.
+    let quiet = false;
+    let bare;
+    let drawn;
+    for (const until = Date.now() + 20000; Date.now() < until && !quiet; ) {
+      bare = await shot(false);
+      drawn = await shot(true);
+      quiet = bare.equals(await shot(false));
+    }
+    check(quiet, "the page under the desk stands still to be compared, not repainting for 20 s");
+    check(quiet && bare.equals(drawn), "nothing of the overlay draws past the desk, over the bars under it");
     await past.keyboard.press("Escape");
     await still.close();
   }
