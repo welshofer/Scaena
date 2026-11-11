@@ -70,7 +70,7 @@ final class PresentingTests: XCTestCase {
         }
     }
 
-    /// ⇧⌘J opens the Play menu's Remote… (lift-up 20261110), as a keyboard reaches it on the iPad,
+    /// ⌥⌘K opens the Play menu's Remote… (lift-up 20261110), as a keyboard reaches it on the iPad,
     /// whose menu bar a test does not: let a remote play the deck, and it shows the code a remote
     /// joins with, eight digits (in two groups of four on the sheet, `Remote.shown`, which
     /// ScaenaKit's `RemoteTests` holds; the code's label reads them one by one); let it not, and
@@ -82,13 +82,17 @@ final class PresentingTests: XCTestCase {
         let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         settle()
-        // A tap where nothing draws gives the canvas the keyboard, which hands ⇧⌘J to the menu bar.
+        // A tap where nothing draws gives the canvas the keyboard, which hands ⌥⌘K to the menu bar.
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
-        app.typeKey("j", modifierFlags: [.command, .shift])
+        // A plain key first, which selects the cover's title: the chord sent as the launched app's
+        // first key came to it bare, its modifiers gone, three runs in three (#1065: ⌥⌘K, ⇧⌘K, and
+        // ⇧⌘J each logged as the letter alone, flags 0), while chords after other keys came whole.
+        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
+        settle(1)
         let on = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'remote-on'")).firstMatch
-        guard on.waitForExistence(timeout: 10) else {
+        guard pressed("k", [.command, .option], in: app, until: { on.exists }) else {
             keep(app, as: "remote-not-opened")
-            throw Unseen(description: "⇧⌘J opened no Remote…: \(app.debugDescription)")
+            throw Unseen(description: "⌥⌘K opened no Remote…: \(app.debugDescription)")
         }
         let isOn = { (on.value as? String) == "1" }
         XCTAssertFalse(isOn(), "Remote… opened let on")
