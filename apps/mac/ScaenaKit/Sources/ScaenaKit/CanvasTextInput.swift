@@ -1315,6 +1315,8 @@ enum AnimationReport {
     /// Each layer of each window of the app's scenes that holds an animation, said once a report.
     private static func say() {
         var said: [String] = []
+        // At most forty a window, so the app's own window crowds out none of the keyboard's.
+        var saidIn: [ObjectIdentifier: Int] = [:]
         // Each view that animates, once: where it stands in its window, and what of the app's
         // holds it, so a report names the chrome that keeps the app from settling (lift-up
         // 20261110): the nearest view above it with an accessibility identifier or label, and the
@@ -1323,7 +1325,8 @@ enum AnimationReport {
         var seen = Set<ObjectIdentifier>()
         func walk(_ layer: CALayer, _ window: UIWindow, _ name: String) {
             let keys = layer.animationKeys() ?? []
-            for key in keys where said.count < 40 {
+            for key in keys where saidIn[ObjectIdentifier(window), default: 0] < 40 {
+                saidIn[ObjectIdentifier(window), default: 0] += 1
                 let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
                 said.append("\(name): \(type(of: layer)) of \(owner), \(key)")
             }

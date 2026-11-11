@@ -39,9 +39,6 @@ public enum LoopReport {
         CFRunLoopAddObserver(CFRunLoopGetMain(), watching, .commonModes)
         observer = watching
         log.debug("watching the main run loop")
-        #if os(iOS)
-        TimerReport.start()
-        #endif
     }
 
     /// A display link's tick, by the link's view (`link`), and what it did (`did`): "painted", "no
@@ -77,13 +74,8 @@ public enum LoopReport {
                 "\(link): " + did.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
             }
             let share = Int((awake / over * 100).rounded())
-            #if os(iOS)
-            let others = TimerReport.running()
-            #else
-            let others: [String] = []
-            #endif
             log.debug(
-                "main loop woke \(wakes) times in \(over, format: .fixed(precision: 1)) s, awake \(share)%; links: \(links.isEmpty ? "none ticked" : links.joined(separator: "; "), privacy: .public); other links running: \(others.isEmpty ? "none" : others.joined(separator: "; "), privacy: .public)"
+                "main loop woke \(wakes) times in \(over, format: .fixed(precision: 1)) s, awake \(share)%; links: \(links.isEmpty ? "none ticked" : links.joined(separator: "; "), privacy: .public)"
             )
         }
         #if os(iOS)
