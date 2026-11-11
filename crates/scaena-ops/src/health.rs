@@ -758,7 +758,7 @@ fn language_named(language: &str) -> Option<String> {
 }
 
 /// The layouts that frame a talk rather than make one of its points: covers, dividers, and agendas.
-const FRAMING: [&str; 10] = [
+pub(crate) const FRAMING: [&str; 10] = [
     "title",
     "photo-title",
     "title-center",
@@ -925,7 +925,7 @@ fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth) -> Option<String> {
 }
 
 /// The layouts a talk closes in (ADR-0032 item 6).
-const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
+pub(crate) const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
 
 /// Headlines that thank the room or open the floor, in the languages a made deck is written in:
 /// the first words of a closing slide that a layout of any kind may hold.
