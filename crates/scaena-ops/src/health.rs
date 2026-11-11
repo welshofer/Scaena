@@ -480,10 +480,36 @@ fn unit_of(word: &str) -> String {
 /// (`narrative::figures_in`), so a finding names the figure the slide writes (R1's agent
 /// dogfood 3: "writes 40" for "40 %").
 fn figures(text: &str) -> Vec<Figure> {
-    let words: Vec<&str> = text
-        .split_whitespace()
-        .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))))
+    let trimmed =
+        text.split_whitespace().map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))));
+    // A word of a script set without spaces is a phrase, its figures inside it ("建設費：3億円"),
+    // so its words are the figures the builder reads in it, a magnitude and a counter with each
+    // ("3億円", "4,500万円"), a percent set right after one kept with it ("18%増"), and none a
+    // date's or a time's counter follows ("2026年", "12月10日", "9時"), as a year and a clock
+    // are none (health read of a Japanese deck).
+    let words: Vec<String> = trimmed
+        .flat_map(|w| -> Vec<String> {
+            if !w.chars().any(unspaced) {
+                return vec![w.to_string()];
+            }
+            let mut found = Vec::new();
+            let mut rest = w;
+            for f in crate::narrative::figures_in(w) {
+                let Some(at) = rest.find(f.as_str()) else { continue };
+                let after = &rest[at + f.len()..];
+                rest = after;
+                if after.starts_with(['年', '月', '日', '時', '分', '秒']) {
+                    continue;
+                }
+                match after.starts_with('%') && !f.ends_with('%') {
+                    true => found.push(format!("{f}%")),
+                    false => found.push(f),
+                }
+            }
+            found
+        })
         .collect();
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
     // Each figure as the builder reads it, a mark set apart after it with it ("48,6 Mio. €").
     let spelled = crate::narrative::figures_in(text);
     let mut out = Vec::new();
@@ -5129,6 +5155,29 @@ mod tests {
         assert!(plain.is_empty(), "{plain:?}");
         let priced = unsourced(&grounded_dogfood("fleet", "", pilot(), timed(", for $1.1M a year")));
         assert!(priced.iter().any(|s| s.contains("writes $1.1M")), "{priced:?}");
+    }
+
+    /// A figure in a script set without spaces is read inside its phrase, as the builder reads it
+    /// (health read of a Japanese deck): "3億円" in "建設費：3億円" with its magnitude and currency,
+    /// and a percent set right after one with it; and none a date's or a time's counter follows,
+    /// as a year and a clock are none: "2026年の歩み" was found unsourced on the cover, the slide's
+    /// "3億円" never.
+    #[test]
+    fn a_figure_is_read_inside_a_phrase_a_script_sets_without_spaces() {
+        let named = |text: &str| {
+            figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<(String, String, String)>>()
+        };
+        let one = |shown: &str, value: &str, unit: &str| vec![(shown.to_string(), value.to_string(), unit.to_string())];
+        assert_eq!(named("建設費：3億円"), one("3億円", "3", "億円"));
+        assert_eq!(named("年間運営費：4,500万円"), one("4,500万円", "4500", "万円"));
+        assert_eq!(named("国の補助金：運営費の50%"), one("50%", "50", "%"));
+        assert_eq!(named("前年より18%増"), one("18%", "18", "%"));
+        assert_eq!(named("12万人が図書館を利用しました"), one("12万", "12", "万"));
+        for none in ["みどり市立図書館 2026年の歩み", "採決：12月10日", "夜9時までの開館"] {
+            assert_eq!(named(none), [], "{none}");
+        }
+        // A word in a spaced script is read as before.
+        assert_eq!(named("40 miles of trail, 38% more"), [one("40", "40", "mile"), one("38%", "38", "%")].concat());
     }
 
     /// A figure a German or French slide sets apart from its percent, currency, or scale is named
