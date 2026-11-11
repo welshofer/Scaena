@@ -6,9 +6,10 @@ import SwiftUI
 /// Keynote's do; Find is under Edit, Bold and Italic under Format. Each is one command of one key,
 /// so Help's search finds every command in a menu. As Keynote's too (lift-up 20261031 USE-2): ⌘L
 /// locks and unlocks, ⌘{, ⌘|, and ⌘} align a text left, center, and right, and ⇧⌘D duplicates the
-/// slide. ⌘+ and ⌘− stay the slide's zoom, as the window's Zoom has them. ⌥⌘K is the Play menu's
-/// Remote…, beside its Play (⌥⌘P) and Rehearse (⌥⌘R), which a keyboard reaches on the iPad, whose
-/// menu bar a test does not (lift-up 20261110; Jay may choose another).
+/// slide. ⌘+ and ⌘− stay the slide's zoom, as the window's Zoom has them. ⇧⌘K is the Play menu's
+/// Remote…, which a keyboard reaches on the iPad, whose menu bar a test does not: not ⌥⌘K, beside
+/// Play's ⌥⌘P, since XCUITest on the iPad's simulator drops ⌥ and the chord with it (lift-up
+/// 20261110; Jay may choose another).
 public enum MenuKey: CaseIterable, Sendable {
     case duplicate
     case group
@@ -59,9 +60,9 @@ public enum MenuKey: CaseIterable, Sendable {
         case .duplicate, .findNext, .find, .bringForward, .sendBackward, .bold, .italic, .link, .lock, .alignLeft,
             .alignCenter, .alignRight:
             .command
-        case .group, .copyLook, .pasteLook, .bringToFront, .sendToBack, .remote: [.command, .option]
+        case .group, .copyLook, .pasteLook, .bringToFront, .sendToBack: [.command, .option]
         case .ungroup: [.command, .option, .shift]
-        case .findPrevious, .duplicateSlide: [.command, .shift]
+        case .findPrevious, .duplicateSlide, .remote: [.command, .shift]
         }
     }
 

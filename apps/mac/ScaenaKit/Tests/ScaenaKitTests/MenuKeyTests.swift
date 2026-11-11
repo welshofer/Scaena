@@ -28,8 +28,10 @@ import Testing
     #expect(MenuKey.of("\\", shift: true, option: false) == .alignCenter)
     #expect(MenuKey.of("]", shift: true, option: false) == .alignRight)
     #expect(MenuKey.of("d", shift: true, option: false) == .duplicateSlide)
-    // ⌥⌘K is Remote…, beside Play's ⌥⌘P and Rehearse's ⌥⌘R; ⌘K stays Add Link (lift-up 20261110).
-    #expect(MenuKey.of("k", shift: false, option: true) == .remote)
+    // ⇧⌘K is Remote…, which XCUITest reaches on the iPad, where it drops ⌥; ⌘K stays Add Link
+    // (lift-up 20261110).
+    #expect(MenuKey.of("k", shift: true, option: false) == .remote)
+    #expect(MenuKey.of("k", shift: false, option: true) == nil)
     #expect(MenuKey.of("k", shift: false, option: false) == .link)
     let keys = MenuKey.allCases.map { "\($0.key.character) \($0.modifiers.rawValue)" }
     #expect(Set(keys).count == keys.count, "no two commands share a key: \(keys)")

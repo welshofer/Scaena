@@ -70,8 +70,8 @@ final class PresentingTests: XCTestCase {
         }
     }
 
-    /// ⌥⌘K opens the Play menu's Remote… (lift-up 20261110), as a keyboard reaches it on the iPad,
-    /// whose menu bar a test does not: let a remote play the deck, and it shows the code a remote
+    /// ⇧⌘K opens the Play menu's Remote… (lift-up 20261110), as a keyboard reaches it on the iPad,
+    /// whose menu bar a test does not (⌥⌘K reached the app as K alone: the simulator drops ⌥): let a remote play the deck, and it shows the code a remote
     /// joins with, eight digits (in two groups of four on the sheet, `Remote.shown`, which
     /// ScaenaKit's `RemoteTests` holds; the code's label reads them one by one); let it not, and
     /// the code goes.
@@ -82,13 +82,13 @@ final class PresentingTests: XCTestCase {
         let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
         settle()
-        // A tap where nothing draws gives the canvas the keyboard, which hands ⌥⌘K to the menu bar.
+        // A tap where nothing draws gives the canvas the keyboard, which hands ⇧⌘K to the menu bar.
         canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
-        app.typeKey("k", modifierFlags: [.command, .option])
+        app.typeKey("k", modifierFlags: [.command, .shift])
         let on = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'remote-on'")).firstMatch
         guard on.waitForExistence(timeout: 10) else {
             keep(app, as: "remote-not-opened")
-            throw Unseen(description: "⌥⌘K opened no Remote…: \(app.debugDescription)")
+            throw Unseen(description: "⇧⌘K opened no Remote…: \(app.debugDescription)")
         }
         let isOn = { (on.value as? String) == "1" }
         XCTAssertFalse(isOn(), "Remote… opened let on")
