@@ -757,6 +757,16 @@ fn a_state_offers_what_its_beat_cites() {
     let ops = json!([{ "op": "add_state", "state": { "id": "aside", "mode": "absolute" }, "after": "close" }]);
     let doc = compile(&doc, ops.as_array().unwrap(), &Examples).unwrap().doc;
     assert_eq!(state(&doc, "aside").cites, None);
+    // A step its beat does not list, as a spine written by hand or by an agent leaves it, is told
+    // by the beat that lists its slide (W2's editor dogfood): health names a slide's last step, and
+    // its source finding's Cite a source… adds to that beat, as its plan is that beat's.
+    let ops = json!([{ "op": "add", "path": "/states/1", "value": { "id": "intro-step", "mode": "delta", "slide": "intro" } }]);
+    let doc = compile(&doc, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    let step = state(&doc, "intro-step").cites.expect("the beat `opening` tells its slide");
+    assert_eq!((step.beat.as_str(), step.at.as_str()), ("opening", "/spine/sections/0/beats/0/evidence"));
+    let more = json!([{ "op": "add", "path": format!("{}/-", step.at), "value": "source:notes.md" }]);
+    let doc = compile(&doc, more.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(state(&doc, "intro").cites.unwrap().evidence, ["source:pilot.csv", "source:notes.md"]);
 }
 
 /// The notes edited are those the presenter reads (SPEC §2.6, editor dogfood 3): `set_state`

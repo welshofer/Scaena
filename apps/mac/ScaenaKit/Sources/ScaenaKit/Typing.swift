@@ -64,6 +64,8 @@ public final class Typing {
     @ObservationIgnored private var last: (at: ContinuousClock.Instant, edits: Int)?
     /// Where typing goes, as the status says it once a change is typed.
     @ObservationIgnored private var whereTold: String?
+    /// What the burst of typing made of a figure it typed over that quotes its data no more.
+    @ObservationIgnored private var unquotedTold: String?
     /// The source as the burst of typing began, and the wait for the burst to end: a claim typing
     /// left behind is told once it does, as the browser tells it (lift-up FUNC-2).
     @ObservationIgnored private var begun: String?
@@ -166,6 +168,7 @@ public final class Typing {
         commit()
         told = nil
         whereTold = nil
+        unquotedTold = nil
         on = nil
         goal = nil
         last = nil
@@ -308,7 +311,10 @@ public final class Typing {
         do {
             let before = try editor.typed([.object(op)])
             last = (now, editor.edits)
-            told = whereTold
+            // A figure typed over that quotes its data no more is told until the burst ends, as the
+            // browser tells it once a burst (dogfood-5 item 13): its next key unquotes nothing more.
+            unquotedTold = editor.unquotedSaid ?? (joins ? unquotedTold : nil)
+            told = unquotedTold ?? whereTold
             edited?(before, joins)
             if !joins { ended(settling: false) }
             begun = begun ?? before
@@ -829,6 +835,21 @@ extension ScaenaSession {
     /// node that is no text there.
     public func carets(state: String, node: String) throws -> Carets? {
         try call("carets", ["state": .string(state), "node": .string(node)])
+    }
+
+    /// The figures the last text typed made words, each quoting its data no more (dogfood-5 item
+    /// 13): a figure the words still say keeps its quote, and is not among them.
+    public func unquoted() throws -> [Unquoted] {
+        try call("unquoted")
+    }
+
+    /// A figure typed over that quotes its data no more: its text node, the figure as it was, and
+    /// the data source (by the name the deck gives it) and column it quoted.
+    public struct Unquoted: Decodable, Sendable, Equatable {
+        public let node: String
+        public let figure: String
+        public let data: String
+        public let column: String
     }
 
     /// The beats whose claim a slide said in the deck `before` compiles to and says no longer in

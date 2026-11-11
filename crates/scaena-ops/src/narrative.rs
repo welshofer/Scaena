@@ -2593,6 +2593,9 @@ fn assemble(
             entry["evidence"] = json!(evidence);
         }
         entry["media"] = json!({ "narrato": media(slide) });
+        // The duration is Narrato's estimate from its words, which health reads as no time given
+        // while the two still match (the calibration against a reader).
+        entry["media"]["narrato"]["estimated"] = json!(seconds);
         sections.last_mut().expect("opened above")["beats"].as_array_mut().expect("an array").push(entry);
     }
 
@@ -2629,6 +2632,10 @@ fn assemble(
         if let Some(value) = value.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
             meta["narrative"]["brief"][key] = json!(value);
         }
+    }
+    // Its minutes, the slot health paces the talk against (agent dogfood).
+    if let Some(minutes) = brief.minutes {
+        meta["narrative"]["brief"]["minutes"] = json!(minutes);
     }
     // Its language too, by the name Narrato knows it by, so health, the assistant, and the
     // notes read the deck in it (lift-up 10-25b STAB-2).
@@ -6530,6 +6537,10 @@ fn typeset(text: &str, lang: &str) -> String {
     // Outside English, a model's curled marks are the language's too.
     let english = marks.open == "\u{201c}";
     let french = lang.split('-').next().is_some_and(|l| l.eq_ignore_ascii_case("fr"));
+    // German and French set a percent sign apart from its figure by a space no line breaks at,
+    // "+18 %", where a writer or a model's rewrite set none (W1's German dogfood); a compound,
+    // "50%-Anteil", keeps it joined, as Duden does.
+    let spaced_percent = french || lang.split('-').next().is_some_and(|l| l.eq_ignore_ascii_case("de"));
     let chars: Vec<char> = text.chars().collect();
     let digit = |i: usize| chars.get(i).is_some_and(char::is_ascii_digit);
     let mut out = String::with_capacity(text.len());
@@ -6573,6 +6584,15 @@ fn typeset(text: &str, lang: &str) -> String {
             }
             // A figure and its unit, and a day and its month, stay on one line (DF7-2).
             ' ' if joined(&chars, i) => out.push('\u{a0}'),
+            '%' | '\u{2030}'
+                if spaced_percent
+                    && i > 0
+                    && digit(i - 1)
+                    && !after.is_some_and(|c| c == '-' || c == '\u{2011}' || c.is_alphanumeric()) =>
+            {
+                out.push('\u{a0}');
+                out.push(chars[i]);
+            }
             // French sets a space before a mark of two parts, `;` `:` `!` `?`, that no line breaks
             // at, as it sets « » and a percent sign; one the writer did not write is not added.
             ' ' if french && after.is_some_and(|c| ";:!?".contains(c)) => out.push('\u{a0}'),
@@ -7543,6 +7563,16 @@ mod tests {
         // Words after a figure that are no unit, and a sentence's full stop before a month, keep their space.
         assert_eq!(typeset_en("3 teams in 2 weeks"), "3 teams in 2 weeks");
         assert_eq!(typeset("Ende 2026. November war gut", "de"), "Ende 2026. November war gut");
+        // A percent sign set against its figure, as a model's rewrite may write it, is set apart
+        // in German and French as the writer's own is, and English keeps it joined (W1's German
+        // dogfood); a German compound keeps it joined.
+        assert_eq!(typeset("EBITDA +18%", "de"), "EBITDA +18\u{a0}%");
+        assert_eq!(typeset("une hausse de 18%.", "fr"), "une hausse de 18\u{a0}%.");
+        assert_eq!(typeset("up 18%", "en"), "up 18%");
+        assert_eq!(typeset("die 50%-Grenze", "de"), "die 50%-Grenze");
+        assert_eq!(typeset(&typeset("+18%", "de"), "de"), "+18\u{a0}%");
+        // The look's guard reads one figure either way.
+        assert!(scaena_narrato::same_figures("EBITDA +18%", &typeset("EBITDA +18%", "de")));
         // Set once, words stay as they are.
         let once = typeset("1,2 Mio. \u{20ac} am 12. November", "de");
         assert_eq!(typeset(&once, "de"), once);
@@ -7691,6 +7721,11 @@ mod tests {
         assert!(faithful_of(&["$50: feeds a family for a week at harborhouse.org"], &[linked]));
         // A card's number is no part of a figure it does not begin.
         assert!(faithful_of(&["10% churn"], &[text("figure", "1"), text("body", "10% churn")]));
+        // A percent set apart from its figure, as `typeset` sets one in German, is drawn whole
+        // with its sign, and not without it (W1's German dogfood).
+        let apart = ["+18\u{a0}%: EBITDA im Jahr"];
+        assert!(faithful_of(&apart, &[text("figure", "+18\u{a0}%"), text("body", "EBITDA im Jahr")]));
+        assert!(!faithful_of(&apart, &[text("figure", "+18"), text("body", "EBITDA im Jahr")]));
     }
 
     #[test]
@@ -7708,6 +7743,33 @@ mod tests {
         assert_eq!((made.relisted.as_slice(), made.layouts[0].as_str()), (&[0][..], "bullets"));
         let said = made.deck.to_string();
         assert!(said.contains("41%") && said.contains("12 days"), "{said}");
+    }
+
+    /// A German look that writes "+18%" is kept as "+18 %", the space one no line breaks at, as
+    /// the builder sets the writer's own (W1's German dogfood).
+    #[test]
+    fn a_german_looks_percent_is_set_apart() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = Slide {
+            slide_title: "Die Marge w\u{e4}chst".into(),
+            layout_suggestion: "Bullets".into(),
+            key_bullets: vec!["EBITDA +18 % im Jahr".into(), "Umsatz stabil".into()],
+            ..Slide::default()
+        };
+        let mut talk = narrative("", vec![slide]);
+        talk.brief.language = Some("German".into());
+        let change = Change {
+            slide: 1,
+            layout: None,
+            title: None,
+            subtitle: None,
+            bullets: Some(vec!["EBITDA +18% im Jahr".into(), "Umsatz stabil".into()]),
+            why: "Tighter.".into(),
+        };
+        let (looked, layouts) = changed(&talk, &[change]);
+        let made = deck_as(&looked, &theme, &Pictures::new(), &layouts).unwrap();
+        let said = made.deck.to_string();
+        assert!(said.contains("+18\u{a0}%") && !said.contains("+18%"), "{said}");
     }
 
     /// The four decks of dogfood pass 7 and the five before them (`tests/fixtures/dogfood`), each
@@ -7884,6 +7946,18 @@ mod tests {
         assert!((21.5..=24.5).contains(&minutes(&spoken)), "the talk runs {:.1} minutes", minutes(&spoken));
         assert_eq!(made.noted, (1..=13).collect::<Vec<_>>());
         assert_eq!(made.unnoted, None);
+        // Narrato's estimate is kept beside each beat's duration while it stands, so health reads
+        // the talk as timed by its words alone; notes written to the slot are its plan, and keep
+        // none (the calibration against a reader).
+        let estimated = |deck: &Deck| -> Vec<Option<f64>> {
+            let spine = deck.spine.as_ref().unwrap();
+            (spine.sections.iter().flat_map(|s| &s.beats))
+                .map(|b| b.media.as_ref().and_then(|m| m.pointer("/narrato/estimated")).and_then(Value::as_f64))
+                .collect()
+        };
+        let drafts: Vec<Option<f64>> = beats(&drafted).iter().map(|(_, d)| Some(*d)).collect();
+        assert_eq!(estimated(&drafted), drafts, "each beat its estimate, as its duration");
+        assert!(estimated(&spoken).iter().all(Option::is_none), "{:?}", estimated(&spoken));
         let written: Value = serde_json::from_str(&answered).unwrap();
         for ((notes, _), asked) in beats(&spoken).iter().zip(written["notes"].as_array().unwrap()) {
             assert_eq!(notes, asked["notes"].as_str().unwrap());
