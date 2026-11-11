@@ -115,6 +115,7 @@ const MEASURE: Partial<Record<HealthFinding["kind"], keyof Health>> = {
   claim: "coherence",
   bigIdea: "coherence",
   pacing: "pacing",
+  thin: "balance",
 };
 
 /** Where a warning ranks among the warnings: one no measure speaks to first, as it names one
@@ -146,6 +147,7 @@ const KIND: Partial<Record<HealthFinding["kind"], string>> = {
   look: "change let go",
   source: "unsourced figure",
   label: "topic headline",
+  thin: "thin slide",
 };
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
@@ -262,6 +264,7 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
   title: "title", empty: "empty place", turn: "turn", arc: "plan", intensity: "intensity", tone: "tone",
   drift: "beat", layout: "layout", claim: "claim", bigIdea: "big idea", story: "story", dense: "points",
   notes: "notes", pacing: "length", link: "link", look: "change let go", source: "source", label: "headline",
+  thin: "content",
 };
 
 /** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),

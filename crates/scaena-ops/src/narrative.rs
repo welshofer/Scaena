@@ -3795,6 +3795,10 @@ fn layout_for(
             _ => "number-grid",
         },
         "body" if pictured => "bullets-photo",
+        // Three or four points each led by its figure, "64% have no car", are figures a room
+        // reads at a glance, each on its card with its words under it (W1's dogfood 8).
+        "body" if n == 3 && figured(items) && theme.layouts.contains_key("numbers") => "numbers",
+        "body" if n == 4 && figured(items) && theme.layouts.contains_key("four-numbers") => "four-numbers",
         "body" => "bullets",
         "numbered" => "numbered",
         "quote" => "quote",
@@ -4004,6 +4008,12 @@ fn bare(title: &str) -> bool {
     ];
     let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
     !t.is_empty() && BARE.contains(&t.as_str())
+}
+
+/// Whether each of `items` is led by its figure: labelled by it ("64%: no car") or running on from
+/// it with no mark between ("64% have no car", [`led`]).
+fn figured(items: &[Item]) -> bool {
+    !items.is_empty() && items.iter().all(|i| i.figure_first() || led(i).is_some())
 }
 
 /// Whether `items` are three or more names each with its figure alone, its name first ("Fonds vert
@@ -5689,6 +5699,10 @@ impl Slots<'_> {
                     Some(rest) if !rest.is_empty() => format!("{label}, {rest}"),
                     _ => label.clone(),
                 },
+                // "64% have no car" with its figure apart: "Have no car", said once (W1's dogfood 8).
+                (None, true, _) if led(item).is_some() && !figure_role(role) => {
+                    led(item).map(|(_, rest)| self.continued(&rest, LED)).unwrap_or_default()
+                }
                 _ if figure_role(role) => item.figure().unwrap_or_else(|| item.whole.clone()),
                 _ if matches!(role, "title" | "headline" | "display") => self.short(item),
                 _ => item.whole.clone(),
@@ -8124,6 +8138,43 @@ mod tests {
         let apart = ["+18\u{a0}%: EBITDA im Jahr"];
         assert!(faithful_of(&apart, &[text("figure", "+18\u{a0}%"), text("body", "EBITDA im Jahr")]));
         assert!(!faithful_of(&apart, &[text("figure", "+18"), text("body", "EBITDA im Jahr")]));
+    }
+
+    /// Three or four points each led by its figure are set as figures, each on its card with its
+    /// words under it, not as a short list (W1's dogfood 8); a list with a point no figure leads
+    /// stays a list.
+    #[test]
+    fn points_each_led_by_a_figure_are_set_as_figures() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = |bullets: &[&str]| {
+            let slide = Slide {
+                slide_title: "Who rides Route 9".into(),
+                layout_suggestion: "Bullets".into(),
+                key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+                ..Slide::default()
+            };
+            let m = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+            let state = m.deck["states"][0]["id"].as_str().unwrap().to_string();
+            let said: Vec<String> = shown(&m.deck, &state).into_iter().map(|(_, w)| w).collect();
+            (m.layouts[0].clone(), said)
+        };
+        let three = ["64% have no car", "71% ride to work or school", "58% skip trips because of the fare"];
+        let (layout, said) = made(&three);
+        assert_eq!(layout, "numbers", "{said:?}");
+        for words in ["64%", "71%", "58%"] {
+            assert!(said.iter().any(|w| w == words), "{words} in {said:?}");
+        }
+        // Each figure said once: its words under it run on from it.
+        assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
+        assert!(!said.iter().any(|w| w.starts_with("64% ")), "{said:?}");
+        let four = [three[0], three[1], three[2], "612 riders answered the survey"];
+        let (layout, said) = made(&four);
+        assert_eq!(layout, "four-numbers", "{said:?}");
+        assert!(said.iter().any(|w| w == "612"), "{said:?}");
+        // W1's own list: one point no figure leads, so it stays a list.
+        let (layout, _) =
+            made(&["64% have no car", "71% ride to work or school", "Most named stop: Eastgate Medical Center"]);
+        assert_eq!(layout, "bullets");
     }
 
     /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
