@@ -32,6 +32,9 @@ struct Inspector: View {
     /// Fetch the map image `node` shows again (PLAN O.1d): a step nearer or further, centered on its
     /// pin, or as it was.
     var remap: ((String, MapRemap) -> Void)? = nil
+    /// A field of the Format tab asked to be shown (editor dogfood 6), `intensity` or `notes`, for
+    /// its state: scrolled into view and in focus once that state's choices are drawn, then let go.
+    var focusing: Binding<FieldAsked?> = .constant(nil)
     let make: ([JSONValue]) -> Void
     @State private var layers: [Layer] = []
     @State private var choices: Choices?
@@ -72,86 +75,102 @@ struct Inspector: View {
 
     /// The object selected, or the slide with none: what the theme offers for it, under this tab.
     private func one(_ state: String) -> some View {
-        Form {
-            // The slide's background (PLAN 3.32): with nothing selected, above its layout.
-            if tab == .format, choices != nil, choices?.node == nil, characters == nil {
-                Section("Background") {
-                    BackgroundsRow(editor: editor, state: state, make: make)
-                }
-            }
-            ForEach(shelves) { shelf in
-                if shelf.part == .more || shelf.part == .fitting {
-                    Section {
-                        DisclosureGroup(shelf.title, isExpanded: shelf.part == .more ? $showsMore : $showsFitting) {
-                            ForEach(shelf.fields) { field in row(field, in: state) }
-                        }
-                    }
-                } else {
-                    Section(shelf.title) {
-                        ForEach(shelf.fields) { field in row(field, in: state) }
-                        if shelf.part == .arrange, let placed, let node = choices?.node {
-                            PlaceRows(box: placed) { to in place(node, to: to, in: state) }
-                        }
-                        if shelf.part == .map, let node = choices?.node {
-                            fetching(node)
-                        }
+        ScrollViewReader { proxy in
+            Form {
+                // The slide's background (PLAN 3.32): with nothing selected, above its layout.
+                if tab == .format, choices != nil, choices?.node == nil, characters == nil {
+                    Section("Background") {
+                        BackgroundsRow(editor: editor, state: state, make: make)
                     }
                 }
-            }
-            // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
-            if tab == .format, characters == nil, also.isEmpty, let framed = choices?.framed {
-                Section("Frame") {
-                    Text(framed).foregroundStyle(.secondary).accessibilityIdentifier("picture-frame")
-                }
-            }
-            if tab == .format, choices?.node == nil, characters == nil {
-                objects
-                if let furniture = choices?.furniture, furniture.placed {
-                    FurnitureSection(furniture: furniture, make: make)
-                }
-                // The plan of the beat that tells the slide (editor dogfood 3), as the browser's
-                // Format tab offers it.
-                if let plan = choices?.plan {
-                    PlanSection(plan: plan, make: make)
-                }
-            }
-            // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
-            // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
-            // shape, a chart, a table, or a group has no words to write.
-            let picture = choices?.type == "image"
-            // Code is not proofread, tightened, or rewritten: its words are a program's (PLAN 2.139).
-            let code = choices?.fields.contains { $0.prop == "code/language" } ?? false
-            let writes = (choices?.writes ?? true) && !code && (picture ? Writer.describes : Writer.available)
-            if writes, tab == .format, characters == nil, also.isEmpty {
-                Section {
-                    if let node = choices?.node {
-                        if choices?.type == "text" {
-                            writing("Proofread", "checkmark.circle") { write(.proofread, node: node, in: state) }
-                            writing("Tighten the Wording", "sparkles") { write(.tighten, node: node, in: state) }
-                            writing("Rewrite", "wand.and.stars") { write(.rewrite, node: node, in: state) }
-                        } else if picture {
-                            writing("Describe the Picture", "text.below.photo") {
-                                write(.describe, node: node, in: state)
+                ForEach(shelves) { shelf in
+                    if shelf.part == .more || shelf.part == .fitting {
+                        Section {
+                            DisclosureGroup(shelf.title, isExpanded: shelf.part == .more ? $showsMore : $showsFitting) {
+                                ForEach(shelf.fields) { field in row(field, in: state) }
                             }
-                            .accessibilityIdentifier("describe-picture")
                         }
                     } else {
-                        writing("Draft Presenter Notes", "sparkles") { write(.notes, in: state) }
-                        // Whether its words carry its beat's claim, the headline offered rewritten
-                        // to carry it (narrative FUNC-4).
-                        writing("Check the Claim", "checkmark.seal") { write(.claim, in: state) }
+                        Section(shelf.title) {
+                            ForEach(shelf.fields) { field in row(field, in: state) }
+                            if shelf.part == .arrange, let placed, let node = choices?.node {
+                                PlaceRows(box: placed) { to in place(node, to: to, in: state) }
+                            }
+                            if shelf.part == .map, let node = choices?.node {
+                                fetching(node)
+                            }
+                        }
                     }
-                } header: {
-                    Text("Writing")
-                } footer: {
-                    Text(
-                        OnDevice.available && !picture
-                            ? "Runs on this \(Words.device)" : "By the assistant's model, with your key")
-                        .font(.caption).foregroundStyle(.secondary)
+                }
+                // A picture's frame is its theme's (PLAN T.3a): said, and offered nowhere.
+                if tab == .format, characters == nil, also.isEmpty, let framed = choices?.framed {
+                    Section("Frame") {
+                        Text(framed).foregroundStyle(.secondary).accessibilityIdentifier("picture-frame")
+                    }
+                }
+                if tab == .format, choices?.node == nil, characters == nil {
+                    objects
+                    if let furniture = choices?.furniture, furniture.placed {
+                        FurnitureSection(furniture: furniture, make: make)
+                    }
+                    // The plan of the beat that tells the slide (editor dogfood 3), as the browser's
+                    // Format tab offers it.
+                    if let plan = choices?.plan {
+                        PlanSection(plan: plan, asked: asked(in: state), done: { focusing.wrappedValue = nil }, make: make)
+                    }
+                }
+                // A picture is described by the assistant's model alone, which is shown it (PLAN 2.119).
+                // Writing is offered for a text, a picture, or the slide, as the browser offers it: a
+                // shape, a chart, a table, or a group has no words to write.
+                let picture = choices?.type == "image"
+                // Code is not proofread, tightened, or rewritten: its words are a program's (PLAN 2.139).
+                let code = choices?.fields.contains { $0.prop == "code/language" } ?? false
+                let writes = (choices?.writes ?? true) && !code && (picture ? Writer.describes : Writer.available)
+                if writes, tab == .format, characters == nil, also.isEmpty {
+                    Section {
+                        if let node = choices?.node {
+                            if choices?.type == "text" {
+                                writing("Proofread", "checkmark.circle") { write(.proofread, node: node, in: state) }
+                                writing("Tighten the Wording", "sparkles") { write(.tighten, node: node, in: state) }
+                                writing("Rewrite", "wand.and.stars") { write(.rewrite, node: node, in: state) }
+                            } else if picture {
+                                writing("Describe the Picture", "text.below.photo") {
+                                    write(.describe, node: node, in: state)
+                                }
+                                .accessibilityIdentifier("describe-picture")
+                            }
+                        } else {
+                            writing("Draft Presenter Notes", "sparkles") { write(.notes, in: state) }
+                            // Whether its words carry its beat's claim, the headline offered rewritten
+                            // to carry it (narrative FUNC-4).
+                            writing("Check the Claim", "checkmark.seal") { write(.claim, in: state) }
+                        }
+                    } header: {
+                        Text("Writing")
+                    } footer: {
+                        Text(
+                            OnDevice.available && !picture
+                                ? "Runs on this \(Words.device)" : "By the assistant's model, with your key")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
+            .formStyle(.grouped)
+            // A field asked for comes into view once its state's choices are drawn.
+            .onChange(of: asked(in: state), initial: true) { _, field in
+                guard let field else { return }
+                withAnimation { proxy.scrollTo("field-\(field)", anchor: .center) }
+            }
         }
-        .formStyle(.grouped)
+    }
+
+    /// The field asked for, where it is `state`'s and its choices are drawn: none while another
+    /// state's still show, so the field focused is the slide's asked for.
+    private func asked(in state: String) -> String? {
+        guard tab == .format, let asking = focusing.wrappedValue, asking.state == state, choices?.state == state,
+            choices?.node == nil
+        else { return nil }
+        return asking.field
     }
 
     /// One part of what is offered: a section's title, and its fields.
@@ -278,7 +297,9 @@ struct Inspector: View {
             case "notes":
                 TextRow(
                     label: label, value: field.value?.string ?? "", long: true,
-                    prompt: "Notes you see as you present", choose: choose)
+                    prompt: "Notes you see as you present", asked: asked(in: state) == "notes",
+                    done: { focusing.wrappedValue = nil }, choose: choose)
+                    .id("field-notes")
             case "alt":
                 TextRow(
                     label: label, value: field.value?.string ?? "", long: true,
@@ -1639,6 +1660,9 @@ private struct FurnitureSection: View {
 /// held and, let go, plans it by one JSON Patch, one step to undo. It draws nothing on the slide.
 private struct PlanSection: View {
     let plan: PlanChoice
+    /// The measure asked to be in focus (editor dogfood 6): focused, then `done`.
+    var asked: String? = nil
+    var done: () -> Void = {}
     let make: ([JSONValue]) -> Void
     @FocusState private var focused: PlanChoice.Key?
 
@@ -1654,7 +1678,19 @@ private struct PlanSection: View {
             Text("What the beat that tells this slide plans, which the Story reads its words against.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        .onChange(of: asked, initial: true) { _, now in
+            guard let now, let key = PlanChoice.Key(rawValue: now) else { return }
+            focused = key
+            done()
+        }
     }
+}
+
+/// A field of the Format tab asked to be shown, for `state` (editor dogfood 6): `intensity` or
+/// `notes`, which a Story row's to-do names.
+struct FieldAsked: Equatable {
+    let state: String
+    let field: String
 }
 
 /// One measure of a beat's plan: a slider from one end of its range to the other, its word beside
@@ -1707,6 +1743,9 @@ private struct TextRow: View {
     var prompt: String? = nil
     /// Words that are the value trimmed, as a footer's are, choose nothing: the field is put back.
     var trims = false
+    /// Asked to be in focus (editor dogfood 6): focused, then `done`.
+    var asked = false
+    var done: () -> Void = {}
     let choose: (JSONValue) -> Void
     @State private var text = ""
     @FocusState private var focused: Bool
@@ -1730,6 +1769,11 @@ private struct TextRow: View {
         }
         .onChange(of: value, initial: true) { _, now in
             text = now
+        }
+        .onChange(of: asked, initial: true) { _, now in
+            guard now else { return }
+            focused = true
+            done()
         }
     }
 

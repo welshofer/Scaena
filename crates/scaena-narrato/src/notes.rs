@@ -63,6 +63,17 @@ pub fn minutes(length: &str) -> f64 {
     }
 }
 
+/// The minutes a talk is given, which its notes are written to fill and health paces it against:
+/// those its brief asks (`minutes`, from 1), else the middle of its length's slot ([`minutes`]),
+/// so a 15-minute brief's notes fill 15 minutes, not the 7.5 its slides' band would give (agent
+/// dogfood 3).
+pub fn slot(minutes_asked: Option<u32>, length: &str) -> f64 {
+    match minutes_asked.filter(|m| *m >= 1) {
+        Some(m) => f64::from(m),
+        None => minutes(length),
+    }
+}
+
 /// The words each slide's notes are to run to, so that a talk of `minutes` reads as that long by
 /// the measure it is timed by ([`duration::seconds`]: its words at 145 a minute, a chart's a
 /// quarter slower, and five seconds a change): the minutes shared among the slides as their beats'
@@ -461,6 +472,10 @@ mod tests {
         assert_eq!(minutes("5-10 slides"), 7.5);
         assert_eq!(minutes("41+ slides"), 53.5);
         assert_eq!(minutes("a length no one names"), 10.0);
+        // The minutes a brief asks are the slot; else its length's middle (agent dogfood 3).
+        assert_eq!(slot(Some(15), "5-10 slides"), 15.0);
+        assert_eq!(slot(None, "5-10 slides"), 7.5);
+        assert_eq!(slot(Some(0), "11-15 slides"), 23.0);
         // Each length's talk stands in the slot health's pacing gives its slides.
         for length in crate::brief::LENGTHS {
             let (lo, hi) = crate::brief::minutes_for_slides(crate::brief::minimum_slides(length).unwrap());

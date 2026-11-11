@@ -176,6 +176,9 @@ public final class ScaenaSession {
         public let span: Double
         public let hold: Double
         public var headline: String? = nil
+        /// The text that heads it, which the window types in when a finding asks for its headline
+        /// (editor dogfood 6).
+        public var headlineNode: String? = nil
         public var story: Story? = nil
 
         /// A state's place in the talk (`Session::story_place`): its section's title, its beat's
