@@ -32,6 +32,8 @@
 //   "slides 1, 5 and 11" each; and a read again after slide 5's notes are deepened keeps the open
 //   rows where they stood, the pacing row's though it moves to another slide, what is new after
 //   them (editor dogfood 6).
+// - What an edit answered is said: the plan set for its place answers slide 2's two findings,
+//   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
 //   place is asked by its Intensity; the Format tab offers its beat's Intensity and Tone, each said
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
@@ -507,6 +509,20 @@ try {
     const after = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].declared, bend.slide);
     const still = await page.evaluate((s) => window.scaena.story.health().findings.some((f) => f.kind === "arc" && f.state === s), bend.state);
     check(Math.abs(after - Number(to)) < 1e-9 && !still, `planned for its place (${after}), it bends no more`);
+    // What the edit answered is said (editor dogfood 6): the plan set for its place answers both of
+    // slide 2's findings, its plan and the intensity its words were asked for, after what the status
+    // said of the edit, and beside the score.
+    const answeredText = `Answers 2 of the Story's findings: slide ${bend.slide}'s plan and intensity`;
+    await page.waitForFunction((t) => document.querySelector("#story > p[data-answered]")?.textContent === t, answeredText, { timeout: 30000 }).catch(() => {});
+    const toldNow = await page.evaluate(() => ({
+      status: document.querySelector("#status").textContent,
+      beside: document.querySelector("#story > p[data-answered]")?.textContent,
+      shown: !document.querySelector("#story > p[data-answered]")?.hidden,
+    }));
+    check(
+      toldNow.status.startsWith(`Slide ${bend.slide}: Intensity Building`) && toldNow.status.includes(` · ${answeredText}`) && toldNow.beside === answeredText && toldNow.shown,
+      `what the edit answered is said, in the status and beside the score: ${JSON.stringify(toldNow)}`,
+    );
     await page.locator(".cm-content").focus();
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});

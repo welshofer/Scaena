@@ -1554,6 +1554,11 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       if (f.state !== undefined) await showState(f.state);
     },
     words: () => lexicon,
+    // After what the status says of the edit, while it says it of the source as it stands.
+    answered: (text) => {
+      say(told && toldOf === view.state.doc.toString() ? `${told} · ${text}` : text);
+      if (reported) status.textContent = `${told} — ${reported}`;
+    },
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });
