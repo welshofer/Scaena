@@ -140,6 +140,21 @@ public final class CanvasKeys: UIView {
     /// Only while a text is typed in: with the keyboard comes the software one.
     public override var canBecomeFirstResponder: Bool { typing.typing }
 
+    #if DEBUG
+    /// No software keyboard where the app is launched with `-softwareKeyboard NO`, as the iPad's
+    /// UI tests' hardware pass launches it (`apps/ipad/app-test.sh`, lift-up 20261110): an input
+    /// view of nothing, so iOS brings up no keyboard of its own, and every key a hardware keyboard
+    /// sends still comes through `UITextInput`. With none, each key XCTest types in a text hid the
+    /// software keyboard and iOS brought it back, and on CI XCTest's wait for the app to go idle
+    /// then never ended. A simulator's own Connect Hardware Keyboard keeps it up all the same, booted
+    /// headless or in Simulator.app (#1067's runs). Debug builds only: a release build reads no flag.
+    public override var inputView: UIView? { Self.keyboardless ? Self.nothing : super.inputView }
+    private static let keyboardless =
+        UserDefaults.standard.object(forKey: "softwareKeyboard") != nil
+        && !UserDefaults.standard.bool(forKey: "softwareKeyboard")
+    private static let nothing = UIView(frame: .zero)
+    #endif
+
     /// Take the keyboard once the touch that asked has gone by: for the text typed in, the
     /// software keyboard with it; else for the canvas's own keys (PLAN 4.6), as a press on the
     /// Mac's canvas takes it.
