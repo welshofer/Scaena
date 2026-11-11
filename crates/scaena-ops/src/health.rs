@@ -903,6 +903,21 @@ fn labels(headline: &str) -> bool {
     (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
+/// The shipped themes' layouts that show a measure: a figure's, or a chart's (the calibration
+/// against a reader). A run of them in one part of the talk is one move, each slide another figure
+/// under the same frame, though their words share none.
+const MEASURES: [&str; 9] = [
+    "metric-trend",
+    "bar-chart",
+    "line-chart",
+    "price-chart",
+    "donut-chart",
+    "chart-bullets",
+    "two-charts",
+    "pictograph",
+    "funnel",
+];
+
 /// The shipped themes' layouts whose headline is a figure's, or names the figures under it.
 const FIGURES: [&str; 11] = [
     "stat",
@@ -1119,7 +1134,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         true => arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect(),
         false => settled,
     };
+    // A beat's whole name, as the data keeps it, and as a sentence says it.
     let beat_name = |k: usize| beats.get(k).cloned().unwrap_or_else(|| format!("beat {}", k + 1));
+    let beat_said = |k: usize| headed(&beat_name(k)).to_string();
     let (fidelity_score, bends) = match &arc_name {
         Some(_) => {
             let own = arc::fidelity(&read, &curve, &arc::FidelityOptions::default());
@@ -1279,8 +1296,22 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let bridged: Vec<&String> = (turns.iter().map(|(id, _)| id))
         .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
         .collect();
+    // A turn inside a part of the talk between two slides that each show a measure, a figure's or a
+    // chart's, is the part's next figure, not a lost room (the calibration against a reader):
+    // qbr's metrics and the climate talk's data slides under the frame their part gives them.
+    let measures = |i: usize| {
+        (slides.get(i).and_then(|s| s.states.first()))
+            .and_then(|&k| deck.states.get(k)?.layout.as_deref())
+            .is_some_and(|l| FIGURES.contains(&l) || MEASURES.contains(&l))
+    };
+    let figured: Vec<&String> = (turns.iter())
+        .filter(|(_, edge)| !edge)
+        .map(|(id, _)| id)
+        .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && measures(i - 1) && measures(i)))
+        .collect();
     let soft = turns.iter().filter(|(_, edge)| *edge).count();
-    let hard = turns.len() - soft;
+    let hard = turns.len() - soft - figured.len();
+    let paired = figured.len();
     // By words alone, neighbouring slides share few even where one follows from the other: no
     // number, only where the talk turns.
     let coherence = Measure {
@@ -1288,19 +1319,27 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             health::coherence::Method::Embedding => Some(m.coherence.score as u32),
             health::coherence::Method::Keyword => None,
         },
-        says: match (hard, soft) {
-            (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
+        says: match (hard, soft, paired) {
+            (0, 0, 0) => "No slide breaks from the one before it, read by their words.".into(),
             // Each count said only where it has one, and a turn at a beat's edge as the finding
             // says it, a new part beginning (the coordinator's read of B1 and fleet).
             _ => format!(
                 "Read by their words: {}{}.",
-                match (hard, soft) {
-                    (0, soft) => format!("{} where a new part of the talk begins", counted(soft, "slide")),
-                    (hard, 0) => format!("{} where the talk turns sharply", counted(hard, "slide")),
-                    (hard, soft) => format!(
-                        "{} where the talk turns sharply, {soft} where a new part of the talk begins",
-                        counted(hard, "slide")
-                    ),
+                {
+                    let said: Vec<String> = [
+                        (hard, "where the talk turns sharply"),
+                        (soft, "where a new part of the talk begins"),
+                        (paired, "where one figure follows another"),
+                    ]
+                    .into_iter()
+                    .filter(|&(n, _)| n > 0)
+                    .enumerate()
+                    .map(|(k, (n, what))| match k {
+                        0 => format!("{} {what}", counted(n, "slide")),
+                        _ => format!("{n} {what}"),
+                    })
+                    .collect();
+                    said.join(", ")
                 },
                 match bridged.len() {
                     0 => String::new(),
@@ -1551,7 +1590,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let meta = read[i].narrative_meta.as_ref()?;
         let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
             .and_then(Value::as_str);
-        settled.or(meta.beat_name.as_deref()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string)
+        settled.or(meta.beat_name.as_deref()).map(headed).filter(|n| !n.is_empty()).map(str::to_string)
     };
     for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
@@ -1562,7 +1601,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The words of the slide before that a bridge might carry over, named so the writer
         // need not guess what "a word of slide b's" is.
         let such = carried(&read[i - 1], &read[i]);
-        if *edge {
+        if figured.contains(&id) {
+            // One figure after another in a part of the talk: information, the room's frame the
+            // part's, with the ask a turn makes.
+            find(
+                id,
+                Severity::Info,
+                Kind::Turn,
+                format!("Slide {k} shows another figure with no word from slide {before}: say what links the two."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
+                None,
+            );
+        } else if *edge {
             // A turn at a beat's edge opens a new part of the talk, no loss (W1's second read of
             // fleet): information, so a sharp turn inside a beat comes first, with the same ask.
             let part = beat_named(i).unwrap_or_else(|| "a new part of the talk".to_string());
@@ -1728,7 +1780,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // The beat a slide was written for, by the settled outline's name, else the arc's.
     let named_beat = |id: &str| -> Option<String> {
         let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
-        beats.get(k).map(|b| b.trim().to_string()).filter(|b| !b.is_empty())
+        beats.get(k).map(|b| headed(b).to_string()).filter(|b| !b.is_empty())
     };
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
@@ -1834,13 +1886,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     for &(i, was_beat, now_beat) in &drifted {
         let id = read[i].id.as_str();
-        let (was, now) = (beat_name(was_beat), beat_name(now_beat));
+        let (was, now) = (beat_said(was_beat), beat_said(now_beat));
         let k = i + 1;
         let fix = at(id, "beatIndex").zip(at(id, "beatName")).map(|(index, name)| Fix {
             says: format!("Make it part of {now}"),
             patch: vec![
                 json!({ "op": "replace", "path": index, "value": now_beat }),
-                json!({ "op": "replace", "path": name, "value": now }),
+                json!({ "op": "replace", "path": name, "value": beat_name(now_beat) }),
             ],
         });
         find(
@@ -1926,7 +1978,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         let part = match name {
             None => format!("part {} of the talk", k + 1),
-            Some(name) => format!("the {name} part of the talk"),
+            Some(name) => format!("the {} part of the talk", headed(&name)),
         };
         let claim = unstopped(claim);
         let slides = spanned(&of);
@@ -2570,6 +2622,18 @@ fn line_said(line: &str) -> std::collections::BTreeSet<String> {
 /// (W1's dogfood 3 and 4). A question or an exclamation keeps its mark, which says how it reads.
 fn unstopped(sentence: &str) -> &str {
     sentence.trim_end().trim_end_matches('.').trim_end()
+}
+
+/// A beat's name as a sentence says it (W1's dogfood 8): a name written as a heading and its
+/// gloss, "Solution: Introduce your answer", is said by its heading, "Solution", as the browser's
+/// Tighten takes it; the whole name stays in the data. A name with nothing on one side of its
+/// colon is said whole, trimmed.
+fn headed(name: &str) -> &str {
+    let name = name.trim();
+    match name.split_once(':') {
+        Some((head, gloss)) if !head.trim().is_empty() && !gloss.trim().is_empty() => head.trim(),
+        _ => name,
+    }
 }
 
 /// The most words a tone or an intensity ask names on either side.
@@ -4307,6 +4371,33 @@ mod tests {
         assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::BigIdea));
     }
 
+    /// A part of the talk that moves from one figure to the next is one move, though the slides
+    /// share no word (the calibration against a reader): on the QBR, the turns between its metric
+    /// slides, a number grid, a line, a bar, and a funnel, are information, with the turn's ask,
+    /// and the coherence line counts them apart; a turn into a slide that shows no measure stays a
+    /// warning. No figure moves.
+    #[test]
+    fn a_run_of_figures_in_one_part_is_one_move() {
+        let h = of(&dogfood("qbr", "", |_| {}));
+        let turn = |k: usize| h.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == k).expect("a turn");
+        for k in [4, 6, 7] {
+            let f = turn(k);
+            assert_eq!(f.severity, Severity::Info, "{f:#?}");
+            assert_eq!(
+                f.says,
+                format!("Slide {k} shows another figure with no word from slide {}: say what links the two.", k - 1)
+            );
+            assert!(
+                f.ask.starts_with(&format!("Open slide {k}'s notes with the line that carries the talk")),
+                "{}",
+                f.ask
+            );
+        }
+        assert_eq!(turn(9).severity, Severity::Warning, "a turn into the scenarios is the room's to follow");
+        assert!(h.coherence.says.contains("3 where one figure follows another"), "{}", h.coherence.says);
+        assert_eq!(h.coherence.score, None, "no figure moves");
+    }
+
     /// A talk timed by its words alone, every beat's `duration` still the estimate a made deck
     /// wrote, is a floor (the calibration against a reader): said as at least so long, never found
     /// short of its slot, whatever its brief asks, and still found long past it. A beat a person
@@ -4412,6 +4503,33 @@ mod tests {
         let h = of(&deck);
         assert_eq!(h.slides[2].sources, ["ipcc.pdf", "https://example.org/noaa"]);
         assert!(h.slides.iter().enumerate().all(|(i, s)| i == 2 || s.sources.is_empty()));
+    }
+
+    /// A beat named as a heading and its gloss is said by its heading wherever health names it
+    /// (W1's dogfood 8), "Existing Approaches: what teams use today" as "Existing Approaches",
+    /// the whole name kept in the data; a name with nothing on one side of its colon is said whole.
+    #[test]
+    fn a_beat_is_said_by_its_heading() {
+        assert_eq!(headed("Solution: Introduce your answer"), "Solution");
+        assert_eq!(headed("  Impact: Quantify cost of inaction "), "Impact");
+        assert_eq!(headed("Call to Action"), "Call to Action");
+        assert_eq!(headed("Note:"), "Note:");
+        assert_eq!(headed(": a gloss alone"), ": a gloss alone");
+
+        let mut deck = dogfood("fleet", "", |_| {});
+        let beats = deck.pointer_mut("/meta/narrative/outline/beats").and_then(Value::as_array_mut).unwrap();
+        let named = beats.iter_mut().find(|b| b["name"] == "Existing Approaches").expect("fleet's beat");
+        named["name"] = json!("Existing Approaches: what teams use today");
+        let h = of(&deck);
+        let opened = h.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == 4).expect("the turn into it");
+        assert!(opened.says.starts_with("Slide 4 opens Existing Approaches with nothing"), "{}", opened.says);
+        assert!(opened.ask.contains(" into Existing Approaches, "), "{}", opened.ask);
+        assert!(!h.findings.iter().any(|f| f.says.contains("what teams use") || f.ask.contains("what teams use")));
+        assert!(
+            h.beats.iter().any(|b| b == "Existing Approaches: what teams use today"),
+            "the whole name stays in the data: {:?}",
+            h.beats
+        );
     }
 
     /// Each finding that asks for one field of its slide says which (W2's editor dogfood 6), as its
