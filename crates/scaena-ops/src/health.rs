@@ -1692,10 +1692,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The beat is named once, in what the finding says, as a part of the talk, so a beat
         // named as a heading ("Call to Action") never reads as a title over its claim (W1's
         // dogfood 6); the ask says "this part".
-        let part = if name.is_empty() {
-            format!("part {} of the talk", k + 1)
-        } else {
-            format!("the {name} part of the talk")
+        // In another language than English the outline's name is the arc's, in English ("Call to
+        // Action"), so the part is named by the section its slides stand in, titled in the
+        // deck's language by its divider, else by its place (W1's dogfood 7).
+        let titled = || {
+            let (section, _, _) = slides[of[0]].beat?;
+            let title = deck.spine.as_ref()?.sections.get(section)?.title.as_deref()?.trim();
+            (!title.is_empty()).then(|| title.to_string())
+        };
+        let name = match english {
+            true => Some(name.clone()).filter(|n| !n.is_empty()),
+            false => titled(),
+        };
+        let part = match name {
+            None => format!("part {} of the talk", k + 1),
+            Some(name) => format!("the {name} part of the talk"),
         };
         let claim = unstopped(claim);
         let slides = spanned(&of);
@@ -3527,6 +3538,35 @@ mod tests {
         let read = h.slides[n - 1].read.expect("the lexicon reads the thanks");
         assert!(read - 0.4 > INTENSITY_GAP_THRESHOLD, "the thanks reads {read}, far from its plan");
         assert!(!h.findings.iter().any(|f| f.kind == Kind::Intensity && f.slide == n), "{:#?}", h.findings);
+    }
+
+    /// In a deck in another language, a claim's part is named in the deck's words, by the section
+    /// its slides stand in, never by the arc's English name (W1's dogfood 7).
+    #[test]
+    fn a_claim_names_its_part_in_the_decks_language() {
+        let mut deck = dogfood("board-de", "", |_| {});
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let beats = deck["meta"]["narrative"]["outline"]["beats"].as_array().unwrap().len();
+        let last = beats - 1;
+        // The outline's name is the arc's, in English, as W1's deck had it.
+        deck["meta"]["narrative"]["outline"]["beats"][last]["name"] = json!("Call to Action");
+        deck["meta"]["narrative"]["outline"]["beats"][last]["claim"] = json!("Pinguine jonglieren leise mit Marmelade");
+        let h = of(&deck);
+        let claim = h.findings.iter().find(|f| f.kind == Kind::Claim).expect("a claim its slides do not carry");
+        let sections = deck["spine"]["sections"].as_array().unwrap();
+        let title = sections.last().unwrap()["title"].as_str().expect("the section's title").to_string();
+        assert_ne!(title, "Call to Action");
+        assert!(
+            claim.says.contains(&format!("settled for the {title} part of the talk"))
+                && !claim.says.contains("Call to Action"),
+            "{}",
+            claim.says
+        );
+        // In English, the outline's name, as before.
+        deck["meta"]["narrative"]["brief"]["language"] = json!("English");
+        let english = of(&deck);
+        let claim = english.findings.iter().find(|f| f.kind == Kind::Claim).unwrap();
+        assert!(claim.says.contains("the Call to Action part of the talk"), "{}", claim.says);
     }
 
     /// A close in another language is not read for the big idea (the coordinator's check on W1's
