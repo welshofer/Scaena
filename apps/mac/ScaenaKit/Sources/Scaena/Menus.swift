@@ -133,6 +133,7 @@ struct WindowCommands: Commands {
                 .disabled(panes?.rehearse == nil)
             Divider()
             Button("Remote…") { panes?.remote() }
+                .keyboardShortcut(MenuKey.remote.key, modifiers: MenuKey.remote.modifiers)
                 .disabled(panes == nil)
             #if !os(macOS)
             Button("Control a Presentation…") { openWindow(id: RemoteWindow.id) }

@@ -86,6 +86,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went. As on
   - `KeysTests`: eight nudges by the arrows, each taken back by one ⌘Z, and ⌘D's copy taken back by one ⌘Z;
   - `ThemeTests`: a theme value typed, and a stepper's tap, each one step (PLAN 3.28);
   - ScaenaKit's tests: a drag's patch keeps the source it replaced, for the window's undo, and a burst of typing is one step.
+- **The remote's code, by keys.** `PresentingTests`' `testRemoteShowsTheCodeARemoteJoinsWith` opens Remote… by its key, ⌥⌘K, which a keyboard reaches on the iPad where a test does not reach its menu bar; let on, it shows an eight-digit code, and let off, none. ScaenaKit's `RemoteTests` join over the loopback with such a code, and hold its two groups of four (`Remote.shown`).
 - **Undo by touch** came from writing this gate. An iPad without a keyboard had no Undo to touch: no ⌘Z, and the menu bar a swipe from the top away. So the toolbar has Undo beside View and Zoom, as Keynote's does on the iPad (PLAN 4.11).
 - **The Pencil.** Its hover outlines what a press would take, read from the boxes the pointer's hover reads (PLAN 4.5). On the simulator, a pointer stands in for it. The Pencil itself waits on an iPad, as do Scribble, the software keyboard, and dictation (PLAN 4.4), and PageDown and PageUp from a keyboard (PLAN 4.12): the simulator's keyboard sends neither, so `KeysTests` turns the slides by them only on an iPad, and ScaenaKit's `pageDownAndPageUpAreTheIPadCanvassOwnKeyCommands` holds the commands and what they do.
 
@@ -114,5 +115,4 @@ What the run finds is logged here and in PLAN's gate log.
 ## Candidates for CI's simulator
 
 What else the simulator could prove before the run on an iPad, not yet built:
-- **The presenter's Remote… sheet** as an iPad UI test: Play, then Remote…, shows a code of eight digits in two groups of four. ScaenaKit's `RemoteTests` already join over the loopback.
 - **An external display**, if the simulator can attach one from the command line: the stage on the display's scene and the presenter's view on the iPad (PLAN 4.8), as a `PresentingTests` case.
