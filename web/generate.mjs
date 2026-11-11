@@ -411,6 +411,8 @@ try {
     const text = answer.content.find((c) => c.type === "text");
     const written = JSON.parse(text.text);
     written.slides.forEach((s, i) => (s.sourceRef = i === 1 ? `${press}/press.html` : "notes.md"));
+    // A bullet after the bar chart's takeaway, which its layout sets in no place (W1's dogfood 10).
+    written.slides[3].keyBullets.push("Fines tripled since 2022");
     text.text = JSON.stringify(written);
     return JSON.stringify(answer);
   })();
@@ -420,6 +422,9 @@ try {
     { name: "q3.csv", mimeType: "text/csv", buffer: Buffer.from("region,revenue\nGulf,4.1\nAtlantic,2.2\n") },
   ]);
   await link(`${press}/press.html`);
+  // A twelve-minute talk, its length left as it was: the minutes are kept in the brief, the slot
+  // health paces it against (W1's dogfood 10).
+  await page.fill("#prompting-minutes", "12");
   const listed = await page.locator("#prompting-sources li").allTextContents();
   check(listed.length === 3, `the sources are listed: ${listed.map((l) => l.replace(/\s*Remove$/, "")).join(", ")}`);
   check(await page.isChecked("#prompting-show-outline"), "the outline is shown first by default");
@@ -553,9 +558,17 @@ try {
     unnoted === "Notes not written for the talk: Slides 2–5's notes not written by the model, Narrato's drafts kept",
     `the progress says why the rest were not taken, and what they keep: ${unnoted}`,
   );
+  // A bullet the chart's layout sets nowhere is said, as the CLI says it (W1's dogfood 10).
+  const unset = (await lines()).find((l) => l.startsWith("Slide 4 shows its chart without"));
+  check(
+    unset === "Slide 4 shows its chart without \u201cFines tripled since 2022\u201d: its layout has no place for it",
+    `the progress says the bullet the chart leaves off: ${unset}`,
+  );
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
+  check(/brief: \{[^\n]*minutes: 12\b/.test(source) && /brief: \{[^\n]*length: "5-10 slides"/.test(source), "the brief keeps the twelve minutes asked, and the length they give");
+  await page.evaluate(() => (document.querySelector("#prompting-minutes").value = ""));
   const drafted = await page.evaluate(() => window.scaena.notes(window.scaena.last().states[1][0]).then((n) => n.text));
   check(drafted.trim().length > 0, `and slide 2 keeps its draft, as the progress says: ${JSON.stringify(drafted.slice(0, 60))}`);
   check(source.includes("data/q3.csv"), "the CSV is a data source of the deck's");

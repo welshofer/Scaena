@@ -52,7 +52,7 @@ pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
 }
 mod quoting;
 pub use binding::Unbound;
-pub use notes::{noted, speaking};
+pub use notes::{Budget, Notes, budgeted, noted, speaking};
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
@@ -196,6 +196,9 @@ pub struct Generated {
     /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
+    /// Each data file given whose cells the slides' figures quote, and how many (agent dogfood 3).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quoted: Vec<Quoted>,
     /// Each chart that names a data source and was not drawn from it, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unbound: Vec<Unbound>,
@@ -227,9 +230,30 @@ pub struct Generated {
     /// deck sends its audience (lift-up 20261025 SEC-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<Linked>,
+    /// What the deck's notes are to fill (agent dogfood 3): the talk's slot, how long it runs,
+    /// and each slide's words, for an agent that writes its notes again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<Notes>,
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
+}
+
+/// How many figures a deck's slides write quote one of its data sources, so a data edit sets
+/// them again (agent dogfood 3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Quoted {
+    /// The data source, by its id.
+    pub source: String,
+    /// How many figures quote it.
+    pub figures: usize,
+}
+
+impl Quoted {
+    /// Each source of `counts` that some figure quotes.
+    pub fn of(counts: Vec<(String, usize)>) -> Vec<Quoted> {
+        counts.into_iter().filter(|(_, n)| *n > 0).map(|(source, figures)| Quoted { source, figures }).collect()
+    }
 }
 
 /// An address a made deck links: the slide that first shows it, from 1, and where it goes.
@@ -1219,6 +1243,22 @@ pub fn from_slides(
         generation.settle(outline).map_err(|e| OpsError::new(format!("the outline: {e}")))?;
     }
     generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
+    // Each data file given is a source the deck is grounded in, by its file's name: a chart says
+    // it as its source, and the beat of a slide whose `sourceRef` names it cites it (agent
+    // dogfood 3), as a file `--source` gave is.
+    if !data.is_empty() {
+        let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
+        let given = (data.iter())
+            .map(|(req, bytes)| Provenance {
+                name: named(req),
+                kind: if named(req).to_ascii_lowercase().ends_with(".json") { "json" } else { "csv" }.to_string(),
+                url: None,
+                bytes: bytes.len(),
+                truncated: false,
+            })
+            .collect();
+        generation.give_sources(given);
+    }
     let mut never =
         |_: &Request| Reply { status_text: "no call is made from written slides".into(), ..Reply::default() };
     let (made, write) = generate(
@@ -1252,8 +1292,20 @@ pub fn from_slides(
                 }
             }
         }
-        let (write, unbound) = binding(write)?;
+        let (mut write, unbound) = binding(write)?;
         made.unbound = unbound;
+        // Each figure a slide writes that is one cell of a data file given quotes it, as a made
+        // deck's figures quote a sheet its sources gave (G1), so a data edit sets the slide again
+        // (agent dogfood 3).
+        if !made.attached.is_empty() {
+            let mut doc = write.deck.to_value().context("the deck")?;
+            let counts = quoting::quoting(&mut doc, &write.files, &made.attached);
+            if counts.iter().any(|(_, n)| *n > 0) {
+                write.deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+            }
+            made.quoted = Quoted::of(counts);
+        }
+        made.notes = budgeted(&write.deck).ok();
         crate::create::make(dir, write)?;
     }
     Ok(made)
@@ -2461,6 +2513,7 @@ pub fn making(
         fell: made.fell,
         unset: made.unset,
         attached: Vec::new(),
+        quoted: Vec::new(),
         unbound: Vec::new(),
         fixed: Vec::new(),
         fitted: Vec::new(),
@@ -2473,6 +2526,7 @@ pub fn making(
         unnoted: None,
         links: Vec::new(),
         refused: Vec::new(),
+        notes: None,
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -2774,6 +2828,9 @@ fn assemble(
         Some(outline) => (outline.beats.iter()).map(|b| b.name.split(':').next().unwrap_or(&b.name).trim()).collect(),
         None => arc.beat_names(),
     };
+    // The arc's own names, English, and whether the deck is too (W1's dogfood 10).
+    let arc_names = arc.beat_names();
+    let english = deck_lang(&narrative.brief).is_none_or(|tag| tag == "en");
     let count = narrative.slides.len();
     let varied = varied(narrative);
     // The slide the talk peaks on, where the whole deck is made at once: one slide written into
@@ -2852,6 +2909,7 @@ fn assemble(
                 .and_then(|named| source_named(&narrative.sources, named))
                 .map(|s| if s.name.trim().is_empty() { s.url.as_deref().unwrap_or_default() } else { s.name.as_str() })
                 .filter(|n| !n.trim().is_empty()),
+            given: &narrative.sources,
         };
         let last = first + i + 1 == total;
         let peak = peaked == Some(i);
@@ -2918,11 +2976,18 @@ fn assemble(
         // "Solution") in the PDF's outline, the player's picker, and the Story tab. Narrato
         // echoes the arc's names, so a name that is one of them is no name of the model's. Where
         // the person settled an outline, its beat's name stands in for the model's and the
-        // headline both: the slides were written to it (narrative FUNC-1).
+        // headline both: the slides were written to it (narrative FUNC-1). In a deck in another
+        // language, an outline's name that is the arc's own is English, no name for its part of
+        // a French talk: the model's name for the beat, or the headline, stands in for it (W1's
+        // dogfood 10: "Existing Approaches" over "Approches existantes").
         if last_beat != Some(beat) {
-            let outlined = narrative.outline.is_some();
-            let named = (slide.beat_name.as_deref().map(str::trim))
-                .filter(|n| !n.is_empty() && !outlined && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n)));
+            let arcs = |n: &str| names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n));
+            let outlined = narrative.outline.is_some()
+                && (english
+                    || names
+                        .get(beat)
+                        .is_some_and(|settled| !arc_names.iter().any(|a| a.eq_ignore_ascii_case(settled))));
+            let named = (slide.beat_name.as_deref().map(str::trim)).filter(|n| !n.is_empty() && !outlined && !arcs(n));
             let headline = Some(slide.slide_title.as_str()).filter(|t| !t.trim().is_empty() && !outlined);
             let name = match (divider, named, headline) {
                 (true, _, _) => slide.slide_title.as_str(),
@@ -3632,6 +3697,7 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
     let suffix = ["%", "\u{2030}", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
         .iter()
         .chain(&SIGNS)
+        .chain(&COMPOUNDS)
         .filter(|s| rest.starts_with(*s))
         .max_by_key(|s| s.len())
         .map_or(0, |s| s.chars().count());
@@ -3651,6 +3717,11 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
                 .max()
         };
         if let Some(n) = word(&["%", "\u{2030}"]) {
+            return chars[begin..from + n].iter().collect();
+        }
+        // A magnitude and its currency as one word, as German and French books write them:
+        // "240 TEUR", "240 k\u{20ac}", "1,2 M\u{20ac}", "3 Md\u{20ac}" (R2's Nordlicht).
+        if let Some(n) = word(&COMPOUNDS) {
             return chars[begin..from + n].iter().collect();
         }
         if let Some(n) = word(&SPACED_MAGNITUDES) {
@@ -3792,6 +3863,24 @@ const SPACED_MAGNITUDES: [&str; 22] = [
 
 /// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
 const SIGNS: [&str; 7] = ["\u{20ac}", "$", "\u{a3}", "\u{a5}", "\u{20b9}", "\u{20a9}", "\u{20bd}"];
+
+/// A magnitude and its currency written as one word after a figure, spaced or not: thousands,
+/// millions, and billions of euros, as German and French accounts set them ("240 TEUR",
+/// "240 k\u{20ac}", "1,2 M\u{20ac}", "3 Md\u{20ac}").
+const COMPOUNDS: [&str; 12] = [
+    "TEUR",
+    "TEuro",
+    "T\u{20ac}",
+    "kEUR",
+    "KEUR",
+    "k\u{20ac}",
+    "K\u{20ac}",
+    "MEUR",
+    "M\u{20ac}",
+    "Md\u{20ac}",
+    "Mrd\u{20ac}",
+    "Mds\u{20ac}",
+];
 
 /// The currencies written by their codes after a figure: "12 EUR".
 const CODES: [&str; 5] = ["EUR", "USD", "GBP", "CHF", "JPY"];
@@ -4996,6 +5085,9 @@ struct Slots<'a> {
     /// The name of the source the slide was grounded in, where it names one the deck was given:
     /// its title, else its address (lift-up 20261025 FUNC-3).
     grounded: Option<&'a str>,
+    /// The sources the deck was given, by which a chart's source written as a file's stem or a
+    /// data source's id is said by the file's name (agent dogfood 3).
+    given: &'a [Provenance],
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -5289,10 +5381,7 @@ impl Slots<'_> {
     /// "Source: …": the source the model wrote for the slide's chart, the one the slide was
     /// grounded in, or both where they differ, the model's words first (lift-up 20261025 FUNC-3).
     fn credit(&self) -> Option<String> {
-        let wrote = (self.slide.chart_data.as_ref())
-            .and_then(|c| c.source_id.as_deref())
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let wrote = self.chart_source();
         let said = match (wrote, self.grounded) {
             // The model's words that are only the source's id or its file's stem say it once, by
             // its name: "trails-budget" for trails-budget.csv (W1 dogfood 5).
@@ -5303,6 +5392,18 @@ impl Slots<'_> {
             (None, None) => return None,
         };
         Some(self.sourced(&said))
+    }
+
+    /// The source the slide's chart names, said by a given file's name where it is written as
+    /// that file's stem, the id a data file was attached by: "Quelle: umsatz.csv", never the id
+    /// (agent dogfood 3).
+    fn chart_source(&self) -> Option<&str> {
+        let wrote = (self.slide.chart_data.as_ref())
+            .and_then(|c| c.source_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?;
+        let file = |s: &&Provenance| !s.name.trim().is_empty() && s.url.is_none() && stem(&s.name) == stem(wrote);
+        Some(self.given.iter().find(file).map_or(wrote, |s| s.name.as_str()))
     }
 
     fn fact(&self) -> Option<String> {
@@ -5863,9 +5964,9 @@ impl Slots<'_> {
                     _ => Some(None),
                 }
             }
-            ("two-figures", "note", _) => text(self.subtitle().or_else(|| {
-                (self.slide.chart_data.as_ref()).and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s))
-            })),
+            ("two-figures", "note", _) => {
+                text(self.subtitle().or_else(|| self.chart_source().map(|s| self.sourced(s))))
+            }
             ("big-number" | "number-photo", "claim", _) => {
                 text(meaning(self.items, self.lang).or_else(|| self.title()))
             }
@@ -8266,6 +8367,17 @@ mod tests {
         // A language without spaces keeps its figure after its letters.
         assert_eq!(figure("\u{4e88}\u{7b97}\u{306f}3\u{5104}\u{5186}").as_deref(), Some("3\u{5104}\u{5186}"));
         assert_eq!(figures_in("from 1,210 ms to 140 ms at p99"), ["1,210".to_string(), "140".to_string()]);
+
+        // A magnitude and its currency written as one word stay with their figure, spaced or
+        // not, as German and French accounts write them (R2's Nordlicht: "240 TEUR").
+        assert_eq!(figures_in("Pilotkosten von 240 TEUR im ersten Jahr"), ["240 TEUR".to_string()]);
+        assert_eq!(figure("Einsparung: 1,2 MEUR pro Jahr").as_deref(), Some("1,2 MEUR"));
+        assert_eq!(figure("Budget de 240 k\u{20ac}").as_deref(), Some("240 k\u{20ac}"));
+        assert_eq!(figure("Budget de 240k\u{20ac}").as_deref(), Some("240k\u{20ac}"));
+        assert_eq!(figure("un march\u{e9} de 3 Md\u{20ac}").as_deref(), Some("3 Md\u{20ac}"));
+        assert_eq!(figure("Der Umsatz stieg auf 538 TEUR").as_deref(), Some("538 TEUR"));
+        // A word that only begins so is no unit of the figure.
+        assert_eq!(figures_in("240 TEURE Sachen"), ["240".to_string()]);
     }
 
     #[test]
@@ -12828,6 +12940,70 @@ mod tests {
         // A name no source starts with keeps none of them.
         assert!(binding::sources_named(&write.deck, "rapport.pdf").is_empty());
         assert!(binding::sources_named(&write.deck, "na").is_empty());
+    }
+
+    /// A deck in another language titles each section by the model's name for its beat, else its
+    /// first slide's headline, never by the arc's English name the settled outline carries (W1's
+    /// dogfood 10: "Existing Approaches" over "Approches existantes"). A name the person gave a
+    /// beat in the outline stands, and an English deck's sections are the outline's, as before.
+    #[test]
+    fn a_french_decks_sections_are_named_in_french() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = |title: &str, kind: &str, beat: usize, name: &str| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: if kind == "Bullets" { vec!["Un".into(), "Deux".into()] } else { vec![] },
+            beat_index: Some(beat),
+            beat_name: Some(name.into()),
+            ..Slide::default()
+        };
+        let mut n = narrative(
+            "La navette rapproche le centre.",
+            vec![
+                slide("Prolonger la navette", "Title", 0, "Probl\u{e8}me"),
+                slide("La fr\u{e9}quentation progresse", "Bullets", 1, "Impact"),
+                slide("62 % des usagers n\u{2019}ont pas de voiture", "Bullets", 2, "Approches existantes"),
+                slide("La navette co\u{fb}te peu", "Bullets", 3, "Solution"),
+                slide("Le plan mobilit\u{e9} la porte", "Bullets", 4, "Proof"),
+                slide("Voter la prolongation", "Closing", 5, "Appel \u{e0} l\u{2019}action"),
+            ],
+        );
+        let beat = |name: &str, claim: &str| scaena_narrato::outline::Beat {
+            name: name.into(),
+            claim: claim.into(),
+            slides: 1,
+        };
+        n.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "La navette rapproche le centre.".into(),
+            beats: vec![
+                beat("Problem: Define core challenge and stakes", "Un probl\u{e8}me."),
+                beat("Impact: Quantify cost of inaction", "Un impact."),
+                beat("Existing Approaches: Why they fall short", "Sans voiture."),
+                beat("Le co\u{fb}t", "Peu cher."),
+                beat("Proof: Case studies, data, demos", "Le plan."),
+                beat("Call to Action: Next steps", "Voter."),
+            ],
+        });
+        let titles = |n: &Narrative| -> Vec<String> {
+            let made = deck(n, &theme, &Pictures::new()).unwrap();
+            (made.deck["spine"]["sections"].as_array().unwrap().iter())
+                .map(|s| s["title"].as_str().unwrap().to_string())
+                .collect()
+        };
+        n.brief.language = Some("French".into());
+        assert_eq!(
+            titles(&n),
+            [
+                "Probl\u{e8}me",
+                "La fr\u{e9}quentation progresse",
+                "Approches existantes",
+                "Le co\u{fb}t",
+                "Le plan mobilit\u{e9} la porte",
+                "Appel \u{e0} l\u{2019}action"
+            ]
+        );
+        n.brief.language = None;
+        assert_eq!(titles(&n), ["Problem", "Impact", "Existing Approaches", "Le co\u{fb}t", "Proof", "Call to Action"]);
     }
 
     /// A chart's layout takes its takeaway alone: a bullet after it that no place sets is said in

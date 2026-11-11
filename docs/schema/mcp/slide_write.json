@@ -175,9 +175,28 @@
           "layout": { "type": "string" }
         },
         "required": ["slide", "words", "layout"]
+      },
+      "Quoted": {
+        "type": "object",
+        "properties": { "source": { "type": "string" }, "figures": { "type": "integer", "minimum": 0 } },
+        "required": ["source", "figures"]
+      },
+      "Notes": {
+        "type": "object",
+        "properties": {
+          "slot": { "type": "number" },
+          "run": { "type": ["number", "null"] },
+          "budgets": { "type": "array", "items": { "$ref": "#/$defs/Budget" } }
+        },
+        "required": ["slot", "budgets"]
+      },
+      "Budget": {
+        "type": "object",
+        "properties": { "slide": { "type": "integer", "minimum": 0 }, "words": { "type": "integer", "minimum": 0 } },
+        "required": ["slide", "words"]
       }
     },
-    "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset"],
+    "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset", "quoted"],
     "type": "object",
     "properties": {
       "applied": { "type": "boolean" },
@@ -196,7 +215,9 @@
       "left": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "fell": { "type": "array", "items": { "$ref": "#/$defs/Fell" } },
       "unbound": { "type": "array", "items": { "$ref": "#/$defs/Unbound" } },
-      "unset": { "type": "array", "items": { "$ref": "#/$defs/Unset" } }
+      "unset": { "type": "array", "items": { "$ref": "#/$defs/Unset" } },
+      "quoted": { "type": "array", "items": { "$ref": "#/$defs/Quoted" } },
+      "notes": { "anyOf": [{ "$ref": "#/$defs/Notes" }, { "type": "null" }] }
     }
   }
 }

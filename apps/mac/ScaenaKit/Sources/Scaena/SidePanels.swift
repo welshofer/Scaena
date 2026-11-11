@@ -70,6 +70,9 @@ struct PanelEdits {
     let patchMade: (_ name: String, _ ops: [JSONValue]) -> Bool
     /// Show the state, as a click on it in the slides does.
     let go: (_ state: String) -> Void
+    /// Show the state and type in the text that heads it, its words selected, so what is typed takes
+    /// their place (editor dogfood 6).
+    let headline: (_ state: String) -> Void
     /// Put a question to the assistant: its panel shown, the question in its box to send.
     let ask: (_ question: String) -> Void
     /// Say what an edit did, as the window says it for a moment.

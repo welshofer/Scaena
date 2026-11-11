@@ -422,13 +422,7 @@ pub fn headline(deck: &Deck, snap: &Snapshot) -> Option<String> {
         (snap.nodes.iter()).filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
     };
     let said = |p: &Props| words(p).split_whitespace().collect::<Vec<_>>().join(" ");
-    let head = texts()
-        .find(|(_, p)| {
-            p.get("semantic").and_then(Value::as_str) == Some("claim")
-                || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
-        })
-        .map(|(_, p)| said(p))
-        .filter(|h| !h.is_empty())?;
+    let head = heading(deck, snap).map(|(_, p)| said(p)).filter(|h| !h.is_empty())?;
     let mut figures = texts()
         .filter(|(_, p)| matches!(p.get("role").and_then(Value::as_str), Some("numeral" | "hero" | "figure")))
         .map(|(_, p)| said(p))
@@ -437,6 +431,23 @@ pub fn headline(deck: &Deck, snap: &Snapshot) -> Option<String> {
         (Some(figure), None) if !head.contains(&figure) => Some(figured(&figure, &head)),
         _ => Some(head),
     }
+}
+
+/// The text that heads a state, as [`headline`] reads it: its first text that makes its claim or is
+/// set in a heading's role (`display`, `headline`, `title`), its words empty or not. What an
+/// editor types in when a finding asks for the slide's headline (editor dogfood 6).
+pub fn headline_node(deck: &Deck, snap: &Snapshot) -> Option<String> {
+    heading(deck, snap).map(|(id, _)| id.clone())
+}
+
+/// The text that heads `snap`, by its id and props.
+fn heading<'a>(deck: &Deck, snap: &'a Snapshot) -> Option<(&'a String, &'a Props)> {
+    (snap.nodes.iter())
+        .filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
+        .find(|(_, p)| {
+            p.get("semantic").and_then(Value::as_str) == Some("claim")
+                || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
+        })
 }
 
 /// A figure before the words that say what it means: run on where they go on from it in the
@@ -743,6 +754,10 @@ mod tests {
                 Some("E-bikes lifted Hilltop".into()),
             ]
         );
+        // The text each is headed by, which an editor types in, never the figure before it.
+        let nodes: Vec<Option<String>> = snaps.iter().map(|s| headline_node(&deck, s)).collect();
+        let named = |id: &str| Some(id.to_string());
+        assert_eq!(nodes, [named("meaning"), named("trips"), named("said"), named("head"), named("plain")]);
     }
 
     #[test]
