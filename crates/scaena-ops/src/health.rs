@@ -1496,11 +1496,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
     }
     // A turn out of an agenda is the agenda's own to make (dogfood pass 10): it names the parts
-    // to come, and the slide after it opens the first, sharing few words with a list of them.
+    // to come, and the slide after it opens the first, sharing few words with a list of them. So
+    // is a turn out of a divider, which names the part its next slide opens (the calibration
+    // against a reader); a turn into a divider is found as any is.
     let agenda = |i: usize| {
         (slides.get(i).and_then(|s| s.states.first()))
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
-            .is_some_and(|l| l == "agenda" || l.starts_with("agenda-"))
+            .is_some_and(|l| l == "agenda" || l.starts_with("agenda-") || l == "section" || l.starts_with("section-"))
     };
     // The beat a slide opens, by the one name the settled outline gives it, else its own.
     let beat_named = |i: usize| -> Option<String> {
@@ -3000,6 +3002,31 @@ mod tests {
         assert!(!found(&of(&deck)));
         deck["states"][first]["layout"] = json!("bullets");
         assert!(found(&of(&deck)), "a turn out of a slide that lists no parts to come");
+    }
+
+    /// A turn out of a divider is not found, as an agenda's is not (the calibration against a
+    /// reader): the divider names the part its next slide opens. On the climate talk, slides 4,
+    /// 13, and 17 open their parts after a divider; a turn into a divider is found as before.
+    #[test]
+    fn a_turn_out_of_a_divider_is_not_found() {
+        let deck = climate();
+        let h = of(&deck);
+        let d = Deck::from_value(&deck).unwrap();
+        let sl = slides(&d);
+        let layout = |k: usize| d.states[sl[k - 1].states[0]].layout.clone().unwrap_or_default();
+        let turned = |k: usize| h.findings.iter().any(|f| f.kind == Kind::Turn && f.slide == k);
+        for k in [4, 13, 17] {
+            assert_eq!(layout(k - 1), "section", "slide {} is a divider", k - 1);
+            assert!(!turned(k), "slide {k} opens the part its divider names: {:#?}", h.findings);
+        }
+        // Into a divider: slide 21's turn into slide 22, as before.
+        assert_eq!(layout(22), "section");
+        assert!(turned(22), "{:#?}", h.findings);
+        // The same turn out of a slide that names no part is found.
+        let mut plain = deck.clone();
+        plain["states"][sl[3 - 1].states[0]]["layout"] = json!("bullets");
+        assert!(of(&plain).findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 4));
+        assert_eq!(h.coherence.score, None, "no figure moves");
     }
 
     /// One pattern, one finding (narrative dogfood H5): three or more neighbouring slides planned
