@@ -43,8 +43,11 @@ final class KeysTests: XCTestCase {
             }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
             XCTAssertTrue(wait(5) { subtitle.isSelected && !title.isSelected }, "Tab did not go on to the subtitle")
-            app.typeKey(XCUIKeyboardKey.tab, modifierFlags: .shift)
-            XCTAssertTrue(wait(5) { title.isSelected && !subtitle.isSelected }, "Shift+Tab did not go back to the title")
+            // A ⇧Tab that arrives as a Tab goes on past the subtitle, letting the keys go: the
+            // subtitle tapped gives them back to the canvas with it selected, as before the press.
+            try chord(
+                XCUIKeyboardKey.tab.rawValue, .shift, named: "⇧Tab, back to the title", in: app,
+                restoring: { try reselect(subtitle) }, until: { title.isSelected && !subtitle.isSelected })
             keep(app, as: "tabbed")
         }
 
@@ -84,8 +87,10 @@ final class KeysTests: XCTestCase {
                 throw Unseen(description: "the arrows nudged nothing: \(before) → \(title.frame)")
             }
             keep(app, as: "stepped")
-            for _ in 0..<8 {
-                app.typeKey("z", modifierFlags: .command)
+            // Each ⌘Z waited on by the nudge it takes back: a bare z the canvas passes on, doing nothing.
+            for step in 1...8 {
+                let was = title.frame.minX
+                try chord("z", .command, named: "⌘Z, nudge \(step) of 8", in: app) { title.frame.minX < was - 0.1 }
             }
             XCTAssertTrue(wait(5) { abs(title.frame.minX - before.minX) < 0.5 }, "⌘Z left a nudge: \(title.frame)")
         }
@@ -108,10 +113,9 @@ final class KeysTests: XCTestCase {
                 throw Unseen(description: "after ⌘Z, Tab did not reach the canvas: \(app.debugDescription)")
             }
             if heard == .neither {
-                app.typeKey(XCUIKeyboardKey.tab, modifierFlags: .shift)
-                guard wait(5, { title.isSelected }) else {
-                    throw Unseen(description: "Shift+Tab did not go back to the title: \(app.debugDescription)")
-                }
+                try chord(
+                    XCUIKeyboardKey.tab.rawValue, .shift, named: "⇧Tab after ⌘Z, back to the title", in: app,
+                    restoring: { try reselect(subtitle) }, until: { title.isSelected })
             }
         }
 
@@ -127,6 +131,9 @@ final class KeysTests: XCTestCase {
             }
             // A chord types nothing in a text typed in (lift-up 20261110): ⌘D there once typed a
             // "d" over the title's words, as the system hands a chord's characters on.
+            // The one chord sent bare of `chord`: its premise is that it does nothing, and a ⌘D that
+            // arrived as a d would type one as the bug did, so no try can tell the two apart. Where
+            // this fails, the app's key log says which it was: `press 7 flags 0` is a bare d.
             let cover = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'state-cover'")).firstMatch
             let read = cover.label
             app.typeKey("d", modifierFlags: .command)
@@ -151,20 +158,17 @@ final class KeysTests: XCTestCase {
             }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
             XCTAssertTrue(wait(5) { subtitle.isSelected }, "the canvas did not take the keys back")
-            app.typeKey(XCUIKeyboardKey.tab, modifierFlags: .shift)
-            XCTAssertTrue(wait(5) { title.isSelected }, "Shift+Tab did not go back to the title")
+            try chord(
+                XCUIKeyboardKey.tab.rawValue, .shift, named: "⇧Tab after typing, back to the title", in: app,
+                restoring: { try reselect(subtitle) }, until: { title.isSelected })
         }
 
         try XCTContext.runActivity(named: "⌘D duplicates the title, and ⌘Z takes the copy back") { _ in
-            app.typeKey("d", modifierFlags: .command)
-            guard wait(5, { titles.count == 2 }) else {
-                throw Unseen(description: "⌘D made no copy: \(app.debugDescription)")
-            }
+            try chord("d", .command, named: "⌘D, a copy of the title", in: app) { titles.count == 2 }
             settle()
             keep(app, as: "duplicated")
             // B1 is left as it was: the tests after this one open it too.
-            app.typeKey("z", modifierFlags: .command)
-            XCTAssertTrue(wait(5) { titles.count == 1 }, "⌘Z left the copy")
+            try chord("z", .command, named: "⌘Z, the copy taken back", in: app) { titles.count == 1 }
         }
 
         XCTContext.runActivity(named: "Escape selects what holds the title: the slide") { _ in
@@ -257,20 +261,19 @@ final class KeysTests: XCTestCase {
             app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: [])
             XCTAssertTrue(
                 wait(5) { abs(subtitle.frame.maxX - was.maxX) < 1 }, "← did not pan back: \(was) → \(subtitle.frame)")
-            // The simulator's keyboard can lose the Shift of a press, which the app then hears as a
-            // plain →: its key log has the arrow with no flags, and no Shift before it. Only where
-            // the subtitle panned just a tenth, as → pans it, is it panned back and Shift+→ pressed
-            // again.
+            // A ⇧→ that arrives as a → pans just a tenth, as → pans: panned back by ←, as before
+            // the press, and sent again.
             let farther = { was.maxX - subtitle.frame.maxX > moved + 2 }
-            app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: .shift)
-            if !wait(5, farther), abs(was.maxX - subtitle.frame.maxX - moved) < 1 {
-                keep(app, as: "shift-unheard")
-                app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: [])
-                XCTAssertTrue(
-                    wait(5) { abs(subtitle.frame.maxX - was.maxX) < 1 }, "← did not pan back: \(was) → \(subtitle.frame)")
-                app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: .shift)
-            }
-            XCTAssertTrue(wait(5, farther), "Shift+→ panned no farther than →: \(was) → \(subtitle.frame)")
+            try chord(
+                XCUIKeyboardKey.rightArrow.rawValue, .shift, named: "⇧→, farther than →", in: app,
+                restoring: {
+                    guard abs(subtitle.frame.maxX - was.maxX) >= 1 else { return }
+                    keep(app, as: "shift-unheard")
+                    app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: [])
+                    guard wait(5, { abs(subtitle.frame.maxX - was.maxX) < 1 }) else {
+                        throw Unseen(description: "← did not pan back: \(was) → \(subtitle.frame)")
+                    }
+                }, until: farther)
             XCTAssertFalse(title.isSelected || subtitle.isSelected, "Shift+→ selected something")
             keep(app, as: "panned-farther")
         }
@@ -431,19 +434,12 @@ final class KeysTests: XCTestCase {
         _ = cancel(app, until: { !typing.exists })
     }
 
-    /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named: the key
-    /// sent again once where the app did not hear it, as a loaded simulator drops one.
+    /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named (`chord`).
     @MainActor
     private func undoing(_ undo: XCUIElement, in app: XCUIApplication) throws {
         let step = undo.label
-        for _ in 0..<2 {
-            app.typeKey("z", modifierFlags: .command)
-            if wait(5, { undo.label != step }) {
-                settle(1)
-                return
-            }
-        }
-        throw Unseen(description: "⌘Z took back nothing: Undo still reads \(step): \(app.debugDescription)")
+        try chord("z", .command, named: "⌘Z, taking back \(step)", in: app) { undo.label != step }
+        settle(1)
     }
 
     /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the
@@ -482,11 +478,11 @@ final class KeysTests: XCTestCase {
         settle(1)
 
         try XCTContext.runActivity(named: "⌘Z and ⇧⌘Z take nothing back, saying the assistant is at work") { _ in
-            app.typeKey("z", modifierFlags: .command)
             // Read while the hint stands, before settling and a screenshot: those took most of its
             // six seconds in #1049's run, the shot showing the words and the read after it finding
             // none (lift-up 20261110).
-            XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⌘Z says \(said())")
+            let held = { said().hasPrefix("The assistant is at work on the deck") }
+            try chord("z", .command, named: "⌘Z, held while the assistant works", in: app, until: held)
             keep(app, as: "undo-held")
             settle(1)
             XCTAssertEqual(
@@ -496,11 +492,20 @@ final class KeysTests: XCTestCase {
             // within those seconds, as the first run of this test did, it was held (the keys log
             // says so) but its words went with ⌘Z's before they were read.
             XCTAssertTrue(wait(10) { !hint.exists }, "⌘Z's words stand: \(said())")
-            app.typeKey("z", modifierFlags: [.command, .shift])
-            XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⇧⌘Z says \(said())")
+            try chord("z", [.command, .shift], named: "⇧⌘Z, held while the assistant works", in: app, until: held)
             settle(1)
             XCTAssertEqual(
                 title.frame.minX, nudged.minX, accuracy: 0.5, "⇧⌘Z changed the title while the assistant worked")
+        }
+    }
+
+    /// `node` tapped until it is selected, the canvas given the keys with it, as a tap gives them:
+    /// what a ⇧Tab that arrived as a Tab, going on past `node`, is put back to.
+    @MainActor
+    private func reselect(_ node: XCUIElement) throws {
+        node.tap()
+        guard wait(5, { node.isSelected }) else {
+            throw Unseen(description: "a tap did not select \(node.label) again: \(node.debugDescription)")
         }
     }
 
@@ -524,10 +529,10 @@ final class KeysTests: XCTestCase {
     @MainActor
     private func escapeInTheFindBar(_ app: XCUIApplication) -> String {
         let field = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Find in the deck'")).firstMatch
-        app.typeKey("f", modifierFlags: .command)
-        if !field.waitForExistence(timeout: 3) {
-            app.typeKey("f", modifierFlags: [.command, .shift])
-            guard field.waitForExistence(timeout: 5) else {
+        let opened = { field.exists }
+        if (try? chord("f", .command, named: "⌘F, the find bar", in: app, seconds: 3, until: opened)) == nil {
+            guard (try? chord("f", [.command, .shift], named: "⇧⌘F, the find bar", in: app, until: opened)) != nil
+            else {
                 return "neither ⌘F nor ⇧⌘F opened the find bar to try it in"
             }
         }

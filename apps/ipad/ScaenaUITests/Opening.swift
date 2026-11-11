@@ -1,4 +1,8 @@
+import OSLog
 import XCTest
+
+/// What the tests say in `log.txt` beside the app (`apps/ipad/app-test.sh` keeps the subsystem's lines).
+private let chords = Logger(subsystem: "com.welshofer.Scaena", category: "chords")
 
 /// What a test looked for and did not find, with what the app showed: thrown, it fails the test.
 struct Unseen: Error, CustomStringConvertible {
@@ -113,20 +117,42 @@ extension XCTestCase {
         return holds()
     }
 
-    /// `key` with `modifiers` pressed until `done` holds: waited on for `seconds`, then sent once
-    /// more where the app did not hear it, as a loaded simulator drops a key sent a fixed pause after
-    /// the last. Whether `done` came to hold. A key heard is never sent twice, unless its effect took
-    /// longer than `seconds` to show.
+    /// A chord, `key` with `modifiers`, pressed until `done` holds, as every chord a UI test sends
+    /// is pressed. XCUITest on the simulator sometimes delivers a chord without its modifier: ⌘.,
+    /// ⌥⌘K, ⇧⌘K, ⇧⌘J, ⇧Tab, and ⇧→ have each reached the app as the key alone, flags 0, no
+    /// modifier pressed before it (the app's key log, `docs/gate-4.md`), and a loaded simulator
+    /// drops a key outright. So the chord's effect is waited on for `seconds`; where it did not
+    /// come, `restore` puts back what the key alone did (a bare ⇧Tab is a Tab, which goes on), and
+    /// the chord is sent again, three tries in all. A chord that takes effect on a later try is
+    /// said, in the test's activities and in `log.txt`, as "chord arrived bare N times", so a run
+    /// keeps the evidence; one that never takes effect throws, naming it and its tries. What the
+    /// chord does is never taken on trust: `done` is the premise, held on every try.
     @MainActor
-    func pressed(
-        _ key: String, _ modifiers: XCUIElement.KeyModifierFlags, in app: XCUIApplication, seconds: TimeInterval = 10,
-        until done: () -> Bool
-    ) -> Bool {
-        for _ in 0..<2 {
+    func chord(
+        _ key: String, _ modifiers: XCUIElement.KeyModifierFlags, named name: String, in app: XCUIApplication,
+        seconds: TimeInterval = 5, restoring restore: () throws -> Void = {}, until done: () -> Bool
+    ) throws {
+        let tries = 3
+        for attempt in 1...tries {
             app.typeKey(key, modifierFlags: modifiers)
-            if wait(seconds, done) { return true }
+            if wait(seconds, done) {
+                if attempt > 1 { saidBare(attempt - 1, name) }
+                return
+            }
+            if attempt < tries { try restore() }
         }
-        return false
+        throw Unseen(
+            description: "\(name) took no effect in \(tries) tries, \(Int(seconds)) s each, put back between them: "
+                + app.debugDescription)
+    }
+
+    /// A chord that took effect only on a later try, said where a run keeps it: an activity of the
+    /// test's, and a line of `log.txt`, which keeps what the Scaena subsystem says in any process.
+    @MainActor
+    private func saidBare(_ times: Int, _ name: String) {
+        let line = "chord arrived bare \(times) times (or did not arrive): \(name)"
+        chords.notice("\(line, privacy: .public)")
+        XCTContext.runActivity(named: line) { _ in }
     }
 
     /// `element` tapped until `done` holds: waited on for `seconds`, then tapped once more where
