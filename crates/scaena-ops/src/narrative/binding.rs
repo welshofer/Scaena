@@ -56,9 +56,10 @@ pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
 }
 
 /// The data sources a chart's `named` source may be: the one called so, else the one sheet the
-/// deck keeps by that sheet's own name, else each sheet the deck keeps from the workbook named, whose id is the workbook's name and the sheet's
-/// (`navette-mensuel` for "navette.xlsx"), in the deck's order. A model names the file it was
-/// given, never the id Scaena kept a sheet under (W1's dogfood 10).
+/// deck keeps by that sheet's own name, else each sheet the deck keeps from the workbook named,
+/// whose id is the workbook's name and the sheet's (`navette-mensuel` for "navette.xlsx"), in the
+/// deck's order. A model names the file it was given, never the id Scaena kept a sheet under
+/// (W1's dogfood 10).
 pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
     if let Some(id) = source_named(deck, named) {
         return vec![id];
