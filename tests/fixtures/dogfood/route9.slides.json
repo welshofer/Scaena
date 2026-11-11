@@ -1,0 +1,189 @@
+{
+ "executiveSummary": "Free fares on Route 9 for one year would bring back the trips riders skip, for less than the city spends on one parking garage.",
+ "slides": [
+  {
+   "slideTitle": "Route 9, free for a year",
+   "subtitle": "A proposal to the city council",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.2,
+   "sourceRef": ""
+  },
+  {
+   "slideTitle": "58% of riders skip trips because of the fare",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "58%",
+    "of Route 9 riders skip trips because of the fare"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.4,
+   "sourceRef": "survey.md"
+  },
+  {
+   "slideTitle": "Who rides Route 9",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "64% have no car",
+    "71% ride to work or school",
+    "Most named stop: Eastgate Medical Center"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": -0.3,
+   "sourceRef": "survey.md"
+  },
+  {
+   "slideTitle": "Ridership dipped in June",
+   "subtitle": "",
+   "layoutSuggestion": "Bar Chart",
+   "keyBullets": [
+    "Monthly boardings, Jan–Jun 2025"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.2,
+   "sourceRef": "ridership.csv",
+   "chartData": {
+    "categories": [
+     "Jan",
+     "Feb",
+     "Mar",
+     "Apr",
+     "May",
+     "Jun"
+    ],
+    "series": [
+     {
+      "name": "Boardings",
+      "values": [
+       41200,
+       40100,
+       43800,
+       44900,
+       46200,
+       39800
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "slideTitle": "Discount passes haven't moved the number",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Monthly pass: riders still pay up front",
+    "Reduced fare card: few know it exists"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.5,
+   "expectedValence": -0.2
+  },
+  {
+   "slideTitle": "Make Route 9 free for twelve months",
+   "subtitle": "",
+   "layoutSuggestion": "Thesis",
+   "keyBullets": [],
+   "speakerNotes": "",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.75,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "What it costs",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "$590,000",
+    "a year in fares the city would forgo"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.2,
+   "sourceRef": "survey.md"
+  },
+  {
+   "slideTitle": "Kansas City saw 12% more riders in a year",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "12%",
+    "more riders in the first year of zero fares"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.6,
+   "sourceRef": "survey.md"
+  },
+  {
+   "slideTitle": "How we would know it worked",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Boardings each month against 2025",
+    "Trips to Eastgate Medical Center",
+    "A second survey at month six",
+    "A report to council at month twelve"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "Thank you",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "Questions?"
+   ],
+   "speakerNotes": "",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "",
+   "intent": "",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  }
+ ]
+}
