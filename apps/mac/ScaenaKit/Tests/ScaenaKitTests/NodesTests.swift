@@ -23,6 +23,26 @@ import Testing
     #expect(locking(["a"], own: { _ in true }, on: true).ops.isEmpty, "locked already")
 }
 
+/// Insert on a step a build by bullet made enters on the slide's first state, so it stands on
+/// every step; on a step a person made, there, as the browser's (lift-up 20261110). B1's
+/// `refuse-2` made a build's step by saying only which of the list's paragraphs it draws.
+@Test func whatIsInsertedOnABuildsStepStandsOnItsSlide() throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let k = try #require(editor.slots.firstIndex { $0.state == "refuse-2" })
+    try editor.make([["op": "replace", "path": .string("/states/\(k)/props/items"), "value": ["paragraphs": [1, 1]]]])
+    let session = editor.session
+    let n = try #require(try session.inserts().firstIndex { $0.label == "Text · body" })
+    let entered = { (added: Added) in added.patch.first { $0["op"]?.string == "add_node" }?["state"]?.string }
+    let built = try session.inserting(state: "refuse-2", n: n, at: CGPoint(x: 960, y: 900))
+    #expect(entered(built) == "refuse", "on a build's step, from the slide's first")
+    try editor.make(built.patch)
+    for state in ["refuse", "refuse-2", "refuse-3"] {
+        #expect(try session.boxes(state: state).contains { $0.node == built.id }, "\(state) shows it")
+    }
+    let made = try session.inserting(state: "goal-why", n: n, at: CGPoint(x: 960, y: 900))
+    #expect(entered(made) == "goal-why", "on a person's step, from that step")
+}
+
 /// Insert, ⌘D, Delete, and Lock (PLAN 3.11), as the browser's (PLAN 2.34, 2.79, 2.95): what the
 /// deck offers, inserted about a point and entering in the state shown; a copy beside it; a
 /// node taken out of the deck where no state shows it after; and a node locked by its own lock.
