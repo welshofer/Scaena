@@ -781,7 +781,8 @@ impl Session {
     /// "headline", "start", "span", "hold" }]`, ms (SPEC §2.4), `slide` the slide each builds on,
     /// `said` the state as a person counts it, `Slide 3, step 2` (PLAN 2.99), and `headline` the
     /// words that head it, where a text does (`reading::headline`), which a slide list reads its
-    /// rows by (lift-up 10-24b USE-4), and `story` its place in the talk, where a beat names it
+    /// rows by (lift-up 10-24b USE-4), and `headlineNode` the text that heads it, which an editor
+    /// types in when a finding asks for its headline (editor dogfood 6), and `story` its place in the talk, where a beat names it
     /// ([`Session::story_place`]). What a player auto-advances by, and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
@@ -795,12 +796,19 @@ impl Session {
         let snaps = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
         let headline =
             |id: &str| (snaps.iter()).find(|s| s.state_id == id).and_then(|s| scaena_core::reading::headline(deck, s));
+        // The text that heads it, which an editor types in when a finding asks for its headline.
+        let headline_node = |id: &str| {
+            (snaps.iter()).find(|s| s.state_id == id).and_then(|s| scaena_core::reading::headline_node(deck, s))
+        };
         let slots: Vec<serde_json::Value> = (timeline.slots.iter())
             .map(|s| {
                 let slide = slide(&s.state);
                 let said = said(&s.state);
                 let headline = headline(&s.state);
                 let mut slot = serde_json::json!({ "state": s.state, "slide": slide, "said": said, "headline": headline, "start": s.start, "span": s.span, "hold": s.hold });
+                if let Some(node) = headline_node(&s.state) {
+                    slot["headlineNode"] = serde_json::Value::String(node);
+                }
                 if let Some(place) = story.get(&s.state) {
                     slot["story"] = place.json();
                 }
@@ -3715,6 +3723,13 @@ mod tests {
         };
         assert_eq!(headline("cover"), "High Country Trails");
         assert_eq!(headline("agenda"), "Tonight");
+        // And the text that heads it, which an editor types in when a finding asks for its headline
+        // (editor dogfood 6).
+        let node = |state: &str| {
+            slots.as_array().unwrap().iter().find(|s| s["state"] == state).unwrap()["headlineNode"].clone()
+        };
+        assert_eq!(node("cover"), "cover-title");
+        assert_eq!(node("agenda"), "agenda-title");
     }
 
     /// The trails example, the site's demo deck, its files handed over as a page hands them.

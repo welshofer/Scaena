@@ -1569,6 +1569,12 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     // has drawn the slide's choices (editor dogfood 6).
     field: async (state, field) => {
       await showState(state);
+      // A headline is typed in where it stands, its words selected so typing takes their place.
+      if (field === "headline") {
+        const node = (taken?.edited ?? last)?.slots?.find((s) => s.state === state)?.headlineNode;
+        if (node) return board.typeOver(node);
+        return say("This slide has no headline to type in");
+      }
       tab("inspector");
       const sought = field === "notes" ? '#inspector textarea[data-prop="notes"]' : `#look-plan-${field}`;
       for (let waited = 0; waited < 5000; waited += 50) {

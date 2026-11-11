@@ -27,7 +27,8 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
-  /** Show `state` and the Format tab's `field` for it, scrolled to and in focus (editor dogfood 6). */
+  /** Show `state` and the Format tab's `field` for it, scrolled to and in focus, or for its headline,
+   * typing begun in it with its words selected (editor dogfood 6). */
   field(state: string, field: Field): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
   make(ops: unknown[], done: string): Promise<void>;
@@ -62,19 +63,18 @@ export interface StoryEditor {
   words(): Ladders | undefined;
 }
 
-/** A field of the Format tab a finding's to-do names: the slide's plan's Intensity, and its
- * presenter's notes (editor dogfood 6). */
-export type Field = "intensity" | "notes";
+/** What a finding's to-do names for a person to edit: the slide's plan's Intensity and its
+ * presenter's notes in the Format tab, or its headline, typed in on the canvas (editor dogfood 6). */
+export type Field = "intensity" | "notes" | "headline";
 
 /** What the button that opens each field says. */
-const FIELD: Record<Field, string> = { intensity: "Set its Intensity", notes: "Edit its notes" };
+const FIELD: Record<Field, string> = { intensity: "Set its Intensity", notes: "Edit its notes", headline: "Edit its headline" };
 
-/** The field of the Format tab a finding's to-do names, by the `field` health gives it, else by
- * where its `path` says its plan is written: none where it names none of the Format tab's. A
- * headline is typed on the canvas, and a claim offers Check the claim. Never read from the ask's
- * words. */
+/** What a finding's to-do names for a person to edit, by the `field` health gives it, else by where
+ * its `path` says its plan is written: none where it names none of these. A claim offers Check the
+ * claim. Never read from the ask's words. */
 export function fieldOf(f: HealthFinding): Field | undefined {
-  if (f.field === "intensity" || f.field === "notes") return f.field;
+  if (f.field === "intensity" || f.field === "notes" || f.field === "headline") return f.field;
   return f.path?.endsWith("/intensity") ? "intensity" : undefined;
 }
 
