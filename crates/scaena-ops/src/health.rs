@@ -1054,7 +1054,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         true => arc::beat_names(arc_name.as_deref()).into_iter().map(str::to_string).collect(),
         false => settled,
     };
+    // A beat's whole name, as the data keeps it, and as a sentence says it.
     let beat_name = |k: usize| beats.get(k).cloned().unwrap_or_else(|| format!("beat {}", k + 1));
+    let beat_said = |k: usize| headed(&beat_name(k)).to_string();
     let (fidelity_score, bends) = match &arc_name {
         Some(_) => {
             let own = arc::fidelity(&read, &curve, &arc::FidelityOptions::default());
@@ -1436,7 +1438,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let meta = read[i].narrative_meta.as_ref()?;
         let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
             .and_then(Value::as_str);
-        settled.or(meta.beat_name.as_deref()).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string)
+        settled.or(meta.beat_name.as_deref()).map(headed).filter(|n| !n.is_empty()).map(str::to_string)
     };
     for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
@@ -1564,7 +1566,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // The beat a slide was written for, by the settled outline's name, else the arc's.
     let named_beat = |id: &str| -> Option<String> {
         let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
-        beats.get(k).map(|b| b.trim().to_string()).filter(|b| !b.is_empty())
+        beats.get(k).map(|b| headed(b).to_string()).filter(|b| !b.is_empty())
     };
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
@@ -1662,13 +1664,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     for &(i, was_beat, now_beat) in &drifted {
         let id = read[i].id.as_str();
-        let (was, now) = (beat_name(was_beat), beat_name(now_beat));
+        let (was, now) = (beat_said(was_beat), beat_said(now_beat));
         let k = i + 1;
         let fix = at(id, "beatIndex").zip(at(id, "beatName")).map(|(index, name)| Fix {
             says: format!("Make it part of {now}"),
             patch: vec![
                 json!({ "op": "replace", "path": index, "value": now_beat }),
-                json!({ "op": "replace", "path": name, "value": now }),
+                json!({ "op": "replace", "path": name, "value": beat_name(now_beat) }),
             ],
         });
         find(
@@ -1743,7 +1745,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let part = if name.is_empty() {
             format!("part {} of the talk", k + 1)
         } else {
-            format!("the {name} part of the talk")
+            format!("the {} part of the talk", headed(name))
         };
         let claim = unstopped(claim);
         let slides = spanned(&of);
@@ -2321,6 +2323,18 @@ fn line_said(line: &str) -> std::collections::BTreeSet<String> {
 /// (W1's dogfood 3 and 4). A question or an exclamation keeps its mark, which says how it reads.
 fn unstopped(sentence: &str) -> &str {
     sentence.trim_end().trim_end_matches('.').trim_end()
+}
+
+/// A beat's name as a sentence says it (W1's dogfood 8): a name written as a heading and its
+/// gloss, "Solution: Introduce your answer", is said by its heading, "Solution", as the browser's
+/// Tighten takes it; the whole name stays in the data. A name with nothing on one side of its
+/// colon is said whole, trimmed.
+fn headed(name: &str) -> &str {
+    let name = name.trim();
+    match name.split_once(':') {
+        Some((head, gloss)) if !head.trim().is_empty() && !gloss.trim().is_empty() => head.trim(),
+        _ => name,
+    }
 }
 
 /// The most words a tone ask names on either side.
@@ -3808,6 +3822,33 @@ mod tests {
         let h = of(&deck);
         assert_eq!(h.slides[2].sources, ["ipcc.pdf", "https://example.org/noaa"]);
         assert!(h.slides.iter().enumerate().all(|(i, s)| i == 2 || s.sources.is_empty()));
+    }
+
+    /// A beat named as a heading and its gloss is said by its heading wherever health names it
+    /// (W1's dogfood 8), "Existing Approaches: what teams use today" as "Existing Approaches",
+    /// the whole name kept in the data; a name with nothing on one side of its colon is said whole.
+    #[test]
+    fn a_beat_is_said_by_its_heading() {
+        assert_eq!(headed("Solution: Introduce your answer"), "Solution");
+        assert_eq!(headed("  Impact: Quantify cost of inaction "), "Impact");
+        assert_eq!(headed("Call to Action"), "Call to Action");
+        assert_eq!(headed("Note:"), "Note:");
+        assert_eq!(headed(": a gloss alone"), ": a gloss alone");
+
+        let mut deck = dogfood("fleet", "", |_| {});
+        let beats = deck.pointer_mut("/meta/narrative/outline/beats").and_then(Value::as_array_mut).unwrap();
+        let named = beats.iter_mut().find(|b| b["name"] == "Existing Approaches").expect("fleet's beat");
+        named["name"] = json!("Existing Approaches: what teams use today");
+        let h = of(&deck);
+        let opened = h.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == 4).expect("the turn into it");
+        assert!(opened.says.starts_with("Slide 4 opens Existing Approaches with nothing"), "{}", opened.says);
+        assert!(opened.ask.contains(" into Existing Approaches, "), "{}", opened.ask);
+        assert!(!h.findings.iter().any(|f| f.says.contains("what teams use") || f.ask.contains("what teams use")));
+        assert!(
+            h.beats.iter().any(|b| b == "Existing Approaches: what teams use today"),
+            "the whole name stays in the data: {:?}",
+            h.beats
+        );
     }
 
     #[test]
