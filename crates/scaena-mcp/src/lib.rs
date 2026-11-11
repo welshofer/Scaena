@@ -1009,7 +1009,7 @@ pub struct DeckGenerate {
     /// slide's words), `beatIndex`
     /// and `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),
     /// `expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is
-    /// drawn.
+    /// drawn. `scaena://examples/ferry.generate.json` is a whole call that lints clean.
     pub slides: Map<String, Value>,
     /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
     /// or a theme file. `dusk` without it.

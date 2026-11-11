@@ -133,6 +133,7 @@ async fn the_tools_and_resources_are_listed() {
         "scaena://lint/catalog",
         "scaena://examples/revenue.deck.json",
         "scaena://examples/trails.deck.json",
+        "scaena://examples/ferry.generate.json",
     ] {
         assert!(resources.iter().any(|r| r == uri), "{uri}: {resources:?}");
     }
@@ -1597,25 +1598,25 @@ async fn route_nines_bar_chart_of_months_lights_june_as_its_file_reads_it() {
     client.cancel().await.unwrap();
 }
 
-/// R1's ferry call (`tests/ferry.generate.json`, agent dogfood 2), after #1056: its line chart of
-/// riders by year binds first and types `year` as dates; its bar chart of turnaways binds after,
-/// reading the column as dates, so what it lights by a year names that year's row. The deck it
-/// makes lints 0; on main it lit "2025" and lint found E103.
+/// The worked call an agent is pointed to (`docs/examples/ferry.generate.json`, served as
+/// `scaena://examples/ferry.generate.json`; R1's agent dogfood 2), with the data file beside it
+/// (`docs/examples/data/ferry.csv`), after #1056: its line chart of riders by year binds first
+/// and types `year` as dates; its bar chart of turnaways binds after, reading the column as
+/// dates, so what it lights by a year names that year's row. The deck it makes lints 0, every
+/// slide in the layout it asked for and every item set: an example that teaches nothing wrong.
 #[tokio::test(flavor = "multi_thread")]
 async fn r1s_ferry_deck_binds_both_its_charts_and_lints_clean() {
     let root = scratch("ferry-call");
     let client = connect_in(&root).await;
     std::fs::create_dir_all(root.join("data")).unwrap();
-    std::fs::write(
-        root.join("data/ferry.csv"),
-        "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2022,468000,90.4,1872,3100\n2023,521000,89.8,2084,4800\n2024,566000,88.1,2264,7200\n2025,604000,86.9,2416,9800\n",
-    )
-    .unwrap();
-    let mut call: Value = serde_json::from_str(include_str!("ferry.generate.json")).unwrap();
+    std::fs::copy(Path::new(EXAMPLES).join("data/ferry.csv"), root.join("data/ferry.csv")).unwrap();
+    let mut call: Value = serde_json::from_str(include_str!("../../../docs/examples/ferry.generate.json")).unwrap();
     let bundle = root.join("ferry");
     call["bundle"] = json!(path(&bundle));
     let made = ok(&client, "deck_generate", call).await;
-    assert!(made.get("unbound").is_none(), "{made:#}");
+    for said in ["unbound", "unset", "fell"] {
+        assert!(made.get(said).is_none(), "{said}: {made:#}");
+    }
     let d: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap();
     let charts: Vec<&Value> = d["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "chart").collect();
     assert_eq!(charts.len(), 2);
