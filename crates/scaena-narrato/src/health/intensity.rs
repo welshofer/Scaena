@@ -451,9 +451,54 @@ pub fn detected(text: &str, language: Option<&str>) -> Option<f64> {
     Some(js::clamp(shifted, 0.0, 1.0))
 }
 
+/// The words `text`'s intensity was read from (Scaena's, not Vzestup's): each hit of the arousal
+/// lexicons with its weight above zero, each of the dampeners' below, and the words and marks of
+/// its shape that heat a reading, "you" and its kin, a superlative, a word of magnitude, and each
+/// `!` and `?`, at their own weights; none where [`detected`] reads nothing. It moves no
+/// reading: what an intensity finding names, so the writer knows which words to change (R1's MCP
+/// dogfood).
+pub fn heard(text: &str, language: Option<&str>) -> Option<Vec<(String, f64)>> {
+    let tokens = lexicon::tokens(text);
+    if tokens.len() < 3 || !lexicon::english(text, language) {
+        return None;
+    }
+    let joined = tokens.join(" ");
+    let mut out = lexicon::hits(&tokens, &joined, &AROUSAL_STEMS, &AROUSAL_WORDS);
+    out.extend(lexicon::hits(&tokens, &joined, &DAMPENER_STEMS, &DAMPENER_WORDS));
+    for t in &tokens {
+        let weight = if SECOND_PERSON.contains(&t.as_str()) {
+            W.second_person
+        } else if SUPERLATIVE_WORDS.contains(&t.as_str()) || (t.len() >= 6 && t.ends_with("est")) {
+            W.superlative
+        } else if MAGNITUDE_WORDS.contains(&t.as_str()) {
+            W.magnitude
+        } else {
+            continue;
+        };
+        out.push((t.clone(), weight));
+    }
+    out.extend(text.matches('!').map(|m| (m.to_string(), W.exclamation)));
+    out.extend(text.matches('?').map(|m| (m.to_string(), W.question)));
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_a_reading_heard_is_its_lexicons_and_its_heated_shapes() {
+        let hot = heard("You will never see a launch like it! Ready?", None).expect("a reading");
+        let words: Vec<&str> = hot.iter().map(|(w, _)| w.as_str()).collect();
+        for w in ["you", "never", "!", "?"] {
+            assert!(words.contains(&w), "{w} in {words:?}");
+        }
+        assert!(hot.iter().all(|(_, weight)| *weight != 0.0));
+        let calm = heard("Quarterly summary and overview of the notes, etc.", None).expect("a reading");
+        assert!(calm.iter().any(|(_, weight)| *weight < 0.0), "a dampener: {calm:?}");
+        assert_eq!(heard("Hi all", None), None);
+        assert_eq!(heard("Die Marge ist kein Zufall, sondern Arbeit", Some("de")), None);
+    }
 
     /// The two anchors the gap detector is calibrated against.
     const FLAT_STATUS: &str = "Q3 status update. Items: A, B, C. No changes.";
