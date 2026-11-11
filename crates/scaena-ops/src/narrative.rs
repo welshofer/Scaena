@@ -7438,7 +7438,7 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     }
     // Two the headline compares, the first its subject ("Une station au nord fait cinq fois moins
     // de trajets qu'au centre" lights Nord, R1's French dogfood 4).
-    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang)) {
+    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories))) {
         return Some(i);
     }
     if let [one] = named.as_slice() {
@@ -7503,8 +7503,10 @@ fn headlined(categories: &[String], headline: &str) -> Option<usize> {
 /// "X … than Y", "X … que Y", "X … als Y", or "X vs Y", where the word that compares stands between
 /// the two (R1's French dogfood 4). A "que" or an "als" compares only after a word that does
 /// ("cinq fois moins … qu'au centre", "mehr Fahrten als", "dreimal so viele … wie"), since each
-/// also joins clauses. None where the headline names other than two, or compares neither.
-fn compared(categories: &[String], headline: &str, lang: &str) -> Option<usize> {
+/// also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
+/// own (`ordered`, years or quarters), it names no subject, and "2024 vs 2025" is left to the
+/// rules that light the latest. None where the headline names other than two, or compares neither.
+fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) -> Option<usize> {
     let words: Vec<String> =
         (headline.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
     // Where in the headline a category is first named, as `headlined` names one.
@@ -7523,7 +7525,7 @@ fn compared(categories: &[String], headline: &str, lang: &str) -> Option<usize> 
     let [(a, first), (b, second)] = named.as_slice() else { return None };
     let ((from, subject), to) = if a < b { ((*a, *first), *b) } else { ((*b, *second), *a) };
     let between = &words[from + 1..to];
-    let plain = |w: &str| matches!(w, "vs" | "versus");
+    let plain = |w: &str| !ordered && matches!(w, "vs" | "versus");
     let (joins, after): (&[&str], &[&str]) = match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
         Some("fr") => (&["que", "qu"], &["plus", "moins", "fois", "autant", "mieux", "pire", "davantage"]),
         Some("es") => (&["que"], &["m\u{e1}s", "menos", "veces", "mejor", "peor", "mayor", "menor"]),
@@ -8555,7 +8557,22 @@ mod tests {
         assert_eq!(lit(&fr, "Le nord et le centre, que la ligne relie", "fr"), Some(1));
         assert_eq!(lit(&de, "Als der Norden wuchs, wuchs auch das Zentrum", "de"), Some(1));
         assert_eq!(lit(&en, "North and Center ran full", "en"), Some(1));
-        assert_eq!(compared(&fr.categories, "Nord, centre et sud", "fr"), None, "three named");
+        assert_eq!(compared(&fr.categories, "Nord, centre et sud", "fr", false), None, "three named");
+        // A bare "vs" between years or quarters names no subject: the latest is lit, as before. A word
+        // that compares does name one.
+        let revenue = ChartData {
+            categories: ["2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series { name: None, values: [3.1, 5.0, 7.0].map(Some).to_vec() }],
+            ..ChartData::default()
+        };
+        assert_eq!(lit(&revenue, "Revenue 2024 vs 2025: up 40%", "en"), Some(2));
+        assert_eq!(lit(&revenue, "2025 revenue higher than 2024", "en"), Some(2));
+        assert_eq!(lit(&revenue, "2024 revenue lower than 2025", "en"), Some(1));
+        let quarters = stations(["Q1", "Q2", "Q4"]);
+        // Quarters are ordered too: "vs" names neither, and the rules light the largest, Q2, as before.
+        assert!(ordered(&quarters.categories));
+        assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
+        assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
     }
 
     /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
