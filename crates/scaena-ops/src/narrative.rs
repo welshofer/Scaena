@@ -1597,7 +1597,7 @@ pub fn looked(
 /// point either, by the layouts the deck was made in (`layouts`), are left to the look.
 ///
 /// [`names_topic`]: crate::health::names_topic
-fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
+pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
     use crate::health::{CLOSING, FRAMING};
     let framing = |index: usize| {
         index == 0 || layouts.get(index).is_some_and(|l| FRAMING.contains(&l.as_str()) || CLOSING.contains(&l.as_str()))
