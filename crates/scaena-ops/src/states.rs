@@ -774,9 +774,490 @@ fn fresh(deck: &Deck, base: &str) -> String {
         .expect("some number is free")
 }
 
+/// A slide folded into the one before it (editor dogfood 6): its words joined to that slide's
+/// place for words, its notes after that slide's, and its states taken out as `remove_slide`
+/// takes them, one patch; or why it cannot be.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Folded {
+    /// The first state of the slide it folds into: what the editor shows after.
+    pub into: String,
+    /// The patch, by `user`: one step to undo. Empty where it is refused.
+    pub patch: Vec<Value>,
+    /// What it did, in a person's words: "Folded slide 7 into slide 6".
+    pub said: String,
+    /// Why it cannot be folded, in a person's words, where it cannot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
+    /// Where its words went: the slide before's place for words, or, where it has none, its notes.
+    pub to: FoldsTo,
+}
+
+/// Where a folded slide's words go (editor dogfood 6): the slide before's place for words, or,
+/// where it has none (a big number's, a picture's), that slide's notes, ahead of the folded
+/// slide's notes, so nothing is lost and the room sees what the slide showed. What an editor
+/// says before the fold ("Fold into slide 6", "Fold into slide 6's notes") and after it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FoldsTo {
+    Place,
+    Notes,
+}
+
+/// The text of `snap` a fold joins words to: its first text in the body's role, else the lede's,
+/// else a quote's, none its headline or code.
+fn joined_place<'a>(
+    deck: &Deck,
+    snap: &'a scaena_core::Snapshot,
+) -> Option<(&'a String, &'a scaena_core::document::Props)> {
+    let head = scaena_core::reading::headline_node(deck, snap);
+    let is_text = |id: &str| deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text);
+    JOINED.iter().find_map(|role| {
+        (snap.nodes.iter()).find(|(id, p)| {
+            is_text(id)
+                && Some(id.as_str()) != head.as_deref()
+                && p.get("code").is_none()
+                && p.get("role").and_then(Value::as_str) == Some(role)
+        })
+    })
+}
+
+/// Where the words of each slide but the first would go, folded into the slide before it, by the
+/// slide's states' ids, laying nothing out: what an editor names before the fold. `snaps` are the
+/// deck's states resolved.
+pub fn folds_to(deck: &Deck, snaps: &[scaena_core::Snapshot]) -> Vec<(String, FoldsTo)> {
+    let slides = deck.slides();
+    let mut out = Vec::new();
+    for pair in slides.windows(2) {
+        let Some(was) = pair[0].last().and_then(|&i| snaps.get(i)) else { continue };
+        let to = if joined_place(deck, was).is_some() { FoldsTo::Place } else { FoldsTo::Notes };
+        out.extend(pair[1].iter().map(|&i| (deck.states[i].id.clone(), to)));
+    }
+    out
+}
+
+/// The roles whose words a fold carries: none of a slide's labels, a chart's axes, or a caption's
+/// credit, which say what the slide is, not what it says.
+fn carried(props: &scaena_core::document::Props) -> bool {
+    let role = props.get("role").and_then(Value::as_str);
+    props.get("code").is_none() && !matches!(role, Some("label" | "kicker" | "caption" | "axis" | "value"))
+}
+
+/// The roles a fold may join words to: a slide's place for words, the body first, then its lede.
+const JOINED: [&str; 3] = ["body", "lede", "quote"];
+
+/// The words a slide folded at `last` carries, one line each, in the order it reads (SPEC §3.12):
+/// its headline first, then each other text it carries, by paragraph. A big number's figure goes
+/// with its meaning, as health reads one ("12,000: riders a day"): a slide's one figure with its
+/// headline, as the slide is read by it, and each of several with the text read after it; a
+/// figure the slide before (`was`) shows already is not carried again.
+fn folded_words(
+    b: &Bundle,
+    deck: &Deck,
+    last: &scaena_core::Snapshot,
+    was: &scaena_core::Snapshot,
+) -> Result<Vec<String>, OpsError> {
+    let theme = crate::theme(b)?;
+    let data = crate::lint::data_files(b)?;
+    let mut engine = crate::lint::engine_with(b, &theme, None)?;
+    let mut read = Vec::new();
+    engine.frames_at_rest(deck, &theme, &data, None, std::slice::from_ref(&last.state_id), |_, list| {
+        read = scaena_core::reading::parts(deck, &data, last, &list);
+        Ok::<(), OpsError>(())
+    })?;
+    let is_text = |id: &str| deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text);
+    let figure = |p: &scaena_core::document::Props| {
+        matches!(p.get("role").and_then(Value::as_str), Some("numeral" | "hero" | "figure"))
+    };
+    let said = |p: &scaena_core::document::Props| {
+        scaena_core::reading::words(p).split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    // A figure the slide before shows, by its words.
+    let shown_before = |words: &str| was.nodes.iter().any(|(id, p)| is_text(id) && figure(p) && said(p) == words);
+    let heading = scaena_core::reading::headline_node(deck, last);
+    // The texts it carries, in the order it reads, each once.
+    let mut texts: Vec<(&String, &scaena_core::document::Props)> = Vec::new();
+    for part in &read {
+        if let Some((id, p)) = last.nodes.get_key_value(&part.node)
+            && is_text(id)
+            && Some(id.as_str()) != heading.as_deref()
+            && carried(p)
+            && !texts.iter().any(|(t, _)| *t == id)
+        {
+            texts.push((id, p));
+        }
+    }
+    let figures: Vec<String> = texts.iter().filter(|(_, p)| figure(p)).map(|(_, p)| said(p)).collect();
+    let mut lines = Vec::new();
+    let head = heading.as_deref().and_then(|h| last.nodes.get(h)).map(said).filter(|h| !h.is_empty());
+    // One figure goes with the headline, as `reading::headline` reads the slide.
+    let one = figures.len() == 1 && !shown_before(&figures[0]);
+    match (one, head) {
+        (true, _) => lines.push(scaena_core::reading::headline(deck, last).unwrap_or_else(|| figures[0].clone())),
+        (false, Some(head)) => lines.push(head),
+        (false, None) => {}
+    }
+    let mut pending: Option<String> = None;
+    for (_, p) in texts {
+        let words = said(p);
+        if figure(p) {
+            if let Some(alone) = pending.take() {
+                lines.push(alone);
+            }
+            if figures.len() > 1 && !shown_before(&words) {
+                pending = Some(words);
+            }
+            continue;
+        }
+        let mut paragraphs = scaena_core::reading::words(p)
+            .split('\n')
+            .map(|w| w.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .into_iter();
+        if let Some(fig) = pending.take() {
+            match paragraphs.next() {
+                Some(meaning) => lines.push(format!("{fig}: {meaning}")),
+                None => lines.push(fig),
+            }
+        }
+        lines.extend(paragraphs);
+    }
+    lines.extend(pending);
+    Ok(lines)
+}
+
+/// The patch that folds the slide of `state` into the slide before it (editor dogfood 6), as a
+/// Story row and the slides' menu offer it where a slide says again what the one before said, or
+/// adds least to it: the folded slide's headline, then each other text it shows at its last step,
+/// each paragraph appended to the previous slide's place for words at its last step (a list's
+/// items appended as items); its notes, and each later step's, after the previous slide's, a blank
+/// line between; and its
+/// states taken out by `remove_slide`, which takes the beat it alone told. That beat's claim is
+/// not lost: it joins the previous beat's notes, never its evidence, which health and W423 read
+/// as sources. Where the slide before has no place for words (a big number's), its words lead its
+/// notes there instead ([`FoldsTo::Notes`]). Refused, saying why, where there is no slide before
+/// it, or the words joined would run past their place (E100), as laying the deck out with the
+/// patch finds.
+pub fn folding(b: &Bundle, state: &str) -> Result<Folded, OpsError> {
+    let deck = &b.deck;
+    let i = deck.state_index(state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
+    let slides = deck.slides();
+    let k = slides.iter().position(|s| s.contains(&i)).ok_or_else(|| OpsError::unknown_state(deck, state))?;
+    let (folded, n) = (&slides[k], k + 1);
+    let refused = |into: String, why: String| Folded {
+        into,
+        patch: Vec::new(),
+        said: String::new(),
+        refused: Some(why),
+        to: FoldsTo::Place,
+    };
+    if k == 0 {
+        return Ok(refused(
+            deck.states[folded[0]].id.clone(),
+            format!("Slide {n} has no slide before it to fold into."),
+        ));
+    }
+    let prev = &slides[k - 1];
+    let into = deck.states[prev[0]].id.clone();
+    let snaps = scaena_core::resolve_states(deck).context("tracking")?;
+    let (was, last) = (&snaps[*prev.last().unwrap_or(&prev[0])], &snaps[*folded.last().unwrap_or(&folded[0])]);
+    // The previous slide's place for words, where it has one; else its notes take them.
+    let target = joined_place(deck, was);
+    // The folded slide's words, in the order it reads (SPEC §3.12), its headline first.
+    let lines = folded_words(b, deck, last, was)?;
+    let joined = lines.join("\n");
+    let mut patch = Vec::new();
+    if let Some((target, props)) = target
+        && !joined.is_empty()
+    {
+        let written = scaena_core::reading::words(props);
+        let at = written.chars().count();
+        let text = if written.trim().is_empty() { joined.clone() } else { format!("\n{joined}") };
+        let shown = &deck.states[*prev.last().unwrap_or(&prev[0])].id;
+        patch.push(json!({ "op": "replace_text", "node": target, "from": at, "to": at, "text": text, "state": shown }));
+    }
+    // Notes, each after what is there with a blank line: the folded slide's after the previous
+    // slide's, where they live (its first state's own, else its beat's), and the claim of a beat
+    // the fold leaves with no slide after the previous beat's.
+    let ids = |slide: &[usize]| slide.iter().map(|&s| deck.states[s].id.clone()).collect::<Vec<_>>();
+    let (gone, kept) = (ids(folded), ids(prev));
+    let after = |was: &str, more: &str| match (was.trim().is_empty(), more.trim().is_empty()) {
+        (_, true) => was.to_string(),
+        (true, false) => more.trim().to_string(),
+        (false, false) => format!("{}\n\n{}", was.trim_end(), more.trim()),
+    };
+    let beats: Vec<(usize, usize, &scaena_core::document::Beat)> = (deck.spine.iter().flat_map(|s| s.sections.iter()))
+        .enumerate()
+        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+        .collect();
+    let beat_of = |state: &str| beats.iter().find(|(_, _, b)| b.states.iter().any(|s| s == state));
+    let mut beat_notes: Vec<((usize, usize), String)> = Vec::new();
+    let to_beat = |at: (usize, usize), was: &str, more: &str, notes: &mut Vec<((usize, usize), String)>| match notes
+        .iter_mut()
+        .find(|(b, _)| *b == at)
+    {
+        Some((_, text)) => *text = after(text, more),
+        None => notes.push((at, after(was, more))),
+    };
+    // The folded slide's notes as its presenter reads them, but a beat's it shares with the slide
+    // before, which that slide reads already.
+    let first_gone = &deck.states[folded[0]];
+    let shared = first_gone.notes.is_none()
+        && beat_of(&first_gone.id).is_some_and(|(s, b, _)| beat_of(&kept[0]).is_some_and(|(t, c, _)| (s, b) == (t, c)));
+    let mut folded_notes =
+        if shared { String::new() } else { scaena_core::spine::notes(deck, &gone[0]).unwrap_or("").to_string() };
+    // Each later step's own notes after them, as a presenter reads them in turn.
+    for &step in &folded[1..] {
+        if let Some(own) = deck.states[step].notes.as_deref() {
+            folded_notes = after(&folded_notes, own);
+        }
+    }
+    // With no place for them, its words lead its notes there.
+    if target.is_none() {
+        folded_notes = after(&joined, &folded_notes);
+    }
+    if !folded_notes.trim().is_empty() {
+        let first = &deck.states[prev[0]];
+        match (&first.notes, beat_of(&first.id)) {
+            (None, Some((s, b, beat))) => {
+                to_beat((*s, *b), beat.notes.as_deref().unwrap_or(""), &folded_notes, &mut beat_notes)
+            }
+            (own, _) => patch.push(json!({
+                "op": "add", "path": format!("/states/{}/notes", prev[0]),
+                "value": after(own.as_deref().unwrap_or(""), &folded_notes)
+            })),
+        }
+    }
+    if let Some((s, b, kept_in)) = beat_of(kept.last().unwrap_or(&kept[0])) {
+        for (_, _, beat) in &beats {
+            let alone = !beat.states.is_empty() && beat.states.iter().all(|s| gone.contains(s));
+            if alone && !beat.claim.trim().is_empty() {
+                to_beat((*s, *b), kept_in.notes.as_deref().unwrap_or(""), &beat.claim, &mut beat_notes);
+            }
+        }
+    }
+    for ((s, b), notes) in beat_notes {
+        patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}/notes"), "value": notes }));
+    }
+    patch.push(json!({ "op": "remove_slide", "slide": gone[0] }));
+    // Checked as a patch is, and laid out: words that run past their place are no fold.
+    let (patched, _) = crate::patch::patching(b, &Value::Array(patch.clone()), Some("Fold slide"))?;
+    if patched.refused {
+        let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
+        let why = why.map_or_else(|| "the deck would not read".to_string(), |f| f.message.clone());
+        return Ok(refused(into, format!("Slide {n} cannot be folded into slide {k}: {why}.")));
+    }
+    if let Some((target, _)) = target
+        && patched.added.iter().any(|f| f.code == "E100" && f.node.as_deref() == Some(target.as_str()))
+    {
+        return Ok(refused(
+            into,
+            format!(
+                "Slide {n}'s words would run past slide {k}'s place for them: shorten them first, or cut slide {n}."
+            ),
+        ));
+    }
+    let (said, to) = match target {
+        Some(_) => (format!("Folded slide {n} into slide {k}"), FoldsTo::Place),
+        None => (format!("Folded slide {n} into slide {k}'s notes"), FoldsTo::Notes),
+    };
+    Ok(Folded { into, patch, said, refused: None, to })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn b1() -> Bundle {
+        crate::open(std::path::Path::new("../../tests/bench/b1.scaena")).unwrap()
+    }
+
+    /// `patch` applied to `b`'s deck, as the editor applies it.
+    fn applied(b: &Bundle, patch: &[Value]) -> Deck {
+        let files = crate::lint::View::of(b);
+        let doc = scaena_core::patch::compile(&b.deck.to_value().unwrap(), patch, &files).unwrap().doc;
+        Deck::from_value(&doc).unwrap()
+    }
+
+    /// B1 with slides 3 and 4 written short, so the one's words fit the other's place.
+    fn short() -> Bundle {
+        let mut b = b1();
+        for (state, node, text) in [
+            ("belief-1-why", "body", "Frames were the mistake."),
+            ("belief-2-why", "body", "Name it once."),
+            ("belief-2-line", "aside", "One scene."),
+        ] {
+            let i = b.deck.state_index(state).unwrap();
+            b.deck.states[i].props.insert(node.into(), serde_json::from_value(json!({ "text": text })).unwrap());
+        }
+        b
+    }
+
+    /// The words `node` shows at `state` of `deck`.
+    fn shown(deck: &Deck, state: &str, node: &str) -> String {
+        let snaps = scaena_core::resolve_states(deck).unwrap();
+        let snap = snaps.iter().find(|s| s.state_id == state).unwrap();
+        scaena_core::reading::words(&snap.nodes[node])
+    }
+
+    /// A slide folded into the one before it (editor dogfood 6): its headline, then its body,
+    /// after the previous slide's words at its last step; its states gone with the beat it alone
+    /// told, whose claim joins the previous beat's notes; one patch, said in a person's words.
+    #[test]
+    fn a_slide_folds_into_the_one_before_it_its_claim_kept_in_the_notes() {
+        let b = short();
+        let before = shown(&b.deck, "belief-1-line", "body");
+        let headline = shown(&b.deck, "belief-2-line", "headline");
+        let body = shown(&b.deck, "belief-2-line", "body");
+        let aside = shown(&b.deck, "belief-2-line", "aside");
+        // Any of its states names the slide.
+        let folded = folding(&b, "belief-2-why").unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        assert_eq!((folded.into.as_str(), folded.said.as_str()), ("belief-1", "Folded slide 4 into slide 3"));
+        assert_eq!(folded.patch.last(), Some(&json!({ "op": "remove_slide", "slide": "belief-2" })));
+        let deck = applied(&b, &folded.patch);
+        assert_eq!(shown(&deck, "belief-1-line", "body"), format!("{before}\n{headline}\n{body}\n{aside}"));
+        assert_eq!(deck.slides().len(), b.deck.slides().len() - 1);
+        assert!(deck.state_index("belief-2").is_none() && deck.state_index("belief-2-line").is_none());
+        let beats: Vec<_> = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).collect();
+        assert!(beats.iter().all(|beat| beat.id != "belief-2"), "the beat it alone told goes");
+        let kept = beats.iter().find(|beat| beat.id == "belief-1").unwrap();
+        assert_eq!(kept.notes.as_deref(), Some("Identity is the primitive."), "its claim is not lost");
+        assert!(kept.evidence.iter().all(|e| !e.contains("Identity")), "and is no source");
+        // The slide after it shows what it showed.
+        assert_eq!(shown(&deck, "belief-3-line", "body"), shown(&b.deck, "belief-3-line", "body"));
+    }
+
+    /// Its notes follow the previous slide's, a blank line between, where they are read: the
+    /// previous slide's own, else its beat's.
+    #[test]
+    fn a_folded_slides_notes_follow_the_notes_of_the_slide_before() {
+        let mut b = short();
+        let at = |deck: &Deck, id: &str| deck.state_index(id).unwrap();
+        let (one, two) = (at(&b.deck, "belief-1"), at(&b.deck, "belief-2"));
+        b.deck.states[two].notes = Some("Name every node once.".into());
+        let line = at(&b.deck, "belief-2-line");
+        b.deck.states[line].notes = Some("Then the line.".into());
+        b.deck.states[one].notes = Some("Frames were never the point.".into());
+        let deck = applied(&b, &folding(&b, "belief-2").unwrap().patch);
+        assert_eq!(
+            deck.states[at(&deck, "belief-1")].notes.as_deref(),
+            Some("Frames were never the point.\n\nName every node once.\n\nThen the line.")
+        );
+        // With no notes of its own, the previous slide reads its beat's: they follow those there.
+        b.deck.states[one].notes = None;
+        let deck = applied(&b, &folding(&b, "belief-2").unwrap().patch);
+        assert_eq!(deck.states[at(&deck, "belief-1")].notes, None);
+        let beat = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats)).find(|b| b.id == "belief-1");
+        assert_eq!(
+            beat.unwrap().notes.as_deref(),
+            Some("Name every node once.\n\nThen the line.\n\nIdentity is the primitive.")
+        );
+    }
+
+    /// No fold where there is no slide before: said in a person's words, with no patch.
+    #[test]
+    fn a_fold_with_no_slide_before_it_is_refused_saying_why() {
+        let b = b1();
+        let first = folding(&b, "cover").unwrap();
+        assert_eq!(first.refused.as_deref(), Some("Slide 1 has no slide before it to fold into."));
+        assert!(first.patch.is_empty());
+        assert!(folding(&b, "nowhere").is_err());
+    }
+
+    /// Where the slide before has no place for words, a title's or a big number's, the folded
+    /// slide's words lead its notes there, before its own notes and its beat's claim: nothing lost,
+    /// and the room sees the slide as it was. Said so before the fold and after it.
+    #[test]
+    fn a_fold_with_no_place_for_its_words_puts_them_in_the_notes() {
+        let mut b = b1();
+        let goal = b.deck.state_index("goal").unwrap();
+        b.deck.states[goal].notes = Some("Say why now.".into());
+        let snaps = scaena_core::resolve_states(&b.deck).unwrap();
+        let to = folds_to(&b.deck, &snaps);
+        assert_eq!(
+            to.iter().find(|(s, _)| s == "goal-bar").map(|(_, t)| *t),
+            Some(FoldsTo::Notes),
+            "the cover takes no words"
+        );
+        assert_eq!(to.iter().find(|(s, _)| s == "belief-2").map(|(_, t)| *t), Some(FoldsTo::Place));
+        assert!(to.iter().all(|(s, _)| s != "cover"), "the first slide folds into none");
+        let headline = shown(&b.deck, "goal-bar", "headline");
+        let body = shown(&b.deck, "goal-bar", "body");
+        let folded = folding(&b, "goal").unwrap();
+        assert_eq!(
+            (folded.said.as_str(), folded.to, folded.refused.as_deref()),
+            ("Folded slide 2 into slide 1's notes", FoldsTo::Notes, None)
+        );
+        let deck = applied(&b, &folded.patch);
+        assert_eq!(shown(&deck, "cover", "title"), shown(&b.deck, "cover", "title"), "the cover shows what it showed");
+        let beat =
+            (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats)).find(|b| b.id == "opening").unwrap();
+        let notes = beat.notes.as_deref().unwrap_or("");
+        assert!(notes.starts_with(&format!("{headline}\n{body}\n")), "{notes}");
+        assert!(notes.contains("\n\nSay why now.\n\nBuild the tool we would design today"), "{notes}");
+    }
+
+    fn trails() -> Bundle {
+        crate::open(std::path::Path::new("../../docs/examples/trails.deck.json")).unwrap()
+    }
+
+    /// A slide's words fold in the order it reads (SPEC §3.12), not the order its nodes are
+    /// written: trails' budget, its note put in front of its reason, reads its reason first.
+    #[test]
+    fn a_slides_words_fold_in_the_order_it_reads() {
+        let mut b = trails();
+        let budget = b.deck.state_index("budget").unwrap();
+        b.deck.states[budget].props.insert("budget-aside".into(), serde_json::from_value(json!({ "z": 10 })).unwrap());
+        let before = shown(&b.deck, "funding", "funding-body");
+        let folded = folding(&b, "budget").unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        let deck = applied(&b, &folded.patch);
+        assert_eq!(
+            shown(&deck, "funding", "funding-body"),
+            format!(
+                "{before}\nWe came in $6,600 under budget\nCrews drove farther to reach the Alpine segments.\nFood and travel ran $7,200 over."
+            ),
+            "the reason, written after the note, is read before it"
+        );
+    }
+
+    /// A big number's figure folds with its meaning, as health reads the slide ("6,820 volunteer
+    /// hours this season"), and is not said again where the slide before shows it already.
+    #[test]
+    fn a_big_numbers_figure_folds_with_its_meaning_unless_shown_before() {
+        let b = trails();
+        let notes = |deck: &Deck| scaena_core::spine::notes(deck, "promise").unwrap_or("").to_string();
+        let folded = folding(&b, "hours").unwrap();
+        assert_eq!((folded.to, folded.said.as_str()), (FoldsTo::Notes, "Folded slide 4 into slide 3's notes"));
+        let carried = notes(&applied(&b, &folded.patch));
+        assert!(
+            carried.contains("6,820 volunteer hours this season\nMore than three full-time years of work"),
+            "{carried}"
+        );
+        // The slide before shows the figure: its meaning goes, the figure not said twice.
+        let mut b = trails();
+        let promise = b.deck.state_index("promise").unwrap();
+        b.deck.states[promise].props.insert(
+            "promise-sub".into(),
+            serde_json::from_value(json!({ "role": "numeral", "text": "6,820" })).unwrap(),
+        );
+        let carried = notes(&applied(&b, &folding(&b, "hours").unwrap().patch));
+        assert!(carried.contains("volunteer hours this season\nMore than three"), "{carried}");
+        assert!(!carried.lines().any(|l| l.starts_with("6,820")), "{carried}");
+    }
+
+    /// Words that would run past the place they join are no fold (E100): laid out, refused. B1's
+    /// slides each fill their place, so slide 4's whole paragraph and quote have no room on slide 3.
+    #[test]
+    fn a_fold_whose_words_would_run_past_their_place_is_refused() {
+        let folded = folding(&b1(), "belief-2").unwrap();
+        assert_eq!(
+            folded.refused.as_deref(),
+            Some("Slide 4's words would run past slide 3's place for them: shorten them first, or cut slide 4.")
+        );
+        assert!(folded.patch.is_empty());
+    }
 
     fn revenue() -> Deck {
         Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap()

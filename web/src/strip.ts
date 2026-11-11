@@ -307,6 +307,20 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     );
   }
 
+  /** The slide `state` is on, folded into the slide before it (editor dogfood 6): its words joined to
+   * that slide's place for words, its notes after that slide's, one change to undo; that slide shows,
+   * at its last step, where the words joined. Or why it cannot be, said. */
+  function fold(state: string) {
+    return stage
+      .folding(editor.source(), state)
+      .then((folded) => {
+        if (folded.refused) return editor.say(folded.refused);
+        const into = (all: Slot[]) => all.reduce((at, s, i) => ((s.slide ?? s.state) === folded.into ? i : at), -1);
+        return make(folded.patch, "Folding…", `${folded.said} · ⌘Z takes it back`, into);
+      })
+      .catch((e) => editor.say(`Not folded: ${said(e)}`));
+  }
+
   const item = (e: Event) => (e.target as Element).closest<HTMLElement>("li[data-state]");
   const index = (state: string) => slots.findIndex((s) => s.state === state);
   /** `state` as a person counts it, and the slide it is on (PLAN 2.99). */
@@ -400,6 +414,7 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     move,
     remove,
     duplicate,
+    fold,
     /** The changes made through the strip, for a test: once they are. */
     settled: () => making,
     /** Each state's thumbnail digest, for a test. */

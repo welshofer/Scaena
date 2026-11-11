@@ -1219,8 +1219,8 @@ struct CanvasSelection: View {
         case .alignCenter: run = actions?.align.map { align in { align("center") } }
         case .alignRight: run = actions?.align.map { align in { align("end") } }
         // The Format menu's keys are the text typed in's own (`CanvasKeys`), and the Slide menu's
-        // go on to the menu bar.
-        case .bold, .italic, .link, .duplicateSlide: run = nil
+        // and the Play menu's go on to the menu bar.
+        case .bold, .italic, .link, .duplicateSlide, .remote: run = nil
         }
         guard let run else { return false }
         run()

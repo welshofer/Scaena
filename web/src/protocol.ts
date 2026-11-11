@@ -75,6 +75,26 @@ export interface Where {
  * one of them whatever the browser has (`gpu`, `cpu`). */
 export type Painter = "auto" | "gpu" | "cpu";
 
+/** A slide folded into the slide before it (editor dogfood 6, `scaena_ops::states::folding`): the
+ * first state of the slide it folds into, the patch (empty where it is refused), what it did in a
+ * person's words ("Folded slide 7 into slide 6"), and why it cannot be, where it cannot. */
+export interface Folded {
+  into: string;
+  patch: unknown[];
+  said: string;
+  refused?: string;
+  /** Where its words went: the slide before's place for words, or its notes where it has none. */
+  to: FoldsTo;
+}
+
+/** Where a slide's words go, folded into the slide before it: that slide's place for words, or its
+ * notes where it has none (editor dogfood 6). */
+export type FoldsTo = "place" | "notes";
+
+/** What a fold into slide `before` (as a person counts it) is called, before it is made: "Fold into
+ * slide 6", or "Fold into slide 6's notes" where that slide has no place for words. */
+export const foldLabel = (before: string, to: FoldsTo | undefined) => `Fold into ${before.toLowerCase()}${to === "notes" ? "'s notes" : ""}`;
+
 /** A state's place on the deck's timeline, ms (SPEC §2.4): where its cue starts, how long
  * its transition and motions run, and how long it then holds before the next state. */
 export interface Slot {
@@ -90,6 +110,9 @@ export interface Slot {
   /** The text that heads it, which the editor types in when a finding asks for its headline (editor
    * dogfood 6). */
   headlineNode?: string;
+  /** Where its words would go, folded into the slide before it; none on the first slide (editor
+   * dogfood 6). */
+  foldsTo?: FoldsTo;
   /** Its place in the talk, where a beat names it (lift-up FUNC-2). */
   story?: StoryPlace;
   start: number;
@@ -1349,6 +1372,9 @@ export type ToWorker =
   /** The patch that adds a state after `state`, on the deck the editor's `source` compiles to: a
    * `step` of its slide, or a `slide` of its own (PLAN 2.35). */
   | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }
+  /** The patch that folds `state`'s slide into the slide before it, on the deck the editor's
+   * `source` compiles to (editor dogfood 6). */
+  | { type: "folding"; id: number; source: string; state: string }
   /** The slides a person may start after `state`'s slide, on the deck the editor's `source`
    * compiles to (PLAN 3.30): one in each of the theme's layouts, then a blank one, each painted at
    * rest `height` pixels high in `format`. */
@@ -2323,6 +2349,8 @@ export type FromWorker =
   | { type: "pong"; id: number }
   /** The patch that adds a state, and the state's id. */
   | { type: "addingState"; id: number; added: { id: string; patch: unknown[] } }
+  /** The patch that folds a slide into the one before it, or why it cannot be. */
+  | { type: "folding"; id: number; folded: Folded }
   /** The slides a person may start, each with its picture. */
   | { type: "starters"; id: number; starters: Starter[] }
   /** The patch that starts a slide, and the slide's id. */

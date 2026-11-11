@@ -283,3 +283,33 @@ Each is a task in PLAN 1.33–1.36, or a note for a theme.
 - `docs/examples/agent-run/`:
   - `attempt-2.md`, `attempt-3.md`, and `narrative-repair.md`: the condensed transcripts, as tool calls and the agents' reports. Attempt 1 stopped before writing anything.
   - `dusk.jpg` and `ember.jpg`: the contact sheets.
+
+## A fourth run: a French deck from a PDF and a workbook (agent dogfood 4)
+
+On 2026-11-11, an agent with nothing but the scaena MCP server made a deck grounded in what a person hands over. It ran on #1084's build, which adds `deck_generate`'s `sources`.
+
+**The brief.** A ten-minute proposal to Montclar's city council, in French:
+
+- **The ask:** extend the city's bike share, VéloMontclar, to its northern districts.
+- **What it was given:** a two-page PDF annual report (`rapport-2025.pdf`) and a workbook of three sheets (`velo-2025.xlsx`). The sheets are `Annuel` (trips, bikes, and stations by year), `Quartiers` (trips per station by district), and `Mensuel` (trips by month).
+- **How it called:** one `deck_generate` call, with its seven slides written in Narrato's JSON after `ferry.generate.json`. The call carried an outline of four beats, `language: "French"`, `minutes: 10`, and both files in `sources`. Each slide named its file in `sourceRef`, and each chart named its sheet in `chartData.sourceId`.
+- **The read:** `deck_lint`, `deck_health`, and `deck_render` of three slides.
+
+**What it found**
+
+| What the agent met | Fix |
+|---|---|
+| The Big Number "1 240 000", typed as French is typed with plain spaces, drew **"1"**. The rest of the figure was gone, its claim set under it. Lint and health found nothing. | #1105: thousands a plain space groups are one figure, set with spaces no line breaks at, so the hero quotes its cell, and a group a letter or a hyphen runs on from stays a figure of its own ("5 100-metre"). Slide 6's three bullets led by "18", "2,4 M€", and "310 000 €" take Numbers with it. |
+| Charts naming their sheets as the workbook does, "Annuel" and "Quartiers", stayed on their own rows. The sheets are kept as `velo-2025-annuel` and `velo-2025-quartiers`. `unbound` said so and named the ids, but naming them by id set "Source : velo-2025-annuel · velo-2025.xlsx" on the slide. | #1115, on #1083's binding: a chart binds to a kept sheet by the sheet's own name, as #1083 binds one that names the workbook, the sheet that holds its figures found. Its source line reads "Source : Annuel · velo-2025.xlsx". |
+| `deck_render` of a state guessed from its headline (`les-trajets-ont-doubl-depuis-2021`) said only "unknown state". | #1106: it names the state meant, or the deck's first few, as every other tool does. |
+| The bar chart "Une station au nord fait cinq fois moins de trajets qu'au centre" lit Centre, the largest bar, where the headline is about Nord. | #1111 (W1): a headline that compares two bars lights its subject. |
+| Health's pacing scored 100 while the notes ran about a minute of the ten-minute slot. | Routed: no beat is timed, so the talk's words are a floor. `deck_generate`'s `notes` had said the slot (10) and the run (2.9) before any read; #1110 says that the run is the talk as health times it, not the notes alone. |
+
+**What held**
+
+- **Sources.** Each source is kept in `meta.narrative.sources` by its file's name, the PDF's bytes nowhere in the bundle. Each slide's `sourceRef` is cited in its beat's evidence (`source:rapport-2025.pdf`, `source:velo-2025.xlsx`). Each sheet is kept as a data source, `Mensuel` included, which no slide used.
+- **Quoting.** The line chart's callout quotes the 2025 cell of `Annuel`, so a `data_edit` of the cell sets the slide again.
+- **Health's findings.** Its one source finding was true: the closing writes "18" and names no source. Intensity, tone, and the big idea say they are not read in French, as designed.
+- **The renders** agreed with lint's zero, but for the "1" above.
+
+The agent guessed in three places: a sheet's id, a state's id, and whether a chart may name a workbook. The first and third are what the binding fix answers, and `deck_render`'s refusal now answers the second.

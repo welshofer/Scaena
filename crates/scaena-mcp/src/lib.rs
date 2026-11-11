@@ -1146,8 +1146,9 @@ pub struct DeckGenerate {
     /// that could not be taken, or that had no place for every bullet and was set as a list,
     /// is in the result's `fell`, with why), `keyBullets` (a chart's layout sets the first, its
     /// takeaway, alone: each after it no place sets is in `unset`), `speakerNotes` (what the
-    /// presenter says, written to fill the talk: the result's `notes` gives the slot and each
-    /// slide's words), `beatIndex`
+    /// presenter says, written to fill the talk: the result's `notes` gives the slot, each
+    /// slide's words, and the `run`, the talk as health times it, a beat's estimate where its
+    /// notes run shorter), `beatIndex`
     /// and `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),
     /// `expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is
     /// drawn. `scaena://examples/ferry.generate.json` is a whole call that lints clean.
@@ -1216,8 +1217,9 @@ pub struct DeckGenerate {
     /// bundle's and in no hidden folder, at most 256 MB and 1 GB with the others, or a `url`, a
     /// public `https` page or `github:OWNER/REPO`.
     /// Each is kept among the deck's sources by its file's name or its address (no bytes of it
-    /// are copied in), each sheet a data source as `data` keeps one, and a slide whose
-    /// `sourceRef` names it cites it. SEC's filings are `scaena generate --source sec:TICKER`'s.
+    /// are copied in), each sheet a data source as `data` keeps one, which a chart's `sourceId`
+    /// names by the sheet's own name or by the workbook's, and a slide whose `sourceRef` names it
+    /// cites it. SEC's filings are `scaena generate --source sec:TICKER`'s.
     #[serde(default)]
     pub sources: Vec<GivenSource>,
 }

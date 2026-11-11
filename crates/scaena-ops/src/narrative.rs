@@ -3659,16 +3659,31 @@ pub(crate) fn figures_in(text: &str) -> Vec<String> {
 }
 
 /// Where the number whose first digit is at `start` ends: its digits, the marks between them,
-/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end.
+/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end. A
+/// plain space groups them too, as French is typed ("1 240 000"), where every group before it is
+/// of digits alone, the first of one to three and the rest of three: never a year and a count
+/// ("2025 120"), nor a decimal and what follows it ("2,4 000"), nor a group a letter or a hyphen
+/// runs on from ("5 100-metre") (agent dogfood 4).
 fn digits(chars: &[char], start: usize) -> usize {
     let mut end = start;
     while end < chars.len() {
         let c = chars[end];
-        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}')
-            && end > start
-            && (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
+        let three = (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
             && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
-        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped) {
+        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}') && end > start && three;
+        // A group of three a letter or a hyphen runs on from is a figure of its own: "5 100-metre
+        // sprints" and "10 100m heats" are two, in English and French alike (agent dogfood 4).
+        let ends = chars.get(end + 4).is_none_or(|n| !(n.is_alphabetic() || *n == '-'));
+        let typed = c == ' ' && end > start && three && ends && !(start > 0 && chars[start - 1].is_alphanumeric()) && {
+            // The groups before this space: digits alone, split by plain spaces, the first of one
+            // to three and each after it of three.
+            let before: String = chars[start..end].iter().collect();
+            let groups: Vec<&str> = before.split(' ').collect();
+            (groups.iter().all(|g| !g.is_empty() && g.chars().all(|c| c.is_ascii_digit())))
+                && groups[0].len() <= 3
+                && groups[1..].iter().all(|g| g.len() == 3)
+        };
+        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped || typed) {
             break;
         }
         end += 1;
@@ -3700,6 +3715,23 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
     while begin > 0 && matches!(chars[begin - 1], '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}' | '+' | '-' | '\u{2212}' | '~')
     {
         begin -= 1;
+    }
+    // A currency set before its figure keeps the letters of its country ("R$", "US$", "C$") and
+    // stands with its figure spaced too, as Brazil's and Europe's accounts write it: "R$ 2,1 mi",
+    // "\u{20ac} 12" (W1's dogfood 11), never "2,1".
+    let sign = |c: char| matches!(c, '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}');
+    let before = |at: usize| at == 0 || !chars[at - 1].is_alphanumeric();
+    if begin == start && begin >= 2 && spacing(chars[begin - 1]) && sign(chars[begin - 2]) {
+        begin -= 2;
+    }
+    if begin < start && chars[begin] == '$' {
+        let mut letters = begin;
+        while letters > 0 && begin - letters < 3 && chars[letters - 1].is_ascii_uppercase() {
+            letters -= 1;
+        }
+        if letters < begin && before(letters) {
+            begin = letters;
+        }
     }
     let end = paired(chars, end).unwrap_or(end);
     let at = |from: usize, n: usize| -> String { chars[from.min(chars.len())..].iter().take(n).collect() };
@@ -3857,7 +3889,7 @@ fn spacing(c: char) -> bool {
 /// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million", and
 /// Spanish's, Italian's, and Portuguese's ("1.234,5 millones", "3,4 milioni", "1,2 milh\u{f5}es",
 /// "2 mil millones"; R2's Valdemar). The longest that stands whole is read.
-const SPACED_MAGNITUDES: [&str; 35] = [
+const SPACED_MAGNITUDES: [&str; 38] = [
     "Tsd.",
     "Tsd",
     "Mio.",
@@ -3893,6 +3925,9 @@ const SPACED_MAGNITUDES: [&str; 35] = [
     "milh\u{f5}es",
     "mil milh\u{f5}es",
     "bilh\u{f5}es",
+    "mi",
+    "bi",
+    "tri",
 ];
 
 /// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
@@ -7237,6 +7272,9 @@ fn typeset(text: &str, lang: &str) -> String {
             {
                 out.push('\u{2013}')
             }
+            // A figure's thousands a plain space groups, as French is typed, stay on one line, set
+            // as the deck's locale sets them (agent dogfood 4).
+            ' ' if grouping(&chars, i) => out.push('\u{a0}'),
             // A figure and its unit, and a day and its month, stay on one line (DF7-2).
             ' ' if joined(&chars, i) => out.push('\u{a0}'),
             '%' | '\u{2030}'
@@ -7291,6 +7329,19 @@ fn dialed(chars: &[char], at: usize) -> bool {
         .is_some_and(|c| *c == '+');
     let round = chars[at - 1] == '0' && chars[end - 1] == '0' && chars[at + 1] != '0';
     ((before, after) == (3, 4) && !round) || (before, after) == (5, 4) || opened
+}
+
+/// Whether the space at `at` groups a figure's thousands, "1 240 000", as [`digits`] reads one.
+fn grouping(chars: &[char], at: usize) -> bool {
+    let Some(last) = at.checked_sub(1).filter(|b| chars[*b].is_ascii_digit()) else { return false };
+    let mut start = last;
+    while start > 0 && (chars[start - 1].is_ascii_digit() || chars[start - 1] == ' ') {
+        start -= 1;
+    }
+    while !chars[start].is_ascii_digit() {
+        start += 1;
+    }
+    digits(chars, start) > at
 }
 
 /// Whether the space at `at` joins a figure to its unit ("140 ms", "+18 %", "48,6 Mio. €"), or a
@@ -8437,6 +8488,29 @@ mod tests {
         assert_eq!(figure("Der Umsatz stieg auf 538 TEUR").as_deref(), Some("538 TEUR"));
         // A word that only begins so is no unit of the figure.
         assert_eq!(figures_in("240 TEURE Sachen"), ["240".to_string()]);
+
+        // Thousands grouped by a plain space, as French is typed, are one figure (agent dogfood 4):
+        // "1 240 000", never "1". Never a year and a count, a decimal and what follows it, or a
+        // group that is not of three.
+        assert_eq!(figure("1 240 000 trajets en 2025").as_deref(), Some("1 240 000"));
+        assert_eq!(figure("310 000 \u{20ac} par an").as_deref(), Some("310 000 \u{20ac}"));
+        assert_eq!(figure("38 200 au centre").as_deref(), Some("38 200"));
+        assert_eq!(figures_in("en 2025 120 v\u{e9}los"), ["2025".to_string(), "120".to_string()]);
+        assert_eq!(figures_in("2,4 000 fois"), ["2,4".to_string(), "000".to_string()]);
+        assert_eq!(figures_in("3 1000 4"), ["3".to_string(), "1000".to_string(), "4".to_string()]);
+        assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
+        assert_eq!(figure("Les 3 200 v\u{e9}los du parc").as_deref(), Some("3 200"));
+        assert_eq!(figure("Q3 100 clients").as_deref(), Some("100"));
+        // A group a letter or a hyphen runs on from is a figure of its own, in English and French.
+        assert_eq!(figures_in("the first 5 100-metre sprints"), ["5".to_string(), "100".to_string()]);
+        assert_eq!(figures_in("30 150-seat aircraft"), ["30".to_string(), "150".to_string()]);
+        assert_eq!(figures_in("10 100m heats"), ["10".to_string(), "100m".to_string()]);
+        assert_eq!(figures_in("les 5 100-m\u{e8}tres"), ["5".to_string(), "100".to_string()]);
+        assert_eq!(figure("1 240,5 trajets").as_deref(), Some("1 240,5"));
+        assert_eq!(typeset("the first 5 100-metre sprints", "en"), "the first 5 100-metre sprints");
+        // The typesetter keeps such a figure on one line, its groups as French sets them.
+        assert_eq!(typeset("1 240 000 trajets", "fr"), "1\u{a0}240\u{a0}000 trajets");
+        assert_eq!(typeset("en 2025 120 v\u{e9}los", "fr"), "en 2025 120 v\u{e9}los");
         // Spanish's, Italian's, and Portuguese's magnitudes stay with their figure (R2's Valdemar).
         assert_eq!(figures_in("1.234,5 millones de litros al a\u{f1}o"), ["1.234,5 millones".to_string()]);
         assert_eq!(figure("Una inversi\u{f3}n de 2 mil millones").as_deref(), Some("2 mil millones"));
@@ -8447,6 +8521,48 @@ mod tests {
         assert_eq!(figure("Inversi\u{f3}n de 2,3 M\u{20ac} en 2026").as_deref(), Some("2,3 M\u{20ac}"));
         // A word that only begins as one is none: "500 millonarios" counts people.
         assert_eq!(figure("500 millonarios en la ciudad").as_deref(), Some("500"));
+        // A currency set before its figure, spaced or not, keeps its country's letters, and
+        // Portuguese's short magnitudes stay with the figure (W1's dogfood 11: "R$ 2,1 mi" was
+        // drawn "2,1").
+        assert_eq!(figure("R$ 2,1 mi").as_deref(), Some("R$ 2,1 mi"));
+        assert_eq!(figure("A receita chegou a R$\u{a0}2,1\u{a0}mi em junho").as_deref(), Some("R$\u{a0}2,1\u{a0}mi"));
+        assert_eq!(figure("R$2,1 bi").as_deref(), Some("R$2,1 bi"));
+        assert_eq!(figure("Raised US$ 3 million").as_deref(), Some("US$ 3 million"));
+        assert_eq!(figure("Costs C$40 a seat").as_deref(), Some("C$40"));
+        assert_eq!(figure("Biglietto da \u{20ac} 12").as_deref(), Some("\u{20ac} 12"));
+        assert_eq!(figure("R$ 400 mil por loja").as_deref(), Some("R$ 400 mil"));
+        assert_eq!(figures_in("de R$ 1,2 mi para R$ 2,1 mi"), ["R$ 1,2 mi".to_string(), "R$ 2,1 mi".to_string()]);
+        assert!(numeric("R$ 2,1 mi"));
+        // A sign that ends a word, or letters a word runs on into, stay the word's.
+        assert_eq!(figure("costs $5").as_deref(), Some("$5"));
+        assert_eq!(figure("about 2 minutes").as_deref(), Some("2"));
+        assert_eq!(figure("5 bits").as_deref(), Some("5"));
+    }
+
+    /// A Portuguese big number keeps its currency and its magnitude (W1's dogfood 11: the hero of
+    /// "R$ 2,1 mi" / "de receita em junho" was drawn "2,1").
+    #[test]
+    fn a_real_big_number_keeps_its_currency_and_magnitude() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({
+            "executiveSummary": "Um semestre.",
+            "slides": [
+                { "slideTitle": "O semestre", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "A receita de junho chegou a R$ 2,1 mi", "layoutSuggestion": "Big Number",
+                    "keyBullets": ["R$ 2,1 mi", "de receita em junho, o melhor m\u{ea}s da cooperativa"] },
+                { "slideTitle": "Obrigado", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.brief.language = Some("Portuguese".into());
+        let made = deck_as(&n, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+        let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        let hero: Vec<&str> = said.iter().filter(|(s, _)| s == "number").map(|(_, w)| w.as_str()).collect();
+        assert_eq!(hero.len(), 1, "{said:#?}");
+        assert_eq!(hero[0].replace(['\u{a0}', '\u{202f}'], " "), "R$ 2,1 mi", "{said:#?}");
     }
 
     #[test]
@@ -9129,6 +9245,10 @@ mod tests {
         has(&number, "claim", "without power after Storm Elsa, October 2023");
         let (_, number) = made("Big Number", &["12 hours", "median first reply time on a support ticket"]);
         has(&number, "number", "12 hours");
+        // A figure whose thousands a plain space groups, as French is typed, stays whole: "1"
+        // alone drew a figure its writer never wrote (agent dogfood 4).
+        let (_, number) = made("Big Number", &["1 240 000", "trips in 2025, 18% more than in 2024"]);
+        has(&number, "number", "1\u{a0}240\u{a0}000");
         // A funnel's stage keeps its figure beside its name.
         let (_, funnel) = made(
             "Funnel",
@@ -12987,13 +13107,26 @@ mod tests {
     /// in French).
     #[test]
     fn a_chart_that_names_its_workbook_binds_to_the_sheet_that_holds_it() {
-        let chart = |categories: &[&str], values: &[f64]| ChartData {
+        navette_bound(["navette.xlsx", "navette.xlsx"]);
+    }
+
+    /// A chart that names its sheet by the sheet's own name, as the workbook shows it, binds to
+    /// the sheet kept under the workbook's name and its own (agent dogfood 4: "Annuel" for
+    /// `velo-2025-annuel`).
+    #[test]
+    fn a_chart_that_names_its_sheet_by_its_own_name_binds_to_it() {
+        navette_bound(["Mensuel", "Quartiers"]);
+    }
+
+    /// The shuttle's deck made with its two charts naming their sources as `named` says, bound.
+    fn navette_bound(named: [&str; 2]) {
+        let chart = |categories: &[&str], values: &[f64], named: &str| ChartData {
             categories: categories.iter().map(|c| c.to_string()).collect(),
             series: vec![scaena_narrato::Series {
                 name: Some("Voyageurs".into()),
                 values: values.iter().map(|v| Some(*v)).collect(),
             }],
-            source_id: Some("navette.xlsx".into()),
+            source_id: Some(named.into()),
             ..ChartData::default()
         };
         let slide = |title: &str, kind: &str, chart: Option<ChartData>| Slide {
@@ -13012,12 +13145,12 @@ mod tests {
                 slide(
                     "La fr\u{e9}quentation a progress\u{e9} chaque mois",
                     "Line Chart",
-                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.])),
+                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.], named[0])),
                 ),
                 slide(
                     "Le quartier Nord porte la hausse",
                     "Bar Chart",
-                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.])),
+                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.], named[1])),
                 ),
                 slide("Prolonger la navette jusqu\u{2019}en juin 2027", "Closing", None),
             ],
@@ -13080,6 +13213,11 @@ mod tests {
         // A name no source starts with keeps none of them.
         assert!(binding::sources_named(&write.deck, "rapport.pdf").is_empty());
         assert!(binding::sources_named(&write.deck, "na").is_empty());
+        // A sheet by its own name is the one sheet kept so, in any case; a name two sheets end
+        // in, or none, is none of them.
+        assert_eq!(binding::sources_named(&write.deck, "Quartiers"), ["navette-quartiers"]);
+        assert_eq!(binding::sources_named(&write.deck, "mensuel"), ["navette-mensuel"]);
+        assert!(binding::sources_named(&write.deck, "Annuel").is_empty());
     }
 
     /// A deck in another language titles each section by the model's name for its beat, else its
