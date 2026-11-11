@@ -1439,7 +1439,9 @@ pub fn looked(
 
 /// `changes` less each title that says less than the slide did (W1's dogfood 8), and each title
 /// let go, said: one that drops a word of the claim its beat settled that the slide's title said,
-/// or, in English, one that names a topic where the title stated its point ([`names_topic`]).
+/// or, in English, one that drops a word of the title's own, small words and the copula aside, and
+/// names a topic where the title stated its point ([`names_topic`]). A rewrite that keeps every
+/// word the title said flattens nothing, and is taken.
 /// What else the change asks stands. A cover, a divider, and a closing, which health holds to no
 /// point either, by the layouts the deck was made in (`layouts`), are left to the look.
 ///
@@ -1449,6 +1451,9 @@ fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec
     let framing = |index: usize| {
         index == 0 || layouts.get(index).is_some_and(|l| FRAMING.contains(&l.as_str()) || CLOSING.contains(&l.as_str()))
     };
+    // A rewrite that keeps every word the title said but these flattens nothing: "Carbon-negative
+    // cargo is ready to scale" as "Carbon-negative cargo, ready to scale".
+    const COPULA: [&str; 7] = ["is", "are", "was", "were", "be", "been", "being"];
     const SLIGHT: [&str; 22] = [
         "a", "an", "the", "of", "for", "to", "in", "on", "and", "or", "at", "by", "with", "is", "are", "be", "we",
         "our", "it", "its", "this", "that",
@@ -1479,6 +1484,7 @@ fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec
                 let quoted: Vec<String> = dropped.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
                 Some(format!("it drops {} from the claim its beat settled", and_list(&quoted)))
             } else if english
+                && was.iter().any(|w| !COPULA.contains(&w.as_str()) && !now.contains(w))
                 && crate::health::names_topic(&title, 1)
                 && !crate::health::names_topic(&slide.slide_title, 1)
             {
@@ -9836,6 +9842,17 @@ mod tests {
         assert!(has("Discounts haven\u{2019}t moved the number"), "{texts:#?}");
         let kept = write.deck.meta.as_ref().unwrap().extra["narrative"]["refused"].as_array().unwrap().len();
         assert_eq!(kept, 2);
+        // A rewrite that keeps every word of the title, the copula aside, is no topic: taken.
+        let mut kept = n.clone();
+        kept.slides[4].slide_title = "Discount passes are ready to retire".into();
+        let before = generating(&kept, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let before = (before.0, before.1.unwrap());
+        let shown = Shown { narrative: &kept, theme: &theme, pictures: &pictures, assets: &assets };
+        let changes = vec![change(5, "Discount passes, ready to retire")];
+        let (made, write) = looked(shown, changes, before, Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        assert!(made.refused.is_empty(), "{:#?}", made.refused);
+        let deck = write.deck.to_value().unwrap();
+        assert!(deck["nodes"].as_object().unwrap().values().any(|n| n["text"] == "Discount passes, ready to retire"));
         // A cover is held to no point, as health holds it to none: its title is the look's.
         let before = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let before = (before.0, before.1.unwrap());
