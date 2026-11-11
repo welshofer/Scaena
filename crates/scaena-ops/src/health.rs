@@ -799,6 +799,18 @@ fn slot((lo, hi): (u32, Option<u32>)) -> String {
     }
 }
 
+/// Two connectives a speaker opens a slide's notes with in `language`, which carry nothing across
+/// alone: German's "Also" and "Aber", French's "Donc" and "Mais", else English's "So" and "But"
+/// (health's English-only sweep, item 2).
+fn connectives(language: Option<&str>) -> (&'static str, &'static str) {
+    let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
+        "de" | "deu" | "ger" | "german" | "deutsch" => ("Also", "Aber"),
+        "fr" | "fra" | "fre" | "french" | "français" | "francais" => ("Donc", "Mais"),
+        _ => ("So", "But"),
+    }
+}
+
 /// Whether a deck in `language` is in English, by its name or its tag's first part, as the
 /// lexicons judge a language named (`scaena_narrato::health`'s `english`): one that names none is.
 fn in_english(language: Option<&str>) -> bool {
@@ -1704,6 +1716,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(Value::as_str);
         settled.or(meta.beat_name.as_deref()).map(headed).filter(|n| !n.is_empty()).map(str::to_string)
     };
+    // A connective in the deck's own language, as its speaker would open with one.
+    let (so, but) = connectives(language);
     for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         if i > 0 && agenda(i - 1) {
@@ -1722,7 +1736,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Turn,
                 format!("Slide {k} shows another figure with no word from slide {before}: say what links the two."),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}{so}\u{201d}, \u{201c}{but}\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -1738,7 +1752,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
                 ),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s{such}: a connective alone (\u{201c}{so}\u{201d}, \u{201c}{but}\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -1749,7 +1763,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Turn,
                 format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}{so}\u{201d}, \u{201c}{but}\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -4311,6 +4325,38 @@ mod tests {
         assert_eq!(health::coherence::keyword_overlap(&read[8], &read[9]), 0.0, "Vzestup's split reads them apart");
         let h = of(&deck);
         assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 10), "{:#?}", h.findings);
+    }
+
+    /// A turn's ask gives its connectives in the deck's language (health's English-only sweep,
+    /// item 2): a German deck's speaker opens with "Also" or "Aber", a French one's with "Donc" or
+    /// "Mais"; an English deck's ask is as before, "So" and "But".
+    #[test]
+    fn a_turn_names_connectives_in_the_decks_language() {
+        assert_eq!(connectives(Some("German")), ("Also", "Aber"));
+        assert_eq!(connectives(Some("fr-FR")), ("Donc", "Mais"));
+        assert_eq!(connectives(None), ("So", "But"));
+        assert_eq!(connectives(Some("Japanese")), ("So", "But"), "another language's are English's, as before");
+        let turned = |slides: &mut Vec<answer::Slide>| {
+            for (k, title) in ["Zwei Risiken zeigen sich deutlich", "Fahrplan bis Ende 2027"].into_iter().enumerate() {
+                let s = &mut slides[7 + k];
+                s.slide_title = title.into();
+                s.key_bullets = vec![];
+                s.layout_suggestion = "Statement".into();
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", turned);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let h = of(&deck);
+        let ask = (h.findings.iter())
+            .find(|f| f.kind == Kind::Turn && f.slide == 9)
+            .map(|f| f.ask.clone())
+            .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
+        assert!(
+            ask.ends_with("a connective alone (\u{201c}Also\u{201d}, \u{201c}Aber\u{201d}) carries nothing across."),
+            "{ask}"
+        );
     }
 
     /// Balance's line says how many slides its average is over, where it counts fewer than the
