@@ -451,6 +451,9 @@ export async function generate(
         const unbound = making.unbound();
         if (unbound) making.rebound(g.bound(unbound));
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
+        // Each chart that names a source and is not drawn from it, said as the CLI says it (W1
+        // dogfood 9), so a data edit that leaves it as it was surprises no one.
+        for (const u of made.unbound ?? []) hear({ kind: "unbound", ...u });
         const files = making.files();
         if (!files) {
           const errors = made.created.findings.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);
@@ -819,12 +822,18 @@ async function look(
       }
     }
     if (!looking) return;
+    // What it asked that writes a slide's figures otherwise, let go as each answer was read,
+    // kept by the report beside what lint finds worse and said with it (W1 dogfood 9).
+    const asked = changes.length;
+    changes.splice(0, changes.length, ...(JSON.parse(making.figured(JSON.stringify(changes))) as { slide: number }[]));
     if (!changes.length) {
       if (unanswered) {
         making.unlooked(unanswered);
         return hear({ kind: "unlooked", why: unanswered });
       }
-      return hear({ kind: "looked", slides: 0 });
+      // Where every change asked was let go for a figure, each is said as it is let go, not as
+      // nothing seen.
+      return asked ? undefined : hear({ kind: "looked", slides: 0 });
     }
     const tried = JSON.parse(
       making.relook(generation.deckChanged(theme.text, placed, JSON.stringify(changes)), JSON.stringify(changes), "[]"),

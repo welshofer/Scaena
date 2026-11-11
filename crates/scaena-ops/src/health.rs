@@ -2443,14 +2443,24 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             says: "Dismiss it".into(),
             patch: vec![json!({ "op": "test", "path": path, "value": r }), json!({ "op": "remove", "path": path })],
         };
-        find(
-            &deck.states[slide.states[0]].id,
-            Severity::Info,
-            Kind::Look,
-            format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
-            format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
-            Some(fix),
-        );
+        // One let go as it was read, for its figures or its claim, lint never judged (W1 dogfood 9).
+        let (says, ask) = match r.get("by").and_then(Value::as_str) {
+            None => (
+                format!(
+                    "Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"
+                ),
+                format!(
+                    "The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"
+                ),
+            ),
+            Some(_) => (
+                format!("Slide {k} was kept as made: the model asked for {what}, and {why}."),
+                format!(
+                    "The model asked slide {k} for {what}, which was let go: {why}. Tighten it so it still says that."
+                ),
+            ),
+        };
+        find(&deck.states[slide.states[0]].id, Severity::Info, Kind::Look, says, ask, Some(fix));
     }
     // A bend whose slide's warning asks the same edit is that warning's (W2's editor dogfood 6).
     // A run of bends names several slides' plans, and stays.
@@ -3213,6 +3223,18 @@ mod tests {
         assert_eq!(found.iter().map(|f| f.slide).collect::<Vec<_>>(), [2, 3]);
         let fix = |f: &Finding| f.fix.clone().expect("a fix").patch;
         assert_eq!(found[0].fix.as_ref().unwrap().says, "Dismiss it");
+        // One let go for its figures as the look was read is no slide lint found worse (W1
+        // dogfood 9).
+        let mut figured = deck.clone();
+        figured.pointer_mut("/meta/narrative").unwrap()["refused"] = json!([{
+            "slide": 2, "what": "the title \u{201c}Sunday visits\u{201d}",
+            "why": "it drops 2,475, which the slide wrote", "by": "figures"
+        }]);
+        let said = &looks(&figured)[0].says;
+        assert_eq!(
+            said,
+            "Slide 2 was kept as made: the model asked for the title \u{201c}Sunday visits\u{201d}, and it drops 2,475, which the slide wrote."
+        );
         assert_eq!(
             fix(&found[1]),
             [

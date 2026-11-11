@@ -14,8 +14,8 @@ use scaena_narrato::look::Change;
 use scaena_ops::OpsError;
 use scaena_ops::lint::Write;
 use scaena_ops::narrative::{
-    Generated, Kept, Made, Shown, adopt, fitted, keeping, kept, looked, making, overflowing, refusals, refuse, unkept,
-    worse,
+    Generated, Kept, Made, Shown, adopt, fitted, keeping, kept, looked, making, overflowing, refusals, refuse_too,
+    unkept, worse,
 };
 use scaena_sources::Table;
 use std::collections::BTreeMap;
@@ -167,16 +167,27 @@ impl Making {
             // one without them is (lift-up USE-4).
             let said = refusals(&changes, &found, (&self.made, write), (&made, &after));
             if let Some(write) = &mut self.write {
-                refuse(&mut self.made, write, said);
+                refuse_too(&mut self.made, write, said);
             }
             return Ok(Relooked::Worse(found));
         }
         let said = std::mem::take(&mut self.made.refused);
         let before = std::mem::replace(&mut self.made, made.clone());
-        let (made, write) = adopt(before, (made, after), kept(changes, refused), said);
+        let (made, write) = adopt(before, (made, after), kept(changes, refused), said, refused);
         self.made = made;
         self.write = Some(write);
         Ok(Relooked::Kept)
+    }
+
+    /// `changes`, as the generator's `lookAnswer` reads them, less what it let go for writing a
+    /// slide's figures otherwise, which the report and the deck keep (W1 dogfood 9): what
+    /// `relook` is then given, a change that asks nothing else taken away.
+    pub fn figured(&mut self, mut changes: Vec<Change>) -> Vec<Change> {
+        let said = scaena_ops::narrative::figured(&mut changes);
+        if let Some(write) = &mut self.write {
+            refuse_too(&mut self.made, write, said);
+        }
+        changes
     }
 
     /// The look failed, or what it asked was not kept: why, which the report says.
@@ -387,6 +398,28 @@ mod tests {
         let (deck, unbound) = scaena_ops::narrative::bound(deck, kept.clone()).unwrap();
         m.rebound(deck, unbound);
         crate::Session::open(m.files().unwrap().unwrap()).unwrap();
+    }
+
+    /// What the look's reading let go for a figure, handed over as the generator's
+    /// `lookAnswer` gives it, is taken off the changes `relook` is given and said in the report
+    /// and the deck (W1 dogfood 9), a change that asks nothing else taken away.
+    #[test]
+    fn a_look_that_writes_a_figure_otherwise_is_said() {
+        let (theme, fonts) = dusk();
+        let mut m = Making::new(built(), "Problem-Solution", None, "dusk.theme.json", &theme, &fonts).unwrap();
+        let changes: Vec<Change> = serde_json::from_value(serde_json::json!([
+            { "slide": 1, "why": "Shorter.", "figured": [{ "what": "the title \u{201c}Sunday visits\u{201d}", "why": "it drops 2,475, which the slide wrote" }] },
+            { "slide": 2, "title": "Emissions keep climbing", "why": "Tighter." }
+        ]))
+        .unwrap();
+        let left = m.figured(changes);
+        assert_eq!(left.iter().map(|c| c.slide).collect::<Vec<_>>(), [2]);
+        let report = m.report();
+        assert_eq!(report["refused"][0]["what"], "the title \u{201c}Sunday visits\u{201d}", "{report:#}");
+        assert_eq!(report["refused"][0]["why"], "it drops 2,475, which the slide wrote");
+        let files = m.files().unwrap().unwrap();
+        let deck: serde_json::Value = serde_json::from_slice(&files["deck.json"]).unwrap();
+        assert_eq!(deck["meta"]["narrative"]["refused"].as_array().map(Vec::len), Some(1), "{:#}", deck["meta"]);
     }
 
     #[test]

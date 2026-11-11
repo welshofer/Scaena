@@ -64,6 +64,19 @@ pub struct Change {
     pub bullets: Option<Vec<String>>,
     /// What the model saw, in a sentence.
     pub why: String,
+    /// What it asked that [`read`] let go for writing the slide's figures otherwise, each said
+    /// (W1 dogfood 9): the deck keeps them beside the changes lint found worse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub figured: Vec<Figured>,
+}
+
+/// Words the model asked for that write a slide's figures otherwise than it does (W1 dogfood 9):
+/// what was asked, "the title “Sundays cost $3.4K”", and why it was let go, "it writes 3.4 where
+/// the slide wrote 3,400".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Figured {
+    pub what: String,
+    pub why: String,
 }
 
 impl Change {
@@ -224,7 +237,8 @@ fn labelled(bullet: &str) -> bool {
 /// The changes an answer asks for, each kept where it names a slide shown, changes something,
 /// and keeps to what the slide may take: one of its other layouts; words no longer than they
 /// were by more than [`longest`] allows; as many bullets, each labelled where it was. The first
-/// change a slide is given stands. Words or bullets that change a figure are not taken (REL-2).
+/// change a slide is given stands. Words or bullets that change a figure are not taken (REL-2),
+/// and are said in its `figured` (W1 dogfood 9), a change that asks nothing else kept for them.
 pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
     let within = crate::answer::json_within(text).ok_or("the answer holds no JSON object")?;
     let value: Value =
@@ -238,11 +252,22 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
             continue;
         }
         let said = |key: &str| asked.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
-        let words = |key: &str, was: &str, most: usize| {
+        let mut figured = Vec::new();
+        let mut words = |key: &str, field: &str, was: &str, most: usize| {
             let now = said(key);
-            (!now.is_empty() && now != was && now.chars().count() <= most && crate::same_figures(was, &now))
-                .then_some(now)
+            if now.is_empty() || now == was || now.chars().count() > most {
+                return None;
+            }
+            if !crate::same_figures(was, &now) {
+                let what = format!("the {field} \u{201c}{now}\u{201d}");
+                figured.push(Figured { what, why: crate::unlike_figures(was, &now) });
+                return None;
+            }
+            Some(now)
         };
+        let title = words("title", "title", &s.title, title_longest(&s.title, s.room));
+        let subtitle =
+            words("subtitle", "subtitle", &s.subtitle, longest(&s.subtitle)).filter(|_| !s.subtitle.is_empty());
         let layout = Some(said("layout")).filter(|l| s.options.iter().any(|o| &o.id == l));
         let bullets = asked
             .get("bullets")
@@ -252,21 +277,21 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
                 now.len() == s.bullets.len()
                     && now != &s.bullets
                     && now.iter().zip(&s.bullets).all(|(now, was)| {
-                        !now.is_empty()
-                            && now.chars().count() <= longest(was)
-                            && labelled(now) == labelled(was)
-                            && crate::same_figures(was, now)
+                        !now.is_empty() && now.chars().count() <= longest(was) && labelled(now) == labelled(was)
                     })
+            })
+            .filter(|all| {
+                let Some((now, was)) = all.iter().zip(&s.bullets).find(|(now, was)| !crate::same_figures(was, now))
+                else {
+                    return true;
+                };
+                let quoted: Vec<String> = all.iter().map(|b| format!("\u{201c}{b}\u{201d}")).collect();
+                let what = format!("the points {}", quoted.join(", "));
+                figured.push(Figured { what, why: crate::unlike_figures(was, now) });
+                false
             });
-        let change = Change {
-            slide: number,
-            layout,
-            title: words("title", &s.title, title_longest(&s.title, s.room)),
-            subtitle: words("subtitle", &s.subtitle, longest(&s.subtitle)).filter(|_| !s.subtitle.is_empty()),
-            bullets,
-            why: said("why"),
-        };
-        if change.changes() {
+        let change = Change { slide: number, layout, title, subtitle, bullets, why: said("why"), figured };
+        if change.changes() || !change.figured.is_empty() {
             out.push(change);
         }
     }
@@ -445,6 +470,35 @@ mod tests {
         assert!(super::read("no json", &seen()).is_err());
     }
 
+    /// A title that writes the slide's figures otherwise is let go and said, beside what else the
+    /// change asks (W1 dogfood 9): "Sunday visits" for "2,475 visits on Sundays in June" drops
+    /// its figure, and "Sundays cost $3.4K" writes another.
+    #[test]
+    fn a_title_that_writes_its_figures_otherwise_is_let_go_and_said() {
+        let mut s = seen();
+        s[1].title = "2,475 visits on Sundays in June".into();
+        let answer = |title: &str, layout: &str| {
+            json!({ "slides": [{ "slide": 2, "layout": layout, "title": title, "subtitle": "", "bullets": [], "why": "w" }] })
+                .to_string()
+        };
+        let dropped = read(&answer("Sunday visits", ""), &s).unwrap();
+        assert_eq!(
+            dropped[0].figured,
+            vec![Figured {
+                what: "the title \u{201c}Sunday visits\u{201d}".into(),
+                why: "it drops 2,475, which the slide wrote".into()
+            }]
+        );
+        assert!(!dropped[0].changes());
+        let other = s[1].options[0].id.clone();
+        let changed = read(&answer("Sundays drew 2.5K visits", &other), &s).unwrap();
+        assert_eq!((changed[0].layout.as_deref(), changed[0].title.as_deref()), (Some(other.as_str()), None));
+        assert_eq!(changed[0].figured[0].why, "it writes 2.5 where the slide wrote 2,475");
+        assert_eq!(crate::unlike_figures("Up 4%", "Up 4% in 2026"), "it adds 2026, which the slide did not write");
+        // Words that keep every figure say nothing.
+        assert!(read(&answer("Sundays drew 2,475 visits in June", ""), &s).unwrap()[0].figured.is_empty());
+    }
+
     #[test]
     fn bullets_are_kept_as_many_labelled_where_they_were_and_hardly_longer() {
         let s = seen();
@@ -467,10 +521,15 @@ mod tests {
         let mut longer = tightened.clone();
         longer[0] = "Clean the grid: triple renewables by 2030 and double storage, worldwide, every year".into();
         assert!(read(&answer(&longer), &s).unwrap().is_empty());
-        // A figure rounded, or dropped, is not the slide's evidence tightened (REL-2).
+        // A figure rounded, or dropped, is not the slide's evidence tightened (REL-2): nothing is
+        // taken, and what was let go is said (W1 dogfood 9).
         let mut rounded = tightened.clone();
         rounded[2] = "Cut methane: about 70% from fossil fuels".into();
-        assert!(read(&answer(&rounded), &s).unwrap().is_empty());
+        let read_back = read(&answer(&rounded), &s).unwrap();
+        assert!(!read_back[0].changes(), "{read_back:?}");
+        assert_eq!(read_back[0].figured.len(), 1, "{read_back:?}");
+        assert!(read_back[0].figured[0].what.starts_with("the points \u{201c}Clean the grid"), "{read_back:?}");
+        assert_eq!(read_back[0].figured[0].why, "it writes 70 where the slide wrote 75");
         // A subtitle where the slide has none is not one to tighten.
         let given = json!({ "slides": [{ "slide": 2, "layout": "", "title": "", "subtitle": "New words", "bullets": [], "why": "" }] });
         assert!(read(&given.to_string(), &s).unwrap().is_empty());

@@ -2026,6 +2026,14 @@ impl Making {
         serde_json::to_string(&relooked).map_err(js)
     }
 
+    /// `changes`, JSON as the generator's `lookAnswer` gives them, less what it let go for
+    /// writing a slide's figures otherwise, which the report says (W1 dogfood 9): JSON, the
+    /// changes `relook` is given.
+    pub fn figured(&mut self, changes: &str) -> Result<String, JsError> {
+        let changes = serde_json::from_str(changes).map_err(js)?;
+        serde_json::to_string(&self.0.figured(changes)).map_err(js)
+    }
+
     /// The look failed, or what it asked was not kept: why, which the report says.
     pub fn unlooked(&mut self, why: String) {
         self.0.unlooked(why);
