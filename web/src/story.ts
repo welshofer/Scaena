@@ -29,6 +29,8 @@ export interface StoryEditor {
   show(state: string): Promise<void>;
   /** Show the slide `state` is a state of, entered at its last step, built whole. */
   enter(state: string): Promise<void>;
+  /** Show `state` and the Format tab's `field` for it, scrolled to and in focus (editor dogfood 6). */
+  field(state: string, field: Field): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
   make(ops: unknown[], done: string): Promise<void>;
   /** Put `question` to the assistant: its tab shown, the question in its box. */
@@ -60,6 +62,22 @@ export interface StoryEditor {
   answered(text: string): void;
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
+}
+
+/** A field of the Format tab a finding's to-do names: the slide's plan's Intensity, and its
+ * presenter's notes (editor dogfood 6). */
+export type Field = "intensity" | "notes";
+
+/** What the button that opens each field says. */
+const FIELD: Record<Field, string> = { intensity: "Set its Intensity", notes: "Edit its notes" };
+
+/** The field of the Format tab a finding's to-do names, by the `field` health gives it, else by
+ * where its `path` says its plan is written: none where it names none of the Format tab's. A
+ * headline is typed on the canvas, and a claim offers Check the claim. Never read from the ask's
+ * words. */
+export function fieldOf(f: HealthFinding): Field | undefined {
+  if (f.field === "intensity" || f.field === "notes") return f.field;
+  return f.path?.endsWith("/intensity") ? "intensity" : undefined;
 }
 
 /** The findings about what a slide claims, whose rows offer Check the claim: its claim not carried,
@@ -99,6 +117,7 @@ const MEASURE: Partial<Record<HealthFinding["kind"], keyof Health>> = {
   claim: "coherence",
   bigIdea: "coherence",
   pacing: "pacing",
+  thin: "balance",
 };
 
 /** Where a warning ranks among the warnings: one no measure speaks to first, as it names one
@@ -130,6 +149,7 @@ const KIND: Partial<Record<HealthFinding["kind"], string>> = {
   look: "change let go",
   source: "unsourced figure",
   label: "topic headline",
+  thin: "thin slide",
 };
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
@@ -246,6 +266,7 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
   title: "title", empty: "empty place", turn: "turn", arc: "plan", intensity: "intensity", tone: "tone",
   drift: "beat", layout: "layout", claim: "claim", bigIdea: "big idea", story: "story", dense: "points",
   notes: "notes", pacing: "length", link: "link", look: "change let go", source: "source", label: "headline",
+  thin: "content",
 };
 
 /** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
@@ -614,6 +635,16 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
           editor.say(`Not fixed: ${said(e)}`);
         }
       });
+      actions.append(button);
+    }
+    // A to-do that names a field of the Format tab offers it, the field in focus (editor dogfood 6).
+    const fields = [...new Set(run.map(fieldOf).filter((f): f is Field => f !== undefined))];
+    for (const field of fields) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.field = field;
+      button.textContent = FIELD[field];
+      button.addEventListener("click", () => void editor.field(state, field));
       actions.append(button);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
