@@ -141,7 +141,7 @@ A correction to the count above: on these 13 decks, ten score 90–95 inclusive,
 
 Coherence carries no score when read by words. Intensity and tone are measured but not weighed. The cap applies only where lint finds a slide that does not stand. None of the 13 decks has one, so the cap's slope moves nothing here.
 
-That is why the score is compressed. All 13 decks pace at 90–100. Ten balance at 87–100, and twelve show fidelity at 79–90. What a reader marks down sits in measures and findings the score does not weigh: notes read aloud, a slide said twice, an unresolved hook, turns that lose the room.
+That is why the score is compressed. Twelve of the 13 decks pace at 90–100, ten balance at 87–100, and all 13 show fidelity at 79–90. What a reader marks down sits in measures and findings the score does not weigh: notes read aloud, a slide said twice, an unresolved hook, turns that lose the room.
 
 ### The candidates
 
@@ -200,9 +200,9 @@ Decks are listed in the reader's order, best first.
 - **Only the balance candidates follow the reader.** C2 and C4 move only the decks with the tells a reader names first:
   - fleet and grant, whose notes read every slide aloud;
   - training, whose headline counts three and lists two;
-  - pitch, whose one read-aloud slide and dense chart cost it two.
+  - pitch, whose notes read one slide aloud, which costs it two points.
 
-  Every deck a reader ranks well keeps its score. C8, the two together, moves fleet from 90 to 75 and grant from 78 to 65, below climate and next to cargo, where the reader puts them.
+  No other deck in the reader's top eight moves. C8, the two together, moves fleet from 90 to 75 and grant from 78 to 65, below climate and next to cargo, where the reader puts them.
 - **C2's pacing half does nothing now.** #1022 left no pacing warning on these decks, so C2 is its balance half alone.
 - **No candidate lifts pitch** (reader 3, health 8–10). What holds it down is tone reading a fix's words as trouble, and balance's 1.8 points a slide. Neither is a story fault, and no change to the composite reaches that.
 - **The cap is not where the compression is.** No deck here has a slide lint finds broken.
@@ -212,7 +212,7 @@ Decks are listed in the reader's order, best first.
 Take **C4**, and **C2's balance half** with it (C8): count a slide whose notes read it aloud as having no notes in balance, and take five points off balance for each warning of balance's own kinds (dense, thin, notes, and a slide said twice or a count not kept).
 
 - It raises ρ from +0.65 to +0.72.
-- It leaves every deck a reader ranks in the top eight as it is.
+- In the reader's top eight it moves only pitch, two points, for its one read-aloud slide.
 - It drops fleet and grant fifteen and thirteen points, to about where a reader puts them.
 - It amends one ADR-0032 item, item 3 (what balance counts). It keeps Vzestup's weights and composite, and moves no deck without a warning that names why.
 
