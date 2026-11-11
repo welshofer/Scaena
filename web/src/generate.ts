@@ -446,6 +446,10 @@ export async function generate(
         if (job.notes !== false) await speak(generation, making, job.key, name, hear);
         await fit(generation, making, job.key, name, hear);
         making.keep(sources.tables());
+        // Each chart that names a sheet kept drawn from it, bound here in the generator's module
+        // so the editor's carries none of it (agent dogfood, SPEC §15).
+        const unbound = making.unbound();
+        if (unbound) making.rebound(g.bound(unbound));
         const made = { ...JSON.parse(making.report()), sources: JSON.parse(generation.given()) } as Generated;
         const files = making.files();
         if (!files) {

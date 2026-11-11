@@ -2031,6 +2031,27 @@ impl Making {
         self.0.unlooked(why);
     }
 
+    /// The deck made and the data files kept beside it, JSON `{ deck, files: { PATH: TEXT } }`,
+    /// for the generator's `bound` to draw each chart from the source its slide names (agent
+    /// dogfood): binding is the generator's, so this module carries none of it (SPEC §15). None
+    /// where the deck would not validate.
+    pub fn unbound(&self) -> Option<String> {
+        let (deck, files) = self.0.unbound()?;
+        let files: serde_json::Map<String, serde_json::Value> =
+            files.iter().map(|(path, bytes)| (path.clone(), String::from_utf8_lossy(bytes).into())).collect();
+        Some(serde_json::json!({ "deck": deck, "files": files }).to_string())
+    }
+
+    /// What the generator's `bound` gave back, JSON `{ deck, unbound }`: the deck, its charts
+    /// drawn from their sources, and each it did not bind, and why.
+    pub fn rebound(&mut self, bound: &str) -> Result<(), JsError> {
+        let mut bound: serde_json::Value = serde_json::from_str(bound).map_err(js)?;
+        let deck = scaena_core::Deck::from_json(&bound["deck"].to_string()).map_err(js)?;
+        let unbound = serde_json::from_value(bound["unbound"].take()).map_err(js)?;
+        self.0.rebound(deck, unbound);
+        Ok(())
+    }
+
     /// The bundle's files, by their paths in it, `deck.json` among them; none where the deck
     /// would not validate, which `report` says.
     pub fn files(&self) -> Result<Option<js_sys::Map>, JsError> {

@@ -705,12 +705,19 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
     Ok((write, kept))
 }
 
-/// `write`, a deck not yet written, with each made chart whose beat names the source its slide
-/// was written from (`media.narrato.chartSource`) drawn from the data source of that name the
+/// `deck`, a deck not yet written, and the data files written beside it, `files`, with each made
+/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`) drawn from the data source of that name the
 /// deck holds (agent dogfood): the chart's own rows dropped where nothing else reads them. Each
 /// chart that names a source and is not bound, and why, is in what comes back; one that names
 /// none is drawn from its own rows, as before, and not said. A deck with no data source but its
 /// charts' own is left as it is.
+pub fn bound(deck: &Deck, files: BTreeMap<String, Vec<u8>>) -> Result<(Deck, Vec<Unbound>), OpsError> {
+    let (write, unbound) = binding(Write { deck: deck.clone(), files, why: Default::default() })?;
+    Ok((write.deck, unbound))
+}
+
+/// [`bound`] over a write: its deck's charts drawn from the data sources their slides name,
+/// read from the files it writes and the deck's own.
 pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     let mut doc = write.deck.to_value().context("the deck")?;
     let slides = write.deck.slides();

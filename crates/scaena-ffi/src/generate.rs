@@ -881,6 +881,7 @@ impl Generating {
     pub fn open(&mut self) -> Result<Session, Failure> {
         let (making, _) = self.making.as_mut().ok_or_else(|| said("open: no deck is made"))?;
         making.keep(&scaena_sources::tables(&self.sources)).map_err(said)?;
+        making.bind().map_err(said)?;
         let files = making.files().map_err(said)?.ok_or_else(|| {
             let report = making.report();
             let errors: Vec<String> = (report["created"]["findings"].as_array().into_iter().flatten())

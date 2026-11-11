@@ -251,12 +251,36 @@ impl Making {
     pub fn keep(&mut self, tables: &[Table]) -> Result<(), Error> {
         let Some(write) = self.write.take() else { return Ok(()) };
         let (write, kept) = keeping(write, tables).map_err(ops)?;
-        // Each chart that names one of them drawn from it, as the CLI's are (agent dogfood).
-        let (write, unbound) = scaena_ops::narrative::binding(write).map_err(ops)?;
         self.write = Some(write);
         self.kept.extend(kept);
+        Ok(())
+    }
+
+    /// Each chart that names one of the deck's data sources drawn from it, as the CLI's are (agent
+    /// dogfood): what a native client calls once the sheets are kept. The browser binds them in
+    /// the generator's module ([`Making::unbound`], [`Making::rebound`]), so the editor's carries
+    /// none of it (SPEC §15).
+    pub fn bind(&mut self) -> Result<(), Error> {
+        let Some(write) = self.write.take() else { return Ok(()) };
+        let (write, unbound) = scaena_ops::narrative::binding(write).map_err(ops)?;
+        self.write = Some(write);
         self.made.unbound.extend(unbound);
         Ok(())
+    }
+
+    /// The deck made, and the data files written beside it, for the generator's module to bind
+    /// its charts to: none where the deck would not validate.
+    pub fn unbound(&self) -> Option<(&scaena_core::Deck, &BTreeMap<String, Vec<u8>>)> {
+        self.write.as_ref().map(|w| (&w.deck, &w.files))
+    }
+
+    /// The deck the generator's module bound, its charts drawn from the sources they name, and
+    /// each chart it did not bind, and why.
+    pub fn rebound(&mut self, deck: scaena_core::Deck, unbound: Vec<scaena_ops::narrative::Unbound>) {
+        if let Some(write) = self.write.as_mut() {
+            write.deck = deck;
+            self.made.unbound.extend(unbound);
+        }
     }
 
     /// What was made, as `scaena generate --json` says it: the bundle made, its arc, each
@@ -356,6 +380,13 @@ mod tests {
         assert!(files.keys().any(|f| f.starts_with("fonts/")), "{:?}", files.keys());
         // The bundle opens as a session.
         crate::Session::open(files).unwrap();
+        // The browser binds its charts in the generator's module: the deck and the sheets kept
+        // handed out, bound, and taken back, the bundle as whole (agent dogfood, SPEC §15).
+        let (deck, kept) = m.unbound().unwrap();
+        assert!(kept.contains_key("data/q3.csv"), "{:?}", kept.keys());
+        let (deck, unbound) = scaena_ops::narrative::bound(deck, kept.clone()).unwrap();
+        m.rebound(deck, unbound);
+        crate::Session::open(m.files().unwrap().unwrap()).unwrap();
     }
 
     #[test]
