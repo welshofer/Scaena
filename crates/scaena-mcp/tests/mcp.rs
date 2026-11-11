@@ -1524,7 +1524,8 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
     let plain = root.join("plain");
     ok(&client, "deck_generate", json!({ "bundle": path(&plain), "slides": deck(catalog["slides"][1].clone()) })).await;
     ok(&client, "data_attach", json!({ "bundle": path(&plain), "id": "trails", "file": "budget.csv" })).await;
-    let w = ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors.clone(), "trails") })).await;
+    let w =
+        ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors.clone(), "trails") })).await;
     assert!(w.get("unbound").is_none(), "{w:#}");
     let d = read(&plain);
     assert!(
