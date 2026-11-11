@@ -1726,7 +1726,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let (k, before) = (i + 1, i);
         // The words of the slide before that a bridge might carry over, named so the writer
         // need not guess what "a word of slide b's" is.
-        let such = carried(&read[i - 1], &read[i]);
+        let such = carried(&read[i - 1], &read[i], joining(language));
         if figured.contains(&id) {
             // One figure after another in a part of the talk: information, the room's frame the
             // part's, with the ask a turn makes.
@@ -2184,14 +2184,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         let closes = (!run.is_empty()).then_some(run).or_else(|| last.map(|l| vec![l]));
         let lands = |of: &[usize]| -> Option<bool> {
-            let idea = telling_words(idea);
-            if idea.is_empty() {
+            let telling = telling_words(idea);
+            if telling.is_empty() {
                 return None;
             }
-            let said: Vec<String> = of.iter().map(|&i| format!("{} {}", read[i].title, read[i].body)).collect();
-            let said = content_words(&said.join(" "));
-            let told = idea.intersection(&said).count();
-            Some(told * LANDED.1 >= idea.len() * LANDED.0 || told >= LANDED_WORDS)
+            let texts: Vec<&str> = of.iter().flat_map(|&i| [read[i].title.as_str(), read[i].body.as_str()]).collect();
+            let said = content_words(&texts.join(" "));
+            // A close that says the idea's own words in its order quotes it, and the words any talk
+            // uses count where they are quoted ("where people already are"), never in passing.
+            let quoted = quoted_words(idea, &texts);
+            let told = telling.intersection(&said).count() + quoted.difference(&telling).count();
+            Some(told * LANDED.1 >= telling.len() * LANDED.0 || told >= LANDED_WORDS)
         };
         // The telling words are English's, as the lexicons are: a close in another language is
         // not read for the big idea, and says so, rather than passing or failing on words split
@@ -3020,7 +3023,7 @@ fn whereabouts(heard: &[(String, f64)], headline: &str, s: &SlideForHealth) -> S
 /// else from its body, each a word as written whole, no figure and none of the commonest words,
 /// at most three, as a clause the
 /// turn's ask names them in; nothing where it has none.
-fn carried(was: &SlideForHealth, next: &SlideForHealth) -> String {
+fn carried(was: &SlideForHealth, next: &SlideForHealth, common: &[&str]) -> String {
     let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
     let (ours, theirs) = (words(was), words(next));
     let ordered = |text: &str| -> Vec<String> {
@@ -3030,7 +3033,7 @@ fn carried(was: &SlideForHealth, next: &SlideForHealth) -> String {
         let lowered = text.to_lowercase();
         let whole = lowered.split(|c: char| !c.is_alphanumeric() && c != '\'' && c != '\u{2019}');
         for w in whole.filter(|w| w.chars().all(char::is_alphanumeric)) {
-            let fits = ours.contains(w) && !theirs.contains(w) && !COMMON.contains(&w);
+            let fits = ours.contains(w) && !theirs.contains(w) && !common.contains(&w);
             if fits && w.chars().any(char::is_alphabetic) && !out.iter().any(|o| o == w) && out.len() < 3 {
                 out.push(w.to_string());
             }
@@ -3149,6 +3152,36 @@ fn slide_list(at: &[usize]) -> String {
     }
 }
 
+/// The words of a run of [`QUOTED_RUN`] or more of `idea`'s words, in its order, that one of
+/// `texts` says, those of more than three letters: the idea quoted, where a word any talk uses
+/// says it as the telling ones do (the library keynote's "Put 4% of the budget where people
+/// already are", for a big idea that ends "when it goes where people already are").
+fn quoted_words(idea: &str, texts: &[&str]) -> std::collections::BTreeSet<String> {
+    let words = |text: &str| -> Vec<String> {
+        (text.to_lowercase().split(|c: char| !c.is_alphanumeric()))
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let idea = words(idea);
+    let mut quoted = std::collections::BTreeSet::new();
+    for said in texts.iter().map(|t| words(t)) {
+        for start in 0..said.len() {
+            for from in 0..idea.len() {
+                let run = said[start..].iter().zip(&idea[from..]).take_while(|(a, b)| a == b).count();
+                if run >= QUOTED_RUN {
+                    said[start..start + run].iter().for_each(|w| quoted.extend(content_words(w)));
+                }
+            }
+        }
+    }
+    quoted
+}
+
+/// The words of a big idea a close must say in a row, in the idea's order, to quote it: four, so
+/// that a phrase any sentence makes ("one of the") quotes nothing.
+const QUOTED_RUN: usize = 4;
+
 /// The share of the big idea's telling words a close must say to land it, as a fraction: half,
 /// or [`LANDED_WORDS`] of a long one's (W1's dogfood 3). Two of a long idea's words a close says
 /// in passing ("people", "already") are not it said.
@@ -3169,6 +3202,33 @@ const COMMON: [&str; 105] = [
     "their", "them", "then", "there", "these", "they", "thing", "things", "this", "those", "through", "time", "very",
     "want", "well", "were", "what", "when", "where", "which", "while", "will", "with", "would", "year", "years",
     "your",
+];
+
+/// The words of more than three letters that join a sentence's parts in `language`, which a turn's
+/// ask never names as one to carry across: [`GERMAN`] in a German deck (R1's agent dogfood 3:
+/// "sich", "zwei", and "voll" were named), else [`COMMON`], English's, as before.
+fn joining(language: Option<&str>) -> &'static [&'static str] {
+    let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    let head = tag.split(['-', '_', ' ']).next().unwrap_or_default();
+    match matches!(head, "de" | "deu" | "ger" | "german" | "deutsch") {
+        true => &GERMAN,
+        false => &COMMON,
+    }
+}
+
+/// Words of more than three letters a German sentence holds that say nothing of what it is about:
+/// those that join its parts, the counts to twelve, and the words that only weigh another.
+const GERMAN: [&str; 119] = [
+    "aber", "acht", "allem", "allen", "aller", "alles", "also", "anders", "auch", "beim", "bereits", "bevor", "bitte",
+    "dabei", "dafür", "daher", "damit", "dann", "darauf", "darum", "dass", "davon", "dazu", "denen", "denn", "deren",
+    "dessen", "diese", "diesem", "diesen", "dieser", "dieses", "doch", "dort", "drei", "durch", "eine", "einem",
+    "einen", "einer", "eines", "einmal", "etwa", "etwas", "euch", "fünf", "ganz", "gegen", "haben", "hatte", "hatten",
+    "heute", "hier", "ihnen", "ihre", "ihrem", "ihren", "ihrer", "immer", "jede", "jedem", "jeden", "jeder", "jedes",
+    "jetzt", "kann", "kein", "keine", "können", "mehr", "muss", "müssen", "nach", "neben", "neun", "nicht", "noch",
+    "oder", "ohne", "schon", "sechs", "sehr", "sein", "seine", "seit", "sich", "sieben", "sind", "soll", "sollen",
+    "sondern", "sowie", "über", "unser", "unsere", "unter", "viel", "viele", "vier", "voll", "waren", "weil", "weiter",
+    "welche", "wenig", "weniger", "wenn", "werden", "wieder", "will", "wird", "wollen", "wurde", "wurden", "zehn",
+    "zwei", "zwischen", "zwölf", "alle",
 ];
 
 /// The words of more than three letters a big idea is about: `content_words` less [`COMMON`].
@@ -4300,7 +4360,7 @@ mod tests {
         assert!(bridges(&before, &c), "Müll carries the room across");
         // The turn's ask names the words the bridge reads, whole in any script (R1's MCP dogfood).
         let after = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "");
-        assert_eq!(carried(&before, &after), ", such as \u{201c}größe\u{201d} or \u{201c}mülls\u{201d}");
+        assert_eq!(carried(&before, &after, &COMMON), ", such as \u{201c}größe\u{201d} or \u{201c}mülls\u{201d}");
 
         // On the German board deck, two slides of one beat that share only Größe and Müll: no turn.
         let paired = |slides: &mut Vec<answer::Slide>| {
@@ -4325,6 +4385,48 @@ mod tests {
         assert_eq!(health::coherence::keyword_overlap(&read[8], &read[9]), 0.0, "Vzestup's split reads them apart");
         let h = of(&deck);
         assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 10), "{:#?}", h.findings);
+    }
+
+    /// A turn's ask names no German joining word to carry across in a German deck (R1's agent
+    /// dogfood 3: "sich", "zwei", and "voll" were named), the words the slide is about in their
+    /// place; an English deck's words to leave out are English's, as before.
+    #[test]
+    fn a_german_turn_names_no_joining_word_to_carry() {
+        let slide = |title: &str| SlideForHealth { title: title.into(), ..SlideForHealth::default() };
+        let (was, next) = (slide("So zahlt sich die Investition aus"), slide("Risiken und wie wir sie begrenzen"));
+        assert_eq!(
+            carried(&was, &next, joining(Some("German"))),
+            ", such as \u{201c}zahlt\u{201d} or \u{201c}investition\u{201d}"
+        );
+        assert_eq!(carried(&was, &next, joining(Some("de-DE"))), carried(&was, &next, &GERMAN));
+        assert!(carried(&was, &next, joining(None)).contains("\u{201c}sich\u{201d}"), "English's list keeps it");
+        let (was, next) = (slide("Their pilot proved the routes"), slide("Kiosks open soon"));
+        assert_eq!(
+            carried(&was, &next, joining(Some("en"))),
+            ", such as \u{201c}pilot\u{201d}, \u{201c}proved\u{201d} or \u{201c}routes\u{201d}"
+        );
+
+        // On the German board deck, slide 9 turns from slide 8, which says little but its joining
+        // words beside two that tell.
+        let turned = |slides: &mut Vec<answer::Slide>| {
+            for (k, title) in ["Zwei Risiken zeigen sich jetzt voll", "Fahrplan bis Ende 2027"].into_iter().enumerate()
+            {
+                let s = &mut slides[7 + k];
+                s.slide_title = title.into();
+                s.key_bullets = vec![];
+                s.layout_suggestion = "Statement".into();
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", turned);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let h = of(&deck);
+        let ask = (h.findings.iter())
+            .find(|f| f.kind == Kind::Turn && f.slide == 9)
+            .map(|f| f.ask.clone())
+            .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
+        assert!(ask.contains("such as \u{201c}risiken\u{201d} or \u{201c}zeigen\u{201d}:"), "{ask}");
     }
 
     /// A turn's ask gives its connectives in the deck's language (health's English-only sweep,
@@ -4462,6 +4564,24 @@ mod tests {
             singular(written("Twelve laundromats, the business, its bus")),
             written("twelve laundromat business its bus")
         );
+    }
+
+    /// A close that says the big idea's own words in its order lands it, the words any talk uses
+    /// among them (the library keynote's "Put 4% of the budget where people already are", under a
+    /// big idea that ends "when it goes where people already are"); the same words said in passing
+    /// land nothing (W1's dogfood 3), nor do the keynote's "twelve people".
+    #[test]
+    fn a_close_that_quotes_the_big_idea_lands_it() {
+        let idea = "The library reaches every reader when it goes where people already are";
+        let closed = |title: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = title.into()
+        };
+        let landed = |h: &Health| !h.findings.iter().any(|f| f.kind == Kind::BigIdea);
+        assert!(!landed(&of(&dogfood("keynote", idea, |_| {}))), "the keynote's close says only \"people\"");
+        assert!(landed(&of(&dogfood("keynote", idea, closed("Go where people already are")))));
+        assert!(!landed(&of(&dogfood("keynote", idea, closed("People already know us")))), "said in passing");
+        assert!(quoted_words(idea, &["Build where people already are"]).contains("already"));
+        assert!(quoted_words(idea, &["where people already"]).is_empty(), "three words in a row quote nothing");
     }
 
     /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth

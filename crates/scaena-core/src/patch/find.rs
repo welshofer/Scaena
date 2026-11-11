@@ -35,6 +35,18 @@ pub struct Query {
     /// Whole words only: a match that neither begins nor ends inside a word.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub words: bool,
+    /// The kinds of words sought (`text`, `alt`, `notes`, `claim`, `chart`, `data`); every kind
+    /// without it. A person replacing a slide's words may leave the claims the outline settled,
+    /// and the notes, as they are (agent dogfood 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kinds: Vec<Kind>,
+}
+
+impl Query {
+    /// Whether words of `kind` are sought.
+    pub fn seeks(&self, kind: Kind) -> bool {
+        self.kinds.is_empty() || self.kinds.contains(&kind)
+    }
 }
 
 /// What words a match is in.
@@ -253,7 +265,7 @@ pub fn find(doc: &Value, query: &Query) -> Result<Vec<Found>, String> {
             places.insert(lives, found);
         }
     }
-    Ok(places.into_values().filter(|f| !f.matches.is_empty()).collect())
+    Ok(places.into_values().filter(|f| !f.matches.is_empty() && query.seeks(f.kind)).collect())
 }
 
 /// The id of the deck's first state, which words no state shows are made at.
@@ -545,6 +557,29 @@ mod tests {
         assert!(find(&doc, &query("q3")).unwrap().is_empty(), "nothing is left to find");
         // Every match in the words, characters counted as `replace_text` counts them.
         assert_eq!(replaced("Ünï Q3 q3", &[[4, 6], [7, 9]], "x"), "Ünï x x");
+    }
+
+    /// A query of some kinds of words finds and replaces those alone: the slides' texts, and the
+    /// claims the outline settled left as they are (agent dogfood 2).
+    #[test]
+    fn a_query_of_some_kinds_leaves_the_rest() {
+        let mut doc = worded();
+        let texts = Query { kinds: vec![Kind::Text], ..query("q3") };
+        let found = find(&doc, &texts).unwrap();
+        assert!(!found.is_empty() && found.iter().all(|f| f.kind == Kind::Text), "{found:#?}");
+        apply(&mut doc, &replacing(&found, "Q4"));
+        assert_eq!(doc["nodes"]["title"]["text"], "Revenue in Q4");
+        assert_eq!(doc["spine"]["sections"][0]["beats"][0]["claim"], "Q3 grew.", "the claim stays");
+        assert_eq!(doc["states"][1]["notes"], "Say Q3 slowly.", "and the notes");
+        let rest: Vec<Kind> = find(&doc, &query("q3")).unwrap().iter().map(|f| f.kind).collect();
+        assert!(rest.contains(&Kind::Claim) && rest.contains(&Kind::Notes) && !rest.contains(&Kind::Text), "{rest:?}");
+        // Two kinds at once.
+        let two = Query { kinds: vec![Kind::Claim, Kind::Alt], ..query("q3") };
+        let kinds: Vec<Kind> = find(&worded(), &two).unwrap().iter().map(|f| f.kind).collect();
+        assert_eq!(kinds, [Kind::Alt, Kind::Claim, Kind::Claim]);
+        // Read as an agent writes them.
+        let asked: Query = serde_json::from_value(json!({ "find": "q3", "kinds": ["text", "notes"] })).unwrap();
+        assert_eq!(asked.kinds, [Kind::Text, Kind::Notes]);
     }
     #[test]
     fn a_charts_words_are_replaced_where_written_and_its_values_found_and_kept() {

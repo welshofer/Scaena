@@ -50,124 +50,69 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Told": {
-        "description": "A version as `deck_history` and `scaena history` list it: as the history keeps it, with what\nits change did and who made it in a person's words, as the editors say them\n(`scaena_core::words::change`, `author`), and what it changed, slide by slide, each object by\nwhat it shows: \"Slide 3: “Revenue doubled”\".",
         "type": "object",
         "properties": {
-          "n": { "description": "Its place in the history, oldest first, from 1.", "type": "integer", "minimum": 0 },
-          "id": {
-            "description": "What names it for as long as the history lasts: its change's id, `counter@peer`.",
-            "type": "string"
-          },
-          "author": {
-            "description": "Who made the change: `user`, `agent:<name>`, or `fs`.",
-            "type": ["string", "null"]
-          },
-          "message": { "description": "What the change did, as what made it says.", "type": ["string", "null"] },
-          "at": { "description": "When it was made, in RFC 3339, UTC.", "type": ["string", "null"] },
-          "ops": {
-            "description": "How many operations it holds: a character typed is one.",
-            "type": "integer",
-            "minimum": 0
-          },
+          "n": { "type": "integer", "minimum": 0 },
+          "id": { "type": "string" },
+          "author": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] },
+          "at": { "type": ["string", "null"] },
+          "ops": { "type": "integer", "minimum": 0 },
           "said": { "type": "string" },
           "by": { "type": "string" },
-          "changed": {
-            "description": "What it changed from the version before, as an editor names it: for the last [`TOLD`]\nversions alone, each read by checking two versions out; none for the first, which holds the\ndeck whole.",
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "changed": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["n", "id", "ops", "said", "by", "changed"]
       },
       "Seen": {
-        "description": "A version, and the deck as it was then: what `scaena history --at` prints.",
         "type": "object",
         "properties": {
           "version": { "$ref": "#/$defs/Version" },
-          "deck": { "description": "The deck as it was, canonical." },
-          "scn": { "description": "With `scn`, the deck as it was, as `.scn` (SPEC §4).", "type": ["string", "null"] },
-          "files": {
-            "description": "The files it was drawn from that the history held then, its data files and its theme,\nby their paths.",
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "deck": {},
+          "scn": { "type": ["string", "null"] },
+          "files": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["version", "files"]
       },
       "Version": {
-        "description": "A version of the deck: as it was just after one change its history keeps.",
         "type": "object",
         "properties": {
-          "n": { "description": "Its place in the history, oldest first, from 1.", "type": "integer", "minimum": 0 },
-          "id": {
-            "description": "What names it for as long as the history lasts: its change's id, `counter@peer`.",
-            "type": "string"
-          },
-          "author": {
-            "description": "Who made the change: `user`, `agent:<name>`, or `fs`.",
-            "type": ["string", "null"]
-          },
-          "message": { "description": "What the change did, as what made it says.", "type": ["string", "null"] },
-          "at": { "description": "When it was made, in RFC 3339, UTC.", "type": ["string", "null"] },
-          "ops": {
-            "description": "How many operations it holds: a character typed is one.",
-            "type": "integer",
-            "minimum": 0
-          }
+          "n": { "type": "integer", "minimum": 0 },
+          "id": { "type": "string" },
+          "author": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] },
+          "at": { "type": ["string", "null"] },
+          "ops": { "type": "integer", "minimum": 0 }
         },
         "required": ["n", "id", "ops"]
       },
       "Compared": {
-        "description": "What changed from one version of the deck to another: what `scaena history --diff` prints.",
         "type": "object",
         "properties": {
           "from": { "$ref": "#/$defs/Version" },
-          "to": {
-            "description": "The later version; none for the deck as it is now.",
-            "anyOf": [{ "$ref": "#/$defs/Version" }, { "type": "null" }]
-          },
-          "states": {
-            "description": "Each state that changed, by id: in the later version's order, then those it lacks.",
-            "type": "object",
-            "additionalProperties": { "$ref": "#/$defs/StateChange" }
-          },
-          "deck": {
-            "description": "The deck's own fields that changed (its theme, canvas, formats, fonts, data sources,\nspine, …), each as the later version has it; null where it is gone. `order` is the\nlater version's states, where those both have run in another order.",
-            "type": "object",
-            "additionalProperties": true
-          },
-          "before": {
-            "description": "Each of those as the earlier version had it; null where it had none.",
-            "type": "object",
-            "additionalProperties": true
-          },
-          "files": {
-            "description": "The files it is drawn from whose bytes changed, data files and the theme, by their\npaths.",
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "to": { "anyOf": [{ "$ref": "#/$defs/Version" }, { "type": "null" }] },
+          "states": { "type": "object", "additionalProperties": { "$ref": "#/$defs/StateChange" } },
+          "deck": { "type": "object", "additionalProperties": true },
+          "before": { "type": "object", "additionalProperties": true },
+          "files": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["from", "states", "deck", "before", "files"]
       },
       "StateChange": {
-        "description": "What changed in one state from one version of the deck to another.",
         "oneOf": [
           {
-            "description": "The later version has it, and the earlier did not.",
             "type": "object",
             "properties": { "added": { "type": "boolean" } },
             "required": ["added"],
             "additionalProperties": false
           },
           {
-            "description": "The earlier version had it, and the later does not.",
             "type": "object",
             "properties": { "removed": { "type": "boolean" } },
             "required": ["removed"],
             "additionalProperties": false
           },
           {
-            "description": "Both have it, and it shows otherwise.",
             "type": "object",
             "properties": { "changed": { "$ref": "#/$defs/Changed" } },
             "required": ["changed"],
@@ -176,45 +121,29 @@
         ]
       },
       "Changed": {
-        "description": "What changed in a state both versions have.",
         "type": "object",
         "properties": {
-          "fields": {
-            "description": "Its own fields that changed (its layout, transition, choreography, hold, notes, …),\neach as the later version has it; null where it is gone.",
-            "type": "object",
-            "additionalProperties": true
-          },
-          "nodes": {
-            "description": "The nodes it shows that changed, resolved with the deck's overrides, as `diff` says them:\none that enters, with its props; one that exits; one whose props change, each as the\nlater version has it, and null where it is gone.",
-            "type": "object",
-            "additionalProperties": { "$ref": "#/$defs/Change" }
-          },
-          "before": {
-            "description": "What each of those was in the earlier version: its own fields that changed, each as the\nearlier version had it, null where it had none; and each node's props that changed or\nleft, as it had them, null where it had none.",
-            "$ref": "#/$defs/Before"
-          }
+          "fields": { "type": "object", "additionalProperties": true },
+          "nodes": { "type": "object", "additionalProperties": { "$ref": "#/$defs/Change" } },
+          "before": { "$ref": "#/$defs/Before" }
         },
         "required": ["fields", "nodes", "before"]
       },
       "Change": {
-        "description": "What changes from one state to another, resolved, by node.",
         "oneOf": [
           {
-            "description": "It enters, with these props.",
             "type": "object",
             "properties": { "enter": { "type": "object", "additionalProperties": true } },
             "required": ["enter"],
             "additionalProperties": false
           },
           {
-            "description": "It exits.",
             "type": "object",
             "properties": { "exit": { "type": "boolean" } },
             "required": ["exit"],
             "additionalProperties": false
           },
           {
-            "description": "It stays, and these props change.",
             "type": "object",
             "properties": { "change": { "type": "object", "additionalProperties": true } },
             "required": ["change"],
@@ -223,7 +152,6 @@
         ]
       },
       "Before": {
-        "description": "What the earlier version had of what changed.",
         "type": "object",
         "properties": {
           "fields": { "type": "object", "additionalProperties": true },
@@ -232,85 +160,44 @@
         "required": ["fields", "nodes"]
       },
       "Restored": {
-        "description": "What restoring a version did, or would do: what `scaena history --restore` prints.",
         "type": "object",
         "properties": {
           "version": { "$ref": "#/$defs/Version" },
-          "applied": {
-            "description": "Whether the bundle was written: not on a dry run, nor when the version is refused.",
-            "type": "boolean"
-          },
-          "files": {
-            "description": "The files written as the version held them, data files and the theme, by their paths.",
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "added": {
-            "description": "What `validate` and `lint` find after that they did not before.",
-            "type": "array",
-            "items": { "$ref": "#/$defs/Finding" }
-          },
-          "removed": {
-            "description": "What they found before that they do not after.",
-            "type": "array",
-            "items": { "$ref": "#/$defs/Finding" }
-          },
-          "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
-          "states": {
-            "description": "The states it changes what shows in, by id, as `patch` says them.",
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "applied": { "type": "boolean" },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+          "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+          "errors": { "type": "integer", "minimum": 0 },
+          "states": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["version", "applied", "files", "added", "removed", "errors", "states"]
       },
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
     },
     "properties": {
-      "versions": {
-        "description": "Its versions, oldest first, when nothing else is asked, each told in a person's words.",
-        "type": ["array", "null"],
-        "items": { "$ref": "#/$defs/Told" }
-      },
-      "begun": {
-        "description": "With `begin`, whether the history was begun here: false where the bundle kept one.",
-        "type": ["boolean", "null"]
-      },
-      "seen": { "description": "With `at`.", "anyOf": [{ "$ref": "#/$defs/Seen" }, { "type": "null" }] },
-      "compared": { "description": "With `compare`.", "anyOf": [{ "$ref": "#/$defs/Compared" }, { "type": "null" }] },
-      "restored": { "description": "With `restore`.", "anyOf": [{ "$ref": "#/$defs/Restored" }, { "type": "null" }] }
+      "versions": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Told" } },
+      "begun": { "type": ["boolean", "null"] },
+      "seen": { "anyOf": [{ "$ref": "#/$defs/Seen" }, { "type": "null" }] },
+      "compared": { "anyOf": [{ "$ref": "#/$defs/Compared" }, { "type": "null" }] },
+      "restored": { "anyOf": [{ "$ref": "#/$defs/Restored" }, { "type": "null" }] }
     },
     "type": "object"
   }

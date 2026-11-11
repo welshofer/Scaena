@@ -660,7 +660,7 @@ impl SlideWritten {
         let p = &self.patched;
         self.report = Some(crate::patch::Reported {
             applied: p.applied,
-            ops: Vec::new(),
+            ops: None,
             summary: self.summary.clone(),
             patch: verbose.then(|| p.patch.clone()),
             added: p.added.clone(),
