@@ -506,6 +506,23 @@ Q2 FY26,44.2,2.6,1.2,0.3,4.0,1.2,112,76.3,64,66,1.4,2.1
 Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
 ";
 
+    /// A German percent, set apart from its figure as DIN 5008 and the deck's words set it, is
+    /// read as one: a column of fractions quotes it whole by a `.0%`, which the engine writes as
+    /// the words do, and a column that holds the number as written quotes the number alone.
+    #[test]
+    fn a_german_percent_quotes_a_fraction_whole_and_writes_it_as_its_words() {
+        let fractions = "quarter,anteil\nQ2,0.16\nQ3,0.18\n";
+        let q = quotes(&[("t", "Anteil im Q3: 18\u{a0}%")], fractions, Some("de"));
+        assert_eq!(q.len(), 1, "{q:?}");
+        assert_eq!((q[0].0.as_str(), q[0].1["format"].as_str()), ("18\u{a0}%", Some(".0%")));
+        let de = scaena_core::format::Locale::of(Some("de"));
+        let written = scaena_core::format::NumberFormat::parse(".0%").unwrap().format(0.18, de);
+        assert_eq!(written, q[0].0, "the quote writes what the words say");
+        let numbers = "quarter,anteil_pct\nQ2,16.1\nQ3,18.4\n";
+        let q = quotes(&[("t", "Anteil im Q3: 18,4\u{a0}%")], numbers, Some("de"));
+        assert_eq!((q[0].0.as_str(), q[0].1["format"].as_str()), ("18,4", Some(".1f")));
+    }
+
     fn one(words: &str) -> Vec<(String, Value)> {
         quotes(&[("t", words)], NORTHWIND, None)
     }

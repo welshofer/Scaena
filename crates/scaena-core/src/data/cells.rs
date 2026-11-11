@@ -297,6 +297,14 @@ mod tests {
         assert_eq!(NumberFormat::parse("$,.2f").unwrap().format(1234.5, de), "1.234,50\u{a0}€");
         // In English, the same cells are text.
         assert_eq!(read("Monat\tUmsatz\nJan\t1.234,50 €\n", en()).unwrap().formats[1], None);
+        // A German percent reads spaced, as DIN 5008 sets it, or joined, as a sheet may copy it,
+        // and prints spaced again.
+        for sheet in ["Monat\tAnteil\nJan\t18,4 %\nFeb\t16,1 %\n", "Monat\tAnteil\nJan\t18,4%\nFeb\t16,1%\n"] {
+            let cells = read(sheet, de).unwrap();
+            assert_eq!(cells.formats[1].as_deref(), Some(".1%"), "{sheet:?}");
+            assert_eq!(cells.csv, "Monat,Anteil\nJan,0.184\nFeb,0.161\n", "{sheet:?}");
+        }
+        assert_eq!(NumberFormat::parse(".1%").unwrap().format(0.184, de), "18,4\u{a0}%");
     }
 
     /// Names: an empty one is the column's place, and one again is numbered.

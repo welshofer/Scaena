@@ -105,7 +105,8 @@ pub const LOCALES: [Locale; 6] = [
         decimal: ",",
         group: ".",
         currency: ("", "\u{a0}€"),
-        percent: "%",
+        // DIN 5008 sets a percent sign apart from its figure, as the deck's words set it.
+        percent: "\u{a0}%",
         compact: ["\u{a0}Tsd.", "\u{a0}Mio.", "\u{a0}Mrd.", "\u{a0}Bio."],
         months: [
             "Januar",
@@ -1144,6 +1145,7 @@ mod tests {
         assert_eq!(f.format(1234.5, de), "1.234,50\u{a0}€");
         assert_eq!(NumberFormat::parse(".2~k").unwrap().format(2_500_000.0, de), "2,5\u{a0}Mio.");
         assert_eq!(NumberFormat::parse(".1~k").unwrap().format(2_500_000.0, de), "3\u{a0}Mio.", "one digit, a tie up");
+        assert_eq!(NumberFormat::parse(",.1%").unwrap().format(0.1234, de), "12,3\u{a0}%", "DIN 5008");
         let fr = Locale::of(Some("fr-CA"));
         assert_eq!(fr.tag, "fr-FR", "a language's first entry");
         assert_eq!(NumberFormat::parse(",.1%").unwrap().format(0.1234, fr), "12,3\u{a0}%");
