@@ -530,9 +530,20 @@ try {
     await page.keyboard.press("Control+z");
     await accented("#FF6A3D");
     check((await accent()) === "#FF6A3D" && (await source()) === before, `${id}: one ⌘Z takes the whole answer back, the theme and the source as they were asked`);
+    // The status, a live region, says that alone: never "Nothing to undo" on the way, even for an
+    // instant, though CodeMirror tries ⌘Z's binding for it first (editor dogfood 5). Each text it is
+    // given is read as each record adds it: two said in one task are read after it, as the last.
+    await page.evaluate(() => {
+      window.__said = [];
+      new MutationObserver((records) => {
+        for (const r of records) for (const n of r.addedNodes) window.__said.push(n.textContent);
+      }).observe(document.querySelector("#status"), { childList: true, characterData: true, subtree: true });
+    });
     await page.keyboard.press("Control+Shift+z");
     await accented("#2E86E4");
     check((await accent()) === "#2E86E4" && (await source()) === after, `${id}: ⌘⇧Z makes it again`);
+    const heard = await page.evaluate(() => window.__said);
+    check(!heard.some((t) => t.startsWith("Nothing to")), `${id}: and the status says nothing else on the way: ${JSON.stringify(heard)}`);
     // Undo this answer, on the finished turn, does the same.
     await tab(page, "assistant");
     await page.click("#transcript .undo-answer button");
