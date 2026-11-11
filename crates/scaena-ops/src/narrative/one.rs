@@ -54,14 +54,16 @@ pub struct Written {
 /// - gives it a beat after that slide's beat, in its section, its claim the slide's title and its
 ///   notes the slide's, where the deck has a spine; or puts it in `beat`, a beat of the spine
 ///   whose claim the slide tells, which keeps what it says, the slide's beat giving only what it
-///   lacks (lift-up M1);
+///   lacks (lift-up M1), and the slide's own notes, where the beat keeps others, going on its
+///   first state, which a presenter reads before its beat's (agent dogfood);
 /// - begins a spine, a section holding the slide's beat, in a deck with no slide yet but
 ///   `deck_create`'s blank one, which the slide takes the place of, so a deck written slide by
 ///   slide has its story; a deck made by hand with no spine keeps none, the slide's notes on its
 ///   first state;
 /// - for [`Place::Replace`], puts it in the old slide's beat, which keeps its id, its claim, its
 ///   evidence, its notes, its time, and what else it holds; gives it the old slide's transition,
-///   hold, furniture, and notes, and every link to the old slide; and takes the old slide away
+///   hold, furniture, and notes, the slide's own notes winning where it gives them, and every
+///   link to the old slide; and takes the old slide away
 ///   with `remove_slide`, its nodes no other slide shows going with it. A picture the old slide
 ///   showed is shown again, in a layout that holds one, and so is the chart it showed, from its
 ///   rows, where the slide written draws none of its own.
@@ -240,6 +242,24 @@ pub fn slide_into(
                 first[key] = value.clone();
             }
         }
+    }
+
+    // A beat the slide joins that says notes of its own keeps them, a planned beat's or the old
+    // slide's: the slide's own notes go on its first state, which a presenter reads before its
+    // beat's, so none the slide gives are dropped (agent dogfood).
+    let joined = match (planned, old) {
+        (Some((s, b)), _) => Some(&sections[s]["beats"][b]),
+        (None, Some(i)) => slides[i].iter().rev().find_map(|k| {
+            (sections.iter().flat_map(|x| x["beats"].as_array().into_iter().flatten()))
+                .find(|b| b["states"].as_array().is_some_and(|l| l.iter().any(|x| x == id_of(*k))))
+        }),
+        _ => None,
+    };
+    let said = |v: Option<&Value>| v.and_then(Value::as_str).filter(|n| !n.trim().is_empty()).map(str::to_string);
+    if let (Some(joined), Some(own), Some(first)) = (joined, said(beat.get("notes")), new_states.first_mut())
+        && said(joined.get("notes")).is_some_and(|kept| kept != own)
+    {
+        first["notes"] = json!(own);
     }
 
     // A deck made by hand with no spine keeps none: the slide's notes go on its first state, so

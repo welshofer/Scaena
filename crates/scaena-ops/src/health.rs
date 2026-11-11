@@ -1370,14 +1370,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
         if s.body.trim().is_empty() && s.notes.trim().is_empty() {
-            find(
-                &s.id,
-                Severity::Warning,
-                Kind::Empty,
-                format!("Slide {k} says nothing past its headline, and has no notes."),
-                format!("Add to slide {k} what bears out its headline, or notes that say what to tell the room."),
-                None,
-            );
+            // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
+            // it lacks is the notes, never more on the slide.
+            let (says, ask) = if s.one_idea {
+                (
+                    format!("Slide {k} makes its one point in its headline, and has no notes."),
+                    format!("Add notes to slide {k} that say what to tell the room."),
+                )
+            } else {
+                (
+                    format!("Slide {k} says nothing past its headline, and has no notes."),
+                    format!("Add to slide {k} what bears out its headline, or notes that say what to tell the room."),
+                )
+            };
+            find(&s.id, Severity::Warning, Kind::Empty, says, ask, None);
         }
     }
     // A turn out of an agenda is the agenda's own to make (dogfood pass 10): it names the parts
@@ -3483,6 +3489,24 @@ mod tests {
         // A deck whose counted slides list points says how many, as before.
         let fleet = of(&dogfood("fleet", "", |_| {}));
         assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
+    }
+
+    /// A one-idea slide with no notes is asked for its notes alone (W1's dogfood 6): a statement
+    /// makes its point in its headline by design, so health never asks to add to the slide.
+    #[test]
+    fn a_one_idea_slide_is_asked_for_notes_alone() {
+        let bare = |slides: &mut Vec<answer::Slide>| {
+            let s = slides.iter_mut().find(|s| s.layout_suggestion == "Statement").unwrap();
+            s.subtitle.clear();
+            s.speaker_notes.clear();
+        };
+        let deck = dogfood("keynote", "", bare);
+        let h = of(&deck);
+        let empty: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Empty).collect();
+        assert_eq!(empty.len(), 1, "{:#?}", h.findings);
+        let k = empty[0].slide;
+        assert_eq!(empty[0].says, format!("Slide {k} makes its one point in its headline, and has no notes."));
+        assert_eq!(empty[0].ask, format!("Add notes to slide {k} that say what to tell the room."));
     }
 
     /// The close's words are not asked to carry its plan's intensity (W1's dogfood 6): the
