@@ -26,104 +26,62 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
       "Photo": {
-        "description": "What a theme edit from a photo read and set (PLAN 2.94, `scaena_core::palette`).",
         "type": "object",
         "properties": {
-          "image": { "description": "The image, as the bundle names it.", "type": "string" },
-          "read": {
-            "description": "What its colors are: its hues, best first, and the hue it leans to.",
-            "$ref": "#/$defs/Read"
-          },
-          "set": {
-            "description": "Each of the theme's colors and data palettes: what it was, what it takes, and, for a\ncolor text is set in, the least contrast it has on the surfaces and the least it needs.",
-            "type": "array",
-            "items": { "$ref": "#/$defs/Set" }
-          }
+          "image": { "type": "string" },
+          "read": { "$ref": "#/$defs/Read" },
+          "set": { "type": "array", "items": { "$ref": "#/$defs/Set" } }
         },
         "required": ["image", "read", "set"]
       },
       "Read": {
-        "description": "What a photo's colors are.",
         "type": "object",
         "properties": {
-          "hues": {
-            "description": "Its hues, best first, each at least 30° from those before it: at most four.",
-            "type": "array",
-            "items": { "$ref": "#/$defs/Hue" }
-          },
-          "cast": { "description": "The hue its pixels lean to together, and how far.", "$ref": "#/$defs/Cast" }
+          "hues": { "type": "array", "items": { "$ref": "#/$defs/Hue" } },
+          "cast": { "$ref": "#/$defs/Cast" }
         },
         "required": ["hues", "cast"]
       },
       "Hue": {
-        "description": "A hue a photo shows.",
         "type": "object",
         "properties": {
-          "degrees": { "description": "Its angle, in degrees of Oklch hue.", "type": "number" },
-          "chroma": { "description": "How colorful its pixels are: their mean Oklch chroma.", "type": "number" },
-          "share": { "description": "The share of the photo's pixels within 10° of it, 0 to 1.", "type": "number" }
+          "degrees": { "type": "number" },
+          "chroma": { "type": "number" },
+          "share": { "type": "number" }
         },
         "required": ["degrees", "chroma", "share"]
       },
       "Cast": {
-        "description": "The hue a photo's pixels lean to together: the Oklch of their mean.",
         "type": "object",
-        "properties": {
-          "degrees": { "description": "In degrees of Oklch hue.", "type": "number" },
-          "chroma": { "description": "How far: the chroma of the pixels' mean.", "type": "number" }
-        },
+        "properties": { "degrees": { "type": "number" }, "chroma": { "type": "number" } },
         "required": ["degrees", "chroma"]
       },
       "Set": {
-        "description": "A color, or a data palette, the photo sets in a theme.",
         "type": "object",
         "properties": {
-          "path": {
-            "description": "Where in the theme: a JSON Pointer (`/tokens/color/accent`, `/tokens/data/sequential`).",
-            "type": "string"
-          },
-          "was": { "description": "The value it had: a color, or a palette's colors." },
-          "now": { "description": "The value it takes." },
-          "reads": {
-            "description": "For a color a type role sets text in: the least contrast it has on the surfaces, and\nthe least it must have.",
-            "type": ["array", "null"],
-            "items": { "type": "number" },
-            "minItems": 2,
-            "maxItems": 2
-          }
+          "path": { "type": "string" },
+          "was": {},
+          "now": {},
+          "reads": { "type": ["array", "null"], "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
         },
         "required": ["path", "was", "now"]
       }
@@ -131,43 +89,15 @@
     "required": ["theme", "paths", "applied", "listed", "added", "removed", "errors", "refused"],
     "type": "object",
     "properties": {
-      "theme": {
-        "description": "The theme edited: its path in the bundle, or `(inline)` for one written in the deck.",
-        "type": "string"
-      },
-      "paths": {
-        "description": "Where in the theme the edit writes: each operation's path, once, in order.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "applied": {
-        "description": "Whether the edit stands: not under a dry run, nor when it was refused.",
-        "type": "boolean"
-      },
-      "listed": {
-        "description": "The theme's families the deck's `fonts` now lists, as rendering needs them to be:\n`family `key`: file`. Each is a file the bundle holds that the deck did not list.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "added": {
-        "description": "What `validate` and `lint` find in the theme as edited that they did not before.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "removed": {
-        "description": "What they found before that they do not after.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
-      "refused": {
-        "description": "Whether the edit was refused: it would have added a validation error (in `added`). The\ntheme stays as it was.",
-        "type": "boolean"
-      },
-      "photo": {
-        "description": "With `photo`: what its colors are, and each of the theme's colors and data palettes, what\nit was and what it takes.",
-        "anyOf": [{ "$ref": "#/$defs/Photo" }, { "type": "null" }]
-      }
+      "theme": { "type": "string" },
+      "paths": { "type": "array", "items": { "type": "string" } },
+      "applied": { "type": "boolean" },
+      "listed": { "type": "array", "items": { "type": "string" } },
+      "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "errors": { "type": "integer", "minimum": 0 },
+      "refused": { "type": "boolean" },
+      "photo": { "anyOf": [{ "$ref": "#/$defs/Photo" }, { "type": "null" }] }
     }
   }
 }

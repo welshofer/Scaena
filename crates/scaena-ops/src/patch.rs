@@ -58,9 +58,11 @@ pub fn patch(b: &Bundle, ops: &Value, dry_run: bool) -> Result<Patched, OpsError
 pub struct Reported {
     /// Whether the deck was written: not under a dry run, nor when the patch was refused.
     pub applied: bool,
-    /// The semantic ops given (SPEC §7.3), in order, as given; JSON Patch ops are counted in
-    /// `summary`.
-    pub ops: Vec<Value>,
+    /// With `verbose`, the semantic ops given (SPEC §7.3), in order, as given: an agent has them
+    /// already, and their values (a slide's notes, a text's words) can be long (agent dogfood 2).
+    /// JSON Patch ops are counted in `summary`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ops: Option<Vec<Value>>,
     /// What changed in the deck's slides and its story.
     pub summary: Summary,
     /// With `verbose`, the patch as RFC 6902, in order.
@@ -121,7 +123,7 @@ impl Reported {
         summary.json_patch = given.iter().filter(|op| json_patch(op)).count();
         Reported {
             applied: patched.applied,
-            ops: given.iter().filter(|op| !json_patch(op)).cloned().collect(),
+            ops: verbose.then(|| given.iter().filter(|op| !json_patch(op)).cloned().collect()),
             summary,
             patch: verbose.then_some(patched.patch),
             added: patched.added,

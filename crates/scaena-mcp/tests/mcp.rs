@@ -308,11 +308,16 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
                     "y": { "field": "revenue", "type": "quantitative", "title": "Revenue ($M)" },
                     "alt": "Revenue by quarter, Q4 2025 through Q3 2026.", "semantic": "evidence", "at": { "in": "main" } } },
     ]);
+    // With `verbose`, the semantic ops given and the JSON Patch they compile to.
+    let asked =
+        ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops, "dry_run": true, "verbose": true })).await;
+    assert_eq!(asked["ops"].as_array().map(Vec::len), Some(4), "{asked:#}");
+    assert!(asked["patch"].as_array().is_some_and(|p| !p.is_empty()), "{asked:#}");
     let patched = ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
     assert_eq!(patched["applied"], true, "{patched:#}");
-    // Said by its semantic ops and what they changed, the JSON Patch only when asked for
-    // (dogfood 3).
-    assert_eq!(patched["ops"].as_array().map(Vec::len), Some(4), "{patched:#}");
+    // Without it, said by what they changed (dogfood 3): neither the ops the agent sent, which can
+    // be long (agent dogfood 2), nor the JSON Patch.
+    assert!(patched.get("ops").is_none(), "{patched:#}");
     assert_eq!(patched["summary"]["json_patch"], 1, "{patched:#}");
     assert_eq!(patched["summary"]["slides_added"], json!(["revenue"]), "{patched:#}");
     assert!(patched.get("patch").is_none(), "{patched:#}");

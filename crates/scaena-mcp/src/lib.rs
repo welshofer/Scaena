@@ -105,7 +105,7 @@ impl Default for Scaena {
         let mut tool_router = Self::tool_router();
         for route in tool_router.map.values_mut() {
             route.attr.input_schema = standard(&route.attr.input_schema);
-            route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
+            route.attr.output_schema = route.attr.output_schema.as_deref().map(|s| standard(&bare(s)));
         }
         Scaena {
             tool_router,
@@ -374,6 +374,37 @@ fn standard(schema: &Map<String, Value>) -> Arc<Map<String, Value>> {
     let mut schema = schema.clone();
     object(&mut schema);
     Arc::new(schema)
+}
+
+/// `schema`, a tool's output schema, without the prose its fields carry (`description`, `title`):
+/// what a result holds is said by the tool's description and read in the result itself, and the
+/// prose was three-quarters of what `tools/list` weighed, 154 of 213 KB (agent dogfood 2). Its
+/// shape stays whole, so a client that checks structured content still checks it; a field that is
+/// itself called `description` or `title` stays.
+fn bare(schema: &Map<String, Value>) -> Map<String, Value> {
+    fn object(o: &mut Map<String, Value>, fields: bool) {
+        if !fields {
+            o.retain(|key, v| !(matches!(key.as_str(), "description" | "title") && v.is_string()));
+        }
+        for (key, v) in o.iter_mut() {
+            if matches!(key.as_str(), "default" | "examples" | "const" | "enum") {
+                continue;
+            }
+            // The members of `properties` (and of `$defs`) are names, not keywords.
+            let names = matches!(key.as_str(), "properties" | "$defs" | "definitions" | "patternProperties");
+            value(v, names && !fields);
+        }
+    }
+    fn value(v: &mut Value, fields: bool) {
+        match v {
+            Value::Object(o) => object(o, fields),
+            Value::Array(a) => a.iter_mut().for_each(|v| value(v, false)),
+            _ => {}
+        }
+    }
+    let mut schema = schema.clone();
+    object(&mut schema, false);
+    schema
 }
 
 /// Who the client is, as the history of a bundle it edits names it: `agent:<name>`, by the
