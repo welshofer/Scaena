@@ -3570,7 +3570,7 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
 }
 
 /// Every figure in `text`, in order, as [`figure`] reads the first.
-fn figures_in(text: &str) -> Vec<String> {
+pub(crate) fn figures_in(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = text;
     while let Some(f) = figure(rest) {

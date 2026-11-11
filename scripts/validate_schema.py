@@ -18,6 +18,8 @@ targets = [('docs/examples/revenue.deck.json', deck_schema), ('docs/examples/cha
 targets += [(f, theme_schema) for t in json.load(open(root / 'docs/themes/registry.json'))['themes'] for f in t['files']]
 # The example patch (PLAN 1.16).
 targets += [('docs/examples/revenue.patch.json', patch_schema)]
+# The worked deck_generate call an agent is pointed to, as the tool reads its arguments.
+targets += [('docs/examples/ferry.generate.json', json.load(open(root / 'docs/schema/mcp/deck_generate.json'))['inputSchema'])]
 # The deck the authorability spike's agents wrote (PLAN 0.13); the themes it moved between are the registry's.
 targets += [('docs/examples/authorability/deck.json', deck_schema)]
 # The validation fixtures' clean decks and their theme (PLAN 1.2); the triggers break on purpose.
