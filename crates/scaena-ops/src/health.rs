@@ -835,6 +835,13 @@ const VERBS: &str = "\
 /// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
 /// so such a label is missed rather than a point found wanting.
 fn labels(headline: &str) -> bool {
+    names_topic(headline, 3)
+}
+
+/// Whether `headline`, of `fewest` words to six, names a topic rather than stating a point, as
+/// [`labels`] reads one: a word or two ("Measurement") counts where the look rewrites a title
+/// that stated its point (W1's dogfood 8).
+pub(crate) fn names_topic(headline: &str, fewest: usize) -> bool {
     let headline = headline.trim();
     if headline.ends_with('?') {
         return false;
@@ -854,7 +861,7 @@ fn labels(headline: &str) -> bool {
         let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
         (w.chars().count() >= 5 && w.ends_with("ed")) || (of(w) && !plural)
     };
-    (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
+    (fewest..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
 /// The shipped themes' layouts whose headline is a figure's, or names the figures under it.

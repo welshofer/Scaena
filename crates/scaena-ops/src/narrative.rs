@@ -1388,7 +1388,12 @@ pub fn looked(
     theme: &str,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(Generated, Write), OpsError> {
+    // A title that drops what its beat claims, or names a topic where the slide stated its point,
+    // is let go before the deck is made again (W1's dogfood 8), as a figure changed is.
+    let (changes, titled) = held(shown.narrative, changes);
     if changes.is_empty() {
+        let mut before = before;
+        refuse(&mut before.0, &mut before.1, titled);
         return Ok(before);
     }
     let make = |changes: &[Change]| -> Result<Option<(Generated, Write)>, OpsError> {
@@ -1400,16 +1405,22 @@ pub fn looked(
     };
     let unchanged = |mut before: (Generated, Write), why: &str| {
         before.0.unlooked = Some(why.to_string());
-        Ok(before)
+        Ok::<_, OpsError>(before)
     };
     let invalid = "the deck the model asked for would not validate";
+    let unchanged = |before: (Generated, Write), why: &str| {
+        let (mut made, mut write) = unchanged(before, why)?;
+        refuse(&mut made, &mut write, titled.clone());
+        Ok((made, write))
+    };
     let Some(after) = make(&changes)? else { return unchanged(before, invalid) };
     let refused = worse((&before.0, &before.1), (&after.0, &after.1));
     if refused.is_empty() {
-        return Ok(adopt(before.0, after, changes, Vec::new()));
+        return Ok(adopt(before.0, after, changes, titled));
     }
     // Each change let go, said with what lint found (lift-up USE-4).
-    let said = refusals(&changes, &refused, (&before.0, &before.1), (&after.0, &after.1));
+    let mut said = titled.clone();
+    said.extend(refusals(&changes, &refused, (&before.0, &before.1), (&after.0, &after.1)));
     let kept = kept(changes, &refused);
     let unchanged = |before: (Generated, Write), why: &str| {
         let (mut made, mut write) = unchanged(before, why)?;
@@ -1424,6 +1435,69 @@ pub fn looked(
         return unchanged(before, "lint found a slide the model changed worse for it");
     }
     Ok(adopt(before.0, again, kept, said))
+}
+
+/// `changes` less each title that says less than the slide did (W1's dogfood 8), and each title
+/// let go, said: one that drops a word of the claim its beat settled that the slide's title said,
+/// or, in English, one that names a topic where the title stated its point ([`names_topic`]).
+/// What else the change asks stands.
+///
+/// [`names_topic`]: crate::health::names_topic
+fn held(narrative: &Narrative, changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
+    const SLIGHT: [&str; 22] = [
+        "a", "an", "the", "of", "for", "to", "in", "on", "and", "or", "at", "by", "with", "is", "are", "be", "we",
+        "our", "it", "its", "this", "that",
+    ];
+    let words = |text: &str| -> Vec<String> {
+        (text.split_whitespace())
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+            .filter(|w| !w.is_empty() && !SLIGHT.contains(&w.as_str()))
+            .collect()
+    };
+    let english = deck_lang(&narrative.brief).is_none_or(|l| l.split('-').next() == Some("en"));
+    let beats = narrative.outline.as_ref().map_or(0, |o| o.beats.len());
+    let count = narrative.slides.len();
+    let mut kept = Vec::new();
+    let mut refused = Vec::new();
+    for mut change in changes {
+        let index = change.slide.wrapping_sub(1);
+        if let (Some(title), Some(slide)) = (change.title.clone(), narrative.slides.get(index)) {
+            let beat = (slide.beat_index.filter(|b| *b < beats))
+                .unwrap_or_else(|| scaena_narrato::beats::beat_of(index, count, beats.max(1)));
+            let (was, now) = (words(&slide.slide_title), words(&title));
+            let dropped: Vec<String> = (claim_of(narrative, beat).map(words).unwrap_or_default().into_iter())
+                .filter(|w| was.contains(w) && !now.contains(w))
+                .collect();
+            let why = if !dropped.is_empty() {
+                let quoted: Vec<String> = dropped.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
+                Some(format!("it drops {} from the claim its beat settled", and_list(&quoted)))
+            } else if english
+                && crate::health::names_topic(&title, 1)
+                && !crate::health::names_topic(&slide.slide_title, 1)
+            {
+                Some("it names a topic where the slide stated its point".to_string())
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                refused.push(Refused { slide: change.slide, what: format!("the title \u{201c}{title}\u{201d}"), why });
+                change.title = None;
+            }
+        }
+        if change.changes() {
+            kept.push(change);
+        }
+    }
+    (kept, refused)
+}
+
+/// `items` in a sentence: "a", "a and b", "a, b and c".
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// What lint finds wrong with each slide of a made deck, in all its states: its errors, and its
@@ -9702,6 +9776,61 @@ mod tests {
         n.outline =
             Some(scaena_narrato::outline::Outline { big_idea: outline["bigIdea"].as_str().unwrap().into(), beats });
         n
+    }
+
+    /// A look that turns a slide's claim back into a topic is let go, its title only, and said
+    /// in `meta.narrative.refused`: one that drops words of the claim its beat settled, "Make
+    /// Route 9 free for twelve months" as "A free Route 9", or names a topic where the title
+    /// stated its point, "How we would know it worked" as "Measurement" (W1's dogfood 8). A title
+    /// that keeps what its beat claims and states it is taken.
+    #[test]
+    fn a_look_that_turns_a_claim_into_a_topic_is_let_go() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let n = route9();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let before = (made, write.unwrap());
+        let change = |slide: usize, title: &str| Change {
+            slide,
+            title: Some(title.into()),
+            why: "Shorter.".into(),
+            ..Change::default()
+        };
+        let mut measured = change(9, "Measurement");
+        measured.bullets = Some(vec![
+            "Monthly boardings".into(),
+            "Eastgate trips".into(),
+            "Month-six survey".into(),
+            "Month-twelve report".into(),
+        ]);
+        let changes = vec![change(5, "Discounts haven't moved the number"), change(6, "A free Route 9"), measured];
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, write) = looked(shown, changes, before, Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        let refused: Vec<(usize, &str)> = made.refused.iter().map(|r| (r.slide, r.why.as_str())).collect();
+        assert_eq!(
+            refused,
+            [
+                (
+                    6,
+                    "it drops \u{201c}make\u{201d}, \u{201c}twelve\u{201d} and \u{201c}months\u{201d} from the claim its beat settled"
+                ),
+                (9, "it names a topic where the slide stated its point"),
+            ],
+            "{:#?}",
+            made.refused
+        );
+        let deck = write.deck.to_value().unwrap();
+        let texts: Vec<&str> = deck["nodes"].as_object().unwrap().values().filter_map(|n| n["text"].as_str()).collect();
+        let has = |words: &str| texts.contains(&words);
+        assert!(has("Make Route 9 free for twelve months") && !has("A free Route 9"), "{texts:#?}");
+        assert!(has("How we would know it worked") && !has("Measurement"), "{texts:#?}");
+        // What else the look asked stands, and the title that keeps its claim is taken.
+        assert!(texts.iter().any(|t| t.contains("Month-six survey")), "{texts:#?}");
+        assert!(has("Discounts haven\u{2019}t moved the number"), "{texts:#?}");
+        let kept = write.deck.meta.as_ref().unwrap().extra["narrative"]["refused"].as_array().unwrap().len();
+        assert_eq!(kept, 2);
+        // A health finding's label check reads the same words a topic.
+        assert!(crate::health::names_topic("Measurement", 1) && !crate::health::names_topic("Measurement", 3));
     }
 
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says
