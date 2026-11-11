@@ -1898,13 +1898,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // deck written by hand has no notes on any, and a row for each would bury the rest.
     // The slides whose notes say what the slide shows, as one finding at the first of them: the
     // room reads it there, and a presenter who reads it aloud again tells them nothing (W1's
-    // dogfood 4).
+    // dogfood 4). A warning, so it opens in the Story: a reader finds it the clearest tell of a
+    // weak deck (the calibration against a reader, docs/examples/health-calibration.md).
     if let Some(&first) = aloud.first() {
         let (named, many) = slides_named(&aloud);
         let each = if many { "each" } else { "it" };
         find(
             &read[first].id,
-            Severity::Info,
+            Severity::Warning,
             Kind::Notes,
             format!("The notes for {named} read the slide aloud: nearly every word of them is on {each}."),
             format!(
@@ -3256,7 +3257,8 @@ mod tests {
         let found = aloud(&fleet);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].slide, 2);
-        assert_eq!(found[0].severity, Severity::Info);
+        // A warning, so it opens in the Story, never folded among the infos.
+        assert_eq!(found[0].severity, Severity::Warning);
         assert_eq!(
             found[0].says,
             "The notes for slides 2, 3, 4, 5, 6, 7, 8, 9 and 10 read the slide aloud: nearly every word of them is on each."
