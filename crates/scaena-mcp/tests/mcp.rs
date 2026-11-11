@@ -1409,7 +1409,7 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
     let catalog: Value =
         serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
             .unwrap();
-    let slides = |source: &str| {
+    let slides_of = |source: &str, categories: Value| {
         let mut slide = catalog["slides"]
             .as_array()
             .unwrap()
@@ -1418,7 +1418,7 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
             .unwrap()
             .clone();
         slide["chartData"] = json!({
-            "categories": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+            "categories": categories,
             "series": [{ "name": "Sunday visits", "values": [1840, 1920, 2105, 2260, 2390, 2475] }]
         });
         slide["sourceRef"] = json!(source);
@@ -1426,6 +1426,7 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
         slides[2] = slide;
         json!({ "executiveSummary": "Sunday hours", "slides": slides })
     };
+    let slides = |source: &str| slides_of(source, json!(["Jan", "Feb", "Mar", "Apr", "May", "Jun"]));
     let charted = |dir: &Path| -> Value {
         let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
         d["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap()
@@ -1465,6 +1466,18 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
     let edits = json!([{ "op": "set", "row": 0, "column": "sunday_visits", "value": 1850 }]);
     ok(&client, "data_edit", json!({ "bundle": path(&bound), "source": "sunday-visits", "edits": edits })).await;
     assert_eq!(january().await[1], json!(1850.0));
+    // Months written as the file writes them, "2026-01", keep their hyphens through the deck's
+    // typesetting and bind the same (W1 dogfood 9 F4).
+    let iso = root.join("iso");
+    let months = json!(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]);
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&iso), "slides": slides_of("sunday-visits.csv", months), "data": data }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    assert_eq!(charted(&iso)["data"], json!("@sunday-visits"));
     let words = root.join("words");
     let made = ok(
         &client,
