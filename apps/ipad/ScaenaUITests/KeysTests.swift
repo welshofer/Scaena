@@ -348,11 +348,11 @@ final class KeysTests: XCTestCase {
                 throw Unseen(description: "Return typed in nothing: \(app.debugDescription)")
             }
             if keyboardPass == "hardware" {
-                // The pass connects the simulator's hardware keyboard, so the software one never
-                // comes up and flaps with each key: held here, where it came up without it.
+                // The pass launches the app with `-softwareKeyboard NO`, so no software keyboard
+                // comes up to flap with each key: held here, where one came up without it.
                 XCTAssertFalse(
                     wait(4) { softwareKeyboardUp(in: app) },
-                    "the software keyboard came up with the hardware keyboard connected: \(app.keyboards.firstMatch.frame)")
+                    "the software keyboard came up in the pass with none: \(app.keyboards.firstMatch.frame)")
             }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
             settle(1)

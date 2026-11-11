@@ -19,6 +19,8 @@ extension XCTestCase {
         // where the canvas and the keyboard stand as they move, so a wait that never settles names
         // what keeps the app from going idle (lift-up 20261110).
         app.launchArguments += ["-b1AsShipped", "YES", "-reportAnimations", "YES"] + arguments
+        // The hardware pass's keys come with no software keyboard (`CanvasKeys.inputView`).
+        if keyboardPass == "hardware" { app.launchArguments += ["-softwareKeyboard", "NO"] }
         app.launch()
         return app
     }
@@ -140,9 +142,10 @@ extension XCTestCase {
     }
 
     /// The keyboard the pass this test runs in has (`apps/ipad/app-test.sh`, lift-up 20261110):
-    /// `hardware`, the simulator's hardware keyboard connected, so the software keyboard stays
-    /// down; `software`, none connected, so it comes up while a text is typed in; nil where the
-    /// test is run otherwise, as from Xcode, with whichever keyboard the simulator has.
+    /// `hardware`, the app launched with `-softwareKeyboard NO`, so no software keyboard comes up
+    /// while a text is typed in and the keys are XCTest's hardware keys alone; `software`, the
+    /// software keyboard up as on an iPad with no keyboard; nil where the test is run otherwise, as
+    /// from Xcode, with whichever keyboard the simulator has.
     var keyboardPass: String? {
         ProcessInfo.processInfo.environment["SCAENA_KEYBOARD"]
     }

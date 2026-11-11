@@ -356,6 +356,13 @@ jobs:
           xcodebuild build -quiet -project Scaena.xcodeproj -scheme ScaenaApp -configuration Release \
             -destination "platform=iOS Simulator,arch=arm64,id=$(./simulator.sh)" \
             -derivedDataPath ../../target/ipad/release ONLY_ACTIVE_ARCH=YES
+          # The UI tests' `-softwareKeyboard NO` is a debug build's alone: a release app reads no
+          # such flag (`CanvasKeys.inputView`, lift-up 20261110).
+          app=../../target/ipad/release/Build/Products/Release-iphonesimulator/ScaenaApp.app
+          if strings -a "$app/ScaenaApp" | grep -q softwareKeyboard; then
+            echo "the release app reads -softwareKeyboard, a debug build's test flag" >&2
+            exit 1
+          fi
       # The app as someone opens it (PLAN 4.2), whether or not ScaenaKit's tests passed.
       - if: ${{ !cancelled() }}
         run: apps/ipad/app-test.sh
