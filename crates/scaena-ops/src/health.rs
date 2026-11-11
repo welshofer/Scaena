@@ -1102,18 +1102,30 @@ fn written(text: &str) -> std::collections::BTreeSet<String> {
 /// where either says nothing past a short headline, the pair reads as following, as Vzestup's
 /// overlap gives it ½.
 fn apart(a: &SlideForHealth, b: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
     let (wa, wb) = (words(a), words(b));
     !wa.is_empty() && !wb.is_empty() && wa.is_disjoint(&wb)
 }
 
+/// `words` with a plural's "-s" taken off a word of five letters or more that does not end in
+/// "-ss", so a word and its plural are one word where a pair is read for a turn: the library
+/// keynote's "twelve laundromats" and "Laundromat model" (its health read against a reader).
+/// Coherence's figure reads the words as written.
+fn singular(words: std::collections::BTreeSet<String>) -> std::collections::BTreeSet<String> {
+    scaena_core::sort::set(words.into_iter().map(|w| match w.strip_suffix('s') {
+        Some(stem) if stem.chars().count() >= 4 && !stem.ends_with('s') => stem.to_string(),
+        _ => w,
+    }))
+}
+
 /// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
 /// `before`'s headline and body that `next`'s do not use, as coherence reads words, in the
-/// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over.
+/// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over;
+/// so does its plural.
 fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
-    let opened = written(opening(&next.notes));
+    let opened = singular(written(opening(&next.notes)));
     carried.iter().any(|w| opened.contains(w))
 }
 
@@ -4356,6 +4368,32 @@ mod tests {
         };
         let tightened = of(&dogfood("fleet", "", cut));
         assert!(tightened.score < h.score, "{} then {}", h.score, tightened.score);
+    }
+
+    /// A word and its plural are one word where a pair is read for a turn (the library keynote's
+    /// health read against a reader: "twelve laundromats" and then "Laundromat model"). The
+    /// keynote's slides 4 and 5, in one beat, given those words alone in common, do not turn;
+    /// given none, they do.
+    #[test]
+    fn a_word_and_its_plural_do_not_turn() {
+        let paired = |next: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| {
+                slides[3].slide_title = "Twelve laundromats signed up first".into();
+                slides[3].key_bullets = vec![];
+                slides[4].slide_title = next.into();
+                slides[4].key_bullets = vec!["Partner early".into(), "Train staff".into(), "Fund steadily".into()];
+                slides[4].speaker_notes = String::new();
+            }
+        };
+        let turned = |next: &'static str| {
+            of(&dogfood("keynote", "", paired(next))).findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 5)
+        };
+        assert!(!turned("The laundromat model spread"));
+        assert!(turned("The kiosk model spread"));
+        assert_eq!(
+            singular(written("Twelve laundromats, the business, its bus")),
+            written("twelve laundromat business its bus")
+        );
     }
 
     /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
