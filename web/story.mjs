@@ -514,7 +514,8 @@ try {
     await page.click("#story [data-more] summary").catch(() => {});
     // Its to-do names the slide's Intensity, and the row offers it (editor dogfood 6): a press shows
     // the slide and the Format tab, the Intensity scrolled to and in focus.
-    const setIt = page.locator(`#story [data-findings] li[data-slide="${bend.slide}"] button[data-field="intensity"]`);
+    // Each of slide 2's rows that asks its plan offers it: its bend's, and its words' that ask the plan.
+    const setIt = page.locator(`#story [data-findings] li[data-slide="${bend.slide}"] button[data-field="intensity"]`).first();
     check((await setIt.count()) === 1 && (await setIt.textContent()) === "Set its Intensity", `the row offers its Intensity: ${await setIt.count()}`);
     await setIt.click().catch((e) => failures.push(`no Intensity to press: ${e.message}`));
     await page.waitForFunction(() => document.activeElement?.id === "look-plan-intensity", null, { timeout: 30000 }).catch(() => {});
