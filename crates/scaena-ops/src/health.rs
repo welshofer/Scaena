@@ -1099,15 +1099,16 @@ const THANKS: [&str; 16] = [
 
 /// The plan layouts a talk closes in, as Narrato names them (`media.narrato.layout`): a slide
 /// planned in one closes the talk whatever theme layout its items were set in.
-const CLOSING_PLANS: [&str; 8] =
-    ["closing", "call to action", "next steps", "q&a", "q & a", "questions", "takeaways", "poster"];
+const CLOSING_PLANS: [&str; 9] =
+    ["closing", "call to action", "next steps", "q&a", "q & a", "qa", "questions", "takeaways", "poster"];
 
 /// Whether the slide's beat planned it in a layout that closes the talk ([`CLOSING_PLANS`]):
 /// health read of a Spanish deck, whose Closing of two items was set as bullets.
 fn planned_close(slide: &Slide) -> bool {
     let Some((_, _, beat)) = slide.beat else { return false };
     let planned = beat.media.as_ref().and_then(|m| m.pointer("/narrato/layout")).and_then(Value::as_str);
-    planned.is_some_and(|l| CLOSING_PLANS.contains(&l.trim().to_lowercase().as_str()))
+    // Written as Narrato names them ("Next Steps") or as a theme's layouts are ("next-steps").
+    planned.is_some_and(|l| CLOSING_PLANS.contains(&l.trim().to_lowercase().replace('-', " ").as_str()))
 }
 
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
@@ -2225,13 +2226,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // before the thanks (its thesis, its ask, its steps); else its last slide. A beat that ends
         // the deck may begin well before its close, and a word or two of the idea a slide says in
         // passing lands nothing (W1's dogfood 3); a slide of an earlier beat is that beat's, not
-        // the close's (dogfood 4).
+        // the close's (dogfood 4); and a divider opening the closing beat lands no idea of its
+        // own (the climate talk's "What We Can Do", once its Next Steps closed by their plan).
         let last = read.len().checked_sub(1);
         let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index);
         let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
         if let Some(&first) = run.first()
             && first > 0
             && beat(first - 1) == beat(first)
+            && !framing(first - 1)
         {
             run.insert(0, first - 1);
         }
@@ -4003,7 +4006,8 @@ mod tests {
                 "Four Years of Records",
                 "The Path to Net Zero",
                 "Pledges Versus the 1.5°C Path",
-                "Next Steps for Our Team"
+                // "Next Steps for Our Team" is planned as Next Steps: part of the close, which
+                // makes no point of its own to state (health read of a Spanish deck).
             ],
             "{base:#?}"
         );
@@ -5867,8 +5871,11 @@ mod tests {
         let closed = of(&deck);
         assert!(!cooler(&closed, &last), "a calm close is no bend: {:#?}", closed.findings);
         assert_eq!(closed.slides.last().unwrap().standing, Standing::Ok);
-        // The same slide in a layout that does not close, and headed as no thanks, bends.
+        // The same slide in a layout that does not close, planned as none, and headed as no
+        // thanks, bends.
         deck["states"][at]["layout"] = json!("statement");
+        let beat = beat_of(&deck, &last);
+        deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!("Statement");
         let open = of(&deck);
         let title = open.slides.last().unwrap().title.to_lowercase();
         if !THANKS.iter().any(|t| title.starts_with(t)) {
@@ -5892,6 +5899,9 @@ mod tests {
                     (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
                 deck["states"][at]["layout"] = json!(layout);
                 declare(deck, &slide.state, "intensity", 0.0);
+                // Planned as it is laid out, so the slide before the close is planned as none.
+                let beat = beat_of(deck, &slide.state);
+                deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!(layout);
             }
         };
         for step in ["next-steps", "qa"] {
