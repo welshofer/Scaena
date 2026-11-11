@@ -33,7 +33,8 @@ struct Cell<'t> {
 }
 
 /// Words of a column's name that say its unit, not what it measures: they name nothing.
-const UNITS: &[&str] = &["pct", "percent", "usd", "musd", "kusd", "busd", "eur", "gbp", "k", "m", "mm", "bn", "num"];
+pub(super) const UNITS: &[&str] =
+    &["pct", "percent", "usd", "musd", "kusd", "busd", "eur", "gbp", "k", "m", "mm", "bn", "num"];
 
 /// A figure found in a text: where it stands (bytes), what it says, and how it is written.
 #[derive(Debug, Clone, PartialEq)]

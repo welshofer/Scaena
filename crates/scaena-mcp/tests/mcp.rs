@@ -1490,6 +1490,106 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
     client.cancel().await.unwrap();
 }
 
+/// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
+/// the second and third too once the first has typed `year` as dates (B2), "On time" to
+/// `on_time_pct` with its unit's words aside, and a series named for no column says the file's
+/// number columns, so the agent names one; `slide_write` then binds it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_ferry_decks_charts_bind_by_their_years_and_what_they_measure() {
+    let root = scratch("ferry");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("ferry.csv"),
+        "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2022,468000,90.4,1872,3100\n2023,521000,89.8,2084,4800\n2024,566000,88.1,2264,7200\n2025,604000,86.9,2416,9800\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let years = json!(["2021", "2022", "2023", "2024", "2025"]);
+    let chart = |layout: &str, title: &str, name: &str, values: Value| {
+        let mut slide = catalog["slides"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["layoutSuggestion"] == "Line Chart")
+            .unwrap()
+            .clone();
+        slide["slideTitle"] = json!(title);
+        slide["layoutSuggestion"] = json!(layout);
+        slide["chartData"] =
+            json!({ "categories": years, "series": [{ "name": name, "values": values }], "sourceId": "ferry" });
+        slide
+    };
+    let riders = chart(
+        "Line Chart",
+        "Ridership has grown every year since 2021",
+        "Riders",
+        json!([412000, 468000, 521000, 566000, 604000]),
+    );
+    let turned = |name: &str| {
+        chart("Bar Chart", "Turnaways have five-folded in four years", name, json!([1900, 3100, 4800, 7200, 9800]))
+    };
+    let on_time =
+        chart("Line Chart", "Full boats are making the ferry late", "On time", json!([91.2, 90.4, 89.8, 88.1, 86.9]));
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[1] = riders;
+    slides[3] = turned("Turned away");
+    slides.insert(4, on_time);
+    let bundle = root.join("ferry-deck");
+    let data = json!([{ "id": "ferry", "file": "ferry.csv" }]);
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&bundle), "slides": { "executiveSummary": "The ferry is full", "slides": slides }, "data": data }),
+    )
+    .await;
+    let unbound = made["unbound"].as_array().cloned().unwrap_or_default();
+    assert_eq!(unbound.len(), 1, "only the turnaways stay unbound: {made:#}");
+    assert_eq!(unbound[0]["slide"], 4, "{made:#}");
+    assert!(
+        unbound[0]["why"]
+            .as_str()
+            .unwrap()
+            .ends_with("its number columns are `riders`, `on_time_pct`, `fare_revenue_kusd`, and `midday_turnaways`"),
+        "{made:#}"
+    );
+    let read =
+        || -> Value { serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap() };
+    let bound = |d: &Value| -> Vec<String> {
+        let mut y: Vec<String> = (d["nodes"].as_object().unwrap().values())
+            .filter(|n| n["type"] == "chart" && n["data"] == "@ferry")
+            .map(|n| n["y"]["field"].as_str().unwrap_or_default().to_string())
+            .collect();
+        y.sort();
+        y
+    };
+    assert_eq!(bound(&read()), ["on_time_pct", "riders"]);
+    assert_eq!(read()["data"]["ferry"]["schema"]["year"], json!("date"));
+    // Named for its column as the result says, the slide written again binds to it.
+    let state = |d: &Value, title: &str| -> String {
+        let node = (d["nodes"].as_object().unwrap().iter())
+            .find(|(_, n)| n["text"].as_str().is_some_and(|t| t.contains(title)))
+            .map(|(id, _)| id.clone())
+            .unwrap();
+        d["states"].as_array().unwrap().iter().find(|s| s["props"].get(&node).is_some()).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let replace = state(&read(), "five-folded");
+    let w = ok(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&bundle), "slide": turned("Midday turnaways"), "replace": replace }),
+    )
+    .await;
+    assert!(w.get("unbound").is_none(), "{w:#}");
+    assert_eq!(bound(&read()), ["midday_turnaways", "on_time_pct", "riders"], "{w:#}\n{:#}", read()["nodes"]);
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await["errors"], json!(0));
+    client.cancel().await.unwrap();
+}
+
 /// A made chart whose slide's `chartData.sourceId` names a data source draws from it (agent
 /// dogfood): `deck_generate`'s `data` attached, the chart reading `@id` by the columns that hold
 /// its categories and its series, several folded, its own rows gone. One the file says otherwise,
