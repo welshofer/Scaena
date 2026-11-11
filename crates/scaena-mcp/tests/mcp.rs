@@ -133,6 +133,7 @@ async fn the_tools_and_resources_are_listed() {
         "scaena://lint/catalog",
         "scaena://examples/revenue.deck.json",
         "scaena://examples/trails.deck.json",
+        "scaena://examples/ferry.generate.json",
     ] {
         assert!(resources.iter().any(|r| r == uri), "{uri}: {resources:?}");
     }
@@ -308,11 +309,16 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
                     "y": { "field": "revenue", "type": "quantitative", "title": "Revenue ($M)" },
                     "alt": "Revenue by quarter, Q4 2025 through Q3 2026.", "semantic": "evidence", "at": { "in": "main" } } },
     ]);
+    // With `verbose`, the semantic ops given and the JSON Patch they compile to.
+    let asked =
+        ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops, "dry_run": true, "verbose": true })).await;
+    assert_eq!(asked["ops"].as_array().map(Vec::len), Some(4), "{asked:#}");
+    assert!(asked["patch"].as_array().is_some_and(|p| !p.is_empty()), "{asked:#}");
     let patched = ok(&client, "deck_patch", json!({ "bundle": bundle, "ops": ops })).await;
     assert_eq!(patched["applied"], true, "{patched:#}");
-    // Said by its semantic ops and what they changed, the JSON Patch only when asked for
-    // (dogfood 3).
-    assert_eq!(patched["ops"].as_array().map(Vec::len), Some(4), "{patched:#}");
+    // Without it, said by what they changed (dogfood 3): neither the ops the agent sent, which can
+    // be long (agent dogfood 2), nor the JSON Patch.
+    assert!(patched.get("ops").is_none(), "{patched:#}");
     assert_eq!(patched["summary"]["json_patch"], 1, "{patched:#}");
     assert_eq!(patched["summary"]["slides_added"], json!(["revenue"]), "{patched:#}");
     assert!(patched.get("patch").is_none(), "{patched:#}");
@@ -388,6 +394,14 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert_eq!(found["matches"], 2, "{found:#}");
     assert_eq!(found["found"][0]["lives"], "/spine/sections/0/beats/1/claim", "{found:#}");
     assert_eq!(found["found"][1]["lives"], "/states/1/props/title/text", "{found:#}");
+    // Of the slides' texts alone, the claim the spine settled left as it is (agent dogfood 2).
+    let texts = json!({ "bundle": bundle, "find": "doubled", "kinds": ["text"], "replace": "grew", "dry_run": true });
+    let texts = ok(&client, "deck_find", texts).await;
+    assert_eq!(texts["matches"], 1, "{texts:#}");
+    assert_eq!(texts["found"][0]["lives"], "/states/1/props/title/text", "{texts:#}");
+    // The headline changes and the claim does not: the claim, said no more, is restated.
+    assert_eq!(texts["replaced"]["restated"][0]["path"], "/spine/sections/0/beats/1/claim", "{texts:#}");
+    assert_eq!(texts["replaced"]["restated"][0]["claim"], "Revenue doubled.", "{texts:#}");
     let replaced = ok(&client, "deck_find", json!({ "bundle": bundle, "find": "doubled", "replace": "grew" })).await;
     assert_eq!(replaced["replaced"]["applied"], true, "{replaced:#}");
     let read = ok(&client, "deck_read", json!({ "bundle": bundle, "scn": true })).await;
@@ -1453,6 +1467,20 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
         "{node:#}"
     );
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bound) })).await["errors"], json!(0));
+    // Its beat cites the source it is bound to, not its own rows, which are gone (W1 dogfood 9 F5).
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(bound.join("deck.json")).unwrap()).unwrap();
+    let cited: Vec<String> = (deck["spine"]["sections"].as_array().unwrap().iter())
+        .flat_map(|s| s["beats"].as_array().unwrap().iter())
+        .flat_map(|b| b["evidence"].as_array().into_iter().flatten())
+        .filter_map(|e| e.as_str().filter(|e| e.starts_with('@')).map(str::to_string))
+        .collect();
+    assert!(cited.contains(&"@sunday-visits".to_string()), "{cited:?}");
+    for c in &cited {
+        assert!(
+            deck["data"].get(&c[1..]).is_some() || deck["nodes"].get(&c[1..]).is_some(),
+            "{c} names nothing: {cited:?}"
+        );
+    }
     // The Data tab's edit redraws it: January from 1,840 to 1,850, and the chart reads 1,850.
     let id = {
         let d: Value = serde_json::from_str(&std::fs::read_to_string(bound.join("deck.json")).unwrap()).unwrap();
@@ -1556,6 +1584,35 @@ async fn route_nines_bar_chart_of_months_lights_june_as_its_file_reads_it() {
     client.cancel().await.unwrap();
 }
 
+/// The worked call an agent is pointed to (`docs/examples/ferry.generate.json`, served as
+/// `scaena://examples/ferry.generate.json`; R1's agent dogfood 2), with the data file beside it
+/// (`docs/examples/data/ferry.csv`), after #1056: its line chart of riders by year binds first
+/// and types `year` as dates; its bar chart of turnaways binds after, reading the column as
+/// dates, so what it lights by a year names that year's row. The deck it makes lints 0, every
+/// slide in the layout it asked for and every item set: an example that teaches nothing wrong.
+#[tokio::test(flavor = "multi_thread")]
+async fn r1s_ferry_deck_binds_both_its_charts_and_lints_clean() {
+    let root = scratch("ferry-call");
+    let client = connect_in(&root).await;
+    std::fs::create_dir_all(root.join("data")).unwrap();
+    std::fs::copy(Path::new(EXAMPLES).join("data/ferry.csv"), root.join("data/ferry.csv")).unwrap();
+    let mut call: Value = serde_json::from_str(include_str!("../../../docs/examples/ferry.generate.json")).unwrap();
+    let bundle = root.join("ferry");
+    call["bundle"] = json!(path(&bundle));
+    let made = ok(&client, "deck_generate", call).await;
+    for said in ["unbound", "unset", "fell"] {
+        assert!(made.get(said).is_none(), "{said}: {made:#}");
+    }
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap();
+    let charts: Vec<&Value> = d["nodes"].as_object().unwrap().values().filter(|n| n["type"] == "chart").collect();
+    assert_eq!(charts.len(), 2);
+    assert!(charts.iter().all(|c| c["data"] == "@ferry"), "{charts:#?}");
+    assert_eq!(d["data"]["ferry"]["schema"]["year"], json!("date"));
+    let lint = ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await;
+    assert_eq!(lint["errors"], json!(0), "{lint:#}");
+    client.cancel().await.unwrap();
+}
+
 /// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
 /// the second and third too once the first has typed `year` as dates (B2), "On time" to
 /// `on_time_pct` with its unit's words aside, and a series named for no column says the file's
@@ -1653,6 +1710,70 @@ async fn the_ferry_decks_charts_bind_by_their_years_and_what_they_measure() {
     assert!(w.get("unbound").is_none(), "{w:#}");
     assert_eq!(bound(&read()), ["midday_turnaways", "on_time_pct", "riders"], "{w:#}\n{:#}", read()["nodes"]);
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await["errors"], json!(0));
+    client.cancel().await.unwrap();
+}
+
+/// R2's health read of the ferry deck (W1 dogfood 9 F5): a slide that writes 9,800, `ferry.csv`'s
+/// `midday_turnaways` for 2025, and draws no chart cites the file in its beat's evidence, so
+/// health no longer finds the figure unsourced; a figure no cell holds still is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slide_writing_a_files_figure_cites_the_file() {
+    let root = scratch("ferry-cited");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("ferry.csv"),
+        "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2022,468000,90.4,1872,3100\n2023,521000,89.8,2084,4800\n2024,566000,88.1,2264,7200\n2025,604000,86.9,2416,9800\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let big = |title: &str, figure: &str, meaning: &str| {
+        let mut slide = catalog["slides"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["layoutSuggestion"] == "Big Number")
+            .unwrap()
+            .clone();
+        slide["slideTitle"] = json!(title);
+        slide["keyBullets"] = json!([figure, meaning]);
+        slide["sourceRef"] = json!("");
+        slide.as_object_mut().unwrap().remove("chartData");
+        slide
+    };
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[2] = big("Boats turn away 9,800 riders at midday", "9,800", "riders turned away at midday in 2025");
+    slides[3] = big("A second boat would cost 4,250 a week", "4,250", "a week to run a second midday boat");
+    let bundle = root.join("deck");
+    let sources = json!([{ "name": "ferry.csv", "kind": "csv", "bytes": 200, "truncated": false }]);
+    ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&bundle),
+            "slides": { "executiveSummary": "The ferry is full", "slides": slides },
+            "data": [{ "id": "ferry", "file": "ferry.csv" }]
+        }),
+    )
+    .await;
+    // The deck made from its sources, as a made deck's meta says them.
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap();
+    deck["meta"]["narrative"]["sources"] = sources;
+    std::fs::write(bundle.join("deck.json"), serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let cited: Vec<Value> = (deck["spine"]["sections"].as_array().unwrap().iter())
+        .flat_map(|s| s["beats"].as_array().unwrap().iter())
+        .filter(|b| b["evidence"].as_array().is_some_and(|e| e.contains(&json!("@ferry"))))
+        .map(|b| b["claim"].clone())
+        .collect();
+    assert_eq!(cited.len(), 1, "only the turnaways' beat cites the file: {cited:?}");
+    let health = ok(&client, "deck_health", json!({ "bundle": path(&bundle) })).await;
+    let unsourced: Vec<String> = (health["findings"].as_array().unwrap().iter())
+        .filter(|f| f["kind"] == "source")
+        .map(|f| f["says"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(!unsourced.iter().any(|s| s.contains("9,800")), "{unsourced:?}");
+    assert!(unsourced.iter().any(|s| s.contains("4,250")), "a figure no cell holds is still unsourced: {unsourced:?}");
     client.cancel().await.unwrap();
 }
 
@@ -1788,7 +1909,8 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
     let plain = root.join("plain");
     ok(&client, "deck_generate", json!({ "bundle": path(&plain), "slides": deck(catalog["slides"][1].clone()) })).await;
     ok(&client, "data_attach", json!({ "bundle": path(&plain), "id": "trails", "file": "budget.csv" })).await;
-    let w = ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors, "trails") })).await;
+    let w =
+        ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": chart(visitors.clone(), "trails") })).await;
     assert!(w.get("unbound").is_none(), "{w:#}");
     let d = read(&plain);
     assert!(
@@ -1801,5 +1923,13 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
         (json!("temporal"), json!("date"))
     );
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&plain) })).await["errors"], json!(0));
+    // A chart's layout sets its takeaway alone: a bullet after it is said in `unset`, by
+    // slide_write and by deck_generate alike (agent dogfood 2).
+    let mut two = chart(visitors, "trails");
+    two["keyBullets"] = json!(["Visitors a year, 2022 to 2026", "A second line no place of the chart sets"]);
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&plain), "slide": two.clone(), "dry_run": true })).await;
+    assert_eq!(w["unset"][0]["words"], "A second line no place of the chart sets", "{w:#}");
+    let made = ok(&client, "deck_generate", json!({ "bundle": path(&root.join("unset")), "slides": deck(two) })).await;
+    assert_eq!(made["unset"][0]["words"], "A second line no place of the chart sets", "{made:#}");
     client.cancel().await.unwrap();
 }

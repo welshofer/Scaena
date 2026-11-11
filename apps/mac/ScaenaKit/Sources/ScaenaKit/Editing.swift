@@ -187,11 +187,71 @@ public struct Choices: Decodable, Sendable {
     /// What the beat that tells the state cites, with the state's own choices (W1's dogfood 5):
     /// where a source the deck was grounded in is added; none where no beat tells it.
     public let cites: CiteChoice?
+    /// The plan of the beat that tells the state, with the state's own choices (editor dogfood 3):
+    /// its intensity and tone, which story health reads against the arc; none where no beat tells
+    /// it or none of its slides is planned.
+    public let plan: PlanChoice?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
     /// picture's description, or the slide's notes. A shape, a chart, a table, or a group has none,
     /// and the inspector offers it no writing, as the browser's offers none.
     public var writes: Bool { node == nil || type == "text" || type == "image" }
+}
+
+/// What an inspector offers of the plan a beat declares for its slide (editor dogfood 3), as the
+/// browser's Format tab offers it: its intensity, 0 calm to 1 intense, and its tone, -1 grave to 1
+/// hopeful, each said in the engine's words (`scaena_core::words::INTENSITIES`, `TONES`), and
+/// each written by one JSON Patch at `at` (the beat's `media.narrato`), which draws nothing.
+public struct PlanChoice: Decodable, Sendable, Equatable {
+    /// One of the plan's two measures.
+    public enum Key: String, CaseIterable, Identifiable, Sendable {
+        case intensity, tone
+        public var id: String { rawValue }
+        /// Its label, as the browser's Format tab says it.
+        public var label: String { self == .intensity ? "Intensity" : "Tone" }
+        /// Its range: intensity from calm to intense, tone from grave to hopeful.
+        public var range: ClosedRange<Double> { self == .intensity ? 0...1 : -1...1 }
+        /// Where an undeclared plan stands until it is planned: the middle of its range.
+        public var middle: Double { self == .intensity ? 0.5 : 0 }
+        /// Its key in `media.narrato`.
+        var key: String { self == .intensity ? "intensity" : "valence" }
+    }
+
+    /// A word of a ladder, from the least value it says.
+    public struct Rung: Decodable, Sendable, Equatable {
+        public let least: Double
+        public let word: String
+
+        public init(from decoder: any Decoder) throws {
+            var pair = try decoder.unkeyedContainer()
+            least = try pair.decode(Double.self)
+            word = try pair.decode(String.self)
+        }
+    }
+
+    /// The beat, by its id.
+    public let beat: String
+    /// The JSON Pointer to the beat's `media.narrato`, where its plan is written.
+    public let at: String
+    public let intensity: Double?
+    public let tone: Double?
+    public let intensities: [Rung]
+    public let tones: [Rung]
+
+    /// `key` as planned, where the beat declares it.
+    public func value(_ key: Key) -> Double? { key == .intensity ? intensity : tone }
+
+    /// `value` of `key` in the engine's words: the last word whose least it reaches, as the
+    /// browser's `plannedSaid` says it.
+    public func said(_ key: Key, _ value: Double) -> String {
+        let ladder = key == .intensity ? intensities : tones
+        return ladder.last { value >= $0.least }?.word ?? ladder.first?.word ?? ""
+    }
+
+    /// The patch that plans `key` at `value`: one JSON Patch where the plan lives.
+    public func planning(_ key: Key, to value: Double) -> [JSONValue] {
+        [["op": "add", "path": .string("\(at)/\(key.key)"), "value": .number(value)]]
+    }
 }
 
 /// What an inspector offers of a slide's number and footer (ADR-0028): the deck's, which

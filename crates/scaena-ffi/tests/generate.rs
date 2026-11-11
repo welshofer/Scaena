@@ -438,6 +438,46 @@ fn the_icons_the_slides_name_are_found_as_the_deck_is_made() {
     }
 }
 
+/// The report says each chart that names a sheet given and is not drawn from it, and why, as
+/// `scaena generate` does (W1 dogfood 9), since the Mac's window says it; the deck opens with the
+/// sheet kept once, its chart keeping its own rows.
+#[test]
+fn the_report_says_a_chart_its_sheet_does_not_draw() {
+    let arc = std::fs::read_to_string(format!("{ANSWERS}/anthropic-arc.json")).unwrap();
+    let chart = json!({ "categories": ["2024", "2025"], "series": [{ "name": "Visits", "values": [1200, 9999] }], "sourceId": "visits" });
+    let written = json!({ "executiveSummary": "Visits grew.", "slides": [
+        { "slideTitle": "Visits", "subtitle": "A review", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Visits grew to 1,500", "layoutSuggestion": "Line Chart", "keyBullets": ["Visits by year"], "chartData": chart },
+        { "slideTitle": "Visits rose in both years", "layoutSuggestion": "Bullet List", "keyBullets": ["More families", "More students"] },
+        { "slideTitle": "Sundays drew the most", "layoutSuggestion": "Bullet List", "keyBullets": ["Families came on Sundays", "Students came on Saturdays"] },
+        { "slideTitle": "Keep going", "layoutSuggestion": "Closing", "keyBullets": [] },
+    ] });
+    let slides = anthropic(&written.to_string());
+    let g = scaena_generator_new();
+    step(g, "add", json!({ "name": "visits.csv" }), b"year,visits\n2024,1200\n2025,1500\n");
+    let brief = json!({ "topic": "Visits grew", "audience": "The board" });
+    step(g, "begin", json!({ "brief": brief, "provider": "anthropic", "model": "a-model" }), &[]);
+    loop {
+        let standing = step(g, "request", json!({ "key": "sk-writer" }), &[]);
+        let Some(request) = standing.get("request").cloned() else { break };
+        let answer = if request["body"].as_str().unwrap().contains("=== CATALOG ===") { &arc } else { &slides };
+        step(g, "answer", json!({ "status": 200, "statusText": "OK", "body": answer }), &[]);
+    }
+    step(g, "make", json!({ "theme": "dusk" }), &[]);
+    let report = step(g, "report", json!({}), &[]);
+    assert_eq!(report["unbound"][0]["slide"], 2, "{report:#}");
+    assert_eq!(report["unbound"][0]["source"], "visits", "{report:#}");
+    assert!(report["unbound"][0]["why"].as_str().unwrap().contains("9999"), "{report:#}");
+    assert_eq!(report["data"].as_array().map(Vec::len), Some(1), "{report:#}");
+    let mut error = null_mut();
+    let session = unsafe { scaena_generator_open(g, &mut error) };
+    assert!(!session.is_null(), "the deck opens: {}", took(error));
+    unsafe {
+        scaena_session_free(session);
+        scaena_generator_free(g);
+    }
+}
+
 /// A deck in a script the theme's fonts do not draw takes the script's font, which Swift fetches
 /// where `script` says and hands over as `scriptFont`, held to its pinned digest (PLAN G.22). The
 /// theme is asked before anything is read or any call paid for, and refuses the language until

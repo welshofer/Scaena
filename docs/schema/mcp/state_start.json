@@ -34,22 +34,18 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "SlotFilled": {
-        "description": "A slot of a new slide's layout, and the node put in it (dogfood 3).",
         "type": "object",
         "properties": { "slot": { "type": "string" }, "node": { "type": "string" } },
         "required": ["slot", "node"]
       },
       "SlotEmpty": {
-        "description": "A slot of a new slide's layout left empty, and what its prompt says goes there: a picture\nor a figure, for `add_node` with `at: { in: slot }` to put (dogfood 3).",
         "type": "object",
         "properties": { "slot": { "type": "string" }, "waits": { "type": "string" } },
         "required": ["slot", "waits"]
       },
       "JsonOp": {
-        "description": "RFC 6902's ops.",
         "oneOf": [
           {
-            "description": "Put `value` at `path`: a member of an object (one already there is replaced, in its\nplace), or an item of an array, at an index or at its end (`-`).",
             "type": "object",
             "properties": {
               "path": { "$ref": "#/$defs/Pointer" },
@@ -59,13 +55,11 @@
             "required": ["op", "path", "value"]
           },
           {
-            "description": "Take away what is at `path`.",
             "type": "object",
             "properties": { "path": { "$ref": "#/$defs/Pointer" }, "op": { "type": "string", "const": "remove" } },
             "required": ["op", "path"]
           },
           {
-            "description": "Replace what is at `path`, which must be there.",
             "type": "object",
             "properties": {
               "path": { "$ref": "#/$defs/Pointer" },
@@ -75,7 +69,6 @@
             "required": ["op", "path", "value"]
           },
           {
-            "description": "`remove` at `from`, then `add` at `path`. A member moved within its object keeps its\nplace: a rename.",
             "type": "object",
             "properties": {
               "from": { "$ref": "#/$defs/Pointer" },
@@ -85,7 +78,6 @@
             "required": ["op", "from", "path"]
           },
           {
-            "description": "`add` at `path` what is at `from`.",
             "type": "object",
             "properties": {
               "from": { "$ref": "#/$defs/Pointer" },
@@ -95,7 +87,6 @@
             "required": ["op", "from", "path"]
           },
           {
-            "description": "Fail the patch unless `path` holds `value` (numbers equal by value: 1 is 1.0).",
             "type": "object",
             "properties": {
               "path": { "$ref": "#/$defs/Pointer" },
@@ -106,64 +97,35 @@
           }
         ]
       },
-      "Pointer": {
-        "description": "A JSON Pointer (RFC 6901): empty, the whole document, or `/`-separated tokens, `~1` for a\n`/` and `~0` for a `~` inside one.",
-        "type": "string",
-        "pattern": "^(/.*)?$"
-      },
+      "Pointer": { "type": "string", "pattern": "^(/.*)?$" },
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
       "Restated": {
-        "description": "A beat whose claim its slide said before an edit and says no more: what it claimed, what the\nslide says now, and the patch that sets the claim to it.",
         "type": "object",
         "properties": {
-          "beat": { "description": "The beat, by its id.", "type": "string" },
-          "state": {
-            "description": "The state of the beat's slide whose words `says` are, or, with none, the beat's first.",
-            "type": "string"
-          },
-          "path": { "description": "Where the claim is, as a JSON pointer.", "type": "string" },
-          "claim": { "description": "The claim, as the beat still says it.", "type": "string" },
-          "says": {
-            "description": "What the slide says now: the words of the text that said the claim, in the state it said\nit in, else the last that shows it; none where every such text was taken away.",
-            "type": ["string", "null"]
-          },
-          "fix": {
-            "description": "The patch that sets the claim to what the slide says, where it says something: a `test`\nof the old claim, then a `replace`.",
-            "type": "array",
-            "items": true
-          }
+          "beat": { "type": "string" },
+          "state": { "type": "string" },
+          "path": { "type": "string" },
+          "claim": { "type": "string" },
+          "says": { "type": ["string", "null"] },
+          "fix": { "type": "array", "items": true }
         },
         "required": ["beat", "state", "path", "claim"]
       }
@@ -171,50 +133,16 @@
     "required": ["id", "filled", "empty", "applied", "patch", "added", "removed", "errors", "states"],
     "type": "object",
     "properties": {
-      "id": {
-        "description": "The id of the state added: named after its layout (`bullets`, `bullets-2`, …), or\n`slide` with none.",
-        "type": "string"
-      },
-      "filled": {
-        "description": "Each slot a node fills, and the node, to put words in with `replace_text` or `set_text`.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/SlotFilled" }
-      },
-      "empty": {
-        "description": "Each slot left empty for a picture or a figure, and what goes there.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/SlotEmpty" }
-      },
-      "applied": {
-        "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
-        "type": "boolean"
-      },
-      "patch": {
-        "description": "The patch as RFC 6902, in order.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/JsonOp" }
-      },
-      "added": {
-        "description": "What `validate` and `lint` find after the patch that they did not before.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "removed": {
-        "description": "What they found before that they do not after.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
-      "states": {
-        "description": "The states it changes, by id: each whose nodes, resolved with the deck's overrides,\nor whose layout, transition, choreography, hold, notes, or slide number and footer are\nnot as they were, and each it adds. None when it is refused.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "restated": {
-        "description": "Each beat whose claim its slide said before the patch and says no more, with the patch\nthat sets the claim to what the slide says now (lift-up FUNC-2). Left out when none; not\nworked out for an edit as it is typed, which an editor asks of the whole burst.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Restated" }
-      }
+      "id": { "type": "string" },
+      "filled": { "type": "array", "items": { "$ref": "#/$defs/SlotFilled" } },
+      "empty": { "type": "array", "items": { "$ref": "#/$defs/SlotEmpty" } },
+      "applied": { "type": "boolean" },
+      "patch": { "type": "array", "items": { "$ref": "#/$defs/JsonOp" } },
+      "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "errors": { "type": "integer", "minimum": 0 },
+      "states": { "type": "array", "items": { "type": "string" } },
+      "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } }
     }
   }
 }
