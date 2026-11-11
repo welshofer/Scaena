@@ -1064,7 +1064,10 @@ pub struct DeckGenerate {
     /// slide whose `chartData.sourceId` names one, by its id or its file's name, else whose
     /// `sourceRef` does, draws its chart from it where the file holds the slide's categories
     /// (a date column's months by their names too, "Jan" or "January 2026") and figures, and the
-    /// result's `unbound` says why of each that does not.
+    /// result's `unbound` says why of each that does not. Each file is a source the deck is
+    /// grounded in, by its file's name: a chart's source line says it, a slide whose `sourceRef`
+    /// names it, or whose figure is one of its cells, cites it, and `deck_health` then asks where
+    /// each figure no source backs comes from.
     #[serde(default)]
     pub data: Vec<scaena_ops::create::Attach>,
 }

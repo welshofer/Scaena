@@ -1240,6 +1240,22 @@ pub fn from_slides(
         generation.settle(outline).map_err(|e| OpsError::new(format!("the outline: {e}")))?;
     }
     generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
+    // Each data file given is a source the deck is grounded in, by its file's name: a chart says
+    // it as its source, and the beat of a slide whose `sourceRef` names it cites it (agent
+    // dogfood 3), as a file `--source` gave is.
+    if !data.is_empty() {
+        let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
+        let given = (data.iter())
+            .map(|(req, bytes)| Provenance {
+                name: named(req),
+                kind: if named(req).to_ascii_lowercase().ends_with(".json") { "json" } else { "csv" }.to_string(),
+                url: None,
+                bytes: bytes.len(),
+                truncated: false,
+            })
+            .collect();
+        generation.give_sources(given);
+    }
     let mut never =
         |_: &Request| Reply { status_text: "no call is made from written slides".into(), ..Reply::default() };
     let (made, write) = generate(
@@ -2887,6 +2903,7 @@ fn assemble(
                 .and_then(|named| source_named(&narrative.sources, named))
                 .map(|s| if s.name.trim().is_empty() { s.url.as_deref().unwrap_or_default() } else { s.name.as_str() })
                 .filter(|n| !n.trim().is_empty()),
+            given: &narrative.sources,
         };
         let last = first + i + 1 == total;
         let peak = peaked == Some(i);
@@ -5055,6 +5072,9 @@ struct Slots<'a> {
     /// The name of the source the slide was grounded in, where it names one the deck was given:
     /// its title, else its address (lift-up 20261025 FUNC-3).
     grounded: Option<&'a str>,
+    /// The sources the deck was given, by which a chart's source written as a file's stem or a
+    /// data source's id is said by the file's name (agent dogfood 3).
+    given: &'a [Provenance],
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -5348,10 +5368,7 @@ impl Slots<'_> {
     /// "Source: …": the source the model wrote for the slide's chart, the one the slide was
     /// grounded in, or both where they differ, the model's words first (lift-up 20261025 FUNC-3).
     fn credit(&self) -> Option<String> {
-        let wrote = (self.slide.chart_data.as_ref())
-            .and_then(|c| c.source_id.as_deref())
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let wrote = self.chart_source();
         let said = match (wrote, self.grounded) {
             // The model's words that are only the source's id or its file's stem say it once, by
             // its name: "trails-budget" for trails-budget.csv (W1 dogfood 5).
@@ -5362,6 +5379,18 @@ impl Slots<'_> {
             (None, None) => return None,
         };
         Some(self.sourced(&said))
+    }
+
+    /// The source the slide's chart names, said by a given file's name where it is written as
+    /// that file's stem, the id a data file was attached by: "Quelle: umsatz.csv", never the id
+    /// (agent dogfood 3).
+    fn chart_source(&self) -> Option<&str> {
+        let wrote = (self.slide.chart_data.as_ref())
+            .and_then(|c| c.source_id.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?;
+        let file = |s: &&Provenance| !s.name.trim().is_empty() && s.url.is_none() && stem(&s.name) == stem(wrote);
+        Some(self.given.iter().find(file).map_or(wrote, |s| s.name.as_str()))
     }
 
     fn fact(&self) -> Option<String> {
@@ -5922,9 +5951,9 @@ impl Slots<'_> {
                     _ => Some(None),
                 }
             }
-            ("two-figures", "note", _) => text(self.subtitle().or_else(|| {
-                (self.slide.chart_data.as_ref()).and_then(|c| c.source_id.clone()).map(|s| self.sourced(&s))
-            })),
+            ("two-figures", "note", _) => {
+                text(self.subtitle().or_else(|| self.chart_source().map(|s| self.sourced(s))))
+            }
             ("big-number" | "number-photo", "claim", _) => {
                 text(meaning(self.items, self.lang).or_else(|| self.title()))
             }

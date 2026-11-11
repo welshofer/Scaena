@@ -1693,6 +1693,67 @@ async fn r1s_ferry_deck_binds_both_its_charts_and_lints_clean() {
     client.cancel().await.unwrap();
 }
 
+/// R1's agent dogfood 3, a German board update: a chart whose `chartData.sourceId` is the id the
+/// data file was attached by says its source by the file's name, "Quelle: umsatz.csv", never the
+/// id "umsatz"; the file is kept among the deck's sources, and a slide whose `sourceRef` names it
+/// cites it in its beat's evidence.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chart_says_its_data_file_by_its_name() {
+    let root = scratch("source-line");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("umsatz.csv"),
+        "monat,umsatz_teur,neukunden,abwanderung_pct\nJanuar,412,38,2.1\nFebruar,398,31,2.4\nM\u{e4}rz,455,44,2.0\nApril,471,47,1.9\nMai,502,52,1.7\nJuni,538,61,1.5\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let months = json!(["Januar", "Februar", "M\u{e4}rz", "April", "Mai", "Juni"]);
+    let chart = |layout: &str, title: &str, source_ref: &str| {
+        json!({
+            "slideTitle": title,
+            "layoutSuggestion": layout,
+            "keyBullets": ["Zwei Gro\u{df}kunden haben ihre Vertr\u{e4}ge in den M\u{e4}rz verschoben"],
+            "sourceRef": source_ref,
+            "chartData": {
+                "categories": months,
+                // Named by its column, so it binds whatever the unit's words (W1's).
+                "series": [{ "name": "umsatz_teur", "values": [412, 398, 455, 471, 502, 538] }],
+                "sourceId": "umsatz",
+                "unit": "TEUR"
+            }
+        })
+    };
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[2] = chart("Line Chart", "Der Umsatz stieg von 412 auf 538 TEUR", "umsatz.csv");
+    slides[3] = chart("Bar Chart", "Im Februar sank der Umsatz auf 398 TEUR", "bericht-h1.pdf");
+    let bundle = root.join("nordlicht");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&bundle),
+            "language": "German",
+            "slides": { "executiveSummary": "Ein starkes erstes Halbjahr", "slides": slides },
+            "data": [{ "id": "umsatz", "file": "umsatz.csv" }]
+        }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let text = std::fs::read_to_string(bundle.join("deck.json")).unwrap();
+    let d: Value = serde_json::from_str(&text).unwrap();
+    let said: Vec<&str> = (d["nodes"].as_object().unwrap().values())
+        .filter_map(|n| n["text"].as_str())
+        .filter(|t| t.starts_with("Quelle"))
+        .collect();
+    assert_eq!(said, ["Quelle: umsatz.csv", "Quelle: umsatz.csv"], "{said:?}");
+    assert_eq!(d["meta"]["narrative"]["sources"][0]["name"], json!("umsatz.csv"));
+    assert!(text.contains("source:umsatz.csv"), "the line chart's beat cites the file");
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await["errors"], json!(0));
+    client.cancel().await.unwrap();
+}
+
 /// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
 /// the second and third too once the first has typed `year` as dates (B2), "On time" to
 /// `on_time_pct` with its unit's words aside, and a series named for no column says the file's
