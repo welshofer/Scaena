@@ -32,8 +32,9 @@
 //   "slides 1, 5 and 11" each; and a read again after slide 5's notes are deepened keeps the open
 //   rows where they stood, the pacing row's though it moves to another slide, what is new after
 //   them (editor dogfood 6).
-// - A to-do that names a field of the Format tab offers it: the bend's "Set its Intensity" shows the
-//   slide and its Intensity, in view and in focus (editor dogfood 6).
+// - A to-do that names a field of the Format tab offers it, by the `field` health gives it: a turn's
+//   "Edit its notes" and the bend's "Set its Intensity" each show the slide and the field, in view
+//   and in focus (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
@@ -208,9 +209,27 @@ try {
   const read = await page.evaluate((s) => window.scaena.notes(s), turn.state);
   check(read.text.length > 0, `the presenter reads its beat's notes: ${read.text.slice(0, 40)}`);
   const before = await page.evaluate((k) => window.scaena.story.health().slides[k - 2].title, turn.slide);
-  await page.click(`#story [data-findings] li[data-slide="${turn.slide}"] [data-show]`);
-  await page.waitForTimeout(1000);
-  await tab(page, "inspector");
+  // Its row offers the field its to-do names, by the `field` health gives it (editor dogfood 6): a
+  // press shows the slide and its Notes in the Format tab, in view and in focus.
+  check(turn.field === "notes", `the turn names its slide's notes: ${turn.field}`);
+  const editIt = page.locator(`#story [data-findings] li[data-slide="${turn.slide}"] button[data-field="notes"]`);
+  check((await editIt.count()) === 1 && (await editIt.textContent()) === "Edit its notes", `the row offers its notes: ${await editIt.count()}`);
+  await editIt.click().catch((e) => failures.push(`no notes to press: ${e.message}`));
+  await page.waitForFunction(() => document.activeElement?.matches('textarea[data-prop="notes"]'), null, { timeout: 30000 }).catch(() => {});
+  const notesOpened = await page.evaluate(() => {
+    const el = document.activeElement;
+    const r = el?.getBoundingClientRect();
+    return {
+      notes: !!el?.matches('textarea[data-prop="notes"]'),
+      format: document.querySelector("#tab-inspector")?.getAttribute("aria-selected"),
+      inView: !!r && r.top >= 0 && r.bottom <= innerHeight,
+      shown: window.scaena.canvas.boxed(),
+    };
+  });
+  check(
+    notesOpened.notes && notesOpened.format === "true" && notesOpened.inView && notesOpened.shown === turn.state,
+    `a press shows the slide and its notes, in view and in focus: ${JSON.stringify(notesOpened)}`,
+  );
   const field = page.locator('textarea[data-prop="notes"]');
   await field.waitFor({ timeout: 30000 });
   check((await field.inputValue()) === read.text, `the Notes field shows what the presenter reads: ${JSON.stringify((await field.inputValue()).slice(0, 40))}`);

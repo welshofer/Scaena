@@ -1580,7 +1580,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
         }
         await new Promise((ok) => setTimeout(ok, 50));
       }
-      say(`The Format tab offers no ${field === "notes" ? "notes" : field === "tone" ? "Tone" : "Intensity"} for this slide`);
+      say(`The Format tab offers no ${field === "notes" ? "notes" : "Intensity"} for this slide`);
     },
     make: async (ops, done) => {
       // Held while the assistant has the deck, saying why, as the Mac's Story says it (lift-up

@@ -62,23 +62,20 @@ export interface StoryEditor {
   words(): Ladders | undefined;
 }
 
-/** A field of the Format tab a finding's to-do names: the slide's plan, its Intensity and Tone,
- * and its presenter's notes (editor dogfood 6). */
-export type Field = "intensity" | "tone" | "notes";
+/** A field of the Format tab a finding's to-do names: the slide's plan's Intensity, and its
+ * presenter's notes (editor dogfood 6). */
+export type Field = "intensity" | "notes";
 
 /** What the button that opens each field says. */
-const FIELD: Record<Field, string> = { intensity: "Set its Intensity", tone: "Set its Tone", notes: "Edit its notes" };
+const FIELD: Record<Field, string> = { intensity: "Set its Intensity", notes: "Edit its notes" };
 
-/** The field a finding's to-do names, by the field health gives it, else by where its `path`
- * says its plan is written (an `arc` finding's beat's intensity): none where it names none of
- * the Format tab's. Never read from the ask's words. */
+/** The field of the Format tab a finding's to-do names, by the `field` health gives it, else by
+ * where its `path` says its plan is written: none where it names none of the Format tab's. A
+ * headline is typed on the canvas, and a claim offers Check the claim. Never read from the ask's
+ * words. */
 export function fieldOf(f: HealthFinding): Field | undefined {
-  const named = (f as { field?: string }).field;
-  if (named === "intensity" || named === "tone" || named === "notes") return named;
-  const path = (f as { path?: string }).path;
-  if (path?.endsWith("/intensity")) return "intensity";
-  if (path?.endsWith("/valence")) return "tone";
-  return undefined;
+  if (f.field === "intensity" || f.field === "notes") return f.field;
+  return f.path?.endsWith("/intensity") ? "intensity" : undefined;
 }
 
 /** The findings about what a slide claims, whose rows offer Check the claim: its claim not carried,
