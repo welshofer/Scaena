@@ -146,16 +146,30 @@ fn minified(wgsl: &str) -> String {
         out.push_str(line);
         out.push('\n');
     }
-    // What is embedded still reads as WGSL, to the same entry points and bindings.
+    // What is embedded reads as the shader written: naga parses both to one module, whole, but
+    // for where in the text each part stood.
     let before = naga::front::wgsl::parse_str(wgsl).expect("the shader reads");
     let after = naga::front::wgsl::parse_str(&out).expect("the shader reads minified");
-    let named = |m: &naga::Module| -> Vec<String> {
-        let mut seen: Vec<String> = m.entry_points.iter().map(|e| format!("{} {:?}", e.name, e.workgroup_size)).collect();
-        seen.extend(m.global_variables.iter().map(|(_, v)| format!("{:?} {:?} {:?}", v.name, v.space, v.binding)));
-        seen.extend(m.functions.iter().map(|(_, f)| format!("{:?} {}", f.name, f.expressions.len())));
-        seen
-    };
-    assert_eq!(named(&before), named(&after), "the shader minified reads as it did");
+    assert_eq!(spanless(&before), spanless(&after), "the shader minified reads as it did");
+    out
+}
+
+/// A module as naga reads it, every part of it but its spans: its `Debug`, each
+/// `Span { start: …, end: … }` in it said as `Span`. A span is all `Debug` prints that tells where
+/// in the text a part stood, so two texts naga reads alike but for their spacing and comments
+/// give one, and any other difference, a token merged or a value changed, shows.
+fn spanless(module: &naga::Module) -> String {
+    let written = format!("{module:?}");
+    let mut out = String::with_capacity(written.len());
+    let mut rest = written.as_str();
+    while let Some(at) = rest.find("Span { start: ") {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        let end = tail.find(" }").expect("a span's end") + 2;
+        out.push_str("Span");
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
     out
 }
 

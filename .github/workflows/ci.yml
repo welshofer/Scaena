@@ -100,7 +100,7 @@ jobs:
           reasons() {
             for f in $(git diff --name-only "$@"); do
               case "$f" in
-                crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | tests/golden/*) paint=true ;;
+                crates/scaena-paint/* | crates/scaena-pixels/* | crates/scaena-core/src/shader.rs | vendor/vello_shaders/* | tests/golden/*) paint=true ;;
                 crates/scaena-ffi/* | apps/mac/* | apps/ipad/* | scripts/shots.sh) app=true ;;
                 Cargo.lock | .github/workflows/ci.yml) paint=true app=true ;;
               esac
