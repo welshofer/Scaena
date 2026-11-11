@@ -711,7 +711,8 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
 }
 
 /// `deck`, a deck not yet written, and the data files written beside it, `files`, with each made
-/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`) drawn from the data source of that name the
+/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`, else its slide's own,
+/// `chartSourceRef`, said nothing of where it names no data source, dogfood 9) drawn from the data source of that name the
 /// deck holds (agent dogfood): the chart's own rows dropped where nothing else reads them. Each
 /// chart that names a source and is not bound, and why, is in what comes back; one that names
 /// none is drawn from its own rows, as before, and not said. A deck with no data source but its
@@ -744,19 +745,22 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         let media = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
             .find(|b| b.states.iter().any(|s| s == state))
             .and_then(|b| serde_json::to_value(&b.media).ok())?;
-        let named = media.pointer("/narrato/chartSource").and_then(Value::as_str)?.to_string();
+        let (named, cited) = match media.pointer("/narrato/chartSource").and_then(Value::as_str) {
+            Some(named) => (named.to_string(), false),
+            None => (media.pointer("/narrato/chartSourceRef").and_then(Value::as_str)?.to_string(), true),
+        };
         let series: Vec<String> = (media.pointer("/narrato/chartSeries").and_then(Value::as_array).into_iter())
             .flatten()
             .map(|n| n.as_str().unwrap_or_default().to_string())
             .collect();
-        Some((named, series))
+        Some((named, series, cited))
     };
     let mut unbound = Vec::new();
     let mut dropped = Vec::new();
     for (i, states) in slides.iter().enumerate() {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
-        let Some((named, series)) = named_of(&state.id) else { continue };
+        let Some((named, series, cited)) = named_of(&state.id) else { continue };
         let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
             continue;
         };
@@ -774,6 +778,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             one.name = Some(name.clone());
         }
         let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+            // A slide's own source that is no data source of the deck is a file of words.
+            if cited {
+                continue;
+            }
             let ids: Vec<&str> = deck.data.keys().filter(|id| !owned.contains(id)).map(String::as_str).collect();
             unbound.push(Unbound {
                 slide: i + 1,
@@ -1606,7 +1614,7 @@ pub fn looked(
 /// point either, by the layouts the deck was made in (`layouts`), are left to the look.
 ///
 /// [`names_topic`]: crate::health::names_topic
-fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
+pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
     use crate::health::{CLOSING, FRAMING};
     let framing = |index: usize| {
         index == 0 || layouts.get(index).is_some_and(|l| FRAMING.contains(&l.as_str()) || CLOSING.contains(&l.as_str()))
@@ -3150,8 +3158,17 @@ fn media(slide: &Slide) -> Value {
     // is given (agent dogfood, [`binding`]).
     let named = slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()).map(str::trim);
     put("chartSource", named.filter(|v| !v.is_empty()).map(|v| json!(v)));
+    // Else the source its slide's facts come from, which Narrato asks of every slide and its
+    // chart's own only where known: it binds the chart where it names one of the deck's data
+    // sources, and is no source to be said unbound where it names a file of words (dogfood 9).
+    let cited = (slide.chart_data.as_ref())
+        .filter(|_| named.is_none_or(str::is_empty))
+        .and(slide.source_ref.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    put("chartSourceRef", cited.map(|v| json!(v)));
     // And its series' names, which pick the source's columns ([`binding`]).
-    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty())))
+    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty()) || cited.is_some()))
         .map(|c| c.series.iter().map(|s| s.name.clone().unwrap_or_default()).collect::<Vec<_>>());
     put("chartSeries", series.map(|names| json!(names)));
     Value::Object(m)
@@ -6958,7 +6975,12 @@ fn typeset(text: &str, lang: &str) -> String {
                 i += 3;
                 continue;
             }
-            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i) && !dialed(&chars, i))
+            '-' if (i > 0
+                && digit(i - 1)
+                && digit(i + 1)
+                && !chained(&chars, i)
+                && !dialed(&chars, i)
+                && !dated(&chars, i))
                 || (before == Some(' ') && after == Some(' ')) =>
             {
                 out.push('\u{2013}')
@@ -7075,6 +7097,16 @@ fn chained(chars: &[char], at: usize) -> bool {
     let before = start >= 2 && chars[start - 1] == '-' && chars[start - 2].is_ascii_digit();
     let after = chars.get(end) == Some(&'-') && chars.get(end + 1).is_some_and(char::is_ascii_digit);
     before || after
+}
+
+/// Whether the hyphen at `at` is an ISO month's, a year of four figures then a month from 01 to
+/// 12: "2026-01", "1990-05", which a typesetter keeps, as it keeps a date's ("2026-01-15",
+/// [`chained`]); "2024-25", "1990-95", and "10-12" are ranges (W1 dogfood 9 F4).
+fn dated(chars: &[char], at: usize) -> bool {
+    let start = chars[..at].iter().rposition(|c| !c.is_ascii_digit()).map_or(0, |p| p + 1);
+    let end = chars[at + 1..].iter().position(|c| !c.is_ascii_digit()).map_or(chars.len(), |p| at + 1 + p);
+    let month: String = chars[at + 1..end].iter().collect();
+    at - start == 4 && month.len() == 2 && matches!(month.parse::<u8>(), Ok(1..=12))
 }
 
 /// Whether `chart`'s categories are years, two or more of them: a line along them runs on time,
@@ -7958,6 +7990,19 @@ mod tests {
         assert_eq!(typeset_en("500-1000 employees"), "500\u{2013}1000 employees");
         assert_eq!(typeset_en("250-1000 ms"), "250\u{2013}1000\u{a0}ms");
         assert_eq!(typeset_en("Call 555-1234 or 555-0140"), "Call 555-1234 or 555-0140");
+    }
+
+    /// An ISO month or date keeps its hyphens, a year of four figures then a month from 01 to 12,
+    /// so a chart's categories still name a file's months (W1 dogfood 9 F4); a range is a range.
+    #[test]
+    fn an_iso_month_keeps_its_hyphen() {
+        assert_eq!(typeset_en("2026-01"), "2026-01");
+        assert_eq!(typeset_en("From 2026-01-15 on"), "From 2026-01-15 on");
+        assert_eq!(typeset_en("1990-05"), "1990-05");
+        assert_eq!(typeset_en("2026-12, not 2026-13"), "2026-12, not 2026\u{2013}13");
+        assert_eq!(typeset_en("1990-95"), "1990\u{2013}95");
+        assert_eq!(typeset_en("2024-25"), "2024\u{2013}25");
+        assert_eq!(typeset_en("10-12"), "10\u{2013}12");
     }
 
     /// A figure never parts from its unit, nor a scale from its currency, nor a German day from its
@@ -12510,6 +12555,103 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A made deck's hero figures quote the sheet given where one kept cell holds them: a Big
+    /// Number's figure by what it means, and a line's callout by its takeaway, so a data edit sets
+    /// both again. W1's dogfood 9, its slides and its sheet as written.
+    #[test]
+    fn a_made_decks_hero_figures_quote_the_sheet_given() {
+        let slide = |title: &str, kind: &str, bullets: &[&str]| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+            ..Slide::default()
+        };
+        let mut line = slide(
+            "Sunday visits grew every month of the pilot",
+            "Line Chart",
+            &["Sunday visits, January to June 2026"],
+        );
+        line.chart_data = Some(ChartData {
+            categories: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Sunday visits".into()),
+                values: [1840., 1920., 2105., 2260., 2390., 2475.].map(Some).to_vec(),
+            }],
+            ..ChartData::default()
+        });
+        let slides = vec![
+            slide("Keep Central Branch open on Sundays", "Title", &[]),
+            slide(
+                "2,475 visits on Sundays in June",
+                "Big Number",
+                &["2,475", "Sunday visits in June, up from 1,840 in January"],
+            ),
+            line,
+            slide(
+                "38% of Sunday visitors were new card holders",
+                "Big Number",
+                &["38%", "of Sunday visitors were first-time card holders"],
+            ),
+            slide(
+                "Families need the one day they are free",
+                "Quote",
+                &["Sunday is the only day I can bring my kids", "A parent, pilot survey of 412 patrons"],
+            ),
+            slide(
+                "Each Sunday costs $3,400 to staff",
+                "Big Number",
+                &["$3,400", "in wages and overtime for each Sunday"],
+            ),
+            slide(
+                "Other branches lend 20% more on weekends",
+                "Big Number",
+                &["20%", "more loans on weekends at branches that open them"],
+            ),
+            slide(
+                "Approve Sunday hours for the next fiscal year",
+                "Closing",
+                &["Keep Central Branch open noon to five on Sundays", "Review the visits again in twelve months"],
+            ),
+        ];
+        let summary = "Six months of Sunday hours brought steady growth and new card holders for $3,400 a \
+                       Sunday; keep them for the next fiscal year.";
+        let (_, write) = generating(&narrative(summary, slides), Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let csv = "month,sunday_visits,weekday_average\n2026-01,1840,1210\n2026-02,1920,1190\n2026-03,2105,1230\n\
+                   2026-04,2260,1250\n2026-05,2390,1240\n2026-06,2475,1260\n";
+        let sheet = scaena_sources::Sheet {
+            name: "sunday-visits.csv".into(),
+            rows: csv.lines().map(|r| r.split(',').map(str::to_string).collect()).collect(),
+        };
+        let csv = Source { sheets: vec![sheet], ..source("sunday-visits.csv", Kind::Csv, csv) };
+        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[csv])).unwrap();
+        let deck = write.deck.to_value().unwrap();
+        let quotes: Vec<(String, String, Value)> = (deck["nodes"].as_object().unwrap().iter())
+            .flat_map(|(id, n)| {
+                (n["runs"].as_array().into_iter().flatten())
+                    .filter(|r| r.get("quote").is_some())
+                    .map(|r| (id.clone(), r["text"].as_str().unwrap().to_string(), r["quote"].clone()))
+            })
+            .collect();
+        let hero = |slot: &str| {
+            quotes.iter().find(|(id, ..)| id.ends_with(slot)).unwrap_or_else(|| panic!("{slot}: {quotes:#?}"))
+        };
+        for slot in ["-number", "-callout"] {
+            let (_, words, quote) = hero(slot);
+            assert_eq!(words, "2,475", "{slot}");
+            // June's row, by its index: the months are dates, which name no row.
+            assert_eq!(
+                (quote["column"].as_str(), &quote["row"]),
+                (Some("sunday_visits"), &json!(5)),
+                "{slot}: {quote}"
+            );
+        }
+        // January's figure in the meaning, quoted before, still is.
+        assert!(quotes.iter().any(|(_, w, q)| w == "1,840" && q["row"] == 0), "{quotes:#?}");
+        // The PDF's figures are in no cell: none quoted.
+        assert!(!quotes.iter().any(|(_, w, _)| ["38%", "$3,400", "3,400", "20%"].contains(&w.as_str())), "{quotes:#?}");
+        assert!(kept[0].quoted.unwrap() >= 3, "{kept:?}");
     }
 
     /// Items that each name an icon are set under the icons their words find (PLAN G.23): three

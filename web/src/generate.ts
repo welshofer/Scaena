@@ -823,16 +823,20 @@ async function look(
     }
     if (!looking) return;
     // What it asked that writes a slide's figures otherwise, let go as each answer was read,
-    // kept by the report beside what lint finds worse and said with it (W1 dogfood 9).
+    // kept by the report beside what lint finds worse and said with it (W1 dogfood 9); then a
+    // title that drops what its beat claims, or names a topic where the slide stated its point,
+    // let go before the deck is made again, as natively (W1's dogfood 8).
     const asked = changes.length;
     changes.splice(0, changes.length, ...(JSON.parse(making.figured(JSON.stringify(changes))) as { slide: number }[]));
+    const held = JSON.parse(generation.held(JSON.stringify(changes), layouts)) as { changes: { slide: number }[]; refused: unknown[] };
+    making.refuse(JSON.stringify(held.refused));
+    changes.splice(0, changes.length, ...held.changes);
     if (!changes.length) {
       if (unanswered) {
         making.unlooked(unanswered);
         return hear({ kind: "unlooked", why: unanswered });
       }
-      // Where every change asked was let go for a figure, each is said as it is let go, not as
-      // nothing seen.
+      // Where every change asked was let go, each is said as it is, not as nothing seen.
       return asked ? undefined : hear({ kind: "looked", slides: 0 });
     }
     const tried = JSON.parse(

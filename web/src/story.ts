@@ -27,6 +27,8 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
+  /** Show the slide `state` is a state of, entered at its last step, built whole. */
+  enter(state: string): Promise<void>;
   /** Show `state` and the Format tab's `field` for it, scrolled to and in focus (editor dogfood 6). */
   field(state: string, field: Field): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
@@ -40,6 +42,8 @@ export interface StoryEditor {
    * text heads it: what its row names it by, since health names a slide by its beat's claim
    * (editor dogfood 4). */
   headline(slide: string): string | undefined;
+  /** Every state of the deck as it stands, a slide's steps among them. */
+  states(): string[];
   /** What lint last found wrong on the slide `slide` is a step of, any step of it: what its marks
    * on the canvas stand for (editor dogfood 4). */
   issues(slide: string): Finding[];
@@ -268,14 +272,15 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
 };
 
 /** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
- * on a slide `after` still reads: what an edit answered. A slide taken away, or another deck
- * opened, answers nothing. */
-export function answered(before: Health, after: Health): HealthFinding[] {
+ * on a state the deck still has, among `states`, every state, since a finding names the step it
+ * was read at, its slide's last for most (#982): what an edit answered. A slide taken away, or
+ * another deck opened, answers nothing. */
+export function answered(before: Health, after: Health, states: Iterable<string>): HealthFinding[] {
   const was = places(before.findings);
   const now = places(after.findings);
   const found = new Map(after.findings.flatMap((f) => now.keys(f).map((k) => [k, 0] as const)));
-  const states = new Set(after.slides.map((s) => s.state));
-  return before.findings.filter((f) => states.has(f.state) && was.at(found, f) === undefined);
+  const has = new Set(states);
+  return before.findings.filter((f) => has.has(f.state) && was.at(found, f) === undefined);
 }
 
 /** What an edit answered, as the status and the score's line say it: "Answers 2 of the Story's
@@ -388,14 +393,14 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   // so its buttons are heard here.
   score.addEventListener("click", (e) => {
     const state = (e.target as Element).closest<HTMLElement>("[data-capped-slide]")?.dataset.cappedSlide;
-    if (state) void editor.show(state);
+    if (state) void editor.enter(state);
   });
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
   // A slide a row's words name shows it (editor dogfood 6): the rows are drawn anew at each read,
   // so their buttons are heard here.
   into.querySelector<HTMLElement>("[data-findings]")!.addEventListener("click", (e) => {
     const state = (e.target as Element).closest<HTMLElement>("[data-to-slide]")?.dataset.toSlide;
-    if (state) void editor.show(state);
+    if (state) void editor.enter(state);
   });
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
@@ -469,7 +474,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       const [got, sources] = await Promise.all([stage.health(editor.source()), editor.sources().catch(() => [])]);
       if (asked !== asking) return;
       // What the edits since the last read answered, said once (editor dogfood 6).
-      const gone = health && !into.dataset.stale ? answered(health, got) : [];
+      const gone = health && !into.dataset.stale ? answered(health, got, editor.states()) : [];
       health = got;
       grounded = sources;
       if (gone.length) {
@@ -519,7 +524,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     idea.innerHTML = h.bigIdea ? `<span>The big idea</span>\u201c${html(h.bigIdea)}\u201d` : "";
     arc.innerHTML = arcGraph(h);
     for (const g of arc.querySelectorAll<SVGGElement>("[data-state]")) {
-      g.addEventListener("click", () => void editor.show(g.dataset.state!));
+      g.addEventListener("click", () => void editor.enter(g.dataset.state!));
     }
     // What to do first, open; the rest folded under one "N more", open again as it was left.
     const { open, more } = triage(h);

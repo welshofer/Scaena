@@ -1392,6 +1392,104 @@ async fn every_layout_the_description_names_is_taken() {
     client.cancel().await.unwrap();
 }
 
+/// A made chart whose slide names its source by `sourceRef` alone, as Narrato asks of every slide
+/// and of a chart's own `sourceId` only where known, draws from the data source of that name: a
+/// monthly file's dated months bound to the "Jan" to "Jun" the slide wrote, which print as it
+/// wrote them (dogfood 9). One whose slide names a file of words, no data source, keeps its own
+/// rows and is said nothing of.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chart_whose_slide_names_its_source_draws_from_it() {
+    let root = scratch("chart-source-ref");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("sunday-visits.csv"),
+        "month,sunday_visits,weekday_average\n2026-01,1840,1210\n2026-02,1920,1190\n2026-03,2105,1230\n2026-04,2260,1250\n2026-05,2390,1240\n2026-06,2475,1260\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let slides_of = |source: &str, categories: Value| {
+        let mut slide = catalog["slides"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["layoutSuggestion"] == "Line Chart")
+            .unwrap()
+            .clone();
+        slide["chartData"] = json!({
+            "categories": categories,
+            "series": [{ "name": "Sunday visits", "values": [1840, 1920, 2105, 2260, 2390, 2475] }]
+        });
+        slide["sourceRef"] = json!(source);
+        let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+        slides[2] = slide;
+        json!({ "executiveSummary": "Sunday hours", "slides": slides })
+    };
+    let slides = |source: &str| slides_of(source, json!(["Jan", "Feb", "Mar", "Apr", "May", "Jun"]));
+    let charted = |dir: &Path| -> Value {
+        let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+        d["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap()
+    };
+    let data = json!([{ "id": "sunday-visits", "file": "sunday-visits.csv" }]);
+    let bound = root.join("bound");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&bound), "slides": slides("sunday-visits.csv"), "data": data }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let node = charted(&bound);
+    assert_eq!(
+        (node["data"].clone(), node["x"]["field"].clone(), node["x"]["format"].clone()),
+        (json!("@sunday-visits"), json!("month"), json!("%b")),
+        "{node:#}"
+    );
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bound) })).await["errors"], json!(0));
+    // The Data tab's edit redraws it: January from 1,840 to 1,850, and the chart reads 1,850.
+    let id = {
+        let d: Value = serde_json::from_str(&std::fs::read_to_string(bound.join("deck.json")).unwrap()).unwrap();
+        d["nodes"].as_object().unwrap().iter().find(|(_, n)| n["type"] == "chart").unwrap().0.clone()
+    };
+    let january = || async {
+        let inspected = ok(&client, "deck_inspect", json!({ "bundle": path(&bound), "data": true })).await;
+        let rows = inspected["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find_map(|s| s["data"].get(&id).cloned())
+            .unwrap_or_else(|| panic!("no state reads {id}: {inspected:#}"));
+        rows["rows"][0].clone()
+    };
+    assert_eq!(january().await[1], json!(1840.0));
+    let edits = json!([{ "op": "set", "row": 0, "column": "sunday_visits", "value": 1850 }]);
+    ok(&client, "data_edit", json!({ "bundle": path(&bound), "source": "sunday-visits", "edits": edits })).await;
+    assert_eq!(january().await[1], json!(1850.0));
+    // Months written as the file writes them, "2026-01", keep their hyphens through the deck's
+    // typesetting and bind the same (W1 dogfood 9 F4).
+    let iso = root.join("iso");
+    let months = json!(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]);
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&iso), "slides": slides_of("sunday-visits.csv", months), "data": data }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    assert_eq!(charted(&iso)["data"], json!("@sunday-visits"));
+    let words = root.join("words");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&words), "slides": slides("pilot-review.pdf"), "data": data }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "a slide's file of words is no data source to be said unbound: {made:#}");
+    assert_ne!(charted(&words)["data"], json!("@sunday-visits"));
+    client.cancel().await.unwrap();
+}
+
 /// A made chart whose slide's `chartData.sourceId` names a data source draws from it (agent
 /// dogfood): `deck_generate`'s `data` attached, the chart reading `@id` by the columns that hold
 /// its categories and its series, several folded, its own rows gone. One the file says otherwise,

@@ -165,6 +165,7 @@ impl Making {
         if !found.is_empty() {
             // Each change let go, said with what lint found, kept by the deck that stands until
             // one without them is (lift-up USE-4).
+            // Kept beside what was let go before the deck was made again (`refuse`, `figured`).
             let said = refusals(&changes, &found, (&self.made, write), (&made, &after));
             if let Some(write) = &mut self.write {
                 refuse_too(&mut self.made, write, said);
@@ -188,6 +189,13 @@ impl Making {
             refuse_too(&mut self.made, write, said);
         }
         changes
+    }
+
+    /// `refused`, the changes the generator's `held` let go before the deck is made again, kept
+    /// beside the rest and said in the report, as the native look keeps them (W1's dogfood 8).
+    pub fn refuse(&mut self, refused: Vec<scaena_ops::narrative::Refused>) {
+        let Some(write) = &mut self.write else { return };
+        refuse_too(&mut self.made, write, refused);
     }
 
     /// The look failed, or what it asked was not kept: why, which the report says.
@@ -420,6 +428,24 @@ mod tests {
         let files = m.files().unwrap().unwrap();
         let deck: serde_json::Value = serde_json::from_slice(&files["deck.json"]).unwrap();
         assert_eq!(deck["meta"]["narrative"]["refused"].as_array().map(Vec::len), Some(1), "{:#}", deck["meta"]);
+    }
+
+    /// What the generator's `held` let go before the deck is made again is kept beside what the
+    /// look lets go after, in the report and the deck (W1's dogfood 8).
+    #[test]
+    fn what_the_browsers_look_let_go_first_is_kept() {
+        let (theme, fonts) = dusk();
+        let mut m = Making::new(built(), "Problem-Solution", None, "dusk.theme.json", &theme, &fonts).unwrap();
+        let refused: Vec<scaena_ops::narrative::Refused> = serde_json::from_value(serde_json::json!([
+            { "slide": 2, "what": "the title \u{201c}Emissions\u{201d}", "why": "it drops \u{201c}climbing\u{201d} from the claim its beat settled" }
+        ]))
+        .unwrap();
+        m.refuse(refused);
+        let report = m.report();
+        assert_eq!(report["refused"][0]["what"], "the title \u{201c}Emissions\u{201d}", "{report:#}");
+        let files = m.files().unwrap().unwrap();
+        let deck: serde_json::Value = serde_json::from_slice(&files["deck.json"]).unwrap();
+        assert_eq!(deck["meta"]["narrative"]["refused"][0]["slide"], 2, "{:#}", deck["meta"]);
     }
 
     #[test]
