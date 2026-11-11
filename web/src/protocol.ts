@@ -964,6 +964,8 @@ export interface HealthFinding {
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
+  /** Where an `arc` finding's plan is written, a JSON pointer, for an agent; the editors set it by the slide's Intensity. */
+  path?: string;
   /** The figure a `source` finding found no source for, as the slide writes it. */
   figure?: string;
 }
