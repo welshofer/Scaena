@@ -50,7 +50,8 @@ import Testing
         checked += 1
         passed += held.passes ? 1 : 0
         exact += held.differing == 0 ? 1 : 0
-        if worst.map({ held.maxDeltaE > $0.held.maxDeltaE || held.maxChannel > $0.held.maxChannel }) ?? true {
+        // The furthest off by ΔE, the metric's measure, and by the largest channel step among equals.
+        if worst.map({ (held.maxDeltaE, held.maxChannel) > ($0.held.maxDeltaE, $0.held.maxChannel) }) ?? true {
             worst = (state, held)
         }
     }
