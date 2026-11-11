@@ -466,6 +466,9 @@ fn unit_of(word: &str) -> String {
 /// The figures `text` writes, in order: each a word with a digit that no letter begins ("38%",
 /// "$1.4M", "2.5×", "40-mile"), not a year ("2026") and not a count under ten standing alone
 /// ("Week 1", "3 steps"), so a name's digits ("Q3", "p99") and a slide's numbering are no figure.
+/// Nor is a time of day, hours and minutes ("1:10", "11:40"), which a timetable states and no
+/// source backs (the ferry deck's "a fourth sailing at 1:10"); a ratio written so ("1:20") is
+/// missed with it.
 /// A figure's unit is its sign, its scale, the word joined to it ("40-mile"), or the word after it.
 fn figures(text: &str) -> Vec<Figure> {
     let words: Vec<&str> = text
@@ -480,7 +483,7 @@ fn figures(text: &str) -> Vec<Figure> {
         }
         let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
         let count = w.parse::<u32>().is_ok_and(|n| n < 10);
-        if year || count {
+        if year || count || clock(w) {
             continue;
         }
         let (number, joined) = match w.split_once('-') {
@@ -513,6 +516,18 @@ fn figures(text: &str) -> Vec<Figure> {
         out.push(Figure { shown, value, unit });
     }
     out
+}
+
+/// Whether `word` is a time of day: hours to 23, a colon, and two digits of minutes to 59.
+fn clock(word: &str) -> bool {
+    let Some((hours, minutes)) = word.split_once(':') else { return false };
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    digits(hours)
+        && hours.len() <= 2
+        && hours.parse::<u32>().is_ok_and(|h| h < 24)
+        && minutes.len() == 2
+        && digits(minutes)
+        && minutes.parse::<u32>().is_ok_and(|m| m < 60)
 }
 
 /// Whether `text` names one of `sources` by its name's words, its extension aside, in their order
@@ -4579,6 +4594,40 @@ mod tests {
         assert_eq!(&shown("184,000 dollars")[0].2, &shown("$184,000")[0].2);
         assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
         assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
+    }
+
+    /// A time of day is no figure to source (the ferry deck, read against a reader): "a fourth
+    /// sailing at 1:10", between "the full 11:40" and "the 3:30", states a timetable. Fleet's
+    /// slide 8, made from its pilot and given those words in place of its figure, is asked
+    /// for no source; given a figure beside them, it is asked for that one.
+    #[test]
+    fn a_time_of_day_is_no_figure_to_source() {
+        let pilot = || {
+            vec![scaena_narrato::Provenance {
+                name: "pilot.csv".into(),
+                kind: "csv".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+            }]
+        };
+        let shown = |text: &str| figures(text).into_iter().map(|f| f.shown).collect::<Vec<_>>();
+        assert!(shown("A fourth sailing at 1:10, between the full 11:40 and the 3:30 (1:10 pm daily)").is_empty());
+        assert_eq!(shown("a 1:5 split, 24:00, 9:75"), ["1:5", "24:00", "9:75"], "not hours and minutes");
+        let timed = |figure: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| {
+                slides[7].slide_title = "A fourth sailing at 1:10".into();
+                slides[7].layout_suggestion = "Bullet List".into();
+                slides[7].key_bullets = vec![format!("Between the full 11:40 and the 3:30{figure}")];
+            }
+        };
+        let unsourced = |deck: &Value| -> Vec<String> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Source && f.slide == 8).map(|f| f.says).collect()
+        };
+        let plain = unsourced(&grounded_dogfood("fleet", "", pilot(), timed("")));
+        assert!(plain.is_empty(), "{plain:?}");
+        let priced = unsourced(&grounded_dogfood("fleet", "", pilot(), timed(", for $1.1M a year")));
+        assert!(priced.iter().any(|s| s.contains("writes $1.1M")), "{priced:?}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
