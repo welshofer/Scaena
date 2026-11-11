@@ -2268,3 +2268,34 @@ fn one_slide_is_asked_for_read_and_written() {
     assert!(none.get("error").is_some(), "{none}");
     unsafe { scaena_session_free(s) };
 }
+
+/// A state at rest, painted by the CPU painter, held to its torture golden by SPEC §13.5's metric
+/// (`scaena_pixels_against`): what gate 4 holds the iPad's pixels to the web player's by. Every
+/// state at rest passes against its own golden, and none against another's.
+#[test]
+fn a_state_is_held_to_its_golden_raster() {
+    let s = open(TORTURE);
+    let against = |state: &str, golden: &str| -> Value {
+        let png = std::fs::read(format!("../../tests/golden/torture/{golden}.png")).unwrap();
+        let reply = took(unsafe { scaena_pixels_against(s, c(state).as_ptr(), png.as_ptr(), png.len()) });
+        serde_json::from_str(&reply).unwrap()
+    };
+    let goldens = std::fs::read_to_string("../../tests/golden/torture/raw.fnv1a").unwrap();
+    let mut checked = 0;
+    for (name, _) in goldens.lines().filter_map(|l| l.split_once(' ')) {
+        if name.contains(['@', '~']) {
+            continue;
+        }
+        let held = &against(name, name)["ok"];
+        assert_eq!(held["passes"], json!(true), "{name}: {held}");
+        checked += 1;
+    }
+    assert!(checked > 40, "{checked} states checked");
+    // Another state's golden is not this one's.
+    let other = &against("images", "accents")["ok"];
+    assert_eq!(other["passes"], json!(false), "{other}");
+    // A PNG that is none is refused, saying why.
+    let reply = took(unsafe { scaena_pixels_against(s, c("images").as_ptr(), [0u8; 4].as_ptr(), 4) });
+    assert!(reply.contains("\"error\""), "{reply}");
+    unsafe { scaena_session_free(s) };
+}
