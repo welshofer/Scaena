@@ -194,9 +194,14 @@ extension XCTestCase {
         let before = menuAsks(in: app)
         element.press(forDuration: 1.2)
         guard !wait(3, { self.menuAsks(in: app) > before }) else { return }
-        XCTContext.runActivity(named: "The canvas took no long press: the press is made again") { _ in
-            keep(app, as: "menu-pressed-again")
-            element.press(forDuration: 1.2)
+        // Pressed once: a long press that needs a second is one a person would lose too, so the
+        // canvas says why it asked for no menu, and the test that wanted one fails on it (lift-up
+        // 20261110: #985's five lost presses were each on the selected copy's rotate handle).
+        let last = app.descendants(matching: .any).matching(identifier: "canvas-last-press").firstMatch
+        let why = last.exists ? (last.value as? String ?? "said nothing") : "the canvas shows no last press"
+        print("a long press asked for no menu: \(why)")
+        XCTContext.runActivity(named: "The canvas asked for no menu: \(why)") { _ in
+            keep(app, as: "menu-not-asked")
         }
     }
 
