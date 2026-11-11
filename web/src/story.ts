@@ -246,6 +246,7 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
   title: "title", empty: "empty place", turn: "turn", arc: "plan", intensity: "intensity", tone: "tone",
   drift: "beat", layout: "layout", claim: "claim", bigIdea: "big idea", story: "story", dense: "points",
   notes: "notes", pacing: "length", link: "link", look: "change let go", source: "source", label: "headline",
+  thin: "content",
 };
 
 /** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
