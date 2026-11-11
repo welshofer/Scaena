@@ -7234,24 +7234,28 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     let words = |text: &str| -> Vec<String> {
         (text.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
     };
-    let runs_on = |category: &str| {
-        let said = words(takeaway.unwrap_or_default());
+    let runs_on = |text: &str, category: &str| {
+        let said = words(text);
         let named = words(category);
         (1..said.len()).any(|i| {
             matches!(said[i - 1].as_str(), "since" | "after" | "from") && said[i..].starts_with(named.as_slice())
         })
     };
-    match named.as_slice() {
-        [one] if (years || ordered(&chart.categories)) && runs_on(&chart.categories[*one]) => {
-            return chart.categories.len().checked_sub(1);
-        }
-        [one] => return Some(*one),
-        _ => {}
-    }
+    // The bar a sentence names: the latest where its words run on from the category they name
+    // ("since 2022"), else that one.
+    let lit =
+        |text: &str, one: usize| match (years || ordered(&chart.categories)) && runs_on(text, &chart.categories[one]) {
+            true => chart.categories.len().checked_sub(1),
+            false => Some(one),
+        };
     // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
-    // dipped in June"), ahead of any figure (W1's dogfood 8).
-    if let Some(i) = title.and_then(|t| headlined(&chart.categories, t)) {
-        return Some(i);
+    // dipped in June") (W1's dogfood 8): the claim, ahead of the category a takeaway names for
+    // what surrounds it ("Two clients moved their contracts into March", agent dogfood 3).
+    if let Some((t, i)) = title.and_then(|t| headlined(&chart.categories, t).map(|i| (t, i))) {
+        return lit(t, i);
+    }
+    if let [one] = named.as_slice() {
+        return lit(takeaway.unwrap_or_default(), *one);
     }
     // The figure a sentence lands on: its last that is one bar's value alone, never a figure of a
     // category's own name ("Q3", "FY25").
@@ -8302,6 +8306,35 @@ mod tests {
         assert_eq!(headlined(&["Jun".into(), "June".into()], "Ridership dipped in June"), None, "both name it");
         assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q4 beat plan"), Some(1));
         assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q45 beat plan"), None, "a figure is whole");
+        // The headline's month, ahead of another its takeaway names for what surrounds it (agent
+        // dogfood 3): "Im Februar sank…" lights Februar, not the März two clients moved into.
+        let months = ["Januar", "Februar", "März", "April", "Mai", "Juni"].map(String::from).to_vec();
+        let lit = |title: &str, takeaway: &str| {
+            let slide = Slide {
+                slide_title: title.into(),
+                layout_suggestion: "Bar Chart".into(),
+                key_bullets: vec![takeaway.into()],
+                chart_data: Some(ChartData {
+                    categories: months.clone(),
+                    series: vec![scaena_narrato::Series {
+                        name: Some("Umsatz".into()),
+                        values: [412., 398., 455., 471., 502., 538.].map(Some).to_vec(),
+                    }],
+                    ..ChartData::default()
+                }),
+                ..Slide::default()
+            };
+            let mut n = narrative("", vec![slide]);
+            n.brief.language = Some("German".into());
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            let chart =
+                made.deck["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap();
+            chart["annotations"][0]["at"]["x"].clone()
+        };
+        let moved = "Zwei Großkunden haben ihre Verträge in den März verschoben";
+        assert_eq!(lit("Im Februar sank der Umsatz auf 398 TEUR", moved), json!("Februar"));
+        // A headline that names none leaves the takeaway's month lit, as before.
+        assert_eq!(lit("Der Umsatz schwankte im Frühjahr", moved), json!("März"));
     }
 
     #[test]
