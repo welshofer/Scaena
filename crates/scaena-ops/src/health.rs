@@ -1585,6 +1585,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let (i, j, _) = slides[*place.get(id)?].beat?;
         Some(format!("/spine/sections/{i}/beats/{j}/media/narrato/{key}"))
     };
+    // The deck's last slide closes the talk, whatever its layout: an ask set as a list (two items
+    // in a Closing make one, R1's agent dogfood 2) states what the room is to do, in a verb a
+    // topic's test reads as a noun ("Fund the midday sailing from 2026"), so no headline there is
+    // asked for its point, as the cover's and the close's are not.
+    let last = |i: usize| i + 1 == read.len();
     for (i, s) in read.iter().enumerate() {
         let k = i + 1;
         if s.title.trim().is_empty() {
@@ -1597,7 +1602,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         } else if let Some(line) =
-            (english && i > 0 && !framing(i)).then(|| buried(deck, &slides[i], s, &heading[i])).flatten()
+            (english && i > 0 && !framing(i) && !last(i)).then(|| buried(deck, &slides[i], s, &heading[i])).flatten()
         {
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
             // a made slide's beat claim is its headline, so "Some history" passes as one, its
@@ -1615,7 +1620,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ),
                 None,
             );
-        } else if english && i > 0 && !framing(i) && !led[i] && labels(&heading[i]) {
+        } else if english && i > 0 && !framing(i) && !last(i) && !led[i] && labels(&heading[i]) {
             // A content slide whose headline names its topic: offered its point, never rewritten.
             find(
                 &s.id,
@@ -3506,6 +3511,34 @@ mod tests {
             );
             assert_eq!(h.slides[k - 1].standing, Standing::Bends, "the graph marks slide {k}");
         }
+    }
+
+    /// The deck's last slide closes the talk whatever its layout (R1's agent dogfood 2): the Cove
+    /// Island ask, written as a Closing with two items and so set as a list, heads with what the
+    /// room is to do, which a topic's test reads as a noun. It is not asked for its point; the
+    /// same headline on a slide before the close is.
+    #[test]
+    fn the_last_slide_is_not_asked_for_its_point() {
+        let ask = |slide: &mut answer::Slide| {
+            slide.slide_title = "Fund the midday sailing from 2026".into();
+            slide.layout_suggestion = "Closing".into();
+            slide.key_bullets = vec![
+                "Approve $1.1M a year for a fourth daily sailing".into(),
+                "Review ridership and on-time performance after twelve months".into(),
+            ];
+        };
+        let labelled = |h: &Health, k: usize| h.findings.iter().any(|f| f.kind == Kind::Label && f.slide == k);
+        let closed = dogfood("fleet", "", |slides| ask(slides.last_mut().unwrap()));
+        let h = of(&closed);
+        let n = h.slides.len();
+        assert!(!labelled(&h, n), "{:#?}", h.findings.iter().filter(|f| f.slide == n).collect::<Vec<_>>());
+        // Before the close, the same headline is a topic's.
+        let inside = dogfood("fleet", "", |slides| ask(&mut slides[6]));
+        assert!(
+            labelled(&of(&inside), 7),
+            "{:#?}",
+            of(&inside).findings.iter().filter(|f| f.slide == 7).collect::<Vec<_>>()
+        );
     }
 
     /// A headline is judged by the words the slide shows (W2's editor dogfood, Edit its headline):
