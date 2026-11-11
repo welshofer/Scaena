@@ -2432,12 +2432,12 @@ fn assemble(
     }
     // Its words set as a typesetter sets them: "Canada\u{2019}s", "2021\u{2013}2024" (G.16).
     let narrative = &posed(&typeset_all(narrative));
-    let arc = narrative.narrative_arc();
+    let arc = scaena_narrato::arcs::shape(&narrative.arc);
     // The beats the slides are spread over: the outline's where the person settled one before
     // the slides were written (narrative FUNC-1), else the arc's.
     let names: Vec<&str> = match &narrative.outline {
         Some(outline) => (outline.beats.iter()).map(|b| b.name.split(':').next().unwrap_or(&b.name).trim()).collect(),
-        None => arc.beat_names(),
+        None => arc.beats.iter().map(String::as_str).collect(),
     };
     let count = narrative.slides.len();
     let varied = varied(narrative);

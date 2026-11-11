@@ -37,6 +37,7 @@ bless:
     SCAENA_BLESS=1 cargo test -p scaena-engine --test rtl --locked
     SCAENA_BLESS=1 cargo test -p scaena-paint --test torture_rasters --locked
     SCAENA_BLESS=1 cargo test -p scaena-cli --test sheet --locked
+    SCAENA_BLESS=1 cargo test -p scaena-narrato --lib arcs --locked
     rm -rf tests/golden/torture/actual tests/golden/rtl/actual tests/code/actual tests/golden/themes/actual
 
 # The Mac's C ABI from C (PLAN 3.1): the static library built, a C program compiled against

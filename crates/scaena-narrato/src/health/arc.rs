@@ -7,7 +7,7 @@ use super::constants::{
     DEVIANT_INTENSITY_DELTA, DTW_FIDELITY_SLOPE, STAKE_CLOSE_BOUNDARY, STAKE_SETUP_BOUNDARY, STAKE_WEIGHT_CLIMAX,
     STAKE_WEIGHT_CLOSE, STAKE_WEIGHT_SETUP,
 };
-use crate::arcs::{self, NarrativeArc, Point};
+use crate::arcs::{self, Point, Shape};
 use crate::js;
 use serde::{Deserialize, Serialize};
 
@@ -171,10 +171,10 @@ pub fn fidelity(slides: &[SlideForHealth], canonical: &[f64], options: &Fidelity
     Alignment { fidelity, deviant_slides }
 }
 
-/// The arc the catalog names `arc` exactly, if any.
-fn named(arc: Option<&str>) -> Option<&'static NarrativeArc> {
+/// The shape of the arc the catalog names `arc` exactly, if any.
+fn named(arc: Option<&str>) -> Option<&'static Shape> {
     let name = arc.filter(|a| !a.is_empty())?;
-    arcs::arcs().iter().find(|a| a.arc == name)
+    arcs::shapes().iter().find(|a| a.arc == name)
 }
 
 /// The curve's intensity at `t` (`sampleAt`), `points` in order: between the two points about
@@ -238,7 +238,7 @@ pub fn curve(arc: Option<&str>, count: usize) -> Vec<f64> {
 /// none for an arc the catalog does not name.
 pub fn beat_names(arc: Option<&str>) -> Vec<&'static str> {
     let beats = named(arc).map(|a| a.beats.as_slice()).unwrap_or_default();
-    beats.iter().map(|b| js::trim(b.split(':').next().unwrap_or_default())).collect()
+    beats.iter().map(String::as_str).collect()
 }
 
 #[cfg(test)]

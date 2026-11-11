@@ -103,22 +103,75 @@ pub fn arc(name: &str) -> &'static NarrativeArc {
 /// wins, so "Hero's Journey for Change" is not "Hero's Journey". None where no catalog name is
 /// so matched, which the caller says.
 pub fn named(name: &str) -> Option<&'static NarrativeArc> {
-    let all = arcs();
-    if let Some(exact) = all.iter().find(|a| a.arc == name) {
+    matched(arcs(), name, |a| &a.arc)
+}
+
+/// What of `all` `name` names, by `named`'s rules, each known by what `arc` gives of it.
+fn matched<'a, T>(all: &'a [T], name: &str, arc: fn(&T) -> &str) -> Option<&'a T> {
+    if let Some(exact) = all.iter().find(|a| arc(a) == name) {
         return Some(exact);
     }
     let wanted = key(name);
     if wanted.len() < 4 {
         return None;
     }
-    if let Some(same) = all.iter().find(|a| key(&a.arc) == wanted) {
+    if let Some(same) = all.iter().find(|a| key(arc(a)) == wanted) {
         return Some(same);
     }
     (all.iter())
-        .map(|a| (a, key(&a.arc)))
+        .map(|a| (a, key(arc(a))))
         .filter(|(_, k)| wanted.contains(k.as_str()) || k.starts_with(&wanted))
         .max_by_key(|(_, k)| k.len())
         .map(|(a, _)| a)
+}
+
+/// An arc's shape: its name, its beats' names, and its intensity curve, which is all narrative
+/// health and a deck's making read of it. They come from `data/shapes.json`, which holds them as
+/// `data/arcs.json` does (`the_shapes_are_the_arcs`), so the editor's module, which lays a deck
+/// out and reads its health, carries them without the catalog's words: the prompts that read
+/// those are the generator's module's (SPEC §15).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shape {
+    /// Its name, exactly, as [`NarrativeArc::arc`].
+    pub arc: String,
+    /// Each beat's name, as [`NarrativeArc::beat_names`] gives them.
+    pub beats: Vec<String>,
+    /// Its intensity curve, as [`NarrativeArc::points`].
+    pub points: Vec<Point>,
+}
+
+/// An arc's shape as `data/shapes.json` writes it: its curve's intensities alone, a point for each
+/// place from 0, as every arc's points stand.
+#[derive(Serialize, Deserialize)]
+struct Written {
+    arc: String,
+    beats: Vec<String>,
+    curve: Vec<f64>,
+}
+
+/// The 13 arcs' shapes, in Vzestup's order.
+pub fn shapes() -> &'static [Shape] {
+    static SHAPES: OnceLock<Vec<Shape>> = OnceLock::new();
+    SHAPES.get_or_init(|| {
+        let written: Vec<Written> = serde_json::from_str(include_str!("../data/shapes.json")).expect("the shapes read");
+        (written.into_iter())
+            .map(|w| Shape {
+                arc: w.arc,
+                beats: w.beats,
+                points: (w.curve.iter().enumerate()).map(|(x, &y)| Point { x: x as f64, y }).collect(),
+            })
+            .collect()
+    })
+}
+
+/// The shape of the arc `name` names, matched as [`named`] matches it.
+pub fn shape_named(name: &str) -> Option<&'static Shape> {
+    matched(shapes(), name, |a| &a.arc)
+}
+
+/// The shape of the arc `name` names, else the first's, as [`arc`] falls back.
+pub fn shape(name: &str) -> &'static Shape {
+    shape_named(name).unwrap_or(&shapes()[0])
 }
 
 /// `name` as it is compared: its letters and digits alone, lowercase, so punctuation, spacing,
@@ -147,6 +200,46 @@ pub fn persona(id: Option<&str>, audience: &str) -> Option<&'static Persona> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `data/shapes.json` should hold, from `data/arcs.json`.
+    fn written() -> String {
+        let shapes: Vec<Written> = (arcs().iter())
+            .map(|a| Written {
+                arc: a.arc.clone(),
+                beats: a.beat_names().iter().map(|b| b.to_string()).collect(),
+                curve: a.points.iter().map(|p| p.y).collect(),
+            })
+            .collect();
+        let lines: Vec<String> = shapes.iter().map(|s| serde_json::to_string(s).unwrap()).collect();
+        format!("[\n{}\n]\n", lines.join(",\n"))
+    }
+
+    /// The shapes are the catalog's arcs, their names, beats, and curves, so health and a deck's
+    /// making read them as they read the arcs. `SCAENA_BLESS=1` writes them again.
+    #[test]
+    fn the_shapes_are_the_arcs() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/data/shapes.json");
+        if std::env::var_os("SCAENA_BLESS").is_some() {
+            std::fs::write(path, written()).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(path).unwrap(), written(), "data/shapes.json: `just bless` writes it again");
+        assert_eq!(shapes().len(), arcs().len());
+        for (shape, arc) in shapes().iter().zip(arcs()) {
+            assert_eq!(shape.arc, arc.arc);
+            assert_eq!(shape.points, arc.points, "{}'s curve stands a point at each place from 0", arc.arc);
+            assert_eq!(shape.beats, arc.beat_names());
+            // Health trims a beat's name as JavaScript does, and the catalog as Rust does: alike here.
+            let js: Vec<&str> =
+                arc.beats.iter().map(|b| crate::js::trim(b.split(':').next().unwrap_or_default())).collect();
+            assert_eq!(shape.beats, js);
+        }
+        for name in
+            ["Data Storytelling", "the problem-solution arc", "PARL", "Hero's Journey for Change", "no such arc", ""]
+        {
+            assert_eq!(shape(name).arc, arc(name).arc, "{name}");
+            assert_eq!(shape_named(name).map(|s| &s.arc), named(name).map(|a| &a.arc), "{name}");
+        }
+    }
 
     #[test]
     fn the_arcs_and_personas_read_as_vzestup_keeps_them() {
