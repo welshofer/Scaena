@@ -522,10 +522,10 @@ try {
     const after = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].declared, bend.slide);
     const still = await page.evaluate((b) => window.scaena.story.health().findings.some((f) => f.state === b && (f.kind === "arc" || (f.kind === "intensity" && f.says.includes("planned hotter")))), bend.state);
     check(Math.abs(after - Number(to)) < 1e-9 && !still, `planned for its place (${after}), it bends no more`);
-    // What the edit answered is said (editor dogfood 6): the plan set for its place answers both of
-    // slide 2's findings, its plan and the intensity its words were asked for, after what the status
-    // said of the edit, and beside the score.
-    const answeredText = `Answers 2 of the Story's findings: slide ${bend.slide}'s plan and intensity`;
+    // What the edit answered is said (editor dogfood 6): the plan set for its place answers slide 2's
+    // one finding, the intensity warning its bend folds into (W2's editor dogfood 6, item B), after
+    // what the status said of the edit, and beside the score.
+    const answeredText = `Answers 1 of the Story's findings: slide ${bend.slide}'s intensity`;
     await page.waitForFunction((t) => document.querySelector("#story > p[data-answered]")?.textContent === t, answeredText, { timeout: 30000 }).catch(() => {});
     const toldNow = await page.evaluate(() => ({
       status: document.querySelector("#status").textContent,
