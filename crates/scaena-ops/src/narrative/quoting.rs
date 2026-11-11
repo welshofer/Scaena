@@ -547,6 +547,24 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
         assert_eq!((q[0].0.as_str(), q[0].1["format"].as_str()), ("18,4", Some(".1f")));
     }
 
+    /// A German figure set apart from its percent sign, "+18 %" as `typeset` sets one a writer or
+    /// a look wrote against it, quotes its cell as it did joined: the number quoted, the sign left
+    /// as words (W1's German dogfood).
+    #[test]
+    fn a_german_percent_set_apart_quotes_its_cell_as_one_joined() {
+        let csv = "quarter,ebitda_marge_pct\nQ2,16.1\nQ3,18.4\n";
+        let set = crate::narrative::typeset("EBITDA-Marge +18,4%", "de");
+        assert_eq!(set, "EBITDA-Marge +18,4\u{a0}%");
+        let apart = quotes(&[("t", &set)], csv, Some("de"));
+        assert_eq!(apart, quotes(&[("t", "EBITDA-Marge +18,4%")], csv, Some("de")));
+        assert_eq!(apart.len(), 1, "{apart:?}");
+        assert_eq!(apart[0].0, "18,4");
+        assert_eq!(
+            (apart[0].1["column"].as_str(), apart[0].1["row"]["quarter"].as_str()),
+            (Some("ebitda_marge_pct"), Some("Q3"))
+        );
+    }
+
     fn one(words: &str) -> Vec<(String, Value)> {
         quotes(&[("t", words)], NORTHWIND, None)
     }

@@ -86,6 +86,11 @@ public final class CanvasKeys: UIView {
     /// The presses that stopped typing: how each goes on and ends is this view's too.
     private var stopped: Set<UIPress> = []
 
+    /// The presses held with ⌘ or ⌃ that went on to the system: while one is down, nothing the
+    /// system hands `insertText` is typed, so ⌘D on a text typed in duplicates nothing and types no
+    /// "d" over its words, as the Mac's input system never types a chord (lift-up 20261110).
+    private var chorded: Set<UIPress> = []
+
     public init(typing: Typing) {
         self.typing = typing
         super.init(frame: .zero)
@@ -158,6 +163,8 @@ public final class CanvasKeys: UIView {
         let became = super.becomeFirstResponder()
         keysLog.debug("text input became first responder: \(became)")
         if became {
+            // A chord whose end went to another responder holds no typing back.
+            chorded = []
             reporting?.cancel()
             reporting = AnimationReport.started { [weak self] in self?.isFirstResponder == true }
         }
@@ -207,10 +214,16 @@ public final class CanvasKeys: UIView {
                 stopped.insert(press)
                 undoRefused?()
             } else {
+                if let key = press.key, Self.chords(key) { chorded.insert(press) }
                 rest.insert(press)
             }
         }
         if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    /// Whether `key` is held with ⌘ or ⌃, which type nothing; ⌥ types its characters.
+    static func chords(_ key: UIKey) -> Bool {
+        !key.modifierFlags.intersection([.command, .control]).isEmpty
     }
 
     public override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -221,12 +234,14 @@ public final class CanvasKeys: UIView {
     public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let rest = presses.subtracting(stopped)
         stopped.subtract(presses)
+        chorded.subtract(presses)
         if !rest.isEmpty { super.pressesEnded(rest, with: event) }
     }
 
     public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let rest = presses.subtracting(stopped)
         stopped.subtract(presses)
+        chorded.subtract(presses)
         if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
     }
 
@@ -589,7 +604,10 @@ extension CanvasKeys: UITextInput {
     public var hasText: Bool { !(typing.carets?.text.isEmpty ?? true) }
 
     public func insertText(_ text: String) {
-        guard typing.typing else { return }
+        guard typing.typing, chorded.isEmpty else {
+            if !chorded.isEmpty { keysLog.debug("a chord's characters typed nothing") }
+            return
+        }
         inputting {
             // In code, a code editor's Return (PLAN 2.139).
             if text == "\n", typing.marked == nil, typing.codeKey("Return") { return }
@@ -1328,7 +1346,29 @@ enum AnimationReport {
     /// What of the app holds `view`: the nearest view above it that a person or a test names (its
     /// accessibility identifier, else its label), and the nearest whose class is the app's or
     /// SwiftUI's rather than UIKit's or Core Animation's.
-    private static func holder(of view: UIView) -> String {
+    /// Each glass view of the app's windows laid out with no width or no height, as UIKit's Liquid
+    /// Glass draws a toolbar's and a segmented control's chrome: its class, where it stands in its
+    /// window, and what of the app holds it (lift-up 20261110). #990's report found such views
+    /// animating through a stall, and through the runs that passed too.
+    static func zeroGlass() -> [String] {
+        var found: [String] = []
+        func walk(_ view: UIView, _ window: UIWindow) {
+            let kind = String(describing: type(of: view))
+            if kind.contains("Glass") || kind.contains("SDF") || kind.contains("LiquidLens") || kind.contains("Portal"),
+                view.bounds.width == 0 || view.bounds.height == 0, found.count < 24
+            {
+                found.append("\(kind) at \(view.convert(view.bounds, to: window).integral) in \(holder(of: view))")
+            }
+            for sub in view.subviews { walk(sub, window) }
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let scene = scene as? UIWindowScene else { continue }
+            for window in scene.windows { walk(window, window) }
+        }
+        return found
+    }
+
+    static func holder(of view: UIView) -> String {
         var named: String?
         var classed: String?
         var at: UIView? = view.superview
