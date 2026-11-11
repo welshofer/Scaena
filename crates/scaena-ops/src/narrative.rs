@@ -3423,8 +3423,26 @@ fn numeric(text: &str) -> bool {
 fn meaning(items: &[Item], lang: &str) -> Option<String> {
     match items.first() {
         Some(first) if first.figure_first() && !first.detail.is_empty() => Some(continued(&first.detail, lang)),
+        // A figure its words run on from, with no mark between: "$6.76 per visitor in 2026"
+        // means "per visitor in 2026" (agent dogfood).
+        Some(first) if led(first).is_some() => led(first).map(|(_, rest)| continued(&rest, lang)),
         _ => items.get(1).map(|i| i.whole.clone()),
     }
+}
+
+/// The figure an item opens on and the words that run on from it, where no label sets them
+/// apart: "$6.76 per visitor in 2026" → ("$6.76", "per visitor in 2026"); none for an item that is
+/// its figure alone or leads with a label.
+fn led(item: &Item) -> Option<(String, String)> {
+    let whole = item.whole.trim();
+    // A figure and its unit alone ("6.5 hours", "1.84 s") is one figure, its unit no meaning.
+    if item.label.is_some() || numeric(whole) {
+        return None;
+    }
+    let figure = figure(whole).filter(|f| whole.starts_with(f.as_str()))?;
+    let rest = whole[figure.len()..].trim();
+    let words = rest.split_whitespace().count();
+    (words >= 2 && rest.starts_with(|c: char| c.is_alphabetic())).then(|| (figure, rest.to_string()))
 }
 
 /// The theme layout a slide is drawn in: what its identity comes to in Scaena's library, sized
@@ -4590,6 +4608,19 @@ fn unquoted(text: &str) -> String {
     text.trim().trim_matches(['"', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\'']).trim().to_string()
 }
 
+/// `"words" — who`: the words its writer marked, and who said them, where the words stand in
+/// their own marks before the dash; a dash inside words not marked stays theirs.
+fn signed(whole: &str) -> Option<(String, String)> {
+    const OPEN: [char; 4] = ['"', '\u{201c}', '\u{201e}', '\u{ab}'];
+    const CLOSE: [char; 4] = ['"', '\u{201d}', '\u{201c}', '\u{bb}'];
+    let whole = whole.trim();
+    let (words, who) = whole.rsplit_once(" \u{2014} ").or_else(|| whole.rsplit_once(" \u{2013} "))?;
+    let words = words.trim();
+    let marked = words.starts_with(OPEN) && words.trim_end_matches(['.', ',']).ends_with(CLOSE);
+    let who = who.trim();
+    (marked && !who.is_empty() && words.chars().count() > 2).then(|| (unquoted(words), who.to_string()))
+}
+
 /// "words — who": the words, and who said them.
 fn said(item: &Item) -> (String, Option<String>) {
     match item.whole.rsplit_once(" \u{2014} ").or_else(|| item.whole.rsplit_once(" \u{2013} ")) {
@@ -5069,8 +5100,14 @@ impl Slots<'_> {
                 false => i.figure().unwrap_or_else(|| i.whole.clone()),
             }),
             // A quote in its marks, so that it never reads as the presenter's own words.
-            "quote" => self.item(0).map(|i| quoted(&i.whole, self.lang)).or_else(|| self.title()),
-            "who" => self.item(1).map(|i| attributed(&i.whole)).or_else(|| self.subtitle()),
+            // A quote its writer marked and signed in one item, `"…" — who`, set in its marks
+            // once, and signed in the place for who said it (agent dogfood).
+            "quote" => (self.item(0))
+                .map(|i| quoted(&signed(&i.whole).map_or_else(|| i.whole.clone(), |(words, _)| words), self.lang))
+                .or_else(|| self.title()),
+            "who" => (self.item(1).map(|i| attributed(&i.whole)))
+                .or_else(|| self.item(0).and_then(|i| signed(&i.whole)).map(|(_, who)| attributed(&who)))
+                .or_else(|| self.subtitle()),
             "meaning" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
             "example" => self.item(1).map(|i| i.whole.clone()),
             "takeaway" => self.item(0).map(|i| i.whole.clone()).or_else(|| self.subtitle()),
@@ -5315,7 +5352,7 @@ impl Slots<'_> {
             }
             ("big-number" | "number-photo", "under", _) => text(self.fact().or_else(|| {
                 self.item(0)
-                    .filter(|i| i.figure_first() && !i.detail.is_empty())
+                    .filter(|i| (i.figure_first() && !i.detail.is_empty()) || led(i).is_some())
                     .and(self.item(1))
                     .map(|i| i.whole.clone())
             })),
@@ -7979,6 +8016,50 @@ mod tests {
             assert!(nodes.iter().all(|(_, said)| !said.trim().is_empty()), "{wanted}: {nodes:?}");
         }
         assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
+    /// A big number whose figure its words run on from, "$6.76 per visitor in 2026", means what
+    /// they say, and the second item stands under it: no word its writer wrote is dropped. A
+    /// quote its writer marked and signed in one item is set in its marks once and signed in its
+    /// place for who said it; a dash inside a quote not marked stays its own (agent dogfood).
+    #[test]
+    fn a_big_numbers_words_and_a_signed_quote_are_set_as_written() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |slide: Slide| {
+            deck(&narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]), &theme, &Pictures::new())
+                .unwrap()
+        };
+        let texts = |m: &Made| -> Vec<String> {
+            let state = m.deck["states"][1]["id"].as_str().unwrap();
+            shown(&m.deck, state).into_iter().map(|(_, said)| said).collect()
+        };
+        let mut number = slides.iter().find(|s| s.layout_suggestion == "Big Number").unwrap().clone();
+        number.slide_title = "Spending per visitor has stood still".into();
+        number.key_bullets = vec!["$6.76 per visitor in 2026".into(), "$6.67 in 2022".into()];
+        number.supporting_facts = None;
+        let m = made(number);
+        assert_eq!(m.layouts[1], "big-number");
+        let said = texts(&m);
+        assert!(said.iter().any(|t| t == "$6.76"), "{said:?}");
+        assert!(said.iter().any(|t| t.to_lowercase() == "per visitor in 2026"), "{said:?}");
+        assert!(said.iter().any(|t| t == "$6.67 in 2022"), "{said:?}");
+        let mut quote = slides.iter().find(|s| s.layout_suggestion == "Quote").unwrap().clone();
+        quote.key_bullets =
+            vec!["\"We patch the Ridge Loop every spring now. It used to be every five years.\" \u{2014} Dana Ruiz, lead ranger".into()];
+        let said = texts(&made(quote.clone()));
+        assert!(
+            said.contains(
+                &"\u{201c}We patch the Ridge Loop every spring now. It used to be every five years.\u{201d}"
+                    .to_string()
+            ),
+            "{said:?}"
+        );
+        assert!(said.contains(&"\u{2014} Dana Ruiz, lead ranger".to_string()), "{said:?}");
+        // Words not marked keep the dash inside them.
+        quote.key_bullets = vec!["The ocean \u{2014} not the air \u{2014} carries the cost".into()];
+        let said = texts(&made(quote));
+        assert!(said.iter().any(|t| t.contains("not the air \u{2014} carries the cost")), "{said:?}");
     }
 
     /// A slide that names a chart without saying which, `Chart` as `deck_generate`'s own schema
