@@ -983,13 +983,32 @@ fn opening(notes: &str) -> &str {
     first
 }
 
+/// The words coherence reads a slide by, `scaena_narrato::health::coherence::keywords`, split at
+/// what is not a letter or a digit in any script rather than at what is not ASCII: the same words
+/// in English, and "kündigung", "größer" whole in German (W1's dogfood 7).
+fn written(text: &str) -> std::collections::BTreeSet<String> {
+    let lower = text.to_lowercase();
+    scaena_core::sort::set(
+        lower.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() > 3).map(str::to_string),
+    )
+}
+
+/// Whether two neighbouring slides share no word as coherence reads them, each having some:
+/// where either says nothing past a short headline, the pair reads as following, as Vzestup's
+/// overlap gives it ½.
+fn apart(a: &SlideForHealth, b: &SlideForHealth) -> bool {
+    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let (wa, wb) = (words(a), words(b));
+    !wa.is_empty() && !wb.is_empty() && wa.is_disjoint(&wb)
+}
+
 /// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
 /// `before`'s headline and body that `next`'s do not use, as coherence reads words, in the
 /// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over.
 fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
-    let opened = health::coherence::keywords(opening(&next.notes));
+    let opened = written(opening(&next.notes));
     carried.iter().any(|w| opened.contains(w))
 }
 
@@ -1207,9 +1226,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .collect(),
         health::coherence::Method::Keyword => {
             let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
-            (shown.windows(2).zip(&m.coherence.pair_similarities))
-                .filter(|(pair, sim)| pair[0] > 0 && **sim == 0.0)
-                .map(|(pair, _)| {
+            // Each pair by its own words, read in any script (W1's dogfood 7): Vzestup's split at
+            // anything not ASCII reads "Kündigung" as "ndigung" and loses "für" and "größer", so a
+            // German pair turned on words it never wrote. Coherence's figure stays Vzestup's.
+            (shown.windows(2))
+                .filter(|pair| pair[0] > 0 && apart(&read[pair[0]], &read[pair[1]]))
+                .map(|pair| {
                     let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|n| n.beat_index);
                     let edge = matches!((beat(pair[0]), beat(pair[1])), (Some(a), Some(b)) if a != b);
                     (read[pair[1]].id.clone(), edge)
@@ -3297,6 +3319,56 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// A turn's pair is read by its words in any script (W1's dogfood 7): Vzestup's split at
+    /// anything not ASCII loses "Größe" and "Müll" whole, so two German slides that share them
+    /// read as sharing nothing and turned. Read whole, they share both; an English pair reads as
+    /// Vzestup reads it, and the bridge reads the notes alike.
+    #[test]
+    fn a_turn_reads_its_pair_in_any_script() {
+        let slide = |title: &str, body: &str, notes: &str| SlideForHealth {
+            title: title.into(),
+            body: body.into(),
+            notes: notes.into(),
+            ..SlideForHealth::default()
+        };
+        let a = slide("Die Größe des Mülls", "• Müll wächst jährlich", "");
+        let b = slide("Weniger Müll, gleiche Größe", "• Sammelstellen neu verteilt", "");
+        assert_eq!(health::coherence::keyword_overlap(&a, &b), 0.0, "Vzestup's split reads them apart");
+        assert!(!apart(&a, &b), "read whole, they share Größe and Müll");
+        // In English, the words are Vzestup's own.
+        for text in ["Revenue grew 12% in 2025, it's said", "The co-op's freezers failed — day two"] {
+            assert_eq!(written(text), health::coherence::keywords(text), "{text}");
+        }
+        // The bridge reads the notes' opening in any script.
+        let c = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "Mehr Müll heißt neue Wege.");
+        let before = slide("Die Größe des Mülls", "• Müll wächst jährlich", "");
+        assert!(bridges(&before, &c), "Müll carries the room across");
+
+        // On the German board deck, two slides of one beat that share only Größe and Müll: no turn.
+        let paired = |slides: &mut Vec<answer::Slide>| {
+            for (k, (title, bullets)) in [
+                ("Die Größe des Mülls", vec!["Müll wächst jährlich", "Sammeln kostet mehr"]),
+                ("Weniger Müll, gleiche Größe", vec!["Sammelstellen neu verteilt", "Touren gekürzt"]),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let s = &mut slides[8 + k];
+                s.slide_title = title.into();
+                s.key_bullets = bullets.into_iter().map(String::from).collect();
+                s.layout_suggestion = "Bullets".into();
+                s.subtitle.clear();
+                s.speaker_notes = "Weiter.".into();
+            }
+        };
+        let deck = dogfood("board-de", "", paired);
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        assert_eq!(health::coherence::keyword_overlap(&read[8], &read[9]), 0.0, "Vzestup's split reads them apart");
+        let h = of(&deck);
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 10), "{:#?}", h.findings);
     }
 
     /// Balance's line says how many slides its average is over, where it counts fewer than the
