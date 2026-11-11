@@ -861,7 +861,7 @@ fn folded_words(
     let mut engine = crate::lint::engine_with(b, &theme, None)?;
     let mut read = Vec::new();
     engine.frames_at_rest(deck, &theme, &data, None, std::slice::from_ref(&last.state_id), |_, list| {
-        read = scaena_core::reading::parts(deck, last, &list);
+        read = scaena_core::reading::parts(deck, &data, last, &list);
         Ok::<(), OpsError>(())
     })?;
     let is_text = |id: &str| deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text);
