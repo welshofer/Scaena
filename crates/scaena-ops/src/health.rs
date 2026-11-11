@@ -2488,17 +2488,17 @@ fn named(heard: &[(String, f64)], sides: (&str, &str), above_first: bool) -> Str
 /// at most three, as a clause the
 /// turn's ask names them in; nothing where it has none.
 fn carried(was: &SlideForHealth, next: &SlideForHealth) -> String {
-    let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
     let (ours, theirs) = (words(was), words(next));
     let ordered = |text: &str| -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        // A word as written whole, so neither a contraction's half ("didn") nor a part of a word
-        // in another script's letters ("chst" of "höchst") is named, though either reads as one.
+        // A word as written whole, so a contraction's half ("didn") is not named, though it reads
+        // as one; a word in any script is, as the bridge reads it ("größe").
         let lowered = text.to_lowercase();
         let whole = lowered.split(|c: char| !c.is_alphanumeric() && c != '\'' && c != '\u{2019}');
-        for w in whole.filter(|w| w.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())) {
+        for w in whole.filter(|w| w.chars().all(char::is_alphanumeric)) {
             let fits = ours.contains(w) && !theirs.contains(w) && !COMMON.contains(&w);
-            if fits && w.chars().any(|c| c.is_ascii_lowercase()) && !out.iter().any(|o| o == w) && out.len() < 3 {
+            if fits && w.chars().any(char::is_alphabetic) && !out.iter().any(|o| o == w) && out.len() < 3 {
                 out.push(w.to_string());
             }
         }
@@ -3412,6 +3412,9 @@ mod tests {
         let c = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "Mehr Müll heißt neue Wege.");
         let before = slide("Die Größe des Mülls", "• Müll wächst jährlich", "");
         assert!(bridges(&before, &c), "Müll carries the room across");
+        // The turn's ask names the words the bridge reads, whole in any script (R1's MCP dogfood).
+        let after = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "");
+        assert_eq!(carried(&before, &after), ", such as \u{201c}größe\u{201d} or \u{201c}mülls\u{201d}");
 
         // On the German board deck, two slides of one beat that share only Größe and Müll: no turn.
         let paired = |slides: &mut Vec<answer::Slide>| {
