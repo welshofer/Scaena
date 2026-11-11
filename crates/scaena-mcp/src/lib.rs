@@ -1216,8 +1216,10 @@ pub struct DeckGenerate {
     /// bundle's and in no hidden folder, at most 256 MB and 1 GB with the others, or a `url`, a
     /// public `https` page or `github:OWNER/REPO`.
     /// Each is kept among the deck's sources by its file's name or its address (no bytes of it
-    /// are copied in), each sheet a data source as `data` keeps one, and a slide whose
-    /// `sourceRef` names it cites it. SEC's filings are `scaena generate --source sec:TICKER`'s.
+    /// are copied in), each sheet a data source as `data` keeps one (a workbook's as
+    /// `BOOK-SHEET`), which a chart's `sourceId` names by its id, the sheet's own name, or the
+    /// workbook's, and a slide whose `sourceRef` names it cites it. SEC's filings are
+    /// `scaena generate --source sec:TICKER`'s.
     #[serde(default)]
     pub sources: Vec<GivenSource>,
 }

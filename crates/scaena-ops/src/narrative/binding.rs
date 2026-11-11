@@ -1,5 +1,6 @@
 //! A made chart bound to the data source its slide names (agent dogfood): a slide's
-//! `chartData.sourceId` that names one of the deck's sources, by its id or its file's name, else
+//! `chartData.sourceId` that names one of the deck's sources, by its id or its file's name (or a
+//! workbook's sheet by its own name, or the workbook, agent dogfood 4), else
 //! its `sourceRef` that does (dogfood 9), draws from it, so an edit of the data sets the chart
 //! again. Only where the source holds the slide's
 //! categories and its figures as written: a chart the file says otherwise stays on its own rows,
@@ -40,18 +41,39 @@ fn measured(name: &str) -> String {
 
 /// The deck's data source `named` names: by its id, else by the file it is read from.
 pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
+    sources_named(deck, named).into_iter().next()
+}
+
+/// The deck's data sources `named` may name, the likeliest first: by its id, else by the file it
+/// is read from; else a sheet a workbook gave, kept as `BOOK-SHEET`, by the sheet's own name
+/// ("Annuel" for `velo-2025-annuel`), and else each sheet of the workbook it names
+/// ("velo-2025.xlsx"), as an agent names them (agent dogfood 4).
+pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
     let wanted = stem(named);
     if wanted.is_empty() {
-        return None;
+        return Vec::new();
     }
-    let by_id = deck.data.keys().find(|id| stem(id) == wanted);
-    let by_file = || {
-        deck.data.iter().find_map(|(id, decl)| {
-            let file = serde_json::to_value(decl).ok()?.get("source")?.as_str()?.to_string();
-            (stem(&file) == wanted).then(|| id.clone())
-        })
+    if let Some(id) = deck.data.keys().find(|id| stem(id) == wanted) {
+        return vec![id.clone()];
+    }
+    let by_file = deck.data.iter().find_map(|(id, decl)| {
+        let file = serde_json::to_value(decl).ok()?.get("source")?.as_str()?.to_string();
+        (stem(&file) == wanted).then(|| id.clone())
+    });
+    if let Some(id) = by_file {
+        return vec![id];
+    }
+    // An id's ends at each of its hyphens: `velo-2025-annuel` is `velo` and `2025-annuel`,
+    // `velo-2025` and `annuel`.
+    let split = |id: &str| -> Vec<(String, String)> {
+        (id.match_indices('-')).map(|(at, _)| (stem(&id[..at]), stem(&id[at + 1..]))).collect()
     };
-    by_id.cloned().or_else(by_file)
+    let sheets: Vec<String> =
+        deck.data.keys().filter(|id| split(id).iter().any(|(_, tail)| *tail == wanted)).cloned().collect();
+    if sheets.len() == 1 {
+        return sheets;
+    }
+    deck.data.keys().filter(|id| split(id).iter().any(|(head, _)| *head == wanted)).cloned().collect()
 }
 
 /// How a cell is a category as a slide writes it: not, wholly, or by its month's name alone, which

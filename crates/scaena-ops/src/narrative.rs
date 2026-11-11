@@ -811,7 +811,7 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
             continue;
         };
-        let mut node = doc["nodes"][&node_id].clone();
+        let node = doc["nodes"][&node_id].clone();
         let Some(own) = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string) else { continue };
         if !owned.contains(&own) {
             continue;
@@ -824,7 +824,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         {
             one.name = Some(name.clone());
         }
-        let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+        let candidates: Vec<String> =
+            binding::sources_named(deck, &named).into_iter().filter(|id| !owned.contains(id)).collect();
+        if candidates.is_empty() {
             // A slide's own source that is no data source of the deck is a file of words.
             if cited {
                 continue;
@@ -836,19 +838,31 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
                 why: format!("no data source of the deck is called that; it holds {}", ids.join(", ")),
             });
             continue;
-        };
-        match binding::bind(&mut node, &chart, &typed, &write.files, &id) {
-            Ok(dated) => {
-                if let Some(column) = dated {
-                    doc["data"][&id]["schema"][&column] = json!("date");
-                    if let Some(decl) = typed.data.get_mut(&id) {
-                        decl.schema.get_or_insert_with(Default::default).insert(column, "date".into());
+        }
+        // The first that holds the slide's categories and figures; else why the first did not.
+        let mut first_why = None;
+        for id in &candidates {
+            let mut bound = node.clone();
+            match binding::bind(&mut bound, &chart, &typed, &write.files, id) {
+                Ok(dated) => {
+                    if let Some(column) = dated {
+                        doc["data"][id]["schema"][&column] = json!("date");
+                        if let Some(decl) = typed.data.get_mut(id) {
+                            decl.schema.get_or_insert_with(Default::default).insert(column, "date".into());
+                        }
                     }
+                    doc["nodes"][&node_id] = bound;
+                    dropped.push((own.clone(), id.clone()));
+                    first_why = None;
+                    break;
                 }
-                doc["nodes"][&node_id] = node;
-                dropped.push((own, id));
+                Err(why) => {
+                    first_why.get_or_insert(why);
+                }
             }
-            Err(why) => unbound.push(Unbound { slide: i + 1, source: named, why }),
+        }
+        if let Some(why) = first_why {
+            unbound.push(Unbound { slide: i + 1, source: named, why });
         }
     }
     // A chart's own rows, drawn by nothing now, go, and a beat that cites them as its evidence
@@ -12850,6 +12864,80 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A chart names a workbook's sheet as an agent names it, by the sheet's own name ("Annuel"),
+    /// or the workbook alone ("velo-2025.xlsx") where the sheet that holds its figures is found,
+    /// and is bound to the sheet kept as `velo-2025-annuel` (agent dogfood 4).
+    #[test]
+    fn a_chart_names_a_kept_sheet_by_its_own_name_or_its_workbooks() {
+        let years = ChartData {
+            categories: ["2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Trajets".into()),
+                values: [940000., 1050000., 1240000.].map(Some).to_vec(),
+            }],
+            source_id: Some("Annuel".into()),
+            ..ChartData::default()
+        };
+        let quarters = ChartData {
+            categories: ["Centre", "Gare", "Nord"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Trajets par station".into()),
+                values: [38200., 31500., 7400.].map(Some).to_vec(),
+            }],
+            ..ChartData::default()
+        };
+        let slide = |title: &str, kind: &str, chart: Option<ChartData>, cited: Option<&str>| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: if chart.is_some() { vec!["Trajets".into()] } else { Vec::new() },
+            chart_data: chart,
+            source_ref: cited.map(String::from),
+            ..Slide::default()
+        };
+        let slides = vec![
+            slide("\u{c9}tendre V\u{e9}loMontclar", "Title", None, None),
+            slide("Les trajets ont doubl\u{e9}", "Line Chart", Some(years), None),
+            slide("Le nord est loin derri\u{e8}re", "Bar Chart", Some(quarters), Some("velo-2025.xlsx")),
+            slide("Voter l'extension", "Closing", None, None),
+        ];
+        let (_, write) =
+            generating(&narrative("Un r\u{e9}seau", slides), Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let rows = |r: &[&[&str]]| r.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect();
+        let sheet = |name: &str, r: &[&[&str]]| scaena_sources::Sheet { name: name.into(), rows: rows(r) };
+        let book = Source {
+            sheets: vec![
+                sheet(
+                    "Annuel",
+                    &[&["annee", "trajets"], &["2023", "940000"], &["2024", "1050000"], &["2025", "1240000"]],
+                ),
+                sheet(
+                    "Quartiers",
+                    &[
+                        &["quartier", "trajets_par_station"],
+                        &["Centre", "38200"],
+                        &["Gare", "31500"],
+                        &["Nord", "7400"],
+                    ],
+                ),
+            ],
+            ..source("velo-2025.xlsx", Kind::Sheets, "## Sheet: Annuel")
+        };
+        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[book])).unwrap();
+        let ids: Vec<Option<&str>> = kept.iter().map(|k| k.id.as_deref()).collect();
+        assert_eq!(ids, [Some("velo-2025-annuel"), Some("velo-2025-quartiers")]);
+        assert_eq!(binding::sources_named(&write.deck, "Annuel"), ["velo-2025-annuel"]);
+        assert_eq!(binding::sources_named(&write.deck, "velo-2025.xlsx").len(), 2);
+        assert!(binding::sources_named(&write.deck, "Mensuel").is_empty());
+        let (write, unbound) = binding(write).unwrap();
+        assert!(unbound.is_empty(), "{unbound:#?}");
+        let deck = write.deck.to_value().unwrap();
+        let charts: Vec<&str> = (deck["nodes"].as_object().unwrap().values())
+            .filter(|n| n["type"] == "chart")
+            .filter_map(|n| n["data"].as_str())
+            .collect();
+        assert_eq!(charts, ["@velo-2025-annuel", "@velo-2025-quartiers"]);
     }
 
     /// A chart's layout takes its takeaway alone: a bullet after it that no place sets is said in
