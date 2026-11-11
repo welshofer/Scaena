@@ -111,4 +111,19 @@ Ranked by how much of the gap each closes.
      - the same measure ("outage hours", "a year") given two figures on two slides.
    - Both are mechanical, both move no figure, and both hit the decks health ranks too high (training, keynote).
 
+### Change 5's second warning, tried and dropped
+
+The warning for one measure given two figures was built as a prototype and run on the eleven dogfood decks before any code landed. It matched a unit and the words after it, leaving out a chart's own series and figures beside "from", "to", "fell", "before" or "after". Every pair it raised was false:
+
+- grant: the 40-mile goal against the 52 miles rebuilt, a goal and an outcome;
+- deepdive: a rollout's 1%, 10% and 50% steps;
+- lecture: two worked scenarios, a 9% and a 1% false-positive rate;
+- fleet: 6.5 hours before against 0.8 hours after, with no change word on the slide;
+- qbr: retention 114% against churn 6%, where "%" is the only unit;
+- board-de: +9% against +18% on different lines.
+
+The one case a reader found, keynote's 31 outage hours a year against 286, is ruled out by those same exclusions: it sits on a Before/After slide, beside "fell from 286 to 2". Matching words can't tell a measure said twice from a goal, a step, a scenario or a before and after. That takes reading the sentence. A warning made only of false findings would teach people to ignore health, so it is dropped, and no figure moves.
+
+Figures that disagree belong with the model. The assistant's "Ask about this deck" is the place for "do any of this deck's figures disagree?", which a model reads in context. That touches the assistant's prompt and its fence, so it will be routed as an item of its own.
+
 Behind these five, the **score compression** (9 of 13 decks within 90–95) is the larger question. It is *score-moving* and Jay's: health's score weighs pacing, balance and fidelity, and none of the three reads repetition, notes read aloud or an unresolved hook. Changes 1 and 5 would give it findings to weigh, should Jay want it to.
