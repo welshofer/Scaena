@@ -247,6 +247,13 @@ struct StoryPanel: View {
                     .disabled(asLastRead)
                     .accessibilityIdentifier("story-cite")
                 }
+                // A finding that asks for the slide's headline types in it, its words selected
+                // (editor dogfood 6), as the browser's Story row does.
+                if run.contains(where: { $0.field == "headline" }) {
+                    Button("Edit Its Headline") { edits.headline(first.state) }
+                        .disabled(asLastRead)
+                        .accessibilityIdentifier("story-edit-headline")
+                }
                 // The slide it is about shown first: a question begins with what the window shows,
                 // which "this slide" means to the assistant (lift-up USE-5).
                 Button("Ask the Assistant") {

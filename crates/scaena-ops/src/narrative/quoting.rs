@@ -33,8 +33,13 @@ struct Cell<'t> {
 }
 
 /// Words of a column's name that say its unit, not what it measures: they name nothing.
-pub(super) const UNITS: &[&str] =
-    &["pct", "percent", "usd", "musd", "kusd", "busd", "eur", "gbp", "k", "m", "mm", "bn", "num"];
+/// German and French accounts' among them: thousands, millions, and billions of euros (`teur`,
+/// `tsd`, `mio`, `mrd`, `keur`, `meur`), and a percent (`prozent`, `pourcent`), so "Umsatz" names
+/// `umsatz_teur` (R1's agent dogfood 3).
+pub(super) const UNITS: &[&str] = &[
+    "pct", "percent", "usd", "musd", "kusd", "busd", "eur", "gbp", "k", "m", "mm", "bn", "num", "teur", "teuro", "tsd",
+    "mio", "mrd", "keur", "meur", "euro", "chf", "prozent", "pourcent",
+];
 
 /// A figure found in a text: where it stands (bytes), what it says, and how it is written.
 #[derive(Debug, Clone, PartialEq)]
@@ -215,8 +220,9 @@ fn names(cell: &Cell, context: &str) -> bool {
 /// currency or with a compact suffix, and one of a currency no percent.
 fn fits(cell: &Cell, f: &Figure) -> bool {
     let has = |units: &[&str]| cell.words.iter().any(|w| units.contains(&w.as_str()));
-    let percents = has(&["pct", "percent", "rate"]);
-    let money = has(&["usd", "musd", "kusd", "busd", "eur", "gbp", "dollar"]);
+    let percents = has(&["pct", "percent", "rate", "prozent", "pourcent"]);
+    let money =
+        has(&["usd", "musd", "kusd", "busd", "eur", "gbp", "dollar", "teur", "teuro", "keur", "meur", "euro", "chf"]);
     !(percents && (f.currency || f.tier.is_some()) || money && f.percent)
 }
 
@@ -464,6 +470,40 @@ pub fn quoting(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> 
         }
     }
     counts
+}
+
+/// [`quoting`] over a slide being written into the deck `doc`, its own `nodes` and `states`
+/// alone: each figure they write that is one cell of the deck's own data sources, those a person
+/// or an agent attached (`data_attach`, `deck_generate`'s `data`), quotes it, and nothing else of
+/// the deck is touched (agent dogfood 3). `data` is the slide's own, which no figure quotes.
+pub fn quoting_slide(
+    doc: &Value,
+    nodes: &mut Map<String, Value>,
+    states: &mut [Value],
+    data: &Map<String, Value>,
+    files: &dyn SourceFiles,
+) -> Vec<(String, usize)> {
+    let sources: Vec<String> = doc["data"].as_object().into_iter().flatten().map(|(id, _)| id.clone()).collect();
+    if sources.is_empty() {
+        return Vec::new();
+    }
+    let mut slide = doc.clone();
+    slide["nodes"] = Value::Object(nodes.clone());
+    slide["states"] = Value::Array(states.to_vec());
+    let held = slide["data"].as_object_mut().expect("the deck holds data");
+    for (id, d) in data {
+        held.entry(id.clone()).or_insert_with(|| d.clone());
+    }
+    let counts = quoting(&mut slide, files, &sources);
+    if counts.iter().any(|(_, n)| *n > 0) {
+        if let Some(quoted) = slide["nodes"].as_object() {
+            *nodes = quoted.clone();
+        }
+        if let Some(quoted) = slide["states"].as_array() {
+            states.clone_from_slice(quoted);
+        }
+    }
+    counts.into_iter().filter(|(_, n)| *n > 0).collect()
 }
 
 /// The sources of `cells` a figure of `text` is the value of, each once: where the figure, as

@@ -37,9 +37,10 @@
 //   keynote timed short of the 20 minutes its brief asks, its length's row is slide 1's, the
 //   shortest beat; slide 1's notes deepened, it is slide 4's, in the place its row stood, and the
 //   edit is not said to answer it.
-// - A to-do that names a field of the Format tab offers it, by the `field` health gives it: a turn's
-//   "Edit its notes" and the bend's "Set its Intensity" each show the slide and the field, in view
-//   and in focus (editor dogfood 6).
+// - A to-do that names a field offers it, by the `field` health gives it: a turn's "Edit its notes"
+//   and the bend's "Set its Intensity" each show the slide and the field in the Format tab, in view
+//   and in focus; and a topic headline's "Edit its headline", on the fleet deck with slide 4 titled
+//   by its topic, types in the text that heads the slide, its words selected (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6); and on B1, slide
 //   4's words cut answer its finding read at the slide's last step.
@@ -879,6 +880,58 @@ try {
     await page.waitForFunction(() => document.querySelector("#story [data-answered]")?.textContent, null, { timeout: 10000 }).catch(() => {});
     const said = await page.evaluate(() => `${document.querySelector("#status").textContent} | ${document.querySelector("#story [data-answered]")?.textContent ?? ""}`);
     check(said.includes("slide 4's points"), `and the edit is said to answer it, on its built slide: ${said}`);
+    await page.close();
+  })();
+
+  // A headline that names its topic offers its headline (editor dogfood 6): the fleet deck, made
+  // from its slides with no call, slide 4 titled by its topic, "Existing routing approaches", which
+  // health finds a topic by the words the slide shows (#1041); its row's "Edit its headline" shows
+  // the slide and types in the text that heads it, its words selected, so what is typed takes their
+  // place.
+  await (async () => {
+    const bundle = "target/web-story/fleet";
+    await rm(bundle, { recursive: true, force: true });
+    await mkdir("target/web-story", { recursive: true });
+    const slides = JSON.parse(await readFile("tests/fixtures/dogfood/fleet.slides.json", "utf8"));
+    (Array.isArray(slides) ? slides : slides.slides)[3].slideTitle = "Existing routing approaches";
+    await writeFile("target/web-story/fleet-topic.slides.json", JSON.stringify(slides));
+    execFileSync(
+      "cargo",
+      ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", bundle, "Ridgefleet for Northline Freight's routing team",
+        "--slides", "target/web-story/fleet-topic.slides.json", "--no-look", "--pictures", "none", "--goal", "Persuade", "--length", "5-10 slides"],
+      { stdio: "inherit" },
+    );
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/${bundle}/deck.json`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.field === "headline"), null, { timeout: 120000 }).catch(() => {});
+    const label = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.field === "headline"));
+    check(label?.kind === "label", `a headline that names its topic is asked for its point: ${label?.says}`);
+    const node = await page.evaluate((st) => window.scaena.last().slots.find((s) => s.state === st)?.headlineNode, label?.state);
+    check(!!node, `its slot names the text that heads it: ${node}`);
+    await page.click("#story [data-more] summary").catch(() => {});
+    const editIt = page.locator(`#story [data-findings] li[data-slide="${label?.slide}"] button[data-field="headline"]`).first();
+    check((await editIt.count()) === 1 && (await editIt.textContent()) === "Edit its headline", `its row offers its headline: ${await editIt.count()}`);
+    await editIt.click().catch((e) => failures.push(`no headline to press: ${e.message}`));
+    await page.waitForFunction((n) => window.scaena.canvas.typing() === n, node, { timeout: 30000 }).catch(() => {});
+    const typingIn = await page.evaluate(() => {
+      const el = document.activeElement;
+      const shown = window.scaena.canvas.boxed();
+      return {
+        headline: window.scaena.last().slots.find((s) => s.state === shown)?.headline,
+        shown,
+        typing: window.scaena.canvas.typing(),
+        value: window.scaena.canvas.typed()?.value,
+        selected: el?.classList.contains("typing") ? [el.selectionStart, el.selectionEnd, el.value.length] : null,
+      };
+    });
+    check(
+      typingIn.shown === label?.state && typingIn.typing === node && !!typingIn.value && typingIn.headline?.endsWith(typingIn.value) &&
+        typingIn.selected?.[0] === 0 && typingIn.selected?.[1] === typingIn.selected?.[2],
+      `a press shows the slide and types in its headline, its words selected: ${JSON.stringify(typingIn)}`,
+    );
     await page.close();
   })();
 } catch (e) {

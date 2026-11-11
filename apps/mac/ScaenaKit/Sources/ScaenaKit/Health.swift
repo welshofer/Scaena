@@ -54,6 +54,9 @@ public struct Health: Decodable, Sendable {
         public let says: String
         public let ask: String
         public let fix: Fix?
+        /// The one field of the slide it asks to edit, where it asks for one: `headline`, `notes`,
+        /// `intensity`, or `claim` (editor dogfood 6).
+        public let field: String?
     }
 
     public let score: Int

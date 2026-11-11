@@ -9,16 +9,51 @@ use scaena_narrato::duration;
 use scaena_narrato::notes::{self, Spoken, Timed};
 use serde_json::{Value, json};
 
-/// The length the brief asked for (`meta.narrative.brief.length`), where it asked one.
-fn length(deck: &Deck) -> &str {
-    let narrative = deck.meta.as_ref().and_then(|m| m.extra.get("narrative"));
-    (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).unwrap_or_default()
+/// The minutes the deck's talk is given ([`notes::slot`]): those its brief asks
+/// (`meta.narrative.brief.minutes`), else the middle of the slot its length gives.
+pub fn slot(deck: &Deck) -> f64 {
+    let brief = deck.meta.as_ref().and_then(|m| m.extra.get("narrative")).and_then(|n| n.get("brief"));
+    let length = brief.and_then(|b| b.get("length")).and_then(Value::as_str).unwrap_or_default();
+    let asked = (brief.and_then(|b| b.get("minutes")).and_then(Value::as_f64))
+        .filter(|m| m.is_finite() && *m >= 1.0 && *m <= f64::from(u32::MAX))
+        .map(|m| m.round() as u32);
+    notes::slot(asked, length)
+}
+
+/// What a deck's notes are to fill, for an agent that writes them (agent dogfood 3): the talk's
+/// `slot`, in minutes; how long the talk `run`s now, as health times it (its beats' durations,
+/// holds, and notes said aloud), where it can be timed; and each slide's `budgets`, the words its
+/// notes are to run to so the talk fills the slot.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct Notes {
+    /// The minutes the talk is given: the brief's `minutes`, else the middle of its length's slot.
+    pub slot: f64,
+    /// The minutes the talk runs now, to a tenth, as `deck_health`'s pacing times it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<f64>,
+    /// Each slide, by its number from 1, and the words its notes are to run to.
+    pub budgets: Vec<Budget>,
+}
+
+/// A slide's notes' budget: the slide, by its number from 1, and the words.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct Budget {
+    pub slide: usize,
+    pub words: usize,
+}
+
+/// [`Notes`] for `deck`.
+pub fn budgeted(deck: &Deck) -> Result<Notes, OpsError> {
+    let spoken = speaking(deck)?;
+    let run = crate::health::talk_seconds(deck).map(|s| (s / 6.0).round() / 10.0);
+    let budgets = spoken.iter().map(|s| Budget { slide: s.slide, words: s.budget }).collect();
+    Ok(Notes { slot: slot(deck), run, budgets })
 }
 
 /// Each slide of `deck` as the model is asked to speak it (lift-up 10-25 ATTR-2): its headline,
 /// the words it shows, its draft notes, the headlines either side, and the words its notes are
 /// to run to ([`notes::budgets`]): the minutes the brief's slot gives the talk
-/// ([`notes::minutes`]), shared among the slides as their beats' durations are, each less its
+/// ([`slot`]), shared among the slides as their beats' durations are, each less its
 /// change and its own words, so the talk reads as the slot's middle by the measure it is timed by.
 pub fn speaking(deck: &Deck) -> Result<Vec<Spoken>, OpsError> {
     let slides = crate::health::told(deck)?;
@@ -34,7 +69,7 @@ pub fn speaking(deck: &Deck) -> Result<Vec<Spoken>, OpsError> {
             }
         })
         .collect();
-    let budgets = notes::budgets(notes::minutes(length(deck)), &timed);
+    let budgets = notes::budgets(slot(deck), &timed);
     let titles: Vec<&str> = slides.iter().map(|t| t.slide.title.trim()).collect();
     // The slide before is said whole, its words after its headline, so its notes may open on a
     // figure or a phrase of it this slide does not use (health's turn, H4).

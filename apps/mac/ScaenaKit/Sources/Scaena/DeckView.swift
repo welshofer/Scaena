@@ -2075,6 +2075,19 @@ struct DeckView: View {
             dataMade: { name, edit in making(name) { try document.data(edit, undo: undo) } },
             patchMade: { name, ops in making(name) { try document.make(ops, undo: undo) } },
             go: { state in chosen = state },
+            headline: { state in
+                guard let head = editor.slots.first(where: { $0.state == state })?.headlineNode else {
+                    said = "This slide has no headline to type in"
+                    return
+                }
+                if typing?.typing == true { typing?.leave() }
+                chosen = state
+                node = head
+                also = []
+                // Once the slide is shown, typing begins in its headline, its words selected, and
+                // the canvas takes the keyboard, as a key pressed over a text selected begins it.
+                Task { @MainActor in _ = typing?.enterOver(head, in: state) }
+            },
             ask: { question in
                 assistant?.drafted = question
                 showsAssistant = true
