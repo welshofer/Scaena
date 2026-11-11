@@ -19,7 +19,7 @@ use scaena_core::tracking::resolve_states;
 use scaena_core::{Deck, Severity};
 use scaena_narrato::health::constants::{
     COMPOSITE_FALLBACK_WEIGHT_ARC, COMPOSITE_FALLBACK_WEIGHT_BALANCE, COMPOSITE_FALLBACK_WEIGHT_PACING,
-    INTENSITY_GAP_THRESHOLD,
+    DEVIANT_INTENSITY_DELTA, INTENSITY_GAP_THRESHOLD,
 };
 use scaena_narrato::health::{self, LocalHealthMetrics, NarrativeMeta, PacingStatus, SlideForHealth, arc};
 use schemars::JsonSchema;
@@ -466,6 +466,9 @@ fn unit_of(word: &str) -> String {
 /// The figures `text` writes, in order: each a word with a digit that no letter begins ("38%",
 /// "$1.4M", "2.5×", "40-mile"), not a year ("2026") and not a count under ten standing alone
 /// ("Week 1", "3 steps"), so a name's digits ("Q3", "p99") and a slide's numbering are no figure.
+/// Nor is a time of day, hours and minutes ("1:10", "11:40"), which a timetable states and no
+/// source backs (the ferry deck's "a fourth sailing at 1:10"); a ratio written so ("1:20") is
+/// missed with it.
 /// A figure's unit is its sign, its scale, the word joined to it ("40-mile"), or the word after it.
 fn figures(text: &str) -> Vec<Figure> {
     let words: Vec<&str> = text
@@ -480,7 +483,7 @@ fn figures(text: &str) -> Vec<Figure> {
         }
         let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
         let count = w.parse::<u32>().is_ok_and(|n| n < 10);
-        if year || count {
+        if year || count || clock(w) {
             continue;
         }
         let (number, joined) = match w.split_once('-') {
@@ -513,6 +516,18 @@ fn figures(text: &str) -> Vec<Figure> {
         out.push(Figure { shown, value, unit });
     }
     out
+}
+
+/// Whether `word` is a time of day: hours to 23, a colon, and two digits of minutes to 59.
+fn clock(word: &str) -> bool {
+    let Some((hours, minutes)) = word.split_once(':') else { return false };
+    let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
+    digits(hours)
+        && hours.len() <= 2
+        && hours.parse::<u32>().is_ok_and(|h| h < 24)
+        && minutes.len() == 2
+        && digits(minutes)
+        && minutes.parse::<u32>().is_ok_and(|m| m < 60)
 }
 
 /// Whether `text` names one of `sources` by its name's words, its extension aside, in their order
@@ -1087,18 +1102,30 @@ fn written(text: &str) -> std::collections::BTreeSet<String> {
 /// where either says nothing past a short headline, the pair reads as following, as Vzestup's
 /// overlap gives it ½.
 fn apart(a: &SlideForHealth, b: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
     let (wa, wb) = (words(a), words(b));
     !wa.is_empty() && !wb.is_empty() && wa.is_disjoint(&wb)
 }
 
+/// `words` with a plural's "-s" taken off a word of five letters or more that does not end in
+/// "-ss", so a word and its plural are one word where a pair is read for a turn: the library
+/// keynote's "twelve laundromats" and "Laundromat model" (its health read against a reader).
+/// Coherence's figure reads the words as written.
+fn singular(words: std::collections::BTreeSet<String>) -> std::collections::BTreeSet<String> {
+    scaena_core::sort::set(words.into_iter().map(|w| match w.strip_suffix('s') {
+        Some(stem) if stem.chars().count() >= 4 && !stem.ends_with('s') => stem.to_string(),
+        _ => w,
+    }))
+}
+
 /// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
 /// `before`'s headline and body that `next`'s do not use, as coherence reads words, in the
-/// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over.
+/// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over;
+/// so does its plural.
 fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
-    let opened = written(opening(&next.notes));
+    let opened = singular(written(opening(&next.notes)));
     carried.iter().any(|w| opened.contains(w))
 }
 
@@ -1271,11 +1298,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         pacing.says = match timed {
             true => format!("{} {} of talk{against}.", pacing.says, capitalized(&minutes(*seconds))),
             // Timed by its words alone, the talk runs at least that long: no beat says how long.
-            false => format!(
-                "{} At least {} of talk from its words{against}; no beat is timed.",
-                pacing.says,
-                counted(((seconds / 60.0).round() as usize).max(1), "minute")
-            ),
+            // Where every slide has notes, how long they run as written is said beside it, as
+            // information (R1's agent dogfood 2): notes may be a script or a presenter's cues, so
+            // they find the talk neither short nor long.
+            false => {
+                let shown: Vec<&SlideForHealth> = read.iter().filter(|s| s.eligible()).collect();
+                let noted = !shown.is_empty() && shown.iter().all(|s| !s.notes.trim().is_empty());
+                let notes = shown.iter().map(|s| spoken(&s.notes)).sum::<f64>();
+                format!(
+                    "{} At least {} of talk from its words{against}; no beat is timed.{}",
+                    pacing.says,
+                    counted(((seconds / 60.0).round() as usize).max(1), "minute"),
+                    if noted { format!(" Its notes as written run {}.", minutes(notes)) } else { String::new() }
+                )
+            }
         };
     }
     let score = match (asked, &arc_name) {
@@ -1585,6 +1621,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let (i, j, _) = slides[*place.get(id)?].beat?;
         Some(format!("/spine/sections/{i}/beats/{j}/media/narrato/{key}"))
     };
+    // The deck's last slide closes the talk, whatever its layout: an ask set as a list (two items
+    // in a Closing make one, R1's agent dogfood 2) states what the room is to do, in a verb a
+    // topic's test reads as a noun ("Fund the midday sailing from 2026"), so no headline there is
+    // asked for its point, as the cover's and the close's are not.
+    let last = |i: usize| i + 1 == read.len();
     for (i, s) in read.iter().enumerate() {
         let k = i + 1;
         if s.title.trim().is_empty() {
@@ -1597,7 +1638,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         } else if let Some(line) =
-            (english && i > 0 && !framing(i)).then(|| buried(deck, &slides[i], s, &heading[i])).flatten()
+            (english && i > 0 && !framing(i) && !last(i)).then(|| buried(deck, &slides[i], s, &heading[i])).flatten()
         {
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
             // a made slide's beat claim is its headline, so "Some history" passes as one, its
@@ -1615,7 +1656,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ),
                 None,
             );
-        } else if english && i > 0 && !framing(i) && !led[i] && labels(&heading[i]) {
+        } else if english && i > 0 && !framing(i) && !last(i) && !led[i] && labels(&heading[i]) {
             // A content slide whose headline names its topic: offered its point, never rewritten.
             find(
                 &s.id,
@@ -1860,22 +1901,50 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             true => ("hotter", "calmer", "nearer the climax"),
             false => ("cooler", "more intense", "away from the climax"),
         };
-        let (says, ask) = match planned {
+        let beat = named_beat(&d.slide_id).map(|name| format!(", in its beat, {name}")).unwrap_or_default();
+        let (says, ask, fix) = match planned {
             // What fidelity read is the plan, held to the scale: its place calls for that less the bend.
             Some(planned) => {
                 let planned = planned.clamp(0.0, 1.0);
-                let (at, calls) = (level(planned), level(planned - d.delta));
+                let calls = (planned - d.delta).clamp(0.0, 1.0);
+                let (was, called) = (level(planned), level(calls));
                 let than = match d.delta > 0.0 {
                     true => "more intense than",
                     false => "calmer than",
                 };
-                (
-                    format!("Slide {k} was planned {hotter} than its place in the talk."),
-                    format!(
-                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity{}, or move it {moved}.",
-                        named_beat(&d.slide_id).map(|name| format!(", in its beat, {name}")).unwrap_or_default()
+                // A plan the words cannot carry trades the bend for a gap between them (R1's agent
+                // dogfood 2): the plan asked is the one nearest the place's call within the gap the
+                // words allow, and where that still bends, the move comes first and no plan is asked.
+                let words = slides_read.get(i).and_then(|r| r.read);
+                let asked = match words {
+                    Some(w) if (w - calls).abs() > INTENSITY_GAP_THRESHOLD => {
+                        w + (calls - w).clamp(-INTENSITY_GAP_THRESHOLD, INTENSITY_GAP_THRESHOLD)
+                    }
+                    _ => calls,
+                };
+                let reach = (asked - calls).abs() <= DEVIANT_INTENSITY_DELTA + 1e-9;
+                let says = format!("Slide {k} was planned {hotter} than its place in the talk.");
+                let ask = match (words, reach) {
+                    (Some(w), false) => format!(
+                        "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), and its words read {}, further from its place than a plan they carry can come: move it {moved}{beat}.",
+                        level(w)
                     ),
-                )
+                    (Some(w), true) if asked != calls => format!(
+                        "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), and its words read {}: plan it at {} by its Intensity{beat}, as near its place as its words carry, or move it {moved}.",
+                        level(w),
+                        level(asked)
+                    ),
+                    _ => format!(
+                        "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}): plan it {way} by its Intensity{beat}, or move it {moved}."
+                    ),
+                };
+                // The plan asked, written where the slide's plan is, for the person to take.
+                let value = (asked * 100.0).round() / 100.0;
+                let fix = reach.then(|| at(&d.slide_id, "intensity")).flatten().map(|path| Fix {
+                    says: format!("Plan it at {}", level(value)),
+                    patch: vec![json!({ "op": "replace", "path": path, "value": value })],
+                });
+                (says, ask, fix)
             }
             // A slide that declares none is read as a talk usually runs where it stands.
             None => (
@@ -1883,9 +1952,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     "Slide {k} declares no intensity, where its place in the talk calls for a {way} slide than most."
                 ),
                 format!("Plan slide {k}'s intensity for its place in the story."),
+                None,
             ),
         };
-        find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, None);
+        find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, fix);
     }
     // A calm close is no bend (ADR-0032 item 6), and neither are its words a gap (W1's dogfood
     // 6): "Thank you / Questions?" is three words, its "you" and its question mark weighing a
@@ -2191,8 +2261,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let listed: usize = pointed.iter().map(|&i| bullets(&read[i])).sum();
     let average = m.content_balance.avg_bullets_per_slide;
     if listed > 0 && average < FLOOR_POINTS {
+        // A slide that draws a chart, a picture, or a table shows its point (ADR-0032), and one
+        // that frames the talk, a divider or an agenda, makes none by design: neither is asked
+        // for points (R1's agent dogfood 2), though balance counts them as Vzestup's does.
         let mut thin: Vec<usize> = (pointed.iter().copied())
             .filter(|&i| i > 0 && !closing.contains(&read[i].id) && bullets(&read[i]) < FLOOR_POINTS as usize)
+            .filter(|&i| !read[i].drawn && !framing(i))
             .collect();
         scaena_core::sort::by_key(&mut thin, |&i| (bullets(&read[i]), i));
         thin.truncate(3);
@@ -3663,6 +3737,34 @@ mod tests {
         }
     }
 
+    /// The deck's last slide closes the talk whatever its layout (R1's agent dogfood 2): the Cove
+    /// Island ask, written as a Closing with two items and so set as a list, heads with what the
+    /// room is to do, which a topic's test reads as a noun. It is not asked for its point; the
+    /// same headline on a slide before the close is.
+    #[test]
+    fn the_last_slide_is_not_asked_for_its_point() {
+        let ask = |slide: &mut answer::Slide| {
+            slide.slide_title = "Fund the midday sailing from 2026".into();
+            slide.layout_suggestion = "Closing".into();
+            slide.key_bullets = vec![
+                "Approve $1.1M a year for a fourth daily sailing".into(),
+                "Review ridership and on-time performance after twelve months".into(),
+            ];
+        };
+        let labelled = |h: &Health, k: usize| h.findings.iter().any(|f| f.kind == Kind::Label && f.slide == k);
+        let closed = dogfood("fleet", "", |slides| ask(slides.last_mut().unwrap()));
+        let h = of(&closed);
+        let n = h.slides.len();
+        assert!(!labelled(&h, n), "{:#?}", h.findings.iter().filter(|f| f.slide == n).collect::<Vec<_>>());
+        // Before the close, the same headline is a topic's.
+        let inside = dogfood("fleet", "", |slides| ask(&mut slides[6]));
+        assert!(
+            labelled(&of(&inside), 7),
+            "{:#?}",
+            of(&inside).findings.iter().filter(|f| f.slide == 7).collect::<Vec<_>>()
+        );
+    }
+
     /// A headline is judged by the words the slide shows (W2's editor dogfood, Edit its headline):
     /// fleet's slide 6 keeps its beat's claim, "Routes in minutes, not hours", while its headline
     /// shows "0.8 hours of planning a day by week five", a figure before its meaning, so it names
@@ -3961,6 +4063,73 @@ mod tests {
         assert!(!cooler(&floor), "{:#?}", of(&floor).findings);
     }
 
+    /// A bend asks for a plan its slide's words can carry (R1's agent dogfood 2): planned to the
+    /// curve, words that read far from it would be an intensity gap in the bend's place. The plan
+    /// asked is the nearest the curve within the gap the words allow, with a fix that writes it;
+    /// where that still bends, the move comes first and no plan is asked. No figure moves.
+    #[test]
+    fn a_bend_asks_for_a_plan_its_words_can_carry() {
+        // Lecture's slide 11 is planned at 0.50 where its place calls for 0.85; its words read 0.50.
+        let deck = dogfood("lecture", "", |_| {});
+        let h = of(&deck);
+        let bend = h.findings.iter().find(|f| f.kind == Kind::Arc && f.slide == 11).expect("slide 11 bends").clone();
+        assert!(
+            bend.ask.contains("calls for (0.85), and its words read 0.50: plan it at 0.75 by its Intensity")
+                && bend.ask.contains("as near its place as its words carry, or move it away from the climax."),
+            "{}",
+            bend.ask
+        );
+        let fix = bend.fix.clone().expect("the plan asked, as a fix");
+        assert_eq!(fix.says, "Plan it at 0.75");
+        assert_eq!(fix.patch, vec![json!({ "op": "replace", "path": bend.path.clone().unwrap(), "value": 0.75 })]);
+        // Taken, the slide neither bends nor reads far from its plan, and no figure moved to say so.
+        let mut taken = deck.clone();
+        scaena_core::patch::apply(&mut taken, &fix.patch).unwrap();
+        let after = of(&taken);
+        let state = &bend.state;
+        assert!(
+            !after.findings.iter().any(|f| &f.state == state && matches!(f.kind, Kind::Arc | Kind::Intensity)),
+            "{:#?}",
+            after.findings.iter().filter(|f| &f.state == state).collect::<Vec<_>>()
+        );
+        // A plan its words carry where they read near the curve: the curve's call, with its fix.
+        let near = h.findings.iter().find(|f| f.kind == Kind::Arc && f.slide == 13).expect("slide 13 bends");
+        assert!(near.ask.contains("(0.75): plan it more intense by its Intensity"), "{}", near.ask);
+        assert_eq!(near.fix.as_ref().map(|f| f.says.as_str()), Some("Plan it at 0.75"));
+        // Words further from the curve than any plan they carry: the move first, and no plan asked.
+        // Slide 3's place calls for 0.25; heated words read past 0.75.
+        let far = dogfood("lecture", "", |slides| {
+            slides[2].key_bullets =
+                vec!["Shocking! Urgent! You must act now!".into(), "Crisis! Danger! Never again!".into()];
+            slides[2].speaker_notes = "You! Now! Urgent! Shocking! Every single one of you must act!".into();
+        });
+        let h = of(&far);
+        let read = h.slides[2].read.expect("its words read");
+        assert!((read - h.slides[2].curve).abs() > 0.5, "{read} against {}", h.slides[2].curve);
+        let bend = h.findings.iter().find(|f| f.kind == Kind::Arc && f.slide == 3).expect("slide 3 bends");
+        assert!(
+            bend.ask.ends_with("further from its place than a plan they carry can come: move it nearer the climax, in its beat, Orientation."),
+            "{}",
+            bend.ask
+        );
+        assert_eq!(bend.fix, None);
+    }
+
+    /// A talk timed by its words alone says how long its notes run as written, where every slide
+    /// has notes (R1's agent dogfood 2), as information: notes may be cues, so no finding.
+    #[test]
+    fn a_talk_with_notes_on_every_slide_says_how_long_they_run() {
+        let h = of(&dogfood("keynote", "", |_| {}));
+        assert!(
+            h.pacing.says.ends_with("; no beat is timed. Its notes as written run about 4 minutes."),
+            "{}",
+            h.pacing.says
+        );
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Pacing && f.says.contains("short of")));
+        let one_bare = of(&dogfood("keynote", "", |slides| slides[3].speaker_notes.clear()));
+        assert!(one_bare.pacing.says.ends_with("; no beat is timed."), "{}", one_bare.pacing.says);
+    }
+
     /// A dogfood deck (`tests/fixtures/dogfood`) as its writer wrote it, its slides first changed
     /// by `change`, made in Dusk, and its outline the arc's beats as its slides name them, no
     /// claim settled, and `big_idea`.
@@ -4027,6 +4196,40 @@ mod tests {
             thin[0].says
         );
         assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
+    }
+
+    /// A slide that draws a chart, a picture, or a table shows its point, and a divider or an agenda
+    /// makes none by design, so `thin` names neither (R1's agent dogfood 2): pitch's chart slides
+    /// 4 and 11 and its divider, slide 7, and climate's divider, slide 3, were named. Balance's
+    /// figure counts them still.
+    #[test]
+    fn a_chart_or_a_divider_is_not_asked_for_points() {
+        for deck in [dogfood("pitch", "", |_| {}), dogfood("route9", "", |_| {}), climate()] {
+            let h = of(&deck);
+            let d = Deck::from_value(&deck).unwrap();
+            let sl = slides(&d);
+            let read = readings(&d, &sl).unwrap().0;
+            for f in h.findings.iter().filter(|f| f.kind == Kind::Thin) {
+                for k in f
+                    .says
+                    .split(" the fewest")
+                    .next()
+                    .unwrap()
+                    .split(|c: char| !c.is_ascii_digit())
+                    .filter_map(|n| n.parse::<usize>().ok())
+                {
+                    let layout = sl[k - 1].states.iter().find_map(|&j| d.states[j].layout.clone()).unwrap_or_default();
+                    assert!(
+                        !read[k - 1].drawn && !FRAMING.contains(&layout.as_str()),
+                        "slide {k} ({layout}): {}",
+                        f.says
+                    );
+                }
+            }
+        }
+        let pitch = of(&dogfood("pitch", "", |_| {}));
+        assert!(!pitch.findings.iter().any(|f| f.kind == Kind::Thin), "{:#?}", pitch.findings);
+        assert!(pitch.balance.says.starts_with("Slides make 1.8 points each"), "{}", pitch.balance.says);
     }
 
     /// A headline that counts what its slide lists is held to the count (the calibration against a
@@ -4198,6 +4401,32 @@ mod tests {
         };
         let tightened = of(&dogfood("fleet", "", cut));
         assert!(tightened.score < h.score, "{} then {}", h.score, tightened.score);
+    }
+
+    /// A word and its plural are one word where a pair is read for a turn (the library keynote's
+    /// health read against a reader: "twelve laundromats" and then "Laundromat model"). The
+    /// keynote's slides 4 and 5, in one beat, given those words alone in common, do not turn;
+    /// given none, they do.
+    #[test]
+    fn a_word_and_its_plural_do_not_turn() {
+        let paired = |next: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| {
+                slides[3].slide_title = "Twelve laundromats signed up first".into();
+                slides[3].key_bullets = vec![];
+                slides[4].slide_title = next.into();
+                slides[4].key_bullets = vec!["Partner early".into(), "Train staff".into(), "Fund steadily".into()];
+                slides[4].speaker_notes = String::new();
+            }
+        };
+        let turned = |next: &'static str| {
+            of(&dogfood("keynote", "", paired(next))).findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 5)
+        };
+        assert!(!turned("The laundromat model spread"));
+        assert!(turned("The kiosk model spread"));
+        assert_eq!(
+            singular(written("Twelve laundromats, the business, its bus")),
+            written("twelve laundromat business its bus")
+        );
     }
 
     /// A close that says the big idea's own words in its order lands it, the words any talk uses
@@ -4454,6 +4683,40 @@ mod tests {
         assert_eq!(&shown("184,000 dollars")[0].2, &shown("$184,000")[0].2);
         assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
         assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
+    }
+
+    /// A time of day is no figure to source (the ferry deck, read against a reader): "a fourth
+    /// sailing at 1:10", between "the full 11:40" and "the 3:30", states a timetable. Fleet's
+    /// slide 8, made from its pilot and given those words in place of its figure, is asked
+    /// for no source; given a figure beside them, it is asked for that one.
+    #[test]
+    fn a_time_of_day_is_no_figure_to_source() {
+        let pilot = || {
+            vec![scaena_narrato::Provenance {
+                name: "pilot.csv".into(),
+                kind: "csv".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+            }]
+        };
+        let shown = |text: &str| figures(text).into_iter().map(|f| f.shown).collect::<Vec<_>>();
+        assert!(shown("A fourth sailing at 1:10, between the full 11:40 and the 3:30 (1:10 pm daily)").is_empty());
+        assert_eq!(shown("a 1:5 split, 24:00, 9:75"), ["1:5", "24:00", "9:75"], "not hours and minutes");
+        let timed = |figure: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| {
+                slides[7].slide_title = "A fourth sailing at 1:10".into();
+                slides[7].layout_suggestion = "Bullet List".into();
+                slides[7].key_bullets = vec![format!("Between the full 11:40 and the 3:30{figure}")];
+            }
+        };
+        let unsourced = |deck: &Value| -> Vec<String> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Source && f.slide == 8).map(|f| f.says).collect()
+        };
+        let plain = unsourced(&grounded_dogfood("fleet", "", pilot(), timed("")));
+        assert!(plain.is_empty(), "{plain:?}");
+        let priced = unsourced(&grounded_dogfood("fleet", "", pilot(), timed(", for $1.1M a year")));
+        assert!(priced.iter().any(|s| s.contains("writes $1.1M")), "{priced:?}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
@@ -4815,7 +5078,7 @@ mod tests {
         let deck = dogfood("fleet", "", |_| {});
         let h = of(&deck);
         assert!(
-            h.pacing.says.contains("At least ") && h.pacing.says.ends_with("; no beat is timed."),
+            h.pacing.says.contains("At least ") && h.pacing.says.contains("; no beat is timed."),
             "{}",
             h.pacing.says
         );
@@ -4872,7 +5135,7 @@ mod tests {
             h.pacing,
             Measure {
                 score: Some(100),
-                says: "25 slides, as the brief asked (16\u{2013}25). At least 8 minutes of talk from its words, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot; no beat is timed.".into()
+                says: "25 slides, as the brief asked (16\u{2013}25). At least 8 minutes of talk from its words, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot; no beat is timed. Its notes as written run about 1 minute.".into()
             }
         );
         // Read by its words alone, coherence gets no number.
@@ -5265,11 +5528,14 @@ mod tests {
         let (hotter, way) = if plan > 0.5 { ("hotter", "calmer") } else { ("cooler", "more intense") };
         assert_eq!(bend.says, format!("Slide {k} was planned {hotter} than its place in the talk."));
         assert!(
-            bend.ask.contains(&format!("is planned at {plan:.2}")) && bend.ask.contains(&format!("plan it {way}")),
+            bend.ask.contains(&format!("is planned at {plan:.2}"))
+                && (bend.ask.contains(&format!("plan it {way}"))
+                    || bend.ask.contains("as near its place as its words carry")),
             "{}",
             bend.ask
         );
-        assert!(!bend.ask.contains("words"), "{}", bend.ask);
+        // It asks the plan or the place, never the words (ADR-0032 item 4): what they read is why.
+        assert!(!bend.ask.contains("its words and") && !bend.ask.to_lowercase().contains("rewrite"), "{}", bend.ask);
         let gap = on(Kind::Intensity).expect("its words read far from its plan");
         assert!(!gap.ask.contains("intensity it declares"), "{}", gap.ask);
         // What the place calls for, as each says it: the same figure.
@@ -5299,10 +5565,12 @@ mod tests {
         let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
         assert_eq!(offered.intensity, Some(plan));
         // An agent over MCP is told where the plan is written, and the beat by its name (R1's
-        // MCP dogfood): the inspector's place for it, and still no patch.
+        // MCP dogfood): the inspector's place for it, and the plan asked as a fix that writes it
+        // there (R1's agent dogfood 2).
         let path = bend.path.clone().expect("where its plan is written");
         assert_eq!(path, format!("{}/intensity", offered.at));
-        assert!(bend.fix.is_none());
+        let fix = bend.fix.clone().expect("the plan asked, as a fix");
+        assert_eq!((fix.patch.len(), &fix.patch[0]["op"], &fix.patch[0]["path"]), (1, &json!("replace"), &json!(path)));
         assert!(bend.ask.contains("by its Intensity, in its beat, "), "{}", bend.ask);
         let place = h.slides.iter().find(|s| s.state == state).unwrap().curve;
         let op = json!({ "op": "add", "path": path, "value": place });

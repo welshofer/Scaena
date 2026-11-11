@@ -819,12 +819,20 @@ async function look(
       }
     }
     if (!looking) return;
+    // A title that drops what its beat claims, or names a topic where the slide stated its
+    // point, let go before the deck is made again, as natively (W1's dogfood 8), and said with
+    // the rest of what was let go.
+    const asked = changes.length;
+    const held = JSON.parse(generation.held(JSON.stringify(changes), layouts)) as { changes: { slide: number }[]; refused: unknown[] };
+    making.refuse(JSON.stringify(held.refused));
+    changes.splice(0, changes.length, ...held.changes);
     if (!changes.length) {
       if (unanswered) {
         making.unlooked(unanswered);
         return hear({ kind: "unlooked", why: unanswered });
       }
-      return hear({ kind: "looked", slides: 0 });
+      // Where every change asked was let go, each is said as it is, not as nothing seen.
+      return asked ? undefined : hear({ kind: "looked", slides: 0 });
     }
     const tried = JSON.parse(
       making.relook(generation.deckChanged(theme.text, placed, JSON.stringify(changes)), JSON.stringify(changes), "[]"),

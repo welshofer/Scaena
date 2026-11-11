@@ -75,6 +75,20 @@ pub struct Made {
     /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<Fell>,
+    /// Each item a slide's layout sets in none of its places (agent dogfood 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<Unset>,
+}
+
+/// An item a slide's layout sets in none of its places (agent dogfood 2): the slide, by its number
+/// from 1, the item's words as written, and the layout, so an agent can give the item a slide, a
+/// layout, or the notes of its own. A chart's layout takes its takeaway alone, its figures in its
+/// data; a bullet past that is one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Unset {
+    pub slide: usize,
+    pub words: String,
+    pub layout: String,
 }
 
 /// A slide whose `layoutSuggestion` could not be taken as asked (agent dogfood): the slide, by
@@ -176,6 +190,9 @@ pub struct Generated {
     /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<Fell>,
+    /// Each item a slide's layout sets in none of its places (agent dogfood 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<Unset>,
     /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
@@ -1605,7 +1622,7 @@ pub fn looked(
 /// point either, by the layouts the deck was made in (`layouts`), are left to the look.
 ///
 /// [`names_topic`]: crate::health::names_topic
-fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
+pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> (Vec<Change>, Vec<Refused>) {
     use crate::health::{CLOSING, FRAMING};
     let framing = |index: usize| {
         index == 0 || layouts.get(index).is_some_and(|l| FRAMING.contains(&l.as_str()) || CLOSING.contains(&l.as_str()))
@@ -2373,6 +2390,7 @@ pub fn making(
         fallback: None,
         layouts: made.layouts,
         fell: made.fell,
+        unset: made.unset,
         attached: Vec::new(),
         unbound: Vec::new(),
         fixed: Vec::new(),
@@ -2737,6 +2755,7 @@ fn assemble(
     let mut divided = false;
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
+    let (mut outgrown, mut unset): (Vec<Fell>, Vec<Unset>) = (Vec::new(), Vec::new());
     for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -2770,6 +2789,24 @@ fn assemble(
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
         let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
+        // A layout asked for by name that has no place for every item, set as a list of them all,
+        // is said (agent dogfood 2), as a name no layout is called is.
+        let asked = slide.layout_suggestion.trim();
+        let own = as_asked(slide).layout.identity();
+        if layouts::known(asked)
+            && matches!(layout.as_str(), "bullets" | "numbered")
+            && own != layout
+            && theme.layouts.contains_key(own)
+            && !holds(theme, own, items.len())
+            && !taken_as(asked, &layout)
+        {
+            let why = format!(
+                "`{own}` has no place for {} items, so it was set as {}",
+                items.len(),
+                if layout == "numbered" { "a numbered list of them all" } else { "a list of them all" }
+            );
+            outgrown.push(Fell { slide: i + 1, asked: asked.to_string(), layout: layout.clone(), why });
+        }
         // A slide never draws a figure its writer did not write (DF7-1): where it would, it is
         // made again as a list of its items, their words as written.
         let drawn: Vec<&Value> =
@@ -2780,11 +2817,23 @@ fn assemble(
             && theme.layouts.contains_key("bullets")
             && holds(theme, "bullets", items.len())
         {
-            (deck.nodes, deck.data) = (kept.0, kept.2);
+            (deck.nodes, deck.data) = (kept.0.clone(), kept.2.clone());
             deck.states.truncate(kept.1);
             made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last, peak))?;
             layout = "bullets".to_string();
             deck.relisted.push(first + i);
+        }
+        // A chart's layout takes its takeaway alone, its figures in its data: each item after it
+        // that none of its texts sets is said, not left out in silence (agent dogfood 2). Other
+        // layouts set an item in parts of their own (a matrix's cells, a table's columns), or
+        // leave a detail to the notes by design (DF7-5).
+        let words: Vec<String> = (deck.nodes.iter())
+            .filter(|(id, n)| !kept.0.contains_key(*id) && n["type"] == "text")
+            .map(|(_, n)| letters(&said_by(n)))
+            .collect();
+        let charted = matches!(layout.as_str(), "bar-chart" | "line-chart");
+        for item in items.iter().skip(1).filter(|item| charted && !set_in(item, &words)) {
+            unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
         }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
@@ -2915,7 +2964,13 @@ fn assemble(
     Ok((
         Made {
             deck: out,
-            fell: fell_back(narrative, &chosen),
+            fell: {
+                let mut fell = fell_back(narrative, &chosen);
+                fell.extend(outgrown);
+                scaena_core::sort::by_key(&mut fell, |f| f.slide);
+                fell
+            },
+            unset,
             layouts: chosen,
             assets: BTreeMap::new(),
             relisted: std::mem::take(&mut deck.relisted),
@@ -3702,6 +3757,34 @@ fn meaning(items: &[Item], lang: &str) -> Option<String> {
         Some(first) if led(first).is_some() => led(first).map(|(_, rest)| continued(&rest, lang)),
         _ => items.get(1).map(|i| i.whole.clone()),
     }
+}
+
+/// The words a text node says: its `text`, or its runs' in turn.
+fn said_by(node: &Value) -> String {
+    match (node["text"].as_str(), node["runs"].as_array()) {
+        (Some(text), _) => text.to_string(),
+        (None, Some(runs)) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+        _ => String::new(),
+    }
+}
+
+/// `text`'s letters and digits alone, lower case: words compared as set, whatever their marks,
+/// spaces, quotes, and case ("1,900" and "1 900" alike).
+fn letters(text: &str) -> String {
+    text.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+/// Whether `item` is set on its slide, whose texts say `words` (each as [`letters`] has it): its
+/// words whole in one, or each of its parts in one: its label and its detail, or its figure and
+/// the words that run on from it. An item with nothing to say is set.
+fn set_in(item: &Item, words: &[String]) -> bool {
+    let somewhere = |part: &str| {
+        let part = letters(part);
+        part.is_empty() || words.iter().any(|w| w.contains(&part))
+    };
+    somewhere(&item.whole)
+        || item.label.as_deref().is_some_and(|label| somewhere(label) && somewhere(&item.detail))
+        || led(item).is_some_and(|(figure, rest)| somewhere(&figure) && somewhere(&rest))
 }
 
 /// The figure an item opens on and the words that run on from it, where no label sets them
@@ -12474,6 +12557,68 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A chart's layout takes its takeaway alone: a bullet after it that no place sets is said in
+    /// `unset`, its words as written; and a layout asked for by name that has no place for every
+    /// item, set as a list of them all, in `fell` (agent dogfood 2). A closing that takes one of
+    /// its own (three takeaways) is said in neither.
+    #[test]
+    fn what_a_layout_leaves_out_or_outgrows_is_said() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let years = || ChartData {
+            categories: ["2021", "2022", "2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Turned away".into()),
+                values: [1900., 3100., 4800., 7200., 9800.].map(Some).to_vec(),
+            }],
+            ..ChartData::default()
+        };
+        let slide = |title: &str, kind: &str, bullets: &[&str], chart: Option<ChartData>| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+            chart_data: chart,
+            ..Slide::default()
+        };
+        let slides = vec![
+            slide("Add a midday sailing", "Title", &[], None),
+            slide(
+                "Turnaways have five-folded in four years",
+                "Bar Chart",
+                &["Midday riders turned away, 2021 to 2025", "9,800 turned away in 2025, up from 1,900"],
+                Some(years()),
+            ),
+            slide(
+                "Fund the midday sailing from 2026",
+                "Closing",
+                &[
+                    "Approve $1.1M a year for a fourth daily sailing",
+                    "Review ridership and on-time performance after twelve months",
+                ],
+                None,
+            ),
+            slide(
+                "What to take away",
+                "Closing",
+                &["Demand is growing", "The boat is full", "A sailing fixes it"],
+                None,
+            ),
+        ];
+        let m = deck(&narrative("", slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(m.layouts[1], "bar-chart");
+        let unset: Vec<(usize, &str, &str)> =
+            m.unset.iter().map(|u| (u.slide, u.words.as_str(), u.layout.as_str())).collect();
+        assert_eq!(unset, [(2, "9,800 turned away in 2025, up from 1,900", "bar-chart")], "{:?}", m.unset);
+        assert_eq!(m.layouts[2], "bullets");
+        assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
+        let fell = &m.fell[0];
+        assert_eq!((fell.slide, fell.asked.as_str(), fell.layout.as_str()), (3, "Closing", "bullets"));
+        assert_eq!(fell.why, "`closing` has no place for 2 items, so it was set as a list of them all");
+        assert_eq!(m.layouts[3], "takeaways", "three points take a closing of their own, said nowhere");
+        // The takeaway alone, or a second bullet a place sets, is no item left out.
+        let one = slide("Turnaways have five-folded", "Bar Chart", &["Midday riders turned away"], Some(years()));
+        assert!(deck(&narrative("", vec![one]), &theme, &Pictures::new()).unwrap().unset.is_empty());
     }
 
     /// A made deck's hero figures quote the sheet given where one kept cell holds them: a Big

@@ -120,6 +120,17 @@ targets:
         buildPhase: resources
       - path: ../../tests/golden/torture/raw.fnv1a
         buildPhase: resources
+    # The torture goldens' rasters at rest, which criterion 1's CPU half holds the iPad's pixels
+    # to (`docs/gate-4.md`): copied from the repository as the bundle is built, none of the frames
+    # into a cue or in another format, which the engine's own tests hold.
+    postCompileScripts:
+      - name: Torture rasters
+        script: |
+          to="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/torture-rasters"
+          mkdir -p "$to"
+          find "$SRCROOT/../../tests/golden/torture" -maxdepth 1 -name '*.png' ! -name '*@*' ! -name '*~*' \
+            -exec cp {} "$to/" \;
+        basedOnDependencyAnalysis: false
     dependencies:
       - target: GateHost
       - package: ScaenaKit

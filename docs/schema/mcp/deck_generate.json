@@ -64,7 +64,7 @@
         "type": "string"
       },
       "slides": {
-        "description": "The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with\n`slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,\n`Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;\n`Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name\nthat could not be taken is in the result's `fell`, with why), `keyBullets`,\n`speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),\n`expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;\n`chartData` where a chart is drawn.",
+        "description": "The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with\n`slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,\n`Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;\n`Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name\nthat could not be taken, or that had no place for every bullet and was set as a list,\nis in the result's `fell`, with why), `keyBullets` (a chart's layout sets the first, its\ntakeaway, alone: each after it no place sets is in `unset`), `speakerNotes`, `beatIndex`\nand `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),\n`expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is\ndrawn.",
         "type": "object",
         "additionalProperties": true
       },
@@ -214,6 +214,16 @@
         },
         "required": ["slide", "asked", "layout", "why"]
       },
+      "Unset": {
+        "description": "An item a slide's layout sets in none of its places (agent dogfood 2): the slide, by its number\nfrom 1, the item's words as written, and the layout, so an agent can give the item a slide, a\nlayout, or the notes of its own. A chart's layout takes its takeaway alone, its figures in its\ndata; a bullet past that is one.",
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer", "minimum": 0 },
+          "words": { "type": "string" },
+          "layout": { "type": "string" }
+        },
+        "required": ["slide", "words", "layout"]
+      },
       "Unbound": {
         "description": "A chart that names a data source and was not bound to it, and why (agent dogfood): the slide,\nby its number from 1, the source it named, and what kept it on its own rows.",
         "type": "object",
@@ -225,7 +235,7 @@
         "required": ["slide", "source", "why"]
       }
     },
-    "required": ["created", "arc", "layouts", "fell", "attached", "unbound", "fixed"],
+    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "unbound", "fixed"],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -239,6 +249,11 @@
         "description": "Each slide whose `layoutSuggestion` could not be taken as asked: the slide, by its number\nfrom 1, what it asked, the layout it took, and why.",
         "type": "array",
         "items": { "$ref": "#/$defs/Fell" }
+      },
+      "unset": {
+        "description": "Each item a slide's layout sets in none of its places: the slide, by its number from 1, the\nitem's words as written, and the layout. Give it a slide, a layout, or the notes of its own.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Unset" }
       },
       "attached": {
         "description": "Each data file given, attached as a source by its id.",

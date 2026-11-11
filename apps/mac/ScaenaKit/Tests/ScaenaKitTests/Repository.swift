@@ -45,6 +45,13 @@ let b1 = carried("tests/bench/b1.scaena")
 let tortureDeck = carried("tests/fixtures/torture.scaena")
 let goldenDigests = carried("tests/golden/torture/raw.fnv1a")
 
+/// The torture goldens' rasters, each state's PNG: the copy gate 4's bundle carries of those at
+/// rest (`torture-rasters`, copied from `tests/golden/torture` as the bundle is built), else the
+/// repository's.
+let goldenRasters =
+    Bundle(for: Carried.self).url(forResource: "torture-rasters", withExtension: nil)
+    ?? repository.appending(path: "tests/golden/torture")
+
 /// The gate a test's reading is for: gate 3's on the Mac, gate 4's on the iPad (PLAN's exit
 /// criteria, `docs/gate-3.md`, `docs/gate-4.md`).
 #if os(macOS)

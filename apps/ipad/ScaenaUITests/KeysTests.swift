@@ -472,9 +472,12 @@ final class KeysTests: XCTestCase {
 
         try XCTContext.runActivity(named: "⌘Z and ⇧⌘Z take nothing back, saying the assistant is at work") { _ in
             app.typeKey("z", modifierFlags: .command)
-            settle(1)
-            keep(app, as: "undo-held")
+            // Read while the hint stands, before settling and a screenshot: those took most of its
+            // six seconds in #1049's run, the shot showing the words and the read after it finding
+            // none (lift-up 20261110).
             XCTAssertTrue(wait(5) { said().hasPrefix("The assistant is at work on the deck") }, "⌘Z says \(said())")
+            keep(app, as: "undo-held")
+            settle(1)
             XCTAssertEqual(
                 title.frame.minX, nudged.minX, accuracy: 0.5, "⌘Z took a nudge back while the assistant worked")
             // The hint stands six seconds, and ⇧⌘Z says the same words, which keep it standing no

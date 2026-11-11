@@ -33,11 +33,16 @@
 //   idea its close never says; and a read again
 //   after slide 5's notes are deepened keeps the open rows where they stood, what is new after
 //   them (editor dogfood 6).
+// - A row told by its kind alone keeps its place as its slide moves (editor dogfood 6): on the
+//   keynote timed short of the 20 minutes its brief asks, its length's row is slide 1's, the
+//   shortest beat; slide 1's notes deepened, it is slide 4's, in the place its row stood, and the
+//   edit is not said to answer it.
 // - A to-do that names a field of the Format tab offers it, by the `field` health gives it: a turn's
 //   "Edit its notes" and the bend's "Set its Intensity" each show the slide and the field, in view
 //   and in focus (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
-//   said after the edit in the status and beside the score (editor dogfood 6).
+//   said after the edit in the status and beside the score (editor dogfood 6); and on B1, slide
+//   4's words cut answer its finding read at the slide's last step.
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
 //   place is asked by its Intensity; the Format tab offers its beat's Intensity and Tone, each said
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
@@ -682,6 +687,66 @@ try {
     await page.close();
   })();
 
+  // A row told by its kind alone (editor dogfood 6): one pacing finding, before and after, whose
+  // slide moves to the shortest beat as notes are deepened, keeps the row's place.
+  await (async () => {
+    const bundle = "target/web-story/keynote-timed";
+    await rm(bundle, { recursive: true, force: true });
+    execFileSync(
+      "cargo",
+      ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", bundle, "Taking the library to where people are",
+        "--slides", "docs/examples/dogfood-9/keynote.slides.json", "--from-outline", "docs/examples/dogfood-9/keynote.outline.json",
+        "--no-look", "--pictures", "none", "--audience", "the library board and city council", "--goal", "Persuade",
+        "--length", "11-15 slides", "--modality", "keynote", "--minutes", "20"],
+      { stdio: "inherit" },
+    );
+    // Each beat timed, a minute but slide 1's, 40 seconds, and slide 4's, 45: the talk is short,
+    // and its shortest beat slide 1's, then slide 4's.
+    const deck = JSON.parse(await readFile(`${bundle}/deck.json`, "utf8"));
+    deck.spine.sections.flatMap((s) => s.beats).forEach((b, k) => (b.duration = { 0: 40, 3: 45 }[k] ?? 60));
+    await writeFile(`${bundle}/deck.json`, JSON.stringify(deck, null, 2));
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/${bundle}/deck.json`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health() && document.querySelector("#story [data-findings] li"), null, { timeout: 120000 });
+    const rows = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#story [data-findings] > li[data-slide]")].map((li) => ({
+          slide: Number(li.dataset.slide),
+          kinds: [...li.querySelectorAll("p[data-kind]")].map((p) => p.dataset.kind),
+        })),
+      );
+    const length = (all) => all.findIndex((r) => r.kinds.includes("pacing"));
+    const stood = await rows();
+    const place = length(stood);
+    check(place !== -1 && stood[place].slide === 1 && stood[place].kinds.length === 1 && place < stood.length - 1, `the length's row is slide 1's alone, open, a row after it: ${JSON.stringify(stood)}`);
+    const first = await page.evaluate(() => window.scaena.story.health().slides[0].state);
+    await page.evaluate((st) => document.querySelector(`#story [data-arc] [data-state="${st}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })), first);
+    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, first, { timeout: 30000 }).catch(() => {});
+    await tab(page, "inspector");
+    const notes = page.locator('textarea[data-prop="notes"]');
+    await notes.waitFor({ timeout: 30000 });
+    const told = await notes.inputValue();
+    const was = await page.evaluate(() => window.scaena.source());
+    const before = await page.evaluate(() => JSON.stringify(window.scaena.story.health()));
+    const visit = "We went to the laundromat, the bus depot, and the clinic, and we asked people what they needed from us. ";
+    await notes.fill(`${told} ${visit.repeat(8)}`.trim());
+    await notes.blur();
+    await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    await tab(page, "story");
+    await page.waitForFunction((b) => JSON.stringify(window.scaena.story.health()) !== b, before, { timeout: 60000 }).catch(() => {});
+    const pacing = await page.evaluate(() => window.scaena.story.health().findings.filter((f) => f.kind === "pacing").map((f) => f.slide));
+    check(JSON.stringify(pacing) === "[4]", `deepened, the shortest beat is slide 4's: ${JSON.stringify(pacing)}`);
+    const now = await rows();
+    check(place !== -1 && length(now) === place && now[place].slide === 4, `its row keeps its place, slide 4's now: ${JSON.stringify(stood)} → ${JSON.stringify(now)}`);
+    const said = await page.evaluate(() => `${document.querySelector("#status").textContent} ${document.querySelector("#story [data-answered]")?.textContent ?? ""}`);
+    check(!said.includes("length"), `and the edit is not said to answer it: ${said}`);
+    await page.close();
+  })();
+
   // A figure no source backs, in a deck made from sources (W1's dogfood 5): its row offers the
   // deck's sources, and the one cited joins the slide's beat's evidence, one patch, the finding
   // gone; ⌘Z takes it back.
@@ -800,6 +865,20 @@ try {
     await page.click(`#story [data-findings] li[data-slide="12"] [data-show]`);
     await page.waitForFunction((k) => window.scaena.shown() === k, first, { timeout: 30000 }).catch(() => {});
     check(first > 0 && (await page.evaluate(() => window.scaena.shown())) === first, `a turn's Show opens its slide's first step, where its notes are written: ${await page.evaluate(() => window.scaena.shown())}, ${first}`);
+    // Its words cut to a line, the finding read at its last step goes, and the edit is said to
+    // answer it: a finding names the step it was read at, not its slide's first.
+    const source = await page.evaluate(() => window.scaena.source());
+    const cut = source.replace(/"An object that exists on slide 4[^"]*"/, '"An object on slide 4 and slide 5 is one object."');
+    check(cut !== source, "slide 4's words are found in the source");
+    await tab(page, "story");
+    const before = await page.evaluate(() => JSON.stringify(window.scaena.story.health()));
+    await page.evaluate((s) => window.scaena.type(s), cut);
+    await page.waitForFunction((b) => JSON.stringify(window.scaena.story.health()) !== b, before, { timeout: 60000 }).catch(() => {});
+    const still = await page.evaluate(() => window.scaena.story.health().findings.some((f) => f.kind === "dense" && f.slide === 4));
+    check(!still, "cut, slide 4 shows no more words than a room reads");
+    await page.waitForFunction(() => document.querySelector("#story [data-answered]")?.textContent, null, { timeout: 10000 }).catch(() => {});
+    const said = await page.evaluate(() => `${document.querySelector("#status").textContent} | ${document.querySelector("#story [data-answered]")?.textContent ?? ""}`);
+    check(said.includes("slide 4's points"), `and the edit is said to answer it, on its built slide: ${said}`);
     await page.close();
   })();
 } catch (e) {
