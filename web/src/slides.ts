@@ -380,6 +380,21 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     );
   }
 
+  /** The slide selected, one alone, folded into the slide before it (editor dogfood 6): its words
+   * joined to that slide's place for words, its notes after that slide's, one change to undo; that
+   * slide selected. Or why it cannot be, said. */
+  async function fold() {
+    const folding = picked();
+    if (folding.length !== 1) return editor.say("Select one slide to fold into the slide before it");
+    try {
+      const folded = await stage.folding(editor.source(), folding[0].id);
+      if (folded.refused) return editor.say(folded.refused);
+      return make(folded.patch, "Folding…", `${folded.said} · ⌘Z takes it back`, () => [folded.into]);
+    } catch (e) {
+      editor.say(`Not folded: ${said(e)}`);
+    }
+  }
+
   const item = (e: Event) => (e.target as Element).closest<HTMLElement>("li[data-slide]");
   list.onclick = (e) => {
     const li = item(e);
@@ -510,6 +525,7 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     step,
     duplicate,
     remove,
+    fold,
     /** The slides as it lists them, each its states, and those selected, for a test. */
     slides: () => all.map((s) => ({ ...s, selected: chosen.has(s.id) })),
     /** Select these slides, for a test, as clicks would. */

@@ -21,6 +21,10 @@
 // - axe-core finds nothing against WCAG 2.1 AA in the light table.
 // - On the trails deck, whose texts have layouts of their own in its other sizes, ⌘D copies its
 //   photo slide too, and the status says so with no id.
+// - A right click on a slide offers to fold it into the slide before it (editor dogfood 6), the
+//   first slide offering none: on revenue, into the title's notes, which has no place for words,
+//   said so before and after; on trails, the budget folded into the grants, its headline read there,
+//   its claim in the grants' beat's notes, one change to undo, said in a person's words.
 // Exits 1 on any failure.
 import { readFile } from "node:fs/promises";
 import { axeInto, launch, serve } from "./serve.mjs";
@@ -126,6 +130,30 @@ try {
   const kept = await readsAsItRead();
   check(kept.length === 0, `close reads as it read: ${kept.join(", ") || "all"}`);
   check(await undo(original), "⌘Z puts it back");
+
+  // A right click on a slide offers to fold it into the slide before it (editor dogfood 6): where
+  // that slide has no place for words, a title's, into its notes, said so before and after.
+  await tile("revenue").click({ button: "right" });
+  const offered = await page.locator(".context-menu button").allTextContents();
+  check(offered.includes("Fold into slide 1's notes"), `a right click offers to fold it into the title's notes: ${offered.join(" · ")}`);
+  await page.locator(".context-menu button", { hasText: "Fold into slide 1's notes" }).click();
+  await changed(original);
+  check(await says("Folded slide 2 into slide 1's notes"), `the status says so: ${await status()}`);
+  check((await order()) === "intro close", `the revenue slide is gone: ${await order()}`);
+  // The title's own notes, which it reads, take them after its own: one block under `notes """`.
+  const lines = (await source()).split("\n");
+  const own = lines.findIndex((l) => l.includes("Don't talk over the build."));
+  const opened = lines.slice(0, own + 1).findLastIndex((l) => /^\s*notes "/.test(l));
+  const closed = lines.findIndex((l, i) => i > own && /^\s*"{3,}\s*$/.test(l));
+  const notes = lines.slice(opened, closed + 1).join("\n");
+  // Its headline, then its notes, its step's after them.
+  const theirs = /mix shifted[\s\S]*Pause on the Q3 bar[\s\S]*Same bars, stacked/.test(lines.slice(own + 1, closed).join("\n"));
+  check(own >= 0 && opened >= 0 && theirs, `its words and notes are in the title's notes, after them: ${notes}`);
+  check(await undo(original), "⌘Z puts it back");
+  await tile("intro").click({ button: "right" });
+  const atFirst = await page.locator(".context-menu button").allTextContents();
+  check(!atFirst.some((t) => t.startsWith("Fold")), `the first slide offers no fold: ${atFirst.join(" · ")}`);
+  await page.keyboard.press("Escape");
 
   // The slider at its foot, at its end: the slides larger, fewer to a row, each painted larger.
   const across = () =>
@@ -282,6 +310,23 @@ try {
   await changed(trails);
   check((await slides()).length === 16 && (await order()).includes("storm storm-2"), `⌘D copies trails' photo slide after itself: ${await order()}`);
   check(!(await status()).includes("`") && !(await status()).startsWith("Not changed"), `the status says so in a person's words: ${await status()}`);
+  check(await undo(trails), "⌘Z takes the copy away");
+
+  // Fold slide 12, the budget, into slide 11, the grants (editor dogfood 6): its headline and its
+  // words after the grants' words, its beat gone and its claim in the grants' beat's notes, one
+  // change to undo, said in a person's words.
+  await tile("budget").click({ button: "right" });
+  await page.locator(".context-menu button", { hasText: "Fold into slide 11" }).click();
+  await changed(trails);
+  const folded = await source();
+  check(await says("Folded slide 12 into slide 11"), `the status says so: ${await status()}`);
+  check((await slides()).length === 14 && !(await order()).includes("budget"), `the budget's slide is gone: ${await order()}`);
+  const grants = await reading("funding");
+  check(grants.includes("We came in $6,600 under budget"), `the grants' slide reads the budget's headline: ${grants}`);
+  const beat = (folded.split("beat grants ")[1] ?? "").split(/\n\s*(?:beat|section) /)[0];
+  check(/notes "[^\n]*under budget/.test(beat), `its claim is in the grants' beat's notes: ${beat}`);
+  check(!(await status()).includes("`"), `in a person's words: ${await status()}`);
+  check(await undo(trails), "⌘Z puts the slide back");
 } finally {
   await browser.close();
   await site.close();

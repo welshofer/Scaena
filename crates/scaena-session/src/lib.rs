@@ -782,7 +782,9 @@ impl Session {
     /// `said` the state as a person counts it, `Slide 3, step 2` (PLAN 2.99), and `headline` the
     /// words that head it, where a text does (`reading::headline`), which a slide list reads its
     /// rows by (lift-up 10-24b USE-4), and `headlineNode` the text that heads it, which an editor
-    /// types in when a finding asks for its headline (editor dogfood 6), and `story` its place in the talk, where a beat names it
+    /// types in when a finding asks for its headline (editor dogfood 6), `foldsTo` where its words
+    /// would go folded into the slide before it, `place` or `notes`, none on the first slide (editor
+    /// dogfood 6), and `story` its place in the talk, where a beat names it
     /// ([`Session::story_place`]). What a player auto-advances by, and a video samples.
     pub fn slots(&mut self) -> Result<serde_json::Value, Error> {
         let timeline = self.timeline()?;
@@ -800,6 +802,14 @@ impl Session {
         let headline_node = |id: &str| {
             (snaps.iter()).find(|s| s.state_id == id).and_then(|s| scaena_core::reading::headline_node(deck, s))
         };
+        // Where each slide's words would go, folded into the slide before it (editor dogfood 6): an
+        // editor's alone, whose module carries the operations.
+        #[cfg(feature = "editor")]
+        let folds: HashMap<String, serde_json::Value> = (scaena_ops::states::folds_to(deck, &snaps).into_iter())
+            .map(|(state, to)| (state, serde_json::json!(to)))
+            .collect();
+        #[cfg(not(feature = "editor"))]
+        let folds: HashMap<String, serde_json::Value> = HashMap::new();
         let slots: Vec<serde_json::Value> = (timeline.slots.iter())
             .map(|s| {
                 let slide = slide(&s.state);
@@ -811,6 +821,9 @@ impl Session {
                 }
                 if let Some(place) = story.get(&s.state) {
                     slot["story"] = place.json();
+                }
+                if let Some(to) = folds.get(&s.state) {
+                    slot["foldsTo"] = to.clone();
                 }
                 slot
             })
@@ -2565,6 +2578,16 @@ impl Session {
         scaena_ops::states::adding(&self.deck, state, what).map_err(|e| Error::Ops(e.to_string()))
     }
 
+    /// The patch that folds `state`'s slide into the slide before it (editor dogfood 6), as the
+    /// Story's rows and the slides' menus offer it: its words joined to that slide's place for
+    /// words, its notes after that slide's, its beat's claim in the previous beat's notes, and its
+    /// states taken out, one step to undo; or why it cannot be, in a person's words, laid out to
+    /// find words that would run past their place (`scaena_ops::states::folding`).
+    #[cfg(feature = "editor")]
+    pub fn folding(&self, state: &str) -> Result<scaena_ops::states::Folded, Error> {
+        scaena_ops::states::folding(&self.bundle(), state).map_err(|e| Error::Ops(e.to_string()))
+    }
+
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
     /// goes there, nothing placed in them (PLAN 3.30): what an editor outlines with its words.
     /// One with something drawn over its middle, where its words go, in front of the background
@@ -3774,6 +3797,23 @@ mod tests {
         };
         assert_eq!(node("cover"), "cover-title");
         assert_eq!(node("agenda"), "agenda-title");
+    }
+
+    /// Each slot but the first slide's says where its slide's words would go, folded into the slide
+    /// before it (editor dogfood 6), what an editor names before the fold: the grants' body takes
+    /// the budget's, and the title takes the agenda's into its notes.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn each_slot_says_where_its_slide_folds() {
+        let mut s = trails();
+        let slots = s.slots().unwrap();
+        let to =
+            |state: &str| slots.as_array().unwrap().iter().find(|s| s["state"] == state).unwrap()["foldsTo"].clone();
+        assert_eq!(to("cover"), serde_json::Value::Null);
+        assert_eq!(to("agenda"), "notes");
+        assert_eq!(to("budget"), "place");
+        let folded = s.folding("budget").unwrap();
+        assert_eq!((folded.said.as_str(), folded.refused), ("Folded slide 12 into slide 11", None));
     }
 
     /// The trails example, the site's demo deck, its files handed over as a page hands them.

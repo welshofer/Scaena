@@ -94,12 +94,13 @@ import type {
   Rewritten,
   SaveTo,
   Seeing,
+  Slot,
   Source,
   Where,
   WritingKind,
 } from "./protocol";
 import { fitting } from "./pictures";
-import { PICTURE } from "./protocol";
+import { foldLabel, PICTURE } from "./protocol";
 import { counted } from "./marks";
 import { counted as many, findings as why, inserting, moving, named, numbered, object, seconds, sentence, sourced } from "./words";
 import { prompting, promptKeys } from "./prompt";
@@ -1548,6 +1549,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
     headline: (slide) => (taken?.edited ?? last)?.slots?.find((s) => s.state === slide)?.headline,
+    foldsTo: (state) => (taken?.edited ?? last)?.slots?.find((s) => s.state === state)?.foldsTo,
     states: () => ((taken?.edited ?? last)?.slots ?? []).map((s) => s.state),
     issues: (slide) => {
       const slots = (taken?.edited ?? last)?.slots ?? [];
@@ -1575,6 +1577,9 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     },
     show: showState,
     enter: (state) => showState(entered(state)),
+    fold: async (state) => {
+      await states.fold(state);
+    },
     // The slide shown, its Format tab, and the field there scrolled to and in focus, once the tab
     // has drawn the slide's choices (editor dogfood 6).
     field: async (state, field) => {
@@ -3097,11 +3102,22 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     const count = () => last?.states.length ?? 0;
     /** The state shown is a step after its slide's first. */
     const step = () => slideOf(now() ?? "").includes(", step ");
+    /** The slide before the state shown's, as a person counts it: none for the first slide's. */
+    const before = () => {
+      const slots = (taken?.edited ?? last)?.slots ?? [];
+      const at = slots.findIndex((s) => s.state === now());
+      const of = (s: Slot) => s.slide ?? s.state;
+      const first = slots.findIndex((s) => at >= 0 && of(s) === of(slots[at]));
+      return first > 0 ? slideOf(slots[first - 1].state).replace(/, step \d+$/, "") : undefined;
+    };
     return [
       { label: "Add a step", where: ["state"], applies: () => now() !== undefined, run: () => states.add("step") },
       { label: "Add a slide…", where: ["state"], applies: () => now() !== undefined, run: () => void states.gallery() },
       { label: step() ? "Delete this step" : "Delete this slide", where: ["state"], applies: () => now() !== undefined && count() > 1, run: () => states.remove(now()!) },
       { label: "Duplicate this slide", where: ["state"], applies: () => now() !== undefined, run: () => states.duplicate(now()!) },
+      // Its words, notes, and claim joined to the slide before it, as the Story asks of a slide that
+      // says again what that one said (editor dogfood 6).
+      { label: foldLabel(before() ?? "the slide before", (taken?.edited ?? last)?.slots?.find((s) => s.state === now())?.foldsTo), where: ["state"], applies: () => now() !== undefined && before() !== undefined, run: () => states.fold(now()!) },
       { label: "Export it as a PNG…", where: ["state"], applies: () => now() !== undefined, run: () => openExport("png") },
       // Its notes, drafted from how it reads by the model the assistant uses (PLAN 2.101).
       { label: "Draft its notes", where: ["state"], applies: () => now() !== undefined, run: () => write("notes") },
@@ -3231,6 +3247,30 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     if (index >= 0 && index !== shown) goTo(index);
     const [x, y] = near(e, li);
     menu(x, y, stateCommands().filter((c) => c.where?.includes("state")), li);
+  });
+  // A right click on a slide of the light table selects it, then offers what is done to it there:
+  // copied, taken out, or folded into the slide before it (editor dogfood 6).
+  heed($("#slides ol"), "contextmenu", (e) => {
+    const li = (e.target as Element).closest<HTMLElement>("li[data-slide]");
+    if (!li) return;
+    e.preventDefault();
+    const id = li.dataset.slide!;
+    if (!table.slides().find((s) => s.id === id)?.selected) table.select([id]);
+    const at = table.slides().findIndex((s) => s.id === id);
+    const one = table.slides().filter((s) => s.selected).length === 1;
+    const [x, y] = near(e, li);
+    menu(
+      x,
+      y,
+      [
+        { label: "Copy, just after itself", run: () => void table.duplicate() },
+        { label: "Take out", run: () => void table.remove() },
+        ...(one && at > 0
+          ? [{ label: foldLabel(`slide ${at}`, (taken?.edited ?? last)?.slots?.find((s) => s.state === id)?.foldsTo), run: () => void table.fold() }]
+          : []),
+      ],
+      li,
+    );
   });
   // A right click on a layer selects its node where it is shown, then offers what is done to it.
   heed($("#layers ul"), "contextmenu", (e) => {
