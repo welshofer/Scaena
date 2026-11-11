@@ -37,34 +37,20 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
@@ -72,21 +58,10 @@
     },
     "type": "object",
     "properties": {
-      "findings": {
-        "description": "What lint finds, errors first (SPEC §7.4).",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "fixed": {
-        "description": "The findings whose fixes were applied, under `fix`.",
-        "type": ["array", "null"],
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "errors": { "description": "The findings that are errors.", "type": "integer", "minimum": 0 },
-      "laid": {
-        "description": "Whether the layout rules ran: they run once validation and the document rules\nfind no error.",
-        "type": "boolean"
-      }
+      "findings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "fixed": { "type": ["array", "null"], "items": { "$ref": "#/$defs/Finding" } },
+      "errors": { "type": "integer", "minimum": 0 },
+      "laid": { "type": "boolean" }
     },
     "required": ["findings", "errors", "laid"]
   }

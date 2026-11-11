@@ -159,6 +159,13 @@ static ALL: LazyLock<Vec<Served>> = LazyLock::new(|| {
             include_str!("../../../docs/examples/revenue.deck.scn"),
         ),
         ("revenue.patch.json", "An example patch", JSON, include_str!("../../../docs/examples/revenue.patch.json")),
+        (
+            "ferry.generate.json",
+            "A worked deck_generate call: six slides in Narrato's JSON, two charts bound to the data file \
+             `data/ferry.csv` it attaches, and a deck that lints clean",
+            JSON,
+            include_str!("../../../docs/examples/ferry.generate.json"),
+        ),
     ] {
         let text = if mime == JSON { compact(text) } else { text.to_string() };
         out.push(listed(&format!("scaena://examples/{name}"), about, mime, &text));

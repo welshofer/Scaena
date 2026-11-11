@@ -58,9 +58,11 @@ pub fn patch(b: &Bundle, ops: &Value, dry_run: bool) -> Result<Patched, OpsError
 pub struct Reported {
     /// Whether the deck was written: not under a dry run, nor when the patch was refused.
     pub applied: bool,
-    /// The semantic ops given (SPEC §7.3), in order, as given; JSON Patch ops are counted in
-    /// `summary`.
-    pub ops: Vec<Value>,
+    /// With `verbose`, the semantic ops given (SPEC §7.3), in order, as given: an agent has them
+    /// already, and their values (a slide's notes, a text's words) can be long (agent dogfood 2).
+    /// JSON Patch ops are counted in `summary`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ops: Option<Vec<Value>>,
     /// What changed in the deck's slides and its story.
     pub summary: Summary,
     /// With `verbose`, the patch as RFC 6902, in order.
@@ -121,7 +123,7 @@ impl Reported {
         summary.json_patch = given.iter().filter(|op| json_patch(op)).count();
         Reported {
             applied: patched.applied,
-            ops: given.iter().filter(|op| !json_patch(op)).cloned().collect(),
+            ops: verbose.then(|| given.iter().filter(|op| !json_patch(op)).cloned().collect()),
             summary,
             patch: verbose.then_some(patched.patch),
             added: patched.added,
@@ -555,7 +557,8 @@ mod tests {
         let b = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
         let report = |ops: Value, verbose: bool| reported(&b, &ops, true, verbose).unwrap();
         let cut = report(json!([{ "op": "remove_slide", "slide": "revenue" }]), false);
-        assert_eq!(cut.ops, [json!({ "op": "remove_slide", "slide": "revenue" })]);
+        // The ops given are the agent's own: echoed only when asked for (agent dogfood 2).
+        assert!(cut.ops.is_none());
         assert_eq!(
             cut.summary,
             Summary {
@@ -571,9 +574,10 @@ mod tests {
             Summary { slides_moved: vec!["intro".into()], beats_moved: vec!["opening".into()], ..Summary::default() }
         );
         assert!(moved.patch.is_some_and(|p| !p.is_empty()));
+        assert_eq!(moved.ops, Some(vec![json!({ "op": "move_slide", "slide": "intro", "after": "close" })]));
         let told =
             report(json!([{ "op": "replace", "path": "/spine/sections/1/beats/0/claim", "value": "Up." }]), false);
-        assert!(told.ops.is_empty());
+        assert!(told.ops.is_none());
         assert_eq!(
             told.summary,
             Summary { json_patch: 1, beats_changed: vec!["doubled".into()], ..Summary::default() }

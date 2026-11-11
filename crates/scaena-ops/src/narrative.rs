@@ -819,20 +819,43 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
                     }
                 }
                 doc["nodes"][&node_id] = node;
-                dropped.push(own);
+                dropped.push((own, id));
             }
             Err(why) => unbound.push(Unbound { slide: i + 1, source: named, why }),
         }
     }
-    // A chart's own rows, drawn by nothing now, go.
+    // A chart's own rows, drawn by nothing now, go, and a beat that cites them as its evidence
+    // cites the source they are bound to (W1 dogfood 9 F5), so no citation names what is gone.
     let text = doc["nodes"].to_string();
-    for own in dropped {
+    for (own, id) in dropped {
         if !text.contains(&format!("\"@{own}\"")) {
             doc["data"].as_object_mut().map(|d| d.remove(&own));
+            cite_again(&mut doc, &own, &id);
         }
     }
+    // Each beat whose slide writes one kept cell's value cites its source, so health finds the
+    // figure sourced, as a bound chart's beat cites its own (W1 dogfood 9 F5).
+    let sources: Vec<String> = deck.data.keys().filter(|id| !owned.contains(id)).cloned().collect();
+    quoting::citing(&mut doc, &write.files, &sources);
     write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
     Ok((write, unbound))
+}
+
+/// Each beat of `doc`'s spine that cites `@own` as its evidence cites `@id` in its place, once.
+fn cite_again(doc: &mut Value, own: &str, id: &str) {
+    let (was, now) = (format!("@{own}"), format!("@{id}"));
+    let sections = doc.pointer_mut("/spine/sections").and_then(Value::as_array_mut).into_iter().flatten();
+    for beat in sections.flat_map(|s| s["beats"].as_array_mut().into_iter().flatten()) {
+        let Some(evidence) = beat.get_mut("evidence").and_then(Value::as_array_mut) else { continue };
+        if !evidence.iter().any(|e| *e == was) {
+            continue;
+        }
+        let cited = evidence.iter().any(|e| *e == now);
+        evidence.retain(|e| *e != was || !cited);
+        for e in evidence.iter_mut().filter(|e| **e == was) {
+            *e = json!(now);
+        }
+    }
 }
 
 /// The chart a made chart's own rows (`source()`'s) draw: its categories in order, and a series
@@ -3537,7 +3560,7 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
 }
 
 /// Every figure in `text`, in order, as [`figure`] reads the first.
-fn figures_in(text: &str) -> Vec<String> {
+pub(crate) fn figures_in(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = text;
     while let Some(f) = figure(rest) {
@@ -7301,24 +7324,28 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     let words = |text: &str| -> Vec<String> {
         (text.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
     };
-    let runs_on = |category: &str| {
-        let said = words(takeaway.unwrap_or_default());
+    let runs_on = |text: &str, category: &str| {
+        let said = words(text);
         let named = words(category);
         (1..said.len()).any(|i| {
             matches!(said[i - 1].as_str(), "since" | "after" | "from") && said[i..].starts_with(named.as_slice())
         })
     };
-    match named.as_slice() {
-        [one] if (years || ordered(&chart.categories)) && runs_on(&chart.categories[*one]) => {
-            return chart.categories.len().checked_sub(1);
-        }
-        [one] => return Some(*one),
-        _ => {}
-    }
+    // The bar a sentence names: the latest where its words run on from the category they name
+    // ("since 2022"), else that one.
+    let lit =
+        |text: &str, one: usize| match (years || ordered(&chart.categories)) && runs_on(text, &chart.categories[one]) {
+            true => chart.categories.len().checked_sub(1),
+            false => Some(one),
+        };
     // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
-    // dipped in June"), ahead of any figure (W1's dogfood 8).
-    if let Some(i) = title.and_then(|t| headlined(&chart.categories, t)) {
-        return Some(i);
+    // dipped in June") (W1's dogfood 8): the claim, ahead of the category a takeaway names for
+    // what surrounds it ("Two clients moved their contracts into March", agent dogfood 3).
+    if let Some((t, i)) = title.and_then(|t| headlined(&chart.categories, t).map(|i| (t, i))) {
+        return lit(t, i);
+    }
+    if let [one] = named.as_slice() {
+        return lit(takeaway.unwrap_or_default(), *one);
     }
     // The figure a sentence lands on: its last that is one bar's value alone, never a figure of a
     // category's own name ("Q3", "FY25").
@@ -8380,6 +8407,42 @@ mod tests {
         assert_eq!(headlined(&["Jun".into(), "June".into()], "Ridership dipped in June"), None, "both name it");
         assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q4 beat plan"), Some(1));
         assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q45 beat plan"), None, "a figure is whole");
+        // The headline's month, ahead of another its takeaway names for what surrounds it (agent
+        // dogfood 3): "Im Februar sank…" lights Februar, not the März two clients moved into.
+        let months = ["Januar", "Februar", "März", "April", "Mai", "Juni"].map(String::from).to_vec();
+        let lit = |title: &str, takeaway: &str| {
+            let slide = Slide {
+                slide_title: title.into(),
+                layout_suggestion: "Bar Chart".into(),
+                key_bullets: vec![takeaway.into()],
+                chart_data: Some(ChartData {
+                    categories: months.clone(),
+                    series: vec![scaena_narrato::Series {
+                        name: Some("Umsatz".into()),
+                        values: [412., 398., 455., 471., 502., 538.].map(Some).to_vec(),
+                    }],
+                    ..ChartData::default()
+                }),
+                ..Slide::default()
+            };
+            let mut n = narrative("", vec![slide]);
+            n.brief.language = Some("German".into());
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            let chart =
+                made.deck["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap();
+            chart["annotations"][0]["at"]["x"].clone()
+        };
+        let moved = "Zwei Großkunden haben ihre Verträge in den März verschoben";
+        assert_eq!(lit("Im Februar sank der Umsatz auf 398 TEUR", moved), json!("Februar"));
+        // A headline that names none leaves the takeaway's month lit, as before.
+        assert_eq!(lit("Der Umsatz schwankte im Frühjahr", moved), json!("März"));
+        // A headline that names two months names no one bar: #1034's order decides, the takeaway's
+        // month first, else the bar the headline's figure lands on.
+        assert_eq!(lit("Von Februar bis Juni stieg der Umsatz", moved), json!("März"));
+        assert_eq!(
+            lit("Von Februar bis Juni stieg der Umsatz auf 538 TEUR", "Zwei Großkunden kamen dazu"),
+            json!("Juni")
+        );
     }
 
     #[test]
@@ -10297,6 +10360,24 @@ mod tests {
     /// Route 9 free for twelve months" as "A free Route 9", or names a topic where the title
     /// stated its point, "How we would know it worked" as "Measurement" (W1's dogfood 8). A title
     /// that keeps what its beat claims and states it is taken.
+    /// A beat that cites a chart's own rows cites the source they were bound to, once, where it
+    /// cites that source already (W1 dogfood 9 F5); a citation of anything else stays.
+    #[test]
+    fn a_beat_cites_the_source_its_chart_was_bound_to() {
+        let mut doc = json!({ "spine": { "sections": [{ "id": "s", "beats": [
+            { "id": "a", "evidence": ["@own", "source:visits.csv"] },
+            { "id": "b", "evidence": ["@own", "@visits"] },
+            { "id": "c", "evidence": ["@other"] },
+            { "id": "d" }
+        ] }] } });
+        cite_again(&mut doc, "own", "visits");
+        let cited: Vec<&Value> = (0..4).map(|b| &doc["spine"]["sections"][0]["beats"][b]["evidence"]).collect();
+        assert_eq!(*cited[0], json!(["@visits", "source:visits.csv"]));
+        assert_eq!(*cited[1], json!(["@visits"]));
+        assert_eq!(*cited[2], json!(["@other"]));
+        assert!(cited[3].is_null());
+    }
+
     #[test]
     fn a_look_that_turns_a_claim_into_a_topic_is_let_go() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
