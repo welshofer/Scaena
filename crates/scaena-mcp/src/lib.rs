@@ -1158,6 +1158,10 @@ pub struct DeckGenerated {
     /// Each data file given, attached as a source by its id.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
+    /// Each data file whose cells the slides' figures quote, by its id, and how many figures: a
+    /// quoted figure is set again from its cell by every `data_edit`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quoted: Vec<scaena_ops::narrative::Quoted>,
     /// Each chart that names a data source and was not drawn from it: the slide, the source it
     /// named, and why it kept its own rows.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -1851,6 +1855,7 @@ impl Scaena {
                 fell: made.fell,
                 unset: made.unset,
                 attached: made.attached,
+                quoted: made.quoted,
                 unbound: made.unbound,
                 fixed: made.fixed,
                 notes: made.notes,

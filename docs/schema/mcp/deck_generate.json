@@ -199,6 +199,11 @@
         },
         "required": ["slide", "words", "layout"]
       },
+      "Quoted": {
+        "type": "object",
+        "properties": { "source": { "type": "string" }, "figures": { "type": "integer", "minimum": 0 } },
+        "required": ["source", "figures"]
+      },
       "Unbound": {
         "type": "object",
         "properties": {
@@ -223,7 +228,7 @@
         "required": ["slide", "words"]
       }
     },
-    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "unbound", "fixed"],
+    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "quoted", "unbound", "fixed"],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -233,6 +238,7 @@
       "fell": { "type": "array", "items": { "$ref": "#/$defs/Fell" } },
       "unset": { "type": "array", "items": { "$ref": "#/$defs/Unset" } },
       "attached": { "type": "array", "items": { "type": "string" } },
+      "quoted": { "type": "array", "items": { "$ref": "#/$defs/Quoted" } },
       "unbound": { "type": "array", "items": { "$ref": "#/$defs/Unbound" } },
       "fixed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "notes": { "anyOf": [{ "$ref": "#/$defs/Notes" }, { "type": "null" }] }
