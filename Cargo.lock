@@ -3479,6 +3479,7 @@ dependencies = [
  "indexmap",
  "scaena-core",
  "scaena-engine",
+ "scaena-export",
  "scaena-history",
  "scaena-narrato",
  "scaena-ops",

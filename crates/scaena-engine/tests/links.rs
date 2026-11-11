@@ -86,7 +86,7 @@ fn a_link_is_underlined_and_followed_where_it_is_drawn() {
     // How the state reads: each link an `a`, a state's with its name.
     let snaps = scaena_core::resolve_states(&deck).unwrap();
     let i = deck.state_index("links").unwrap();
-    let read = scaena_core::reading::html(&deck, &snaps[i], &dl);
+    let read = scaena_core::reading::html(&deck, &std::collections::BTreeMap::new(), &snaps[i], &dl);
     assert!(read.contains(r##"<p data-node="link-text">Read how the deck is <a href="https://example.com/scaena/method">set and checked on the web</a>, or go back to <a href="#shapes" data-state="shapes" title="To Shapes, in this deck">the shapes case</a> and look again.</p>"##), "{read}");
 }
 
@@ -111,7 +111,12 @@ fn a_link_to_anything_but_a_web_address_goes_nowhere() {
         let targets: Vec<LinkTarget> = dl.links().into_iter().map(|l| l.target).collect();
         assert_eq!(targets, [LinkTarget::State("shapes".into())], "{href}");
         let snaps = scaena_core::resolve_states(&deck).unwrap();
-        let read = scaena_core::reading::html(&deck, &snaps[deck.state_index("links").unwrap()], &dl);
+        let read = scaena_core::reading::html(
+            &deck,
+            &std::collections::BTreeMap::new(),
+            &snaps[deck.state_index("links").unwrap()],
+            &dl,
+        );
         assert!(read.contains("Read how the deck is set and checked on the web, or go back to <a "), "{href}: {read}");
         assert!(!read.contains(href.split(':').next().unwrap()), "{href}: {read}");
     }
