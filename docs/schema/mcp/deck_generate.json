@@ -139,7 +139,7 @@
         "default": true
       },
       "data": {
-        "description": "Data files to attach, as `data_attach` attaches them, each as a source by its `id`: a\nslide whose `chartData.sourceId` names one, by its id or its file's name, draws its chart\nfrom it where the file holds the slide's categories and figures, and the result's\n`unbound` says why of each that does not.",
+        "description": "Data files to attach, as `data_attach` attaches them, each as a source by its `id`: a\nslide whose `chartData.sourceId` names one, by its id or its file's name, else whose\n`sourceRef` does, draws its chart from it where the file holds the slide's categories\n(a date column's months by their names too, \"Jan\" or \"January 2026\") and figures, and the\nresult's `unbound` says why of each that does not.",
         "type": "array",
         "items": { "$ref": "#/$defs/Attach" },
         "default": []

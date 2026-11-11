@@ -1,6 +1,7 @@
 //! A made chart bound to the data source its slide names (agent dogfood): a slide's
-//! `chartData.sourceId` that names one of the deck's sources, by its id or its file's name, draws
-//! from it, so an edit of the data sets the chart again. Only where the source holds the slide's
+//! `chartData.sourceId` that names one of the deck's sources, by its id or its file's name, else
+//! its `sourceRef` that does (dogfood 9), draws from it, so an edit of the data sets the chart
+//! again. Only where the source holds the slide's
 //! categories and its figures as written: a chart the file says otherwise stays on its own rows,
 //! so a made deck never draws a figure its writer did not write (DF7-1), and why is said.
 
@@ -44,14 +45,68 @@ pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
     by_id.cloned().or_else(by_file)
 }
 
+/// How a cell is a category as a slide writes it: not, wholly, or by its month's name alone, which
+/// a year the column also holds would name again (dogfood 9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Named {
+    No,
+    Whole,
+    /// A month named without its year: by its `short` name ("Jan"), its `long` ("January"), or
+    /// both, where the two are one ("May").
+    Month {
+        short: bool,
+        long: bool,
+    },
+}
+
 /// Whether `cell` is `category` as a slide writes it: its words, or its number, or its date.
 fn is(cell: &Datum, category: &str) -> bool {
+    named(cell, category) != Named::No
+}
+
+/// How `cell` is `category` as a slide writes it: its words, or its number, or its date, which a
+/// slide writes as the file does, by its year and month ("2026-01"), or by its month's name, short
+/// or long in any language Scaena formats, with its year after it or none ("Jan", "January 2026").
+/// A month is a month's first day, as a monthly file's "2026-01" reads.
+fn named(cell: &Datum, category: &str) -> Named {
     let category = category.trim();
+    let whole = |yes: bool| if yes { Named::Whole } else { Named::No };
     match cell {
-        Datum::Text(s) => s.trim() == category,
-        Datum::Number(n) => category.replace(',', "").parse::<f64>().is_ok_and(|c| (c - n).abs() < 1e-9),
-        Datum::Null => false,
-        other => other.label() == category,
+        Datum::Text(s) => whole(s.trim() == category),
+        Datum::Number(n) => whole(category.replace(',', "").parse::<f64>().is_ok_and(|c| (c - n).abs() < 1e-9)),
+        Datum::Null => Named::No,
+        Datum::Date(t) => {
+            if cell.label() == category {
+                return Named::Whole;
+            }
+            let c = t.civil();
+            if (c.day, c.hour, c.minute, c.second) != (1, 0, 0, 0) {
+                return Named::No;
+            }
+            let number = |s: &str| s.bytes().all(|b| b.is_ascii_digit()).then(|| s.parse::<i64>().ok()).flatten();
+            if let Some((y, m)) = category.split_once('-')
+                && y.len() == 4
+                && (1..=2).contains(&m.len())
+            {
+                return whole(number(y) == Some(c.year) && number(m) == Some(i64::from(c.month)));
+            }
+            let mut words = category.split_whitespace();
+            let (Some(name), year, None) = (words.next(), words.next(), words.next()) else { return Named::No };
+            let name = name.trim_end_matches(['.', ',']).to_lowercase();
+            let month = |names: [&str; 12]| names.iter().position(|n| n.to_lowercase() == name);
+            let locales = scaena_core::format::LOCALES.iter();
+            let short = locales.clone().find_map(|l| month(l.short_months));
+            let long = locales.clone().find_map(|l| month(l.months));
+            let Some(index) = short.or(long) else { return Named::No };
+            if index + 1 != c.month as usize {
+                return Named::No;
+            }
+            match year {
+                None => Named::Month { short: short.is_some(), long: long.is_some() },
+                Some(y) => whole(y.len() == 4 && number(y) == Some(c.year)),
+            }
+        }
+        other => whole(other.label() == category),
     }
 }
 
@@ -77,6 +132,21 @@ pub fn bind(
                 && table.rows.iter().all(|r| chart.categories.iter().any(|cat| is(&r[c], cat)))
         })
         .ok_or_else(|| format!("no column of `{id}` holds the slide's categories ({})", chart.categories.join(", ")))?;
+    // A month named without its year names one row, else the chart would read another year's.
+    let months: Vec<Named> = (chart.categories.iter())
+        .map(|cat| {
+            table.rows.iter().map(|r| named(&r[x], cat)).find(|n| matches!(n, Named::Month { .. })).unwrap_or(Named::No)
+        })
+        .collect();
+    for (cat, month) in chart.categories.iter().zip(&months) {
+        let rows = table.rows.iter().filter(|r| is(&r[x], cat)).count();
+        if *month != Named::No && rows > 1 {
+            return Err(format!(
+                "`{cat}` names {rows} rows of `{id}`'s `{}`, a month in more than one year",
+                table.columns[x]
+            ));
+        }
+    }
     let numbers: Vec<usize> =
         (0..table.columns.len()).filter(|&c| c != x && table.types[c] == ColumnType::Number).collect();
     let several = chart.series.len() > 1;
@@ -99,6 +169,17 @@ pub fn bind(
     let names: Vec<&str> = columns.iter().map(|&c| table.columns[c].as_str()).collect();
     node["data"] = json!(format!("@{id}"));
     node["x"]["field"] = json!(table.columns[x]);
+    // Its months print as the slide wrote them, each by its name alone.
+    if node["x"].get("format").is_none()
+        && !months.is_empty()
+        && months.iter().all(|m| matches!(m, Named::Month { .. }))
+    {
+        if months.iter().all(|m| matches!(m, Named::Month { short: true, .. })) {
+            node["x"]["format"] = json!("%b");
+        } else if months.iter().all(|m| matches!(m, Named::Month { long: true, .. })) {
+            node["x"]["format"] = json!("%B");
+        }
+    }
     let mut dated = None;
     if node["x"]["type"] == "temporal" && table.types[x] != ColumnType::Date {
         if years(deck, files, id, &table, x) {
@@ -195,4 +276,106 @@ fn places(v: f64) -> usize {
 fn round(v: f64, places: usize) -> f64 {
     let k = 10f64.powi(places as i32);
     (v * k).round() / k
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scaena_core::format::{Civil, DateTime};
+    use scaena_narrato::answer::Series;
+    use std::collections::BTreeMap;
+
+    fn month(year: i64, month: u32) -> Datum {
+        Datum::Date(DateTime::from_civil(Civil { year, month, day: 1, hour: 0, minute: 0, second: 0 }).unwrap())
+    }
+
+    /// A slide writes a monthly file's months as people do, by their names, with a year or none,
+    /// in any language Scaena formats, or as the file does (dogfood 9).
+    #[test]
+    fn a_month_is_named_as_a_slide_writes_it() {
+        let jan = month(2026, 1);
+        for (written, how) in [
+            ("2026-01-01", Named::Whole),
+            ("2026-01", Named::Whole),
+            ("Jan 2026", Named::Whole),
+            ("January 2026", Named::Whole),
+            ("Jan", Named::Month { short: true, long: false }),
+            ("jan.", Named::Month { short: true, long: false }),
+            ("January", Named::Month { short: false, long: true }),
+            ("Januar", Named::Month { short: false, long: true }),
+            ("Feb", Named::No),
+            ("Jan 2025", Named::No),
+            ("2025-01", Named::No),
+            ("Jan 26", Named::No),
+            ("Q1", Named::No),
+        ] {
+            assert_eq!(named(&jan, written), how, "{written}");
+        }
+        assert_eq!(named(&month(2026, 5), "May"), Named::Month { short: true, long: true });
+        // A day within the month is not the month.
+        let fifteenth = Datum::Date(
+            DateTime::from_civil(Civil { year: 2026, month: 1, day: 15, hour: 0, minute: 0, second: 0 }).unwrap(),
+        );
+        assert_eq!(named(&fifteenth, "Jan"), Named::No);
+    }
+
+    fn deck_with(csv: &str) -> (Deck, BTreeMap<String, Vec<u8>>) {
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["data"]["sunday-visits"] = json!({
+            "source": "data/sunday-visits.csv",
+            "schema": { "month": "date", "sunday_visits": "number", "weekday_average": "number" }
+        });
+        let files = BTreeMap::from([("data/sunday-visits.csv".to_string(), csv.as_bytes().to_vec())]);
+        (Deck::from_json(&doc.to_string()).unwrap(), files)
+    }
+
+    fn line(values: &[f64]) -> (Value, ChartData) {
+        let node = json!({
+            "type": "chart", "chart": "line", "data": "@own",
+            "x": { "field": "category", "type": "ordinal" },
+            "y": { "field": "value", "type": "quantitative" }
+        });
+        let chart = ChartData {
+            categories: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map(String::from).to_vec(),
+            series: vec![Series {
+                name: Some("Sunday visits".into()),
+                values: values.iter().map(|v| Some(*v)).collect(),
+            }],
+            unit: None,
+            source_id: None,
+        };
+        (node, chart)
+    }
+
+    const SUNDAYS: &str = "month,sunday_visits,weekday_average\n2026-01,1840,1210\n2026-02,1920,1190\n2026-03,2105,1230\n2026-04,2260,1250\n2026-05,2390,1240\n2026-06,2475,1260\n";
+
+    /// Dogfood 9's chart: "Jan" to "Jun" over a file whose months are dates binds to it, its
+    /// months printed by their short names as the slide wrote them, so an edit of the file draws
+    /// the chart again.
+    #[test]
+    fn a_chart_of_month_names_binds_to_a_file_of_dated_months() {
+        let (deck, files) = deck_with(SUNDAYS);
+        let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2475.0]);
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "sunday-visits"), Ok(None));
+        assert_eq!(
+            (node["data"].clone(), node["x"]["field"].clone(), node["x"]["format"].clone(), node["y"]["field"].clone()),
+            (json!("@sunday-visits"), json!("month"), json!("%b"), json!("sunday_visits"))
+        );
+        // A figure the file says otherwise still keeps the chart on its own rows.
+        let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2500.0]);
+        let why = bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap_err();
+        assert!(why.contains("2500") && why.contains("2475"), "{why}");
+    }
+
+    /// A month named without its year that a file holds in two years names neither: the chart
+    /// keeps its own rows, saying why.
+    #[test]
+    fn a_month_a_file_holds_in_two_years_binds_nothing() {
+        let two = "month,sunday_visits,weekday_average\n2025-01,1700,1200\n2025-02,1750,1180\n2025-03,1800,1220\n2025-04,1810,1240\n2025-05,1830,1235\n2025-06,1835,1250\n2026-01,1840,1210\n2026-02,1920,1190\n2026-03,2105,1230\n2026-04,2260,1250\n2026-05,2390,1240\n2026-06,2475,1260\n";
+        let (deck, files) = deck_with(two);
+        let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2475.0]);
+        let why = bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap_err();
+        assert!(why.contains("holds the slide's categories") || why.contains("more than one year"), "{why}");
+        assert_eq!(node["data"], json!("@own"));
+    }
 }

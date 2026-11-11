@@ -8,7 +8,7 @@
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
       "slide": {
-        "description": "One slide, as Narrato writes each of `deck_generate`'s `slides`: `slideTitle`, `subtitle`,\n`layoutSuggestion`, `keyBullets`, `speakerNotes`, and `chartData`, `icons`, `beatName`,\n`purpose`, `intent`, `expectedIntensity`, and `expectedValence` where it has them. A\n`chartData.sourceId` that names one of the deck's data sources (`data_attach`), by its id\nor its file's name, draws the chart from it where the file holds the slide's categories and\nfigures; else the chart keeps its own rows, and `unbound` says why.",
+        "description": "One slide, as Narrato writes each of `deck_generate`'s `slides`: `slideTitle`, `subtitle`,\n`layoutSuggestion`, `keyBullets`, `speakerNotes`, and `chartData`, `icons`, `beatName`,\n`purpose`, `intent`, `expectedIntensity`, and `expectedValence` where it has them. A\n`chartData.sourceId` that names one of the deck's data sources (`data_attach`), by its id\nor its file's name, else a `sourceRef` that does, draws the chart from it where the file\nholds the slide's categories and figures; else the chart keeps its own rows, and `unbound`\nsays why.",
         "type": "object",
         "additionalProperties": true
       },
