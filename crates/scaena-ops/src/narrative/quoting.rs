@@ -65,6 +65,15 @@ struct Reading {
     telling: bool,
 }
 
+/// `figure` with its percent sign joined: "18,4 %", "18,4\u{a0}%", and "18,4%" read alike, as a
+/// person may type any of them, and the quote writes the locale's own at the next patch.
+fn signed(figure: &str) -> std::borrow::Cow<'_, str> {
+    match [" %", "\u{a0}%", "\u{202f}%"].into_iter().find(|s| figure.contains(s)) {
+        None => figure.into(),
+        Some(_) => figure.replace([' ', '\u{a0}', '\u{202f}'], "").into(),
+    }
+}
+
 /// Whether `text` at byte `at` starts with a digit.
 fn digit_at(text: &str, at: usize) -> bool {
     text.as_bytes().get(at).is_some_and(u8::is_ascii_digit)
@@ -116,8 +125,15 @@ fn figures(text: &str, locale: &Locale) -> Vec<Figure> {
         let Ok(number) = plain.parse::<f64>() else { continue };
         let significant = plain.trim_start_matches(['0', '.']).chars().filter(char::is_ascii_digit).count();
         let rest = &text[i..];
-        let (suffix, percent, tier) = if rest.starts_with(locale.percent) {
-            (locale.percent.len(), true, None)
+        // A percent sign read as a person may write it, joined or set apart by any space, as a
+        // pasted sheet's is read; only what Scaena writes takes the locale's own.
+        let sign = [locale.percent, "%", " %", "\u{a0}%", "\u{202f}%"]
+            .into_iter()
+            .filter(|s| rest.starts_with(s))
+            .map(str::len)
+            .max();
+        let (suffix, percent, tier) = if let Some(sign) = sign {
+            (sign, true, None)
         } else if let Some((k, s)) = (locale.compact.iter().enumerate()).find(|(_, s)| rest.starts_with(**s)) {
             (s.len(), false, Some(k as i32 + 1))
         } else {
@@ -265,7 +281,7 @@ impl Reader<'_> {
             let span = &text[reading.span.0..reading.span.1];
             let Ok(format) = NumberFormat::parse(&reading.format) else { continue };
             for cell in self.cells {
-                if same(cell.value, reading.value) && format.format(cell.value, self.locale) == span {
+                if same(cell.value, reading.value) && signed(&format.format(cell.value, self.locale)) == signed(span) {
                     found.push((reading.span, cell, reading.format.clone(), reading.telling));
                 }
             }
@@ -298,7 +314,7 @@ impl Reader<'_> {
         };
         // The quote, read as every patch reads it, writes the figure as written.
         let gives = scaena_core::quotes::value(self.deck, self.files, &quote).ok()?;
-        (gives == text[span.0..span.1]).then_some((*span, quote))
+        (signed(&gives) == signed(&text[span.0..span.1])).then_some((*span, quote))
     }
 
     /// What a text's `runs` become, `beside` the words of the card it is in: each figure that
@@ -518,6 +534,14 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
         let de = scaena_core::format::Locale::of(Some("de"));
         let written = scaena_core::format::NumberFormat::parse(".0%").unwrap().format(0.18, de);
         assert_eq!(written, q[0].0, "the quote writes what the words say");
+        // Typed joined, or set apart by a plain space, it reads the same.
+        let fractions = "quarter,anteil\nQ2,0.161\nQ3,0.184\n";
+        for typed in ["Anteil im Q3: 18,4%", "Anteil im Q3: 18,4 %", "Anteil im Q3: 18,4\u{a0}%"] {
+            let q = quotes(&[("t", typed)], fractions, Some("de"));
+            assert_eq!(q.len(), 1, "{typed:?}: {q:?}");
+            assert_eq!(q[0].1["format"].as_str(), Some(".1%"), "{typed:?}");
+            assert_eq!(q[0].1["column"].as_str(), Some("anteil"), "{typed:?}");
+        }
         let numbers = "quarter,anteil_pct\nQ2,16.1\nQ3,18.4\n";
         let q = quotes(&[("t", "Anteil im Q3: 18,4\u{a0}%")], numbers, Some("de"));
         assert_eq!((q[0].0.as_str(), q[0].1["format"].as_str()), ("18,4", Some(".1f")));
