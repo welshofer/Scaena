@@ -470,11 +470,17 @@ fn unit_of(word: &str) -> String {
 /// source backs (the ferry deck's "a fourth sailing at 1:10"); a ratio written so ("1:20") is
 /// missed with it.
 /// A figure's unit is its sign, its scale, the word joined to it ("40-mile"), or the word after it.
+/// A percent, a currency, or a magnitude set apart from it by a space, as German and French set
+/// them ("40 %", "48,6 Mio. €"), is shown with it, read as the builder reads a figure
+/// (`narrative::figures_in`), so a finding names the figure the slide writes (R1's agent
+/// dogfood 3: "writes 40" for "40 %").
 fn figures(text: &str) -> Vec<Figure> {
     let words: Vec<&str> = text
         .split_whitespace()
         .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))))
         .collect();
+    // Each figure as the builder reads it, a mark set apart after it with it ("48,6 Mio. €").
+    let spelled = crate::narrative::figures_in(text);
     let mut out = Vec::new();
     for (k, w) in words.iter().enumerate() {
         let starts = w.chars().next().is_some_and(|c| !c.is_alphabetic());
@@ -498,12 +504,17 @@ fn figures(text: &str) -> Vec<Figure> {
         let tail: String = number.chars().skip(sign.chars().count() + digits.chars().count()).collect();
         let value = digits.replace(',', "").trim_end_matches('.').to_string();
         let after = words.get(k + 1).filter(|n| n.chars().all(char::is_alphabetic) && !n.is_empty());
+        let spaced = (spelled.iter())
+            .find(|s| s.strip_prefix(number).is_some_and(|rest| rest.starts_with([' ', '\u{a0}', '\u{202f}'])));
+        let percent = spaced.is_some_and(|s| s.ends_with(['%', '\u{2030}']));
         let unit = if !sign.is_empty() {
             unit_of(&sign)
         } else if !tail.is_empty() {
             unit_of(&tail)
         } else if let Some(word) = joined {
             unit_of(word)
+        } else if percent {
+            "%".into()
         } else {
             after.map(|a| unit_of(a)).unwrap_or_default()
         };
@@ -511,7 +522,7 @@ fn figures(text: &str) -> Vec<Figure> {
             Some(word) => {
                 format!("{number} {}", if word.ends_with('s') { word.to_string() } else { format!("{word}s") })
             }
-            None => w.to_string(),
+            None => spaced.cloned().unwrap_or_else(|| w.to_string()),
         };
         out.push(Figure { shown, value, unit });
     }
@@ -4666,6 +4677,40 @@ mod tests {
         assert!(plain.is_empty(), "{plain:?}");
         let priced = unsourced(&grounded_dogfood("fleet", "", pilot(), timed(", for $1.1M a year")));
         assert!(priced.iter().any(|s| s.contains("writes $1.1M")), "{priced:?}");
+    }
+
+    /// A figure a German or French slide sets apart from its percent, currency, or scale is named
+    /// with them (R1's agent dogfood 3: Nordlicht's "40 % mehr Anfragen" was "writes 40"); an
+    /// English figure is named as before, a word after it ("40 miles") left out.
+    #[test]
+    fn a_figure_is_named_with_the_marks_set_apart_after_it() {
+        let named = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.unit)).collect::<Vec<_>>();
+        let one = |shown: &str, unit: &str| vec![(shown.to_string(), unit.to_string())];
+        assert_eq!(named("betreut heute 40 % mehr Anfragen"), one("40 %", "%"));
+        assert_eq!(named("Umsatz von 48,6 Mio. € im Quartal"), one("48,6 Mio. €", "mio"));
+        assert_eq!(named("une hausse de 18 %, puis la suite"), one("18 %", "%"));
+        // What the builder does not read as one figure, health names as the builder reads it.
+        assert_eq!(named("Kosten: 240 TEUR für zwei Stellen"), one("240", "teur"));
+        assert_eq!(named("40 miles of trail, 38% more"), [one("40", "mile"), one("38%", "%")].concat());
+        // On the German board deck, made from a source, slide 8's unsourced figure is named whole.
+        let board = || {
+            vec![scaena_narrato::Provenance {
+                name: "bericht.pdf".into(),
+                kind: "pdf".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+            }]
+        };
+        let said = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "Der Vertrieb ist voll ausgelastet".into();
+            slides[7].key_bullets = vec!["Jede Stelle betreut 40 % mehr Anfragen".into()];
+            slides[7].layout_suggestion = "Bullet List".into();
+        };
+        let h = of(&grounded_dogfood("board-de", "", board(), said));
+        let source = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == 8).expect("slide 8's figure");
+        let says = source.says.replace(['\u{a0}', '\u{202f}'], " ");
+        assert!(says.starts_with("Slide 8 writes 40 %, and names no source"), "{says}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
