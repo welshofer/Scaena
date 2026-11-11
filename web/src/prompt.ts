@@ -174,6 +174,16 @@ export function prompting(
   const audience = $<HTMLInputElement>("#prompting-audience");
   const goal = $<HTMLSelectElement>("#prompting-goal");
   const length = $<HTMLSelectElement>("#prompting-length");
+  const minutes = $<HTMLInputElement>("#prompting-minutes");
+  // Whether the person chose a length: one not chosen gives way to the minutes asked, as the
+  // CLI's `--minutes` with no `--length` gives the length they take (W1's dogfood 10).
+  let lengthChosen = false;
+  length.addEventListener("change", () => (lengthChosen = true));
+  /** The minutes asked, a whole number from 1 to 600; none where the field is empty or reads as none. */
+  const minutesAsked = (): number | undefined => {
+    const n = Math.round(Number(minutes.value.trim()));
+    return minutes.value.trim() && Number.isFinite(n) && n >= 1 ? Math.min(n, 600) : undefined;
+  };
   // The themes that ship, chosen by their title slides (lift-up 10-25b ATTR-1).
   const theme = themeGallery($("#prompting-themes"), "prompting-theme");
   const modality = $<HTMLSelectElement>("#prompting-modality");
@@ -742,7 +752,8 @@ export function prompting(
         topic: topic.value.trim(),
         audience: audience.value.trim() || undefined,
         goal: goal.value || undefined,
-        length: length.value || undefined,
+        length: minutesAsked() !== undefined && !lengthChosen ? undefined : length.value || undefined,
+        minutes: minutesAsked(),
         modality: modality.value || undefined,
         desiredOutcomes: outcome.value.trim() || undefined,
         // English is Narrato's default, sent as none, so its prompt reads as it did.

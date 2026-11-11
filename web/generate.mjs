@@ -420,6 +420,9 @@ try {
     { name: "q3.csv", mimeType: "text/csv", buffer: Buffer.from("region,revenue\nGulf,4.1\nAtlantic,2.2\n") },
   ]);
   await link(`${press}/press.html`);
+  // A twelve-minute talk, its length left as it was: the minutes are kept in the brief, the slot
+  // health paces it against (W1's dogfood 10).
+  await page.fill("#prompting-minutes", "12");
   const listed = await page.locator("#prompting-sources li").allTextContents();
   check(listed.length === 3, `the sources are listed: ${listed.map((l) => l.replace(/\s*Remove$/, "")).join(", ")}`);
   check(await page.isChecked("#prompting-show-outline"), "the outline is shown first by default");
@@ -556,6 +559,8 @@ try {
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;
   check(states === 5, `the deck has the recorded answer's five slides: ${states}`);
+  check(/brief: \{[^\n]*minutes: 12\b/.test(source) && /brief: \{[^\n]*length: "5-10 slides"/.test(source), "the brief keeps the twelve minutes asked, and the length they give");
+  await page.evaluate(() => (document.querySelector("#prompting-minutes").value = ""));
   const drafted = await page.evaluate(() => window.scaena.notes(window.scaena.last().states[1][0]).then((n) => n.text));
   check(drafted.trim().length > 0, `and slide 2 keeps its draft, as the progress says: ${JSON.stringify(drafted.slice(0, 60))}`);
   check(source.includes("data/q3.csv"), "the CSV is a data source of the deck's");
