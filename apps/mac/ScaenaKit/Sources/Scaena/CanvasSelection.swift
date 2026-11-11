@@ -130,6 +130,9 @@ struct CanvasSelection: View {
     /// The menu a long press or a right click asks for: a count, new with each ask, and where,
     /// view points (PLAN 3.23, 4.3).
     @State private var offering: (count: Int, at: CGPoint)?
+    /// How the last press began and what came of it, which a debug build shows a UI test beside
+    /// the count of long presses: a press that asked for no menu says why (lift-up 20261110).
+    @State private var lastPress = "none"
     /// Where what the menu is for stands, view points: what it stands clear of.
     @State private var offeredAround: CGRect?
     #if !os(macOS)
@@ -453,6 +456,14 @@ struct CanvasSelection: View {
                         .accessibilityLabel("Long presses")
                         .accessibilityIdentifier("canvas-menu-asks")
                         .accessibilityValue("\(offering?.count ?? 0)")
+                    // How the last press began and what came of it (lift-up 20261110).
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(width: 1, height: 1)
+                        .accessibilityElement()
+                        .accessibilityLabel("Last press")
+                        .accessibilityIdentifier("canvas-last-press")
+                        .accessibilityValue(lastPress)
                     #endif
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
@@ -782,6 +793,9 @@ struct CanvasSelection: View {
                     if typed {
                         if typing.holds(at, slop: Self.slop * fit.units) {
                             press = .typing
+                            #if !os(macOS)
+                            began("in the text typed in")
+                            #endif
                             return typing.press(at: at, clicks: clicks, extend: Held.shift)
                         }
                         typing.leave()
@@ -789,10 +803,14 @@ struct CanvasSelection: View {
                     // A handle of the node selected, which shows while nothing is typed in.
                     if !typed, let held = handle(at: at, scale: fit.scale) {
                         press = .handling(held)
+                        #if !os(macOS)
+                        began("on the \(held.handle) handle of \(held.node), which takes it")
+                        #endif
                         return
                     }
                     press = .pressing
                     #if !os(macOS)
+                    began("as a press, the menu asked once it is held")
                     linger(at: value.startLocation, fit: fit)
                     #endif
                 case .typing:
@@ -1682,15 +1700,24 @@ struct CanvasSelection: View {
     #if !os(macOS)
     /// A finger pressing still (PLAN 4.3): held long enough, its press offers what is done to what
     /// it pressed, as the Mac's Node menu and Edit menu do to the node selected.
+    /// A press began `how`: said in the menu log, and kept for a UI test to read (lift-up 20261110).
+    private func began(_ how: String) {
+        lastPress = "began \(how)"
+        menuLog.debug("press began \(how, privacy: .public)")
+    }
+
     private func linger(at start: CGPoint, fit: Fit) {
         lingering?.cancel()
         lingering = Task { @MainActor in
             try? await Task.sleep(for: Self.lingers)
             // A press the system took away offers nothing.
             guard !Task.isCancelled, touching, case .pressing = press else {
-                return menuLog.debug(
-                    "long press not held: cancelled \(Task.isCancelled, privacy: .public), touching \(touching, privacy: .public), press \(String(describing: press), privacy: .public)")
+                let why =
+                    "not held: cancelled \(Task.isCancelled), touching \(touching), press \(String(describing: press))"
+                lastPress += "; \(why)"
+                return menuLog.debug("long press \(why, privacy: .public)")
             }
+            lastPress += "; held, the menu asked"
             press = .offered
             offer(at: fit.canvas(start), shown: start, fit: fit)
         }
