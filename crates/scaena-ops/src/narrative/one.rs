@@ -584,6 +584,11 @@ pub struct SlideWritten {
     /// figures: a quoted figure is set again from its cell by every data edit (agent dogfood 3).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub quoted: Vec<super::Quoted>,
+    /// What the deck's notes are to fill once the slide is written (agent dogfood 3): the talk's
+    /// `slot` in minutes, how long it `run`s, and each slide's `budgets` in words; where the
+    /// deck has a spine to time it by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<super::Notes>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -624,6 +629,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             unbound: written.unbound.clone(),
             unset: written.unset.clone(),
             quoted: written.quoted.clone(),
+            notes: None,
             fixed: Vec::new(),
             left,
         };
@@ -666,6 +672,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     let mut left: Vec<Finding> = left;
     scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
     let summary = write.as_ref().map(|w| crate::patch::summary(&b.deck, &w.deck)).unwrap_or_default();
+    let notes = write.as_ref().filter(|w| w.deck.spine.is_some()).and_then(|w| super::budgeted(&w.deck).ok());
     let out = SlideWritten {
         patched,
         summary,
@@ -679,6 +686,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
         unbound: written.unbound,
         unset: written.unset,
         quoted: written.quoted,
+        notes,
     };
     Ok((out, write))
 }
