@@ -54,6 +54,45 @@ pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
     by_id.cloned().or_else(by_file)
 }
 
+/// The data sources a chart's `named` source may be: the one called so, else each sheet the
+/// deck keeps from the workbook named, whose id is the workbook's name and the sheet's
+/// (`navette-mensuel` for "navette.xlsx"), in the deck's order. A model names the file it was
+/// given, never the id Scaena kept a sheet under (W1's dogfood 10).
+pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
+    if let Some(id) = source_named(deck, named) {
+        return vec![id];
+    }
+    let wanted = stem(named);
+    if wanted.chars().count() < 3 {
+        return Vec::new();
+    }
+    deck.data.keys().filter(|id| stem(id).starts_with(&wanted)).cloned().collect()
+}
+
+/// `node` bound to the first of `ids` that holds its slide's rows, as [`bind`] binds it: that
+/// source's id and the column it typed as dates, if any; else why not, each source saying its
+/// own where there are several, and `node` as it was.
+pub fn bind_first(
+    node: &mut Value,
+    chart: &ChartData,
+    deck: &Deck,
+    files: &dyn SourceFiles,
+    ids: &[String],
+) -> Result<(String, Option<String>), String> {
+    let mut whys = Vec::new();
+    for id in ids {
+        let mut tried = node.clone();
+        match bind(&mut tried, chart, deck, files, id) {
+            Ok(dated) => {
+                *node = tried;
+                return Ok((id.clone(), dated));
+            }
+            Err(why) => whys.push(if ids.len() == 1 { why } else { format!("`{id}`: {why}") }),
+        }
+    }
+    Err(whys.join("; "))
+}
+
 /// How a cell is a category as a slide writes it: not, wholly, or by its month's name alone, which
 /// a year the column also holds would name again (dogfood 9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

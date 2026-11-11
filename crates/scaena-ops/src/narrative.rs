@@ -797,7 +797,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         {
             one.name = Some(name.clone());
         }
-        let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+        let ids: Vec<String> =
+            binding::sources_named(deck, &named).into_iter().filter(|id| !owned.contains(id)).collect();
+        if ids.is_empty() {
             // A slide's own source that is no data source of the deck is a file of words.
             if cited {
                 continue;
@@ -809,9 +811,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
                 why: format!("no data source of the deck is called that; it holds {}", ids.join(", ")),
             });
             continue;
-        };
-        match binding::bind(&mut node, &chart, &typed, &write.files, &id) {
-            Ok(dated) => {
+        }
+        // The first source named that holds the slide's rows: a workbook's sheets in turn.
+        match binding::bind_first(&mut node, &chart, &typed, &write.files, &ids) {
+            Ok((id, dated)) => {
                 if let Some(column) = dated {
                     doc["data"][&id]["schema"][&column] = json!("date");
                     if let Some(decl) = typed.data.get_mut(&id) {
@@ -12725,6 +12728,92 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A chart that names the workbook it was given binds to the sheet of it that holds its
+    /// slide's rows, each chart to its own (W1's dogfood 10: the council's shuttle, its months
+    /// in French).
+    #[test]
+    fn a_chart_that_names_its_workbook_binds_to_the_sheet_that_holds_it() {
+        let chart = |categories: &[&str], values: &[f64]| ChartData {
+            categories: categories.iter().map(|c| c.to_string()).collect(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Voyageurs".into()),
+                values: values.iter().map(|v| Some(*v)).collect(),
+            }],
+            source_id: Some("navette.xlsx".into()),
+            ..ChartData::default()
+        };
+        let slide = |title: &str, kind: &str, chart: Option<ChartData>| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: if chart.is_some() { vec!["Voyageurs, premier semestre 2026".into()] } else { vec![] },
+            source_ref: chart.as_ref().map(|_| "navette.xlsx".into()),
+            chart_data: chart,
+            ..Slide::default()
+        };
+        let months = ["janv.", "f\u{e9}vr.", "mars", "avr.", "mai", "juin"];
+        let mut n = narrative(
+            "La navette a gagn\u{e9} des voyageurs.",
+            vec![
+                slide("Prolonger la navette", "Title", None),
+                slide(
+                    "La fr\u{e9}quentation a progress\u{e9} chaque mois",
+                    "Line Chart",
+                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.])),
+                ),
+                slide(
+                    "Le quartier Nord porte la hausse",
+                    "Bar Chart",
+                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.])),
+                ),
+                slide("Prolonger la navette jusqu\u{2019}en juin 2027", "Closing", None),
+            ],
+        );
+        n.brief.language = Some("French".into());
+        let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let rows = |r: &[&[&str]]| r.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect();
+        let sheet = |name: &str, r: &[&[&str]]| scaena_sources::Sheet { name: name.into(), rows: rows(r) };
+        let book = Source {
+            sheets: vec![
+                sheet(
+                    "Mensuel",
+                    &[
+                        &["mois", "voyageurs", "cout_keur"],
+                        &["janv.", "41200", "182"],
+                        &["f\u{e9}vr.", "42800", "181"],
+                        &["mars", "45100", "185"],
+                        &["avr.", "46900", "186"],
+                        &["mai", "47700", "188"],
+                        &["juin", "48600", "190"],
+                    ],
+                ),
+                sheet(
+                    "Quartiers",
+                    &[
+                        &["quartier", "voyageurs", "evolution_pct"],
+                        &["Nord", "14800", "31"],
+                        &["Gare", "11200", "22"],
+                        &["Sud", "5600", "4"],
+                    ],
+                ),
+            ],
+            ..source("navette.xlsx", Kind::Sheets, "## Sheet: Mensuel")
+        };
+        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[book])).unwrap();
+        let ids: Vec<Option<&str>> = kept.iter().map(|k| k.id.as_deref()).collect();
+        assert_eq!(ids, [Some("navette-mensuel"), Some("navette-quartiers")]);
+        let (write, unbound) = binding(write).unwrap();
+        assert!(unbound.is_empty(), "{unbound:#?}");
+        let deck = write.deck.to_value().unwrap();
+        let charts: Vec<(&str, &str)> = (deck["nodes"].as_object().unwrap().values())
+            .filter(|n| n["type"] == "chart")
+            .map(|n| (n["data"].as_str().unwrap(), n["y"]["field"].as_str().unwrap()))
+            .collect();
+        assert_eq!(charts, [("@navette-mensuel", "voyageurs"), ("@navette-quartiers", "voyageurs")]);
+        // A name no source starts with keeps none of them.
+        assert!(binding::sources_named(&write.deck, "rapport.pdf").is_empty());
+        assert!(binding::sources_named(&write.deck, "na").is_empty());
     }
 
     /// A chart's layout takes its takeaway alone: a bullet after it that no place sets is said in
