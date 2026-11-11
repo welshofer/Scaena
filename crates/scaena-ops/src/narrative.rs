@@ -805,6 +805,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             cite_again(&mut doc, &own, &id);
         }
     }
+    // Each beat whose slide writes one kept cell's value cites its source, so health finds the
+    // figure sourced, as a bound chart's beat cites its own (W1 dogfood 9 F5).
+    let sources: Vec<String> = deck.data.keys().filter(|id| !owned.contains(id)).cloned().collect();
+    quoting::citing(&mut doc, &write.files, &sources);
     write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
     Ok((write, unbound))
 }

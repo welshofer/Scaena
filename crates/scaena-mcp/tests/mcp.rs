@@ -1504,6 +1504,70 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
     client.cancel().await.unwrap();
 }
 
+/// R2's health read of the ferry deck (W1 dogfood 9 F5): a slide that writes 9,800, `ferry.csv`'s
+/// `midday_turnaways` for 2025, and draws no chart cites the file in its beat's evidence, so
+/// health no longer finds the figure unsourced; a figure no cell holds still is.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slide_writing_a_files_figure_cites_the_file() {
+    let root = scratch("ferry-cited");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("ferry.csv"),
+        "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2022,468000,90.4,1872,3100\n2023,521000,89.8,2084,4800\n2024,566000,88.1,2264,7200\n2025,604000,86.9,2416,9800\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let big = |title: &str, figure: &str, meaning: &str| {
+        let mut slide = catalog["slides"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["layoutSuggestion"] == "Big Number")
+            .unwrap()
+            .clone();
+        slide["slideTitle"] = json!(title);
+        slide["keyBullets"] = json!([figure, meaning]);
+        slide["sourceRef"] = json!("");
+        slide.as_object_mut().unwrap().remove("chartData");
+        slide
+    };
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[2] = big("Boats turn away 9,800 riders at midday", "9,800", "riders turned away at midday in 2025");
+    slides[3] = big("A second boat would cost 4,250 a week", "4,250", "a week to run a second midday boat");
+    let bundle = root.join("deck");
+    let sources = json!([{ "name": "ferry.csv", "kind": "csv", "bytes": 200, "truncated": false }]);
+    ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&bundle),
+            "slides": { "executiveSummary": "The ferry is full", "slides": slides },
+            "data": [{ "id": "ferry", "file": "ferry.csv" }]
+        }),
+    )
+    .await;
+    // The deck made from its sources, as a made deck's meta says them.
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap();
+    deck["meta"]["narrative"]["sources"] = sources;
+    std::fs::write(bundle.join("deck.json"), serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let cited: Vec<Value> = (deck["spine"]["sections"].as_array().unwrap().iter())
+        .flat_map(|s| s["beats"].as_array().unwrap().iter())
+        .filter(|b| b["evidence"].as_array().is_some_and(|e| e.contains(&json!("@ferry"))))
+        .map(|b| b["claim"].clone())
+        .collect();
+    assert_eq!(cited.len(), 1, "only the turnaways' beat cites the file: {cited:?}");
+    let health = ok(&client, "deck_health", json!({ "bundle": path(&bundle) })).await;
+    let unsourced: Vec<String> = (health["findings"].as_array().unwrap().iter())
+        .filter(|f| f["kind"] == "source")
+        .map(|f| f["says"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(!unsourced.iter().any(|s| s.contains("9,800")), "{unsourced:?}");
+    assert!(unsourced.iter().any(|s| s.contains("4,250")), "a figure no cell holds is still unsourced: {unsourced:?}");
+    client.cancel().await.unwrap();
+}
+
 /// A made chart whose slide's `chartData.sourceId` names a data source draws from it (agent
 /// dogfood): `deck_generate`'s `data` attached, the chart reading `@id` by the columns that hold
 /// its categories and its series, several folded, its own rows gone. One the file says otherwise,
