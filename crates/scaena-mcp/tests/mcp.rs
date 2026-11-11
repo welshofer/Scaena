@@ -393,7 +393,9 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     let texts = ok(&client, "deck_find", texts).await;
     assert_eq!(texts["matches"], 1, "{texts:#}");
     assert_eq!(texts["found"][0]["lives"], "/states/1/props/title/text", "{texts:#}");
-    assert!(!texts.to_string().contains("/spine/"), "{texts:#}");
+    // The headline changes and the claim does not: the claim, said no more, is restated.
+    assert_eq!(texts["replaced"]["restated"][0]["path"], "/spine/sections/0/beats/1/claim", "{texts:#}");
+    assert_eq!(texts["replaced"]["restated"][0]["claim"], "Revenue doubled.", "{texts:#}");
     let replaced = ok(&client, "deck_find", json!({ "bundle": bundle, "find": "doubled", "replace": "grew" })).await;
     assert_eq!(replaced["replaced"]["applied"], true, "{replaced:#}");
     let read = ok(&client, "deck_read", json!({ "bundle": bundle, "scn": true })).await;
