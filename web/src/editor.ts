@@ -1537,6 +1537,14 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     view.dispatch({ selection: { anchor: start }, scrollIntoView: true });
     await show(index);
   }
+  /** The state slide `state` is a state of is entered at (lift-up 20261110, editor dogfood 6): its
+   * last step, built whole, as a presentation app shows a slide whole; a step its tile in the
+   * strip shows stays that step. */
+  function entered(state: string): string {
+    const slots = (taken?.edited ?? last)?.slots ?? [];
+    const slide = slots.find((s) => s.state === state)?.slide ?? state;
+    return slots.filter((s) => (s.slide ?? s.state) === slide).at(-1)?.state ?? state;
+  }
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
     headline: (slide) => (taken?.edited ?? last)?.slots?.find((s) => s.state === slide)?.headline,
@@ -1565,6 +1573,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       void writing.offer({ kind: "claim", state });
     },
     show: showState,
+    enter: (state) => showState(entered(state)),
     // The slide shown, its Format tab, and the field there scrolled to and in focus, once the tab
     // has drawn the slide's choices (editor dogfood 6).
     field: async (state, field) => {
