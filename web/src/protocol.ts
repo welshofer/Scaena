@@ -960,7 +960,7 @@ export interface HealthFinding {
   state: string;
   slide: number;
   severity: "error" | "warning" | "info";
-  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "source" | "label";
+  kind: "title" | "empty" | "turn" | "arc" | "intensity" | "tone" | "drift" | "layout" | "claim" | "bigIdea" | "story" | "dense" | "notes" | "pacing" | "link" | "look" | "source" | "label" | "thin";
   says: string;
   ask: string;
   fix?: { says: string; patch: unknown[] };
@@ -1003,6 +1003,10 @@ export interface Health {
   /** Where slides lint finds an error on hold the score down (ADR-0032 item 1): those slides by
    * number, the cap they set, and the score the deck would have had (W1's dogfood 5). */
   capped?: { slides: number[]; cap: number; score: number };
+  /** Where the deck's slides state three or more figures, the ask that has the assistant find two
+   * that seem the same measure with different values, changing nothing until the person says which
+   * is right (`docs/examples/health-calibration.md`, change 5): one ask, so the Mac says the same. */
+  compare?: { label: string; question: string };
 }
 
 /** A picture a person asks for in the editor (PLAN 2.107): what it shows, in their words; made as

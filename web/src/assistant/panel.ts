@@ -630,13 +630,20 @@ export function panel(stage: Stage, editor: Editor): Panel {
     }
     const weakest = [...parts].sort(([, a], [, b]) => b - a)[0]?.[0];
     const named = weakest === undefined ? undefined : health?.beats[weakest];
-    if (!named) return;
+    // The deck's figures compared by the model, where its slides state three or more: health's own
+    // words, which the Mac offers too (health calibration, change 5).
+    const compare: [string, string][] = health?.compare ? [[health.compare.label, health.compare.question]] : [];
+    if (!named && !compare.length) return;
     // Its name as the arc says it ("Proof: case studies, data, demos"), the part before a colon on
     // the button.
-    const short = named.split(":")[0].trim();
+    const short = named?.split(":")[0].trim();
+    const tighten: [string, string][] = named
+      ? [[`Tighten \u201c${short}\u201d`, `Tighten the \u201c${named}\u201d part of the talk: fewer words on its slides, each slide saying its claim, nothing the audience needs lost.`]]
+      : [];
     offering([
       stronger,
-      [`Tighten \u201c${short}\u201d`, `Tighten the \u201c${named}\u201d part of the talk: fewer words on its slides, each slide saying its claim, nothing the audience needs lost.`],
+      ...tighten,
+      ...compare,
       claims,
     ]);
   }
