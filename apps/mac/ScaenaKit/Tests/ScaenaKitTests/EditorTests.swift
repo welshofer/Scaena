@@ -246,7 +246,8 @@ private func savedB1(in version: String) throws -> [String: Data] {
 /// `media.narrato`, which the choices then show. Trails' first beat is given a plan to offer.
 @Test func aBeatsPlanIsOfferedAndPlannedByOnePatch() throws {
     var files = try example("trails")
-    var deck = try #require(JSONSerialization.jsonObject(with: try #require(files["deck.json"])) as? [String: Any])
+    let saved = try #require(files["deck.json"])
+    var deck = try #require(try JSONSerialization.jsonObject(with: saved) as? [String: Any])
     var spine = try #require(deck["spine"] as? [String: Any])
     var sections = try #require(spine["sections"] as? [[String: Any]])
     var beats = try #require(sections[0]["beats"] as? [[String: Any]])
