@@ -4755,19 +4755,21 @@ fn sentence(text: &str) -> String {
     }
 }
 
-/// [`sentence`], but in German (`lang` `de`), whose capitals are its grammar: a label or a
-/// lead-in its writer began in lower case ("der Eilbestellungen", "bis ein Fehlbestand auffällt")
-/// is kept as written (dogfood pass 10).
+/// [`sentence`], but in German (`lang` `de`), whose capitals are its grammar, and in Spanish,
+/// French, Italian, and Portuguese, which set the words after a figure on in lower case: a label
+/// or a lead-in its writer began in lower case ("der Eilbestellungen", "bis ein Fehlbestand
+/// auffällt", "millones de litros al año") is kept as written (dogfood pass 10, R2's Spanish read).
 fn sentence_as(text: &str, lang: &str) -> String {
-    match lang.split('-').next() {
-        Some("de") => text.to_string(),
+    match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
+        Some("de" | "es" | "fr" | "it" | "pt") => text.to_string(),
         _ => sentence(text),
     }
 }
 
 /// The words, in each language a deck may be written in, that join what follows a figure to it:
-/// "40%: of volume", "−30 % : de baisse des coûts" (dogfood pass 11). German keeps every case
-/// as written ([`sentence_as`]), so its list only says what it would be.
+/// "40%: of volume", "−30 % : de baisse des coûts" (dogfood pass 11). German, Spanish, French,
+/// Italian, and Portuguese keep every case as written ([`sentence_as`]), so their lists only say
+/// what they would be.
 fn joining(lang: &str) -> &'static [&'static str] {
     match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
         Some("en") | None => &["of", "in", "per", "for", "from", "to", "than"],
@@ -10182,8 +10184,30 @@ mod tests {
         assert!(german.iter().any(|(_, w)| w == "der Eilbestellungen wegen falscher Best\u{e4}nde"), "{german:#?}");
         let english = said_in("en");
         assert!(english.iter().any(|(_, w)| w == "Bis ein Fehlbestand auff\u{e4}llt"), "{english:#?}");
+        // So does Spanish, as R2's read found: a figure's meaning stays "millones de litros".
+        let gastos = serde_json::json!({ "slideTitle": "Lo que cuesta", "layoutSuggestion": "Scorecard",
+            "keyBullets": ["1.234,5 millones: litros perdidos al a\u{f1}o", "11 d\u{ed}as: hasta notar una falta",
+                "34 %: pedidos urgentes por error"] });
+        let spanish = made(gastos.clone(), "es").1;
+        assert!(spanish.iter().any(|(_, w)| w == "hasta notar una falta"), "{spanish:#?}");
+        assert!(spanish.iter().any(|(_, w)| w == "pedidos urgentes por error"), "{spanish:#?}");
+        let english = made(gastos, "en").1;
+        assert!(english.iter().any(|(_, w)| w == "Hasta notar una falta"), "{english:#?}");
         assert_eq!(sentence_as("der Eilbestellungen", "de-AT"), "der Eilbestellungen");
-        assert_eq!(sentence_as("cuts emissions 80%", "fr"), "Cuts emissions 80%");
+        assert_eq!(sentence_as("cuts emissions 80%", "en"), "Cuts emissions 80%");
+        assert_eq!(sentence_as("cuts emissions 80%", "nl"), "Cuts emissions 80%");
+        // Spanish, French, Italian, and Portuguese set the words after a figure on in lower case
+        // too, as German does (R2's Spanish read): "1.234,5: millones de litros", never "Millones".
+        for (text, lang) in [
+            ("millones de litros al a\u{f1}o", "es"),
+            ("millones de litros al a\u{f1}o", "es-MX"),
+            ("baisse des co\u{fb}ts", "fr"),
+            ("dans trois ans", "FR-ca"),
+            ("risparmio annuo", "it"),
+            ("economia por ano", "pt-BR"),
+        ] {
+            assert_eq!(sentence_as(text, lang), text, "{lang}");
+        }
         // Words that follow a figure and open on a word joining them to it keep the writer's lower
         // case, in each language; any other word begins a sentence (dogfood pass 11).
         for (text, lang) in [
@@ -10200,12 +10224,13 @@ mod tests {
             assert_eq!(continued(text, lang), text, "{lang}");
         }
         assert_eq!(continued("cuts emissions 80%", "en"), "Cuts emissions 80%");
-        assert_eq!(continued("baisse des co\u{fb}ts", "fr"), "Baisse des co\u{fb}ts");
+        assert_eq!(continued("baisse des co\u{fb}ts", "fr"), "baisse des co\u{fb}ts");
+        assert!(!joins("baisse des co\u{fb}ts", "fr"));
         // A joining word in another language is not one here: "do more" begins a sentence.
         assert_eq!(continued("do more with less", "en"), "Do more with less");
         assert_eq!(continued("des \u{e9}quipes", "en"), "Des \u{e9}quipes");
         // "d" alone, or a word that only begins as one does, is no elision: "dans", "offer".
-        assert_eq!(continued("dans trois ans", "fr"), "Dans trois ans");
+        assert!(!joins("dans trois ans", "fr"));
         assert_eq!(continued("offer ends", "en"), "Offer ends");
         // A set reads as one: its labels keep their lower case only where every one joins its
         // figure; one that begins a sentence leaves them all in their capitals.
