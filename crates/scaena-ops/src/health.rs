@@ -647,7 +647,8 @@ fn spoken(notes: &str) -> f64 {
 }
 
 /// What gives a beat its time: the `duration` it is given, its states' holds, or its notes said
-/// aloud, whichever comes to most.
+/// aloud, whichever comes to most. A `duration` that is still the estimate a made deck wrote from
+/// its words (`media.narrato.estimated`) counts, but times no beat: the talk runs at least so long.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Timed {
     Given,
@@ -662,23 +663,33 @@ type Beaten = (usize, f64, Timed);
 /// How long the talk runs, by its beats (lift-up FUNC-1): each beat the most of its `duration`,
 /// the holds of its states, as a video paces it, and its notes and its states' own said aloud,
 /// so that notes deepened lengthen the talk; and each beat's seconds, and what gives them, by the
-/// index of the first slide it tells. None where a beat has neither a `duration` nor a hold on
-/// every state, or a slide neither a beat nor holds, as a deck written by hand with no spine.
-fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
+/// index of the first slide it tells; and whether any beat's time was given, by a `duration` that
+/// is not the estimate a made deck wrote or by its holds, so a talk timed by its words alone reads
+/// as a floor (the calibration against a reader). None where a beat has neither a `duration` nor
+/// a hold on every state, or a slide neither a beat nor holds, as a deck written by hand with no
+/// spine.
+fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>, bool)> {
     let state = |id: &str| deck.states.iter().find(|s| s.id == id);
     let mut told: Vec<((usize, usize), usize, f64, Timed)> = Vec::new();
     let mut seconds = 0.0;
+    let mut timed = false;
     for (k, slide) in slides.iter().enumerate() {
         match slide.beat {
             Some((i, j, _)) if told.iter().any(|(at, ..)| *at == (i, j)) => {}
             Some((i, j, beat)) => {
                 let holds: Vec<Option<f64>> = beat.states.iter().map(|s| state(s).and_then(|s| s.hold)).collect();
                 let held = holds.iter().flatten().sum::<f64>() / 1000.0;
+                let estimated = (beat.media.as_ref())
+                    .and_then(|m| m.pointer("/narrato/estimated"))
+                    .and_then(Value::as_f64)
+                    .zip(beat.duration)
+                    .is_some_and(|(e, d)| e == d);
                 let given = match beat.duration {
                     Some(d) => d,
                     None if holds.iter().all(Option::is_some) => 0.0,
                     None => return None,
                 };
+                timed |= (beat.duration.is_some() && !estimated) || (!holds.is_empty() && held > 0.0);
                 // Its notes as the presenter reads them, each once: each state's own, else the
                 // beat's (SPEC §2.6).
                 let mut read: Vec<&str> = Vec::new();
@@ -697,10 +708,11 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
             None => {
                 let holds: Option<Vec<f64>> = slide.states.iter().map(|&s| deck.states[s].hold).collect();
                 seconds += holds?.iter().sum::<f64>() / 1000.0;
+                timed = true;
             }
         }
     }
-    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect()))
+    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect(), timed))
 }
 
 /// A talk's minutes, rounded, as a person says them: "about 8 minutes", "under a minute".
@@ -1154,11 +1166,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         (None, None) => None,
     };
-    if let Some((seconds, _)) = talk {
-        let said = capitalized(&minutes(seconds));
-        pacing.says = match &given {
-            Some((_, _, _, against, _)) => format!("{} {said} of talk, {against}.", pacing.says),
-            None => format!("{} {said} of talk.", pacing.says),
+    if let Some((seconds, _, timed)) = &talk {
+        let against = given.as_ref().map(|(_, _, _, against, _)| format!(", {against}")).unwrap_or_default();
+        pacing.says = match timed {
+            true => format!("{} {} of talk{against}.", pacing.says, capitalized(&minutes(*seconds))),
+            // Timed by its words alone, the talk runs at least that long: no beat says how long.
+            false => format!(
+                "{} At least {} of talk from its words{against}; no beat is timed.",
+                pacing.says,
+                counted(((seconds / 60.0).round() as usize).max(1), "minute")
+            ),
         };
     }
     let score = match (asked, &arc_name) {
@@ -1985,6 +2002,40 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
     }
+
+    // A headline that counts what its slide lists ("Three traps that make reviews useless") is
+    // held to the count, in an English deck (the calibration against a reader): a slide that
+    // promises three and lists two loses the room on the third. No patch: which is right, the
+    // count or the list, is the writer's.
+    for (i, s) in read.iter().enumerate() {
+        if !english || i == 0 || framing(i) || s.one_idea || s.drawn || !s.eligible() {
+            continue;
+        }
+        let (Some(said), listed) = (counts(&s.title), bullets(s)) else { continue };
+        if listed == 0 || listed == said {
+            continue;
+        }
+        let k = i + 1;
+        let word = |n: usize| match n {
+            1..=12 => {
+                ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"]
+                    [n - 1]
+                    .to_string()
+            }
+            n => n.to_string(),
+        };
+        let (said, listed) = (word(said), word(listed));
+        find(
+            &s.id,
+            Severity::Warning,
+            Kind::Story,
+            format!("Slide {k}'s headline counts {said}, and the slide lists {listed}."),
+            format!(
+                "Make slide {k}'s headline and its list agree: list the {said} it promises, or count the {listed} it lists."
+            ),
+            None,
+        );
+    }
     let mut unnoted = Vec::new();
     let mut aloud = Vec::new();
     for (i, s) in read.iter().enumerate() {
@@ -2191,9 +2242,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
-    if let (Some((seconds, beats)), Some((given, asked_for, (lo, hi), _, rounded))) = (&talk, &given) {
+    if let (Some((seconds, beats, timed)), Some((given, asked_for, (lo, hi), _, rounded))) = (&talk, &given) {
         let said = if *rounded { (seconds / 60.0).round() } else { seconds / 60.0 };
-        let under = said < *lo;
+        // A talk no beat times runs at least as long as its words take: never found short (the
+        // calibration against a reader), whatever its brief asks; found long, as words past the
+        // slot are.
+        let under = *timed && said < *lo;
         if under || hi.is_some_and(|hi| said > hi) {
             let mut by: Vec<Beaten> = beats.clone();
             scaena_core::sort::by_key(&mut by, |&(_, s, _)| (s * 1000.0) as i64);
@@ -2518,6 +2572,46 @@ fn spaceless(language: Option<&str>) -> bool {
 /// The fewest points the slides that make several make on average before balance marks a deck
 /// down: Vzestup's floor, `metrics`' "Add more bullets to thin slides" (ADR-0032).
 const FLOOR_POINTS: f64 = 2.0;
+
+/// What a headline counts, where it counts the things its slide lists: a number from two to
+/// twelve, in words or figures, before a word that names them ("Three traps", "in five parts"),
+/// never a measure ("six hours", "40 miles") or a figure's own words ("one in seven").
+fn counts(headline: &str) -> Option<usize> {
+    const WORDS: [&str; 11] =
+        ["two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+    const MEASURES: [&str; 20] = [
+        "in", "of", "times", "percent", "seconds", "minutes", "hours", "days", "weeks", "months", "years", "quarters",
+        "miles", "people", "points", "dollars", "x", "to", "and", "or",
+    ];
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let mut found = None;
+    for (i, w) in words.iter().enumerate() {
+        let n = WORDS
+            .iter()
+            .position(|n| n == w)
+            .map(|k| k + 2)
+            .or_else(|| w.parse::<usize>().ok().filter(|n| (2..=12).contains(n)));
+        let Some(n) = n else { continue };
+        // A ratio's second number ("one in twelve", "two of three") counts nothing listed.
+        let number = |w: &str| w == "one" || WORDS.contains(&w) || w.parse::<f64>().is_ok();
+        if i >= 2 && matches!(words[i - 1].as_str(), "in" | "of" | "out") && number(&words[i - 2]) {
+            continue;
+        }
+        let next = words.get(i + 1).map(String::as_str);
+        if next.is_none_or(|next| MEASURES.contains(&next) || next.chars().all(|c| c.is_ascii_digit())) {
+            continue;
+        }
+        // Two counts in one headline say nothing plain about the list.
+        if found.is_some() {
+            return None;
+        }
+        found = Some(n);
+    }
+    found
+}
 
 /// The bullet lines balance counts on a slide: those its body sets as a list's items.
 fn bullets(s: &SlideForHealth) -> usize {
@@ -3388,6 +3482,45 @@ mod tests {
         assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
     }
 
+    /// A headline that counts what its slide lists is held to the count (the calibration against a
+    /// reader): the training deck's "Three traps that make reviews useless" lists two. A measure,
+    /// a figure's words, a count kept, and a deck in another language are not found.
+    #[test]
+    fn a_headline_that_counts_its_list_is_held_to_it() {
+        let h = of(&dogfood("training", "", |_| {}));
+        let counted: Vec<&Finding> =
+            h.findings.iter().filter(|f| f.kind == Kind::Story && f.says.contains("headline counts")).collect();
+        assert_eq!(counted.len(), 1, "{:#?}", h.findings);
+        assert_eq!(counted[0].slide, 8);
+        assert_eq!(counted[0].says, "Slide 8's headline counts three, and the slide lists two.");
+        assert_eq!(
+            counted[0].ask,
+            "Make slide 8's headline and its list agree: list the three it promises, or count the two it lists."
+        );
+        assert!(counted[0].fix.is_none());
+        // What a headline counts, and what it does not.
+        assert_eq!(counts("Three traps that make reviews useless"), Some(3));
+        assert_eq!(counts("Write it in five parts, in this order"), Some(5));
+        assert_eq!(counts("4 steps took it to production"), Some(4));
+        for none in [
+            "Your dispatchers spend six hours a day planning routes",
+            "One in twelve freight invoices is wrong",
+            "Storms washed out 40 miles of trail",
+            "Two mistakes and three fixes",
+            "We changed one loop",
+        ] {
+            assert_eq!(counts(none), None, "{none}");
+        }
+        // The list put right: nothing found.
+        let kept = |slides: &mut Vec<answer::Slide>| slides[7].key_bullets.push("Timelines with no timestamps".into());
+        let h = of(&dogfood("training", "", kept));
+        assert!(!h.findings.iter().any(|f| f.says.contains("headline counts")), "{:#?}", h.findings);
+        // In another language, not read.
+        let mut deck = dogfood("training", "", |_| {});
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        assert!(!of(&deck).findings.iter().any(|f| f.says.contains("headline counts")));
+    }
+
     /// A turn's pair is read by its words in any script (W1's dogfood 7): Vzestup's split at
     /// anything not ASCII loses "Größe" and "Müll" whole, so two German slides that share them
     /// read as sharing nothing and turned. Read whole, they share both; an English pair reads as
@@ -4077,6 +4210,50 @@ mod tests {
         assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::BigIdea));
     }
 
+    /// A talk timed by its words alone, every beat's `duration` still the estimate a made deck
+    /// wrote, is a floor (the calibration against a reader): said as at least so long, never found
+    /// short of its slot, whatever its brief asks, and still found long past it. A beat a person
+    /// times makes the talk timed, held to its slot as before.
+    #[test]
+    fn a_talk_timed_by_its_words_alone_is_a_floor() {
+        let short = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Pacing && f.says.contains("short of"));
+        let deck = dogfood("fleet", "", |_| {});
+        let h = of(&deck);
+        assert!(
+            h.pacing.says.contains("At least ") && h.pacing.says.ends_with("; no beat is timed."),
+            "{}",
+            h.pacing.says
+        );
+        assert!(!short(&h), "{:#?}", h.findings);
+        // A brief that asks minutes is a plan for the talk, not for its beats: still no floor found short.
+        let mut asked = deck.clone();
+        asked["meta"]["narrative"]["brief"]["minutes"] = json!(30);
+        let h = of(&asked);
+        assert!(!short(&h), "{:#?}", h.findings);
+        assert!(h.pacing.says.contains("where its brief asks 30 minutes; no beat is timed."), "{}", h.pacing.says);
+        // Words past the slot are found long all the same.
+        let mut long = asked.clone();
+        let at = beat_of(&long, long["states"][1]["id"].as_str().unwrap());
+        long.pointer_mut(&at).unwrap()["notes"] = json!("word ".repeat(140 * 40));
+        let h = of(&long);
+        assert!(h.findings.iter().any(|f| f.kind == Kind::Pacing && f.says.contains(", past ")), "{:#?}", h.findings);
+        // One beat a person times, its duration no longer the estimate: the talk is timed, and
+        // short of its slot as before.
+        let mut timed = asked.clone();
+        timed.pointer_mut(&at).unwrap()["duration"] = json!(60);
+        let h = of(&timed);
+        assert!(h.pacing.says.contains(" of talk, where its brief asks 30 minutes."), "{}", h.pacing.says);
+        assert!(short(&h), "{:#?}", h.findings);
+        // A deck saved before the estimate was kept reads its durations as given, as it did.
+        let mut older = asked;
+        for section in older["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat["media"]["narrato"].as_object_mut().unwrap().remove("estimated");
+            }
+        }
+        assert!(short(&of(&older)));
+    }
+
     #[test]
     fn a_generated_talk_reads_as_its_beats_tell_it() {
         let deck = climate();
@@ -4100,7 +4277,7 @@ mod tests {
             h.pacing,
             Measure {
                 score: Some(100),
-                says: "25 slides, as the brief asked (16\u{2013}25). About 8 minutes of talk, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot.".into()
+                says: "25 slides, as the brief asked (16\u{2013}25). At least 8 minutes of talk from its words, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot; no beat is timed.".into()
             }
         );
         // Read by its words alone, coherence gets no number.
