@@ -123,6 +123,7 @@ const KIND: Partial<Record<HealthFinding["kind"], string>> = {
   look: "change let go",
   source: "unsourced figure",
   label: "topic headline",
+  thin: "thin slide",
 };
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */

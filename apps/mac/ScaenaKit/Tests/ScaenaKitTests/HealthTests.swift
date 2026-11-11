@@ -146,6 +146,25 @@ import Testing
     #expect(Health.kindSaid("arc") == "arc", "a kind with no words of its own is said as it is")
 }
 
+/// A slide that holds balance down ranks by balance's score, as the browser's Story ranks it,
+/// and folds as a thin slide (R1's MCP dogfood): a thin warning under balance at 60 opens ahead
+/// of a tone warning at 72, and folded it is said in words.
+@Test func aThinSlideRanksByBalanceAndFoldsInWords() throws {
+    let listed = [(3, "tone"), (4, "thin")].map { slide, kind in
+        #"{"state": "s\#(slide)", "slide": \#(slide), "severity": "warning", "kind": "\#(kind)", "says": "", "ask": ""}"#
+    }
+    let measure = { (score: Int?) in #"{"score": \#(score.map(String.init) ?? "null"), "says": ""}"# }
+    let json = """
+        {"score": 80, "arc": null, "pacing": \(measure(90)), "balance": \(measure(60)), "coherence": \(measure(nil)),
+         "fidelity": \(measure(85)), "intensity": \(measure(80)), "tone": \(measure(72)),
+         "slides": [], "findings": [\(listed.joined(separator: ","))]}
+        """
+    let health = try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    #expect(health.triaged(open: 1).open.map(\.kind) == ["thin"], "balance at 60 before tone at 72")
+    #expect(Health.moreSaid(health.triaged(open: 1).more) == "1 more: 1 tone")
+    #expect(Health.moreSaid(health.triaged(open: 0).more) == "2 more: 1 tone, 1 thin slide")
+}
+
 /// A figure no source backs cites one of the deck's sources (W1's dogfood 5): `source:NAME` added to
 /// its beat's evidence where `StateChoices.cites` says it lives, the list whole where the beat cites
 /// nothing yet, and nothing made where it cites that source already. A deck made by hand was

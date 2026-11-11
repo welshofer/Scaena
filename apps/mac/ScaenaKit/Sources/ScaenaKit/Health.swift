@@ -90,6 +90,7 @@ extension Health {
             case "arc", "drift": fidelity
             case "turn", "claim", "bigIdea": coherence
             case "pacing": pacing
+            case "thin": balance
             default: nil
             }
         guard let measure else { return -1 }
@@ -118,6 +119,7 @@ extension Health {
         case "source": "unsourced figure"
         case "label": "topic headline"
         case "look": "change let go"
+        case "thin": "thin slide"
         default: kind
         }
     }
