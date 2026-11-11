@@ -481,35 +481,26 @@ private actor Lost {
     let editor = DeckEditor(session: try ScaenaSession(directory: b1))
     let events = streaming("The cover is clean.")
     let asked = Seen()
-    let go = Seen()
     let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
         let first = await asked.kept.isEmpty
         await asked.keep(await asked.kept + ["asked"])
         var whole = ""
         for (i, event) in events.enumerated() {
             whole += event
-            await heard(event)
-            // After its first word, the provider waits until the window is about to be held, then
-            // goes on at once: the next piece waits on the main actor, not on the provider.
-            if first && i == 2 {
-                await go.keep(["half"])
-                while await go.kept != ["go"] { try await Task.sleep(for: .milliseconds(5)) }
+            // On the first ask, the window is held for three times the deadline just as its fourth
+            // piece arrives, as a window busy laying out a deck holds it: the hold is queued on the
+            // main actor before the piece is heard, so the piece waits behind it, never the
+            // provider, which goes on at once with no handshake for a busy runner to stretch.
+            if first && i == 3 {
+                Task { @MainActor in usleep(3_000_000) }
             }
+            await heard(event)
         }
         return (Data(whole.utf8), 200)
     }
     assistant.silence = 1
     assistant.waits = [0.05]
     assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
-    var waited = 0
-    while await go.kept != ["half"], waited < 1000 {
-        try await Task.sleep(for: .milliseconds(5))
-        waited += 1
-    }
-    #expect(await go.kept == ["half"])
-    await go.keep(["go"])
-    // The main actor held three times the deadline, as a window busy laying out a deck holds it.
-    usleep(3_000_000)
     for _ in 0..<1000 where assistant.working {
         try await Task.sleep(for: .milliseconds(10))
     }
