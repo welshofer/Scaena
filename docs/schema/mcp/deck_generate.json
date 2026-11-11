@@ -242,6 +242,11 @@
         },
         "required": ["sheet"]
       },
+      "Quoted": {
+        "type": "object",
+        "properties": { "source": { "type": "string" }, "figures": { "type": "integer", "minimum": 0 } },
+        "required": ["source", "figures"]
+      },
       "Unbound": {
         "type": "object",
         "properties": {
@@ -252,7 +257,19 @@
         "required": ["slide", "source", "why"]
       }
     },
-    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "sources", "kept", "unbound", "fixed"],
+    "required": [
+      "created",
+      "arc",
+      "layouts",
+      "fell",
+      "unset",
+      "attached",
+      "sources",
+      "kept",
+      "quoted",
+      "unbound",
+      "fixed"
+    ],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -264,6 +281,7 @@
       "attached": { "type": "array", "items": { "type": "string" } },
       "sources": { "type": "array", "items": { "$ref": "#/$defs/Grounded" } },
       "kept": { "type": "array", "items": { "$ref": "#/$defs/Kept" } },
+      "quoted": { "type": "array", "items": { "$ref": "#/$defs/Quoted" } },
       "unbound": { "type": "array", "items": { "$ref": "#/$defs/Unbound" } },
       "fixed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } }
     }

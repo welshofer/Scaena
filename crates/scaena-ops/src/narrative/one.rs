@@ -13,7 +13,7 @@ use scaena_core::model::theme::Theme;
 use scaena_core::tracking::{Snapshot, resolve_states};
 use scaena_narrato::{Brief, ChartData, Icon, Series, Slide};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
 /// Where a slide goes in an open deck.
@@ -46,6 +46,9 @@ pub struct Written {
     /// Each of its items its layout sets in none of its places (agent dogfood 2).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unset: Vec<super::Unset>,
+    /// Each of the deck's data sources whose cells its figures quote, and how many (agent dogfood 3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quoted: Vec<super::Quoted>,
 }
 
 /// `slide` built for the deck `doc`, in `theme`, as the deck's generator builds a slide: its
@@ -267,6 +270,27 @@ pub fn slide_into(
     let fell: Vec<super::Fell> = made.fell.iter().map(|f| super::Fell { slide: index + 1, ..f.clone() }).collect();
     let unset: Vec<super::Unset> = made.unset.iter().map(|u| super::Unset { slide: index + 1, ..u.clone() }).collect();
     let mut new_states: Vec<Value> = built.states[states_before..].to_vec();
+    // Each figure it writes that is one cell of a data source the deck holds quotes it, as a made
+    // deck's do, so a data edit sets the slide again (agent dogfood 3).
+    let quoted = {
+        let mut own: Map<String, Value> = built
+            .nodes
+            .iter()
+            .filter(|(id, _)| !nodes_before.contains_key(*id))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let data: Map<String, Value> = built
+            .data
+            .iter()
+            .filter(|(id, _)| !data_before.contains_key(*id))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let counts = super::quoting::quoting_slide(doc, &mut own, &mut new_states, &data, files);
+        for (id, node) in own {
+            built.nodes.insert(id, node);
+        }
+        super::Quoted::of(counts)
+    };
     let states: Vec<String> = new_states.iter().filter_map(|s| s["id"].as_str().map(str::to_string)).collect();
     let begun = made.deck.pointer("/spine/sections/0").cloned();
     let mut beat = made
@@ -451,7 +475,7 @@ pub fn slide_into(
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }
-    Ok(Written { patch, states, layout, beat: beat_id, what, fell, unbound, unset })
+    Ok(Written { patch, states, layout, beat: beat_id, what, fell, unbound, unset, quoted })
 }
 
 /// Each run's link in `value` (a deck's nodes, its overrides, or its states) to one of `from`
@@ -556,6 +580,10 @@ pub struct SlideWritten {
     /// deck, the item's words, and the layout (agent dogfood 2).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unset: Vec<super::Unset>,
+    /// Each of the deck's data sources whose cells its figures quote, by its id, and how many
+    /// figures: a quoted figure is set again from its cell by every data edit (agent dogfood 3).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quoted: Vec<super::Quoted>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -595,6 +623,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             fell: written.fell.clone(),
             unbound: written.unbound.clone(),
             unset: written.unset.clone(),
+            quoted: written.quoted.clone(),
             fixed: Vec::new(),
             left,
         };
@@ -649,6 +678,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
         fell: written.fell,
         unbound: written.unbound,
         unset: written.unset,
+        quoted: written.quoted,
     };
     Ok((out, write))
 }
