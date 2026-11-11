@@ -1601,8 +1601,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
         beats.get(k).map(|b| b.trim().to_string()).filter(|b| !b.is_empty())
     };
+    // The slides whose own bend is a finding of its own, apart from a run of them.
+    let mut alone: Vec<String> = Vec::new();
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
+        alone.push(d.slide_id.clone());
         let k = i + 1;
         let planned = read[i].narrative_meta.as_ref().and_then(|n| n.expected_intensity).filter(|v| v.is_finite());
         let (hotter, way, moved) = match d.delta > 0.0 {
@@ -1640,21 +1643,36 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // 6): "Thank you / Questions?" is three words, its "you" and its question mark weighing a
     // third each, so it reads at Peak. The deck's last run of closing slides is not asked to
     // move its words to its plan; intensity's figure is Vzestup's.
+    // A slide whose words already carry what its place calls for, its plan straying, is asked
+    // for its plan once (W2's editor dogfood 6): the bend that asks the same edit folds into its
+    // warning, which says the plan as the bend did and where it is written.
+    let mut strays: Vec<String> = Vec::new();
     for g in heard_intensity.iter().filter(|g| !closing.contains(&g.slide_id)) {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
-        let says = match g.gap > 0.0 {
-            true => format!("Slide {k} reads flatter than it was written to be."),
-            false => format!("Slide {k} reads hotter than it was written to be."),
+        let delta = bent.get(g.slide_id.as_str()).copied();
+        let stray = delta.filter(|delta| (g.detected - (g.declared - delta)).abs() <= INTENSITY_GAP_THRESHOLD);
+        let says = match (stray, g.gap > 0.0) {
+            (Some(delta), _) => format!(
+                "Slide {k} was planned {} than its place in the talk, where its words already stand.",
+                if delta > 0.0 { "hotter" } else { "cooler" }
+            ),
+            (None, true) => format!("Slide {k} reads flatter than it was written to be."),
+            (None, false) => format!("Slide {k} reads hotter than it was written to be."),
         };
+        if stray.is_some() {
+            strays.push(g.slide_id.clone());
+        }
         // In a person's words; the figures are for the assistant, which reads the deck's. Where
         // the plan bends from the arc, the words are to carry what the place calls for, not the
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
         let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
-                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.",
-                level(calls)
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place{}, not the words, or move it {}.",
+                level(calls),
+                named_beat(&g.slide_id).map(|name| format!(", in its beat, {name}")).unwrap_or_default(),
+                if g.declared > calls { "nearer the climax" } else { "away from the climax" }
             ),
             Some(calls) if g.detected < calls => format!(
                 "Make slide {k}'s words carry the intensity its place in the story calls for ({}): sharper verbs, a figure that lands.",
@@ -2204,8 +2222,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Some(fix),
         );
     }
-    // Each `arc` finding says where its slide's plan is written, for an agent.
-    for f in findings.iter_mut().filter(|f| f.kind == Kind::Arc) {
+    // A bend whose slide's warning asks the same edit is that warning's (W2's editor dogfood 6).
+    // A run of bends names several slides' plans, and stays.
+    let once = |f: &Finding| f.kind == Kind::Arc && strays.contains(&f.state) && alone.contains(&f.state);
+    findings.retain(|f| !once(f));
+    // Each `arc` finding, and each warning that asks a slide's plan in its place, says where the
+    // slide's plan is written, for an agent.
+    for f in
+        findings.iter_mut().filter(|f| f.kind == Kind::Arc || (f.kind == Kind::Intensity && strays.contains(&f.state)))
+    {
         f.path = at(&f.state, "intensity");
     }
     // Each `source` finding says the figure it found no source for.
@@ -4077,7 +4102,10 @@ mod tests {
         // A slide whose plan keeps to the arc is held to its plan, as before.
         for f in before.findings.iter().filter(|f| f.kind == Kind::Intensity) {
             let bends = before.findings.iter().any(|b| b.kind == Kind::Arc && b.state == f.state);
-            assert!(bends || f.ask.contains("intensity it declares"), "{}", f.ask);
+            // A plan that strays, its words as its place calls for, is the warning's alone, its bend
+            // folded into it (W2's editor dogfood 6).
+            let folded = f.ask.contains("it is its plan");
+            assert!(bends || folded || f.ask.contains("intensity it declares"), "{}", f.ask);
         }
         // Only what the findings say changed: every figure is as before but the plan's.
         assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
@@ -4103,6 +4131,47 @@ mod tests {
         scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
         let after = of(&replanned);
         assert!(!after.findings.iter().any(|f| f.state == state && f.kind == Kind::Arc), "{:#?}", after.findings);
+    }
+
+    /// A slide whose words already carry what its place calls for, planned far from it, is asked
+    /// for its plan once (W2's editor dogfood 6): the bend that asks the same edit folds into the
+    /// warning, which says the plan as the bend did, where it is written, its beat, and the move
+    /// the bend offered. No figure moves.
+    #[test]
+    fn a_plan_that_strays_is_asked_for_once() {
+        let climate = climate();
+        let before = of(&climate);
+        // A slide whose words read about what its place calls for, planned at the far end.
+        let (deck, h, state) = (before.slides.iter().enumerate().skip(1))
+            .filter(|(_, s)| s.read.is_some_and(|r| (r - s.curve).abs() < 0.1))
+            .find_map(|(_, s)| {
+                let mut deck = climate.clone();
+                planned(&mut deck, &s.state, if s.curve < 0.5 { 1.0 } else { 0.0 });
+                let h = of(&deck);
+                let strays = h
+                    .findings
+                    .iter()
+                    .any(|f| f.state == s.state && f.kind == Kind::Intensity && f.ask.contains("it is its plan"));
+                strays.then(|| (deck, h, s.state.clone()))
+            })
+            .expect("a slide whose words read as its place calls for, its plan straying");
+        let on: Vec<&Finding> = h.findings.iter().filter(|f| f.state == state).collect();
+        assert!(!on.iter().any(|f| f.kind == Kind::Arc), "one row for one edit: {on:#?}");
+        let gap = on.iter().find(|f| f.kind == Kind::Intensity).unwrap();
+        assert!(
+            gap.says.contains("was planned ") && gap.says.ends_with("where its words already stand."),
+            "{}",
+            gap.says
+        );
+        assert!(gap.ask.contains("set its Intensity for its place, in its beat, "), "{}", gap.ask);
+        assert!(gap.ask.contains(", or move it "), "{}", gap.ask);
+        let d = Deck::from_value(&deck).unwrap();
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
+        assert_eq!(gap.path.as_deref(), Some(format!("{}/intensity", offered.at).as_str()));
+        assert_eq!((h.fidelity.score, h.intensity.score), (h.fidelity.score, h.intensity.score));
+        assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
     }
 
     /// A slide lint finds an error on stands ahead of every other finding, said as lint says it,
