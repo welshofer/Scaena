@@ -245,11 +245,57 @@ struct CanvasMenu: UIViewRepresentable {
         }()
 
         @objc private func closed(_ command: UIKeyCommand) {
+            menuLog.debug(
+                "menu's keys: command \(command.input ?? "", privacy: .public) flags \(command.modifierFlags.rawValue)")
             let action: Selector? =
                 switch command.input {
                 case "z": command.modifierFlags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
                 default: nil
                 }
+            close(action)
+        }
+
+        /// The presses ⌘Z, ⇧⌘Z, and Escape stand for, where they reach the menu's view as presses
+        /// rather than as its key commands; each press it takes is its own to end.
+        private var taken: Set<UIPress> = []
+
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            var rest = Set<UIPress>()
+            for press in presses {
+                guard let key = press.key else {
+                    rest.insert(press)
+                    continue
+                }
+                let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
+                menuLog.debug("menu's keys: press \(key.keyCode.rawValue) flags \(flags.rawValue)")
+                if key.keyCode == .keyboardZ, flags == .command || flags == [.command, .shift] {
+                    taken.insert(press)
+                    close(flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:")))
+                } else if key.keyCode == .keyboardEscape, flags.isEmpty {
+                    taken.insert(press)
+                    close(nil)
+                } else {
+                    rest.insert(press)
+                }
+            }
+            if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+        }
+
+        override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            let rest = presses.subtracting(taken)
+            taken.subtract(presses)
+            if !rest.isEmpty { super.pressesEnded(rest, with: event) }
+        }
+
+        override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            let rest = presses.subtracting(taken)
+            taken.subtract(presses)
+            if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+        }
+
+        /// The menu closed, the keyboard given back, and `action`, Undo or Redo, sent as the menu
+        /// bar sends it; none for Escape.
+        private func close(_ action: Selector?) {
             held?.menus?.dismissMenu()
             giveBack()
             guard let action else { return }
@@ -302,6 +348,24 @@ struct CanvasMenu: UIViewRepresentable {
             animator: any UIEditMenuInteractionAnimating
         ) {
             menuLog.debug("will present")
+            // Who has the keyboard once the menu shows (lift-up 20261110): #985's run sent ⌘Z with
+            // the menu up and nothing logged its arrival, so the menu's own window may take it.
+            Task { @MainActor [weak interaction] in
+                try? await Task.sleep(for: .milliseconds(400))
+                let window = interaction?.view?.window?.windowScene?.keyWindow
+                let first = window.flatMap { Self.firstResponder(in: $0) }.map { String(describing: type(of: $0)) }
+                let mine = interaction?.view?.isFirstResponder == true
+                menuLog.debug(
+                    "menu shown: key window \(window.map { String(describing: type(of: $0)) } ?? "none", privacy: .public), first responder \(first ?? "none", privacy: .public), the menu's view \(mine ? "has" : "lacks", privacy: .public) the keys")
+            }
+        }
+
+        @MainActor private static func firstResponder(in view: UIView) -> UIView? {
+            if view.isFirstResponder { return view }
+            for inside in view.subviews {
+                if let found = firstResponder(in: inside) { return found }
+            }
+            return nil
         }
 
         func editMenuInteraction(
