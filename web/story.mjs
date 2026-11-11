@@ -62,6 +62,10 @@ try {
     [...document.querySelectorAll("#story [data-legend] > span")].map((k) => ({ words: k.textContent.trim(), lines: new Set([...k.getClientRects()].map((r) => Math.round(r.top))).size })),
   );
   check(keys.length === 9 && keys.every((k) => k.lines === 1), `the legend's keys each stand on one line: ${JSON.stringify(keys.filter((k) => k.lines !== 1).map((k) => k.words))} of ${keys.length}`);
+  // Each in a person's words: a slide off the arc's curve, and one outside its part of the talk
+  // (W2's editor dogfood).
+  const legend = keys.map((k) => k.words);
+  check(legend.includes("off the curve") && legend.includes("outside its part of the talk"), `the legend says what a mark means in a person's words: ${JSON.stringify(legend)}`);
 
   const findings = await page.evaluate(() => window.scaena.story.health().findings);
   check(findings.length > 5, `the deck has more to look at than five: ${findings.length}`);

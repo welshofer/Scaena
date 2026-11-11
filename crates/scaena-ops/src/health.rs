@@ -2421,11 +2421,12 @@ fn bullets(s: &SlideForHealth) -> usize {
     s.body.split('\n').map(str::trim).filter(|l| l.starts_with('\u{2022}') || l.starts_with('-')).count()
 }
 
-/// Where cutting slide `i` to [`DENSE_POINTS`] would take the points the deck's slides make on
-/// average from the floor or above to under it, as balance counts them (the slides read that are
+/// Where cutting slide `i` to [`DENSE_POINTS`] would leave the points the deck's slides make on
+/// average under the floor, as balance counts them, whether they stood at it or under it already
+/// (under it, balance marks each point fewer down, W1's dogfood 6) (the slides read that are
 /// not one idea by design), the other such slides a point more on keeps it, by place: the content
 /// slides among them, never the cover or the close, which make no points by design, though
-/// balance counts them. None where the cut keeps the average, it was under already, or no
+/// balance counts them. None where the cut keeps the average at the floor or above, or no
 /// content slide but `i` counts.
 fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Option<Vec<usize>> {
     let counted: Vec<usize> = (0..read.len()).filter(|&j| read[j].eligible() && !read[j].one_idea).collect();
@@ -2435,7 +2436,7 @@ fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Opti
     let total: usize = counted.iter().map(|&j| bullets(&read[j])).sum();
     let cut = bullets(&read[i]).saturating_sub(DENSE_POINTS);
     let average = |total: usize| total as f64 / counted.len() as f64;
-    if cut == 0 || average(total) < FLOOR_POINTS || average(total - cut) >= FLOOR_POINTS {
+    if cut == 0 || average(total - cut) >= FLOOR_POINTS {
         return None;
     }
     let thin: Vec<usize> = counted.into_iter().filter(|&j| j != i && j > 0 && !closing.contains(&read[j].id)).collect();
@@ -3241,6 +3242,26 @@ mod tests {
         let kept = of(&dogfood("fleet", "", followed));
         assert!(kept.score >= h.score, "{} then {}", h.score, kept.score);
         assert!(!kept.findings.iter().any(|f| f.kind == Kind::Dense), "{:?}", kept.findings);
+    }
+
+    /// The cost is said where the deck stands under balance's floor already (W1's dogfood 6):
+    /// there balance marks each point fewer down, so slide 9's cut from six bars to five lowers
+    /// the score again, and the ask says so as it does at the floor.
+    #[test]
+    fn a_dense_ask_names_the_cost_under_the_floor_too() {
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let h = of(&dogfood("fleet", "", thinned));
+        let dense = h.findings.iter().find(|f| f.kind == Kind::Dense).expect("slide 9 makes six points");
+        assert_eq!(dense.slide, 9, "{dense:?}");
+        assert!(dense.ask.contains("Cutting alone lowers the deck's balance"), "{}", dense.ask);
+        // Under the floor before the cut, and the cut alone lowers the score further.
+        assert!(h.balance.says.starts_with("Slides make 1.8 points each"), "{}", h.balance.says);
+        let cut = |slides: &mut Vec<answer::Slide>| {
+            thinned(slides);
+            slides[8].key_bullets.truncate(5);
+        };
+        let tightened = of(&dogfood("fleet", "", cut));
+        assert!(tightened.score < h.score, "{} then {}", h.score, tightened.score);
     }
 
     /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth
