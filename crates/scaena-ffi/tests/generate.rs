@@ -224,6 +224,10 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     // Its story, as the Mac's Story panel reads it (PLAN G.9): the arc it was written to, each slide
     // read, coherence by words unscored, and each finding said in words; no fix rewrites the plan,
     // and a moved slide's fix made by the user, as the panel makes one, and its finding gone.
+    // The sources it was grounded in, by name, as the Story panel offers a figure no source backs
+    // to cite them (W1's dogfood 5).
+    let grounded = call(session, "grounded");
+    assert_eq!(grounded[0]["name"], "notes.md", "{grounded:#}");
     let health = call(session, "health");
     assert_eq!(health["arc"], "Problem–Solution", "{health:#}");
     assert_eq!(health["slides"].as_array().unwrap().len(), report["layouts"].as_array().unwrap().len());

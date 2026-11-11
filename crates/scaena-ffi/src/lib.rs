@@ -2121,6 +2121,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // The bundle's files (PLAN 2.59): each with what names it and the nodes drawn from it; and
         // one nothing names taken out, which `dataUndo` puts back.
         "bundleFiles" => value(serde_json::to_value(s.bundle_files().map_err(said)?))?,
+        // The sources a deck made from a prompt was grounded in (narrative FUNC-3), as the
+        // browser's `grounded` lists them: what the Story panel offers a slide to cite (W1's
+        // dogfood 5).
+        "grounded" => value(serde_json::to_value(s.grounded()))?,
         // The deck's narrative health (PLAN G.9), as `scaena health --json` gives it, beside
         // what the last lint found (lift-up 10-24b STAB-1).
         "health" => value(serde_json::to_value(scaena_ops::health::health_in(s.deck(), s.findings()).map_err(said)?))?,

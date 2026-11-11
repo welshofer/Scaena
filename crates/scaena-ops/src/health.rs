@@ -1370,14 +1370,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
         if s.body.trim().is_empty() && s.notes.trim().is_empty() {
-            find(
-                &s.id,
-                Severity::Warning,
-                Kind::Empty,
-                format!("Slide {k} says nothing past its headline, and has no notes."),
-                format!("Add to slide {k} what bears out its headline, or notes that say what to tell the room."),
-                None,
-            );
+            // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
+            // it lacks is the notes, never more on the slide.
+            let (says, ask) = if s.one_idea {
+                (
+                    format!("Slide {k} makes its one point in its headline, and has no notes."),
+                    format!("Add notes to slide {k} that say what to tell the room."),
+                )
+            } else {
+                (
+                    format!("Slide {k} says nothing past its headline, and has no notes."),
+                    format!("Add to slide {k} what bears out its headline, or notes that say what to tell the room."),
+                )
+            };
+            find(&s.id, Severity::Warning, Kind::Empty, says, ask, None);
         }
     }
     // A turn out of an agenda is the agenda's own to make (dogfood pass 10): it names the parts
@@ -1683,7 +1689,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
             continue;
         }
-        let part = if name.is_empty() { format!("beat {}", k + 1) } else { name.clone() };
+        // The beat is named once, in what the finding says, as a part of the talk, so a beat
+        // named as a heading ("Call to Action") never reads as a title over its claim (W1's
+        // dogfood 6); the ask says "this part".
+        let part = if name.is_empty() {
+            format!("part {} of the talk", k + 1)
+        } else {
+            format!("the {name} part of the talk")
+        };
         let claim = unstopped(claim);
         let slides = spanned(&of);
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
@@ -1693,9 +1706,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             &read[of[0]].id,
             Severity::Warning,
             Kind::Claim,
-            format!("{said} {does} nothing of the claim settled for {part}: \u{201c}{claim}\u{201d}"),
+            format!("{said} {does} nothing of the claim settled for {part}, \u{201c}{claim}\u{201d}."),
             format!(
-                "Check the claim: the outline settled that the {part} part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
+                "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
             ),
             None,
         );
@@ -3478,6 +3491,24 @@ mod tests {
         assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
     }
 
+    /// A one-idea slide with no notes is asked for its notes alone (W1's dogfood 6): a statement
+    /// makes its point in its headline by design, so health never asks to add to the slide.
+    #[test]
+    fn a_one_idea_slide_is_asked_for_notes_alone() {
+        let bare = |slides: &mut Vec<answer::Slide>| {
+            let s = slides.iter_mut().find(|s| s.layout_suggestion == "Statement").unwrap();
+            s.subtitle.clear();
+            s.speaker_notes.clear();
+        };
+        let deck = dogfood("keynote", "", bare);
+        let h = of(&deck);
+        let empty: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Empty).collect();
+        assert_eq!(empty.len(), 1, "{:#?}", h.findings);
+        let k = empty[0].slide;
+        assert_eq!(empty[0].says, format!("Slide {k} makes its one point in its headline, and has no notes."));
+        assert_eq!(empty[0].ask, format!("Add notes to slide {k} that say what to tell the room."));
+    }
+
     /// The close's words are not asked to carry its plan's intensity (W1's dogfood 6): the
     /// keynote's close weakened to "Thank you / Questions?" and planned calm reads far hotter by
     /// its few words, and is asked nothing of it; intensity's figure is as before.
@@ -3587,12 +3618,16 @@ mod tests {
             missed.findings
         );
         let claim = missed.findings.iter().find(|f| f.kind == Kind::Claim).unwrap();
+        // The beat named once, as a part of the talk, never as a heading over its claim.
         assert!(
-            claim.says.contains(&second) && claim.says.ends_with("\u{201c}Penguins juggle marmalade quietly\u{201d}"),
+            claim.says.ends_with(&format!(
+                "settled for the {second} part of the talk, \u{201c}Penguins juggle marmalade quietly\u{201d}."
+            )),
             "{}",
             claim.says
         );
-        assert!(claim.ask.starts_with("Check the claim:"), "{}", claim.ask);
+        assert!(claim.ask.starts_with("Check the claim: the outline settled that this part"), "{}", claim.ask);
+        assert!(!claim.ask.contains(&second), "{}", claim.ask);
         // A claim settled with its stop is quoted without it, so no sentence ends twice.
         assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
