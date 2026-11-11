@@ -1846,7 +1846,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Severity::Info,
                 Kind::BigIdea,
                 format!(
-                    "The close, {slides}, is not read for the big idea: health reads it only in English, and this deck is in {name}."
+                    "The close, {slides}, isn't checked for the big idea in {name}: health reads it in English decks only."
                 ),
                 format!(
                     "The big idea is \u{201c}{quoted}\u{201d}. Read the closing {slides} against it: say whether they land it, and what to change if not."
@@ -3787,11 +3787,20 @@ mod tests {
         let big: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::BigIdea).collect();
         assert_eq!(big.len(), 1, "{big:?}");
         assert_eq!(big[0].severity, Severity::Info);
+        // Said plainly, in the deck's language's name, as what it cannot do (W1's dogfood 7).
         assert!(
-            big[0].says.ends_with("health reads it only in English, and this deck is in German."),
+            big[0].says.ends_with("isn't checked for the big idea in German: health reads it in English decks only."),
             "{}",
             big[0].says
         );
+        // A close that never says the idea is told the same, and warned of nothing: a loose match
+        // of German words is never a finding (Jay's call, 2026-10-25: health says nothing it did
+        // not read).
+        deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("Pinguine jonglieren leise mit Marmelade");
+        let h = of(&deck);
+        let big: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::BigIdea).collect();
+        assert_eq!(big.len(), 1, "{big:?}");
+        assert_eq!(big[0].severity, Severity::Info);
     }
 
     /// Scaena's own checks read words in any script (dogfood pass 11): a French claim keeps its
