@@ -1478,6 +1478,18 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
     .await;
     assert!(made.get("unbound").is_none(), "{made:#}");
     assert_eq!(charted(&iso)["data"], json!("@sunday-visits"));
+    // A bar chart of the months, its highest bar lit, binds and validates: what it lights is the
+    // month as the file reads it (Route 9's slide 4, E103 on main after #1045).
+    let bars = root.join("bars");
+    let mut barred = slides("sunday-visits.csv");
+    barred["slides"][2]["layoutSuggestion"] = json!("Bar Chart");
+    barred["slides"][2]["slideTitle"] = json!("Sunday visits peaked in June");
+    let made = ok(&client, "deck_generate", json!({ "bundle": path(&bars), "slides": barred, "data": data })).await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let node = charted(&bars);
+    assert_eq!(node["data"], json!("@sunday-visits"), "{node:#}");
+    assert!(node["annotations"].as_array().is_some_and(|a| !a.is_empty()), "the bar lit: {node:#}");
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bars) })).await["errors"], json!(0));
     let words = root.join("words");
     let made = ok(
         &client,

@@ -428,6 +428,12 @@ mod tests {
             (node["data"].clone(), node["x"]["field"].clone(), node["x"]["format"].clone(), node["y"]["field"].clone()),
             (json!("@sunday-visits"), json!("month"), json!("%b"), json!("sunday_visits"))
         );
+        // What it marks by a month marks that month's row as the date column reads it, so the
+        // deck still validates (Route 9's bar chart on main after #1045, E103).
+        let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2475.0]);
+        node["annotations"] = json!([{ "kind": "highlight", "at": { "x": "Jun" } }]);
+        bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap();
+        assert_eq!(node["annotations"][0]["at"]["x"], json!("2026-06-01"));
         // A figure the file says otherwise still keeps the chart on its own rows.
         let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2500.0]);
         let why = bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap_err();
