@@ -12476,6 +12476,103 @@ mod tests {
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
     }
 
+    /// A made deck's hero figures quote the sheet given where one kept cell holds them: a Big
+    /// Number's figure by what it means, and a line's callout by its takeaway, so a data edit sets
+    /// both again. W1's dogfood 9, its slides and its sheet as written.
+    #[test]
+    fn a_made_decks_hero_figures_quote_the_sheet_given() {
+        let slide = |title: &str, kind: &str, bullets: &[&str]| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+            ..Slide::default()
+        };
+        let mut line = slide(
+            "Sunday visits grew every month of the pilot",
+            "Line Chart",
+            &["Sunday visits, January to June 2026"],
+        );
+        line.chart_data = Some(ChartData {
+            categories: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Sunday visits".into()),
+                values: [1840., 1920., 2105., 2260., 2390., 2475.].map(Some).to_vec(),
+            }],
+            ..ChartData::default()
+        });
+        let slides = vec![
+            slide("Keep Central Branch open on Sundays", "Title", &[]),
+            slide(
+                "2,475 visits on Sundays in June",
+                "Big Number",
+                &["2,475", "Sunday visits in June, up from 1,840 in January"],
+            ),
+            line,
+            slide(
+                "38% of Sunday visitors were new card holders",
+                "Big Number",
+                &["38%", "of Sunday visitors were first-time card holders"],
+            ),
+            slide(
+                "Families need the one day they are free",
+                "Quote",
+                &["Sunday is the only day I can bring my kids", "A parent, pilot survey of 412 patrons"],
+            ),
+            slide(
+                "Each Sunday costs $3,400 to staff",
+                "Big Number",
+                &["$3,400", "in wages and overtime for each Sunday"],
+            ),
+            slide(
+                "Other branches lend 20% more on weekends",
+                "Big Number",
+                &["20%", "more loans on weekends at branches that open them"],
+            ),
+            slide(
+                "Approve Sunday hours for the next fiscal year",
+                "Closing",
+                &["Keep Central Branch open noon to five on Sundays", "Review the visits again in twelve months"],
+            ),
+        ];
+        let summary = "Six months of Sunday hours brought steady growth and new card holders for $3,400 a \
+                       Sunday; keep them for the next fiscal year.";
+        let (_, write) = generating(&narrative(summary, slides), Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let csv = "month,sunday_visits,weekday_average\n2026-01,1840,1210\n2026-02,1920,1190\n2026-03,2105,1230\n\
+                   2026-04,2260,1250\n2026-05,2390,1240\n2026-06,2475,1260\n";
+        let sheet = scaena_sources::Sheet {
+            name: "sunday-visits.csv".into(),
+            rows: csv.lines().map(|r| r.split(',').map(str::to_string).collect()).collect(),
+        };
+        let csv = Source { sheets: vec![sheet], ..source("sunday-visits.csv", Kind::Csv, csv) };
+        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[csv])).unwrap();
+        let deck = write.deck.to_value().unwrap();
+        let quotes: Vec<(String, String, Value)> = (deck["nodes"].as_object().unwrap().iter())
+            .flat_map(|(id, n)| {
+                (n["runs"].as_array().into_iter().flatten())
+                    .filter(|r| r.get("quote").is_some())
+                    .map(|r| (id.clone(), r["text"].as_str().unwrap().to_string(), r["quote"].clone()))
+            })
+            .collect();
+        let hero = |slot: &str| {
+            quotes.iter().find(|(id, ..)| id.ends_with(slot)).unwrap_or_else(|| panic!("{slot}: {quotes:#?}"))
+        };
+        for slot in ["-number", "-callout"] {
+            let (_, words, quote) = hero(slot);
+            assert_eq!(words, "2,475", "{slot}");
+            // June's row, by its index: the months are dates, which name no row.
+            assert_eq!(
+                (quote["column"].as_str(), &quote["row"]),
+                (Some("sunday_visits"), &json!(5)),
+                "{slot}: {quote}"
+            );
+        }
+        // January's figure in the meaning, quoted before, still is.
+        assert!(quotes.iter().any(|(_, w, q)| w == "1,840" && q["row"] == 0), "{quotes:#?}");
+        // The PDF's figures are in no cell: none quoted.
+        assert!(!quotes.iter().any(|(_, w, _)| ["38%", "$3,400", "3,400", "20%"].contains(&w.as_str())), "{quotes:#?}");
+        assert!(kept[0].quoted.unwrap() >= 3, "{kept:?}");
+    }
+
     /// Items that each name an icon are set under the icons their words find (PLAN G.23): three
     /// side by side, on cards and in columns in turn; four down the slide; six in two rows of
     /// three. Each icon is the set's own path on its view, in the theme's accent, as decoration
