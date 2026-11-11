@@ -31,6 +31,10 @@ generate = ["editor", "scaena-ops/narrato", "dep:scaena-narrato", "dep:scaena-so
 # and Add a Slide About… send and take. The C ABI carries it; the browser's editor module does
 # not, the page asking from the generator's module (SPEC §15).
 slides = ["generate"]
+# The deck's story (PLAN G.9), which the assistant's `deck_health` reads beside lint: the C ABI
+# carries it, and the browser's editor module does not, its page reading the story by the
+# generator's module (SPEC §15).
+health = ["generate"]
 
 [dependencies]
 scaena-core.workspace = true
