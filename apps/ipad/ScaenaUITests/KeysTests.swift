@@ -426,7 +426,7 @@ final class KeysTests: XCTestCase {
     }
 
     /// ⌘Z with the long press's menu up closes the menu and undoes, as UIKit's own menus take a
-    /// hardware keyboard's keys (lift-up 20261110): the title copied by ⌘D, the menu asked of it,
+    /// hardware keyboard's keys (lift-up 20261110): the title copied by its menu's Duplicate, the menu asked of it again,
     /// and ⌘Z takes the copy back with the menu gone. With the menu holding the keyboard, ⌘Z went
     /// nowhere and ThemeTests waited out its two minutes.
     @MainActor
@@ -441,18 +441,20 @@ final class KeysTests: XCTestCase {
             throw Unseen(description: "the cover reads no title: \(app.debugDescription)")
         }
         settle()
-        // Selected by keys, as testTheCanvasByKeysAlone selects it: a tap on the title can reach the
-        // simulator's canvas as two and begin typing in it, where ⌘D types a "d" (lift-up 20261110).
-        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.97)).tap()
-        app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
-        guard wait(5, { title.isSelected }) else {
-            keep(app, as: "undo-key-unselected")
-            throw Unseen(description: "Tab selected no title: \(app.debugDescription)")
+        // The copy made by touch, as TouchTests makes it, so no hardware key comes before the long
+        // presses: in #985's runs every long press after Tab and ⌘D was lost to the simulator's
+        // gesture gate, three times running (01:21:21–47), and none before a key was (lift-up
+        // 20261110). The long press selects the title, and its menu's Duplicate copies it.
+        pressForMenu(title, in: app)
+        let duplicate = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Duplicate'")).firstMatch
+        guard paged(to: duplicate, in: app) else {
+            keep(app, as: "undo-key-no-duplicate")
+            throw Unseen(description: "a long press offered no Duplicate: \(app.debugDescription)")
         }
-        app.typeKey("d", modifierFlags: .command)
+        duplicate.tap()
         guard wait(5, { titles.count == 2 }) else {
             keep(app, as: "undo-key-no-copy")
-            throw Unseen(description: "⌘D made no copy: \(app.debugDescription)")
+            throw Unseen(description: "Duplicate made no copy: \(app.debugDescription)")
         }
         settle()
         pressForMenu(title, in: app)
