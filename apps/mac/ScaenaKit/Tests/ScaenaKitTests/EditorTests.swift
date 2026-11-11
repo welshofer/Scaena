@@ -239,3 +239,35 @@ private func savedB1(in version: String) throws -> [String: Data] {
     #expect(StepName.of([["op": "set_state", "id": "cover", "prop": "layout", "value": "title"]], label: label) == "Change layout")
     #expect(StepName.of([["op": "add", "path": "/nodes/title/locked", "value": true]], label: label) == "Change")
 }
+
+/// The Format tab offers the plan of the beat that tells a slide (editor dogfood 3), as the browser's
+/// does: its intensity as declared and its tone undeclared, each said in the engine's words, which
+/// differ from one end of its range to the other, and planned by one JSON Patch on the beat's
+/// `media.narrato`, which the choices then show. Trails' first beat is given a plan to offer.
+@Test func aBeatsPlanIsOfferedAndPlannedByOnePatch() throws {
+    var files = try example("trails")
+    var deck = try #require(JSONSerialization.jsonObject(with: try #require(files["deck.json"])) as? [String: Any])
+    var spine = try #require(deck["spine"] as? [String: Any])
+    var sections = try #require(spine["sections"] as? [[String: Any]])
+    var beats = try #require(sections[0]["beats"] as? [[String: Any]])
+    beats[0]["media"] = ["narrato": ["intensity": 0.8]]
+    let state = try #require((beats[0]["states"] as? [String])?.first)
+    sections[0]["beats"] = beats
+    spine["sections"] = sections
+    deck["spine"] = spine
+    files["deck.json"] = try JSONSerialization.data(withJSONObject: deck)
+    let editor = DeckEditor(session: try ScaenaSession(files: files))
+    let plan = try #require(try editor.session.stateChoices(state: state).plan)
+    #expect(plan.at == "/spine/sections/0/beats/0/media/narrato")
+    #expect(plan.value(.intensity) == 0.8 && plan.value(.tone) == nil)
+    #expect(!plan.said(.intensity, 0.8).isEmpty && plan.said(.intensity, 0) != plan.said(.intensity, 1))
+    #expect(plan.said(.tone, -1) != plan.said(.tone, 1))
+    #expect(PlanChoice.Key.tone.middle == 0 && PlanChoice.Key.tone.range == -1...1)
+    #expect(plan.planning(.tone, to: 0.5) == [["op": "add", "path": "/spine/sections/0/beats/0/media/narrato/valence", "value": 0.5]])
+    try editor.make(plan.planning(.intensity, to: 0.3))
+    let planned = try #require(try editor.session.stateChoices(state: state).plan)
+    #expect(planned.value(.intensity) == 0.3)
+    // A beat with no plan offers none.
+    let other = try #require(editor.slots.last?.state)
+    #expect(try editor.session.stateChoices(state: other).plan == nil)
+}
