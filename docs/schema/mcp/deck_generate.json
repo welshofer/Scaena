@@ -89,8 +89,14 @@
         "default": null
       },
       "length": {
-        "description": "`5-10 slides`, `11-15 slides`, `16-25 slides`, `26-40 slides`, or `41+ slides`.",
+        "description": "`5-10 slides`, `11-15 slides`, `16-25 slides`, `26-40 slides`, or `41+ slides`; from\n`minutes` without it.",
         "type": ["string", "null"],
+        "default": null
+      },
+      "minutes": {
+        "description": "The minutes the talk is given (\"ten minutes\" is 10): the length, where none is given, and\nthe slot `deck_health` paces the talk against, kept in the brief.",
+        "type": ["integer", "null"],
+        "minimum": 0,
         "default": null
       },
       "language": {

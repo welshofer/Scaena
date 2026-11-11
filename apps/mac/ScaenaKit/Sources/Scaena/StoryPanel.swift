@@ -16,6 +16,9 @@ struct StoryPanel: View {
     /// Whether `health` is the last read, kept while the source has an error to fix (lift-up
     /// 20261110 deferred): said so over it, dimmed, its fixes held.
     @State private var asLastRead = false
+    /// The sources the deck was grounded in, read with its story: what a figure no source backs
+    /// may cite (W1's dogfood 5).
+    @State private var grounded: [Grounded] = []
     /// The findings the story shown was read beside (`StoryLint.keyed`), and the reads asked again
     /// since by a lint of every state that found otherwise (lift-up 20261110 deferred).
     @State private var readWith: String?
@@ -111,11 +114,27 @@ struct StoryPanel: View {
             guard let read = try await editor.story(after: health), !Task.isCancelled else { return }
             health = read.health
             asLastRead = read.asLastRead
+            if !read.asLastRead { grounded = (try? editor.session.grounded()) ?? [] }
             why = nil
         } catch {
             asLastRead = false
             health = nil
             why = "Its story couldn't be read. \(Why.said(error))"
+        }
+    }
+
+    /// `name`, a source the deck was grounded in, cited by the beat that tells `state`, Slide
+    /// `slide` (W1's dogfood 5): one patch by the user, one step to undo, or said why not.
+    private func cite(_ name: String, slide: Int, state: String) {
+        guard !editor.assisting else { return edits.say("Not cited: \(DeckEditor.busy)") }
+        do {
+            guard let cites = try editor.session.stateChoices(state: state).cites else {
+                return edits.say("Not cited: no beat of the story tells Slide \(slide)")
+            }
+            guard let ops = cites.citing(name) else { return edits.say("Slide \(slide) cites \(name) already") }
+            edits.patch("Cite \(name) on Slide \(slide)", ops)
+        } catch {
+            edits.say("Not cited: \(Why.said(error))")
         }
     }
 
@@ -167,6 +186,21 @@ struct StoryPanel: View {
                         }
                         .disabled(asLastRead)
                     }
+                }
+                // A figure no source backs, in a deck made from sources, cites one of them (W1's
+                // dogfood 5), as the browser's Story row does: the sources by name, the one chosen
+                // added to the slide's beat's evidence, one step to undo; held with the fixes while
+                // the story is as last read, the source not compiling.
+                if !grounded.isEmpty, run.contains(where: { $0.kind == "source" }) {
+                    Menu("Cite a Source…") {
+                        ForEach(grounded, id: \.name) { source in
+                            Button(source.name) { cite(source.name, slide: first.slide, state: first.state) }
+                        }
+                    }
+                    .fixedSize()
+                    // Held as the row's fixes are, by one rule: while the story is as last read.
+                    .disabled(asLastRead)
+                    .accessibilityIdentifier("story-cite")
                 }
                 // The slide it is about shown first: a question begins with what the window shows,
                 // which "this slide" means to the assistant (lift-up USE-5).
@@ -391,7 +425,7 @@ struct ArcLegend: View {
                 Circle().fill(ArcGraph.color("bends")).frame(width: 7, height: 7)
                 Text("Off the curve")
                 Circle().fill(ArcGraph.color("drifted")).frame(width: 7, height: 7).padding(.leading, 6)
-                Text("Out of its beat. Higher is more intense.")
+                Text("Outside its part of the talk. Higher is more intense.")
             }
             HStack(spacing: 4) {
                 Rectangle().fill(.primary.opacity(0.7)).frame(width: 14, height: 0.75)

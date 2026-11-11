@@ -45,6 +45,10 @@ pub struct GenerateArgs {
     /// "5-10 slides", "11-15 slides", "16-25 slides", "26-40 slides", or "41+ slides".
     #[arg(long)]
     length: Option<String>,
+    /// The minutes the talk is given: its length where --length is not given, and the slot its
+    /// health paces it against.
+    #[arg(long)]
+    minutes: Option<u32>,
     /// How it is delivered: in-person, virtual-live, hybrid-live, keynote, webinar,
     /// recorded-video, or asynchronous.
     #[arg(long)]
@@ -557,6 +561,7 @@ impl Kept {
         flag(&mut args, "audience", a.audience.as_deref());
         flag(&mut args, "goal", a.goal.as_deref());
         flag(&mut args, "length", a.length.as_deref());
+        flag(&mut args, "minutes", a.minutes.map(|m| m.to_string()).as_deref());
         flag(&mut args, "modality", a.modality.as_deref());
         flag(&mut args, "outcome", a.outcome.as_deref());
         flag(&mut args, "language", a.language.as_deref());
@@ -740,6 +745,7 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         audience: a.audience.clone().unwrap_or_default(),
         goal: a.goal.clone().unwrap_or_default(),
         length: a.length.clone().unwrap_or_default(),
+        minutes: a.minutes,
         modality,
         desired_outcomes: a.outcome.clone(),
         language: a.language.clone(),

@@ -88,8 +88,21 @@ public final class ScaenaView: PlatformView {
     /// Whether the frame shown is not the playhead's: a frame is owed, and the display link, resting,
     /// ticks again.
     private var dirty = true {
-        didSet { if dirty { link?.isPaused = false } }
+        didSet {
+            guard dirty else { return }
+            #if DEBUG
+            if link?.isPaused == true { LoopReport.link(reportName, running: true, why: "a frame owed") }
+            #endif
+            link?.isPaused = false
+        }
     }
+
+    #if DEBUG
+    /// The view as the loop's report names it: which, and its size in points.
+    private var reportName: String {
+        "view \(ObjectIdentifier(self).hashValue & 0xFFFF) \(Int(bounds.width))×\(Int(bounds.height))"
+    }
+    #endif
     /// The revision `onPainted` was told last.
     private var reported: Int?
 
@@ -186,6 +199,10 @@ public final class ScaenaView: PlatformView {
         link?.invalidate()
         link = next
         guard let next else { return }
+        #if DEBUG
+        LoopReport.start()
+        LoopReport.link(reportName, running: true, why: "attached to a window")
+        #endif
         next.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         next.add(to: .main, forMode: .common)
         resized()
@@ -234,6 +251,13 @@ public final class ScaenaView: PlatformView {
     public func tick(at now: CFTimeInterval) -> Bool {
         guard dirty || playhead.playing, let session, let state, let layer = metalLayer, bounds.width > 0
         else {
+            #if DEBUG
+            LoopReport.ticked(reportName, "rested")
+            if link?.isPaused == false {
+                let why = dirty || playhead.playing ? "nothing to paint on" : "nothing owed"
+                LoopReport.link(reportName, running: false, why: why)
+            }
+            #endif
             link?.isPaused = true
             return false
         }
@@ -255,7 +279,15 @@ public final class ScaenaView: PlatformView {
                 at = over ? .infinity : ms
             }
             // A layer with no drawable to give skips the frame: the next tick paints it.
-            guard try surface?.paint(session, state: state, at: at) == true else { return false }
+            guard try surface?.paint(session, state: state, at: at) == true else {
+                #if DEBUG
+                LoopReport.ticked(reportName, "no drawable")
+                #endif
+                return false
+            }
+            #if DEBUG
+            LoopReport.ticked(reportName, playhead.playing ? "played" : "painted")
+            #endif
             failure = nil
             dirty = false
             painted()
@@ -270,6 +302,9 @@ public final class ScaenaView: PlatformView {
             }
             return true
         } catch {
+            #if DEBUG
+            LoopReport.ticked(reportName, "failed")
+            #endif
             failure = error as? ScaenaError ?? ScaenaError(message: "\(error)")
             dirty = false
             painted()
@@ -347,12 +382,20 @@ public struct ScaenaCanvas: PlatformViewRepresentable {
     #endif
 
     private func update(_ view: ScaenaView) {
+        #if DEBUG
+        BodyReport.set("update, of ScaenaCanvas")
+        #endif
         if view.session !== session { view.session = session }
         if view.state != state { view.state = state }
         view.revision = revision
         view.onPainted = painted
         let playhead = $playhead
-        view.onPlayhead = { playhead.wrappedValue = $0 }
+        view.onPlayhead = {
+            #if DEBUG
+            BodyReport.set("playhead, by ScaenaCanvas")
+            #endif
+            playhead.wrappedValue = $0
+        }
         view.show(self.playhead)
     }
 }

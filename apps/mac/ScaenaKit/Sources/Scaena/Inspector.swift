@@ -958,6 +958,9 @@ private struct AlignmentRow: View {
     let choose: (JSONValue) -> Void
 
     var body: some View {
+        #if DEBUG
+        let _ = BodyReport.evaluated("AlignmentRow") { Self._logChanges() }
+        #endif
         // A way the buttons do not show, `stretch`, sets a text's lines from the left, as the
         // engine sets them, so Left shows.
         let way = value ?? shows ?? "start"
