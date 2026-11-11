@@ -57,6 +57,16 @@ public struct Health: Decodable, Sendable {
         /// The one field of the slide it asks to edit, where it asks for one: `headline`, `notes`,
         /// `intensity`, or `claim` (editor dogfood 6).
         public let field: String?
+        /// Where the plan it asks about is written, `…/intensity`, for an `arc` finding (#999).
+        public var path: String? = nil
+
+        /// The field of the Format tab its to-do names, as the browser's `fieldOf` reads it: by its
+        /// `field`, else by where its `path` says its plan is written; none where it names neither
+        /// the plan's Intensity nor the notes. A headline is typed on the canvas.
+        public var formatField: String? {
+            if field == "intensity" || field == "notes" { return field }
+            return path?.hasSuffix("/intensity") == true ? "intensity" : nil
+        }
     }
 
     public let score: Int

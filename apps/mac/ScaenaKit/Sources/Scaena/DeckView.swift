@@ -114,6 +114,8 @@ struct DeckView: View {
     @SceneStorage("inspector") private var showsInspector = true
     /// The inspector's tab, and the Document tab's panel (PLAN 3.15, 3.18).
     @SceneStorage("tab") private var tab: InspectorTab = .format
+    /// A field of the Format tab a Story row asked for, until the inspector has it in focus.
+    @State private var focusing: FieldAsked?
     @SceneStorage("documentPanel") private var documentPanel: DocumentPanel = .theme
     /// The cue of the slide shown as a timeline under the canvas (PLAN 3.14), off until asked for.
     @SceneStorage("timeline") private var showsTimeline = false
@@ -335,7 +337,7 @@ struct DeckView: View {
         Inspector(
             editor: editor, state: inspected, node: $node, also: $also, typing: typing, tab: tab, offer: { asked = $0 },
             reveal: { picked in if let shown { bringIntoView(picked, in: shown) } },
-            remap: { node, how in remap(node, how) }
+            remap: { node, how in remap(node, how) }, focusing: $focusing
         ) { ops in
             perform { try document.make(ops, undo: undo) }
         }
@@ -2088,11 +2090,27 @@ struct DeckView: View {
                 // the canvas takes the keyboard, as a key pressed over a text selected begins it.
                 Task { @MainActor in _ = typing?.enterOver(head, in: state) }
             },
+            field: { state, field in
+                // The slide, nothing on it selected, under the Format tab, where the inspector
+                // scrolls to the field and focuses it once the slide's choices are drawn.
+                if typing?.typing == true { typing?.leave() }
+                chosen = state
+                node = nil
+                also = []
+                tab = .format
+                showsInspector = true
+                focusing = FieldAsked(state: state, field: field)
+            },
             ask: { question in
                 assistant?.drafted = question
                 showsAssistant = true
             },
-            say: { words in said = words })
+            say: { words in said = words },
+            answered: { words in
+                // After the edit's own words where they still show, as the browser's status says it.
+                let edit = said?.components(separatedBy: " · Answers ").first
+                said = edit.map { "\($0) · \(words)" } ?? words
+            })
     }
 
     /// `edit` made, its step to undo named `name` in the Edit menu: whether it was. Where it was
