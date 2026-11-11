@@ -1102,10 +1102,28 @@ const THANKS: [&str; 16] = [
     "質問",
 ];
 
+/// The plan layouts a talk closes in, as Narrato names them (`media.narrato.layout`): a slide
+/// planned in one closes the talk whatever theme layout its items were set in.
+const CLOSING_PLANS: [&str; 9] =
+    ["closing", "call to action", "next steps", "q&a", "q & a", "qa", "questions", "takeaways", "poster"];
+
+/// Whether the slide's beat planned it in a layout that closes the talk ([`CLOSING_PLANS`]):
+/// health read of a Spanish deck, whose Closing of two items was set as bullets.
+fn planned_close(slide: &Slide) -> bool {
+    let Some((_, _, beat)) = slide.beat else { return false };
+    let planned = beat.media.as_ref().and_then(|m| m.pointer("/narrato/layout")).and_then(Value::as_str);
+    // Written as Narrato names them ("Next Steps") or as a theme's layouts are ("next-steps").
+    planned.is_some_and(|l| CLOSING_PLANS.contains(&l.trim().to_lowercase().replace('-', " ").as_str()))
+}
+
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// next steps, or questions, or headed with thanks or questions alone (ADR-0032 item 6).
+/// next steps, or questions, or planned in one ([`planned_close`]), or headed with thanks or
+/// questions alone (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
+        if planned_close(&slides[i]) {
+            return true;
+        }
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
         // Next steps and the floor opened belong to a close too, before or after its last word
@@ -2224,13 +2242,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // before the thanks (its thesis, its ask, its steps); else its last slide. A beat that ends
         // the deck may begin well before its close, and a word or two of the idea a slide says in
         // passing lands nothing (W1's dogfood 3); a slide of an earlier beat is that beat's, not
-        // the close's (dogfood 4).
+        // the close's (dogfood 4); and a divider opening the closing beat lands no idea of its
+        // own (the climate talk's "What We Can Do", once its Next Steps closed by their plan).
         let last = read.len().checked_sub(1);
         let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index);
         let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
         if let Some(&first) = run.first()
             && first > 0
             && beat(first - 1) == beat(first)
+            && !framing(first - 1)
         {
             run.insert(0, first - 1);
         }
@@ -4018,7 +4038,8 @@ mod tests {
                 "Four Years of Records",
                 "The Path to Net Zero",
                 "Pledges Versus the 1.5°C Path",
-                "Next Steps for Our Team"
+                // "Next Steps for Our Team" is planned as Next Steps: part of the close, which
+                // makes no point of its own to state (health read of a Spanish deck).
             ],
             "{base:#?}"
         );
@@ -5855,6 +5876,38 @@ mod tests {
         );
     }
 
+    /// A close is known by its plan as well as its layout (health read of a Spanish deck): a slide
+    /// its beat planned as a Closing, a Call to Action, Next Steps, or Q&A closes the talk though
+    /// its items were set in another layout, so a calm plan there is no bend. Planned as anything
+    /// else, the same slide bends. Findings only: fidelity counts every slide, so no figure moves.
+    #[test]
+    fn a_close_is_known_by_its_plan_whatever_layout_it_was_set_in() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let last = before.slides.last().unwrap().state.clone();
+        let title = before.slides.last().unwrap().title.to_lowercase();
+        assert!(!THANKS.iter().any(|t| title.starts_with(t)), "the close is not known by its headline: {title}");
+        let at = deck["states"].as_array().unwrap().iter().position(|s| s["id"] == last.as_str()).unwrap();
+        deck["states"][at]["layout"] = json!("bullets");
+        let beat = beat_of(&deck, &last);
+        *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(0.0);
+        let cooler =
+            |h: &Health| h.findings.iter().any(|f| f.state == last && f.kind == Kind::Arc && f.says.contains("cooler"));
+        deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!("Bullets");
+        let open = of(&deck);
+        assert!(cooler(&open), "planned as a list, a calm last slide bends: {:#?}", open.findings);
+        for plan in ["Closing", "Call to Action", "Next Steps", "Q&A"] {
+            deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!(plan);
+            let closed = of(&deck);
+            assert!(!cooler(&closed), "planned as {plan}, it closes the talk: {:#?}", closed.findings);
+            assert_eq!(
+                (closed.fidelity.score, closed.score, closed.balance.score),
+                (open.fidelity.score, open.score, open.balance.score),
+                "no figure moves"
+            );
+        }
+    }
+
     /// Health says nothing it did not read (Jay's call, 2026-10-25). Words the lexicons read
     /// nothing of, within `SILENT` of neutral, are not found far from what a slide declares, while
     /// words that read something still are (ADR-0032 item 2); and a calm close is no bend: the
@@ -5925,8 +5978,11 @@ mod tests {
         let closed = of(&deck);
         assert!(!cooler(&closed, &last), "a calm close is no bend: {:#?}", closed.findings);
         assert_eq!(closed.slides.last().unwrap().standing, Standing::Ok);
-        // The same slide in a layout that does not close, and headed as no thanks, bends.
+        // The same slide in a layout that does not close, planned as none, and headed as no
+        // thanks, bends.
         deck["states"][at]["layout"] = json!("statement");
+        let beat = beat_of(&deck, &last);
+        deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!("Statement");
         let open = of(&deck);
         let title = open.slides.last().unwrap().title.to_lowercase();
         if !THANKS.iter().any(|t| title.starts_with(t)) {
@@ -5950,6 +6006,9 @@ mod tests {
                     (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
                 deck["states"][at]["layout"] = json!(layout);
                 declare(deck, &slide.state, "intensity", 0.0);
+                // Planned as it is laid out, so the slide before the close is planned as none.
+                let beat = beat_of(deck, &slide.state);
+                deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!(layout);
             }
         };
         for step in ["next-steps", "qa"] {
