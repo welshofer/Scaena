@@ -457,7 +457,15 @@ final class KeysTests: XCTestCase {
             throw Unseen(description: "Duplicate made no copy: \(app.debugDescription)")
         }
         settle()
-        pressForMenu(title, in: app)
+        // The menu asked of the copy, which Duplicate selects: the original's middle stands under the
+        // copy's rotate handle, 36 points above the copy's top edge one span below, and a press
+        // there turns the copy rather than asking for a menu, as a handle takes a press over what
+        // lies under it (#985's three runs, every press "lost"; lift-up 20261110).
+        let selected = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena' AND selected == true")).firstMatch
+        guard selected.waitForExistence(timeout: 5) else {
+            throw Unseen(description: "Duplicate selected no copy: \(app.debugDescription)")
+        }
+        pressForMenu(selected, in: app)
         let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
         guard wait(5, { copy.isHittable }) else {
             keep(app, as: "undo-key-no-menu")
