@@ -371,7 +371,7 @@ pub fn standalone_with(
     let mut read = Vec::with_capacity(pages.len());
     engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {
         let snap = snapshots.iter().find(|s| s.state_id == state).expect("`named` checked the state");
-        read.push((state.to_string(), scaena_core::reading::html(&b.deck, snap, &list)));
+        read.push((state.to_string(), scaena_core::reading::html(&b.deck, &data, snap, &list)));
         progress.step();
         Ok::<(), OpsError>(())
     })?;
@@ -673,7 +673,10 @@ pub fn pdf_laid_out(
             pages.push(state.clone());
         }
     }
-    let laid = Prepared { deck: b.deck.clone(), pages: drawn, fonts: named.fonts, images: named.images };
+    // Each chart with no alt text described from its data as it is now, for the PDF's writer,
+    // which reads the deck alone, in its own module (F6).
+    let deck = scaena_core::reading::describing(&b.deck, &data, &pages);
+    let laid = Prepared { deck, pages: drawn, fonts: named.fonts, images: named.images };
     Ok((laid, pages))
 }
 
@@ -747,7 +750,7 @@ fn images(
     let mut readings: HashMap<String, HashMap<String, scaena_core::reading::Reading>> = HashMap::new();
     if svg_format {
         for snap in scaena_core::resolve_states(&b.deck)? {
-            readings.insert(snap.state_id.clone(), scaena_core::reading::readings(&b.deck, &snap));
+            readings.insert(snap.state_id.clone(), scaena_core::reading::readings(&b.deck, &data, &snap));
         }
     }
     engine.frames_at_rest(&b.deck, &theme, &data, None, &pages, |state, list| {

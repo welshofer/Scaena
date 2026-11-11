@@ -43,8 +43,20 @@ final class KeysTests: XCTestCase {
             }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: [])
             XCTAssertTrue(wait(5) { subtitle.isSelected && !title.isSelected }, "Tab did not go on to the subtitle")
+            // The simulator's keyboard can lose the Shift of a press, as it loses Shift+→'s below: its
+            // key log has a Tab with no flags and no Shift before it, which the canvas passes on past
+            // its last node (#1072's run). Only where the title is not selected again is the subtitle
+            // selected again by a tap, which gives the canvas the keyboard, and Shift+Tab pressed
+            // again; it must go back then.
+            let back = { title.isSelected && !subtitle.isSelected }
             app.typeKey(XCUIKeyboardKey.tab, modifierFlags: .shift)
-            XCTAssertTrue(wait(5) { title.isSelected && !subtitle.isSelected }, "Shift+Tab did not go back to the title")
+            if !wait(5, back), !title.isSelected {
+                keep(app, as: "shift-tab-unheard")
+                subtitle.tap()
+                XCTAssertTrue(wait(5) { subtitle.isSelected }, "a tap did not select the subtitle again")
+                app.typeKey(XCUIKeyboardKey.tab, modifierFlags: .shift)
+            }
+            XCTAssertTrue(wait(5, back), "Shift+Tab did not go back to the title")
             keep(app, as: "tabbed")
         }
 

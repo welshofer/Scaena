@@ -3,8 +3,10 @@
 //! how a state reads as HTML: a single-file export carries it (PLAN 2.5), and the web player
 //! shows it in a live region for a screen reader (PLAN 2.8).
 
+use crate::data::{Datum, SourceFiles};
 use crate::displaylist::{DisplayList, LinkTarget, Op};
 use crate::document::{NodeType, Props};
+use crate::format::{DateFormat, Locale, NumberFormat};
 use crate::model::values::{ListItem, ListKind};
 use crate::{Deck, Snapshot};
 use serde_json::Value;
@@ -50,15 +52,20 @@ pub struct Reading {
     pub credit: Vec<(String, Option<LinkTarget>)>,
 }
 
-/// How each node `snap` shows reads, by id. A state that shows no heading of the first level
-/// reads its claim as one (`semantic: claim`, SPEC §3.12): a big number's meaning, a quote.
-pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
+/// How each node `snap` shows reads, by id, the deck's data read from `files`. A state that shows
+/// no heading of the first level reads its claim as one (`semantic: claim`, SPEC §3.12): a big
+/// number's meaning, a quote. A chart with no alt text is described from its data as it is now
+/// ([`described`]), so a reader hears the values it draws, an edit of them included.
+pub fn readings(deck: &Deck, files: &dyn SourceFiles, snap: &Snapshot) -> HashMap<String, Reading> {
     let mut read: HashMap<String, Reading> = snap
         .nodes
         .iter()
         .filter_map(|(id, props)| {
             let t = deck.nodes.get(id)?.node_type;
             let mut read = reading(t, props);
+            if t == NodeType::Chart && read.kind == Kind::Figure && read.alt.is_none() {
+                read.alt = described(deck, files, props);
+            }
             // A chart's or a table's data fetched from a service: its credit, read after it (ADR-0030).
             if matches!(t, NodeType::Chart | NodeType::Table) && read.kind != Kind::Artifact {
                 read.credit = crate::fetched::reads(deck, props)
@@ -77,6 +84,140 @@ pub fn readings(deck: &Deck, snap: &Snapshot) -> HashMap<String, Reading> {
         }
     }
     read
+}
+
+/// The words a chart is described in, in the language `lang` names (BCP 47): what a bar chart
+/// and a line chart are called, and the words for a series' highest and lowest values. English
+/// where the language is none of these.
+fn chart_words(lang: Option<&str>) -> (&'static str, &'static str, &'static str, &'static str) {
+    let lang = lang.unwrap_or("en");
+    let base = lang.split('-').next().unwrap_or(lang);
+    match if lang == "zh-Hans" { lang } else { base } {
+        "es" => ("Gráfico de barras", "Gráfico de líneas", "máximo", "mínimo"),
+        "fr" => ("Diagramme en barres", "Graphique linéaire", "maximum", "minimum"),
+        "de" => ("Balkendiagramm", "Liniendiagramm", "Höchstwert", "Tiefstwert"),
+        "pt" => ("Gráfico de barras", "Gráfico de linhas", "máximo", "mínimo"),
+        "it" => ("Grafico a barre", "Grafico a linee", "massimo", "minimo"),
+        "nl" => ("Staafdiagram", "Lijndiagram", "hoogste", "laagste"),
+        "cs" => ("Sloupcový graf", "Spojnicový graf", "maximum", "minimum"),
+        "pl" => ("Wykres słupkowy", "Wykres liniowy", "maksimum", "minimum"),
+        "uk" => ("Стовпчикова діаграма", "Лінійний графік", "максимум", "мінімум"),
+        "ja" => ("棒グラフ", "折れ線グラフ", "最高", "最低"),
+        "zh-Hans" | "zh" => ("柱状图", "折线图", "最高", "最低"),
+        "ko" => ("막대 그래프", "꺾은선 그래프", "최고", "최저"),
+        "ar" => ("مخطط شريطي", "مخطط خطي", "الأعلى", "الأدنى"),
+        "hi" => ("बार चार्ट", "लाइन चार्ट", "उच्चतम", "न्यूनतम"),
+        _ => ("Bar chart", "Line chart", "highest", "lowest"),
+    }
+}
+
+/// A chart described from the data it draws, read now through `files` (SPEC §3.12, W1 dogfood 9
+/// F6): what it is and its value axis's title, then each series' values by category, every value
+/// where it draws twelve or fewer, else each series' highest and lowest, the categories and the
+/// values written as its axes write them. "Line chart: Sunday visits. Jan 1,850, Feb 1,920, …".
+/// None for a chart whose data does not read, or whose kind this does not describe (a scatter, a
+/// donut, a forecast).
+pub fn described(deck: &Deck, files: &dyn SourceFiles, props: &Props) -> Option<String> {
+    let lang = deck.meta.as_ref().and_then(|m| m.lang.as_deref());
+    let (bar, line, highest, lowest) = chart_words(lang);
+    let head = match props.get("kind").and_then(Value::as_str)? {
+        "bar" | "stackedBar" | "range" | "dot" => bar,
+        "line" | "area" | "slope" => line,
+        _ => return None,
+    };
+    let source = props.get("data").and_then(Value::as_str)?.strip_prefix('@')?;
+    let table = crate::data::load(deck, files, source).ok()?;
+    let steps: Vec<Value> = props.get("dataTransform").and_then(Value::as_array).cloned().unwrap_or_default();
+    let table = crate::transform::apply(table, &steps).ok()?;
+    let field = |channel: &str| props.get(channel).and_then(|c| c.get("field")).and_then(Value::as_str);
+    let format = |channel: &str| props.get(channel).and_then(|c| c.get("format")).and_then(Value::as_str);
+    let x = table.column(field("x")?)?;
+    let y = table.column(field("y")?)?;
+    let series = field("series").or_else(|| field("color")).and_then(|f| table.column(f));
+    let locale = Locale::of(lang);
+    let category = |d: &Datum| match (d, format("x")) {
+        (Datum::Date(t), Some(f)) => DateFormat::parse(f).map(|f| f.format(*t, locale)).unwrap_or_else(|_| d.label()),
+        // A date the axis writes no format for, said as a person says it: a year's first day
+        // its year, a month's its month and year.
+        (Datum::Date(t), None) => {
+            let c = t.civil();
+            let spec = match (c.month, c.day, c.hour, c.minute, c.second) {
+                (1, 1, 0, 0, 0) => Some("%Y"),
+                (_, 1, 0, 0, 0) => Some("%b %Y"),
+                _ => None,
+            };
+            spec.and_then(|s| DateFormat::parse(s).ok()).map_or_else(|| d.label(), |f| f.format(*t, locale))
+        }
+        (Datum::Number(n), Some(f)) => {
+            NumberFormat::parse(f).map(|f| f.format(*n, locale)).unwrap_or_else(|_| d.label())
+        }
+        (Datum::Number(n), None) if n.fract() == 0.0 && (1000.0..=9999.0).contains(n) => format!("{n}"),
+        (Datum::Number(n), None) => crate::format::format_number(*n, locale),
+        _ => d.label(),
+    };
+    let value = |n: f64| match format("y").and_then(|f| NumberFormat::parse(f).ok()) {
+        Some(f) => f.format(n, locale),
+        None => crate::format::format_number(n, locale),
+    };
+    // Each series, in the order its rows first come, with its values by category.
+    let mut groups: Vec<(String, Vec<(String, f64)>)> = Vec::new();
+    for row in &table.rows {
+        let Datum::Number(n) = row[y] else { continue };
+        let name = series.map(|s| row[s].label()).unwrap_or_default();
+        let at = match groups.iter().position(|(g, _)| *g == name) {
+            Some(at) => at,
+            None => {
+                groups.push((name, Vec::new()));
+                groups.len() - 1
+            }
+        };
+        groups[at].1.push((category(&row[x]), n));
+    }
+    let several = groups.len() > 1;
+    let title = props.get("y").and_then(|c| c.get("title")).and_then(Value::as_str);
+    let names: Vec<&str> = groups.iter().map(|(g, _)| g.as_str()).filter(|g| !g.is_empty()).collect();
+    let mut out = head.to_string();
+    match (several, title) {
+        (true, _) if !names.is_empty() => out = format!("{out}: {}", names.join(", ")),
+        (_, Some(title)) => out = format!("{out}: {title}"),
+        _ => {}
+    }
+    let few = groups.iter().map(|(_, v)| v.len()).sum::<usize>() <= 12;
+    let said: Vec<String> = (groups.iter())
+        .filter_map(|(name, pairs)| {
+            let values = if few {
+                pairs.iter().map(|(c, n)| format!("{c} {}", value(*n))).collect::<Vec<_>>().join(", ")
+            } else {
+                let high = pairs.iter().max_by(|a, b| a.1.total_cmp(&b.1))?;
+                let low = pairs.iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
+                format!("{highest} {} {}, {lowest} {} {}", high.0, value(high.1), low.0, value(low.1))
+            };
+            Some(if several && !name.is_empty() { format!("{name}: {values}") } else { values })
+        })
+        .collect();
+    Some(if said.is_empty() { out } else { format!("{out}. {}", said.join("; ")) })
+}
+
+/// `deck` with each chart the states named `states` show that has no alt text given, in each of
+/// those states, the description its data gives now ([`described`]): for a reader that has the
+/// deck alone, as the PDF's writer has in a module of its own (F6). A person's own alt text, and
+/// a chart whose data does not describe, are left as they are.
+pub fn describing(deck: &Deck, files: &dyn SourceFiles, states: &[String]) -> Deck {
+    let mut out = deck.clone();
+    let Ok(snapshots) = crate::resolve_states(deck) else { return out };
+    for snap in snapshots.iter().filter(|s| states.contains(&s.state_id)) {
+        let Some(k) = deck.state_index(&snap.state_id) else { continue };
+        for (id, props) in &snap.nodes {
+            let chart = deck.nodes.get(id).is_some_and(|n| n.node_type == NodeType::Chart);
+            if !chart || props.contains_key("alt") || reading(NodeType::Chart, props).kind != Kind::Figure {
+                continue;
+            }
+            if let Some(said) = described(deck, files, props) {
+                out.states[k].props.entry(id.clone()).or_default().insert("alt".into(), Value::String(said));
+            }
+        }
+    }
+    out
 }
 
 /// How a node of type `t` with these props reads.
@@ -151,8 +292,8 @@ pub struct Part {
 
 /// How the state `snap` resolves, drawn as `list` at rest, reads (SPEC §3.12), a part for each node
 /// read, in turn, as [`html`] reads it: what it is, and its words or what it shows.
-pub fn parts(deck: &Deck, snap: &Snapshot, list: &DisplayList) -> Vec<Part> {
-    let readings = readings(deck, snap);
+pub fn parts(deck: &Deck, files: &dyn SourceFiles, snap: &Snapshot, list: &DisplayList) -> Vec<Part> {
+    let readings = readings(deck, files, snap);
     let lang = deck.meta.as_ref().and_then(|m| m.lang.as_deref());
     let mut out = Vec::new();
     Reader { deck, snap, readings: &readings, lang }.parts(&list.ops, &mut out);
@@ -166,8 +307,8 @@ pub fn parts(deck: &Deck, snap: &Snapshot, list: &DisplayList) -> Vec<Part> {
 /// header row's cells headers, with a cell for every column of every row. A group's members
 /// read in turn, or as one figure when it has alt text. What no node reads (decoration, a
 /// container's panel, the background) is not there.
-pub fn html(deck: &Deck, snap: &Snapshot, list: &DisplayList) -> String {
-    let readings = readings(deck, snap);
+pub fn html(deck: &Deck, files: &dyn SourceFiles, snap: &Snapshot, list: &DisplayList) -> String {
+    let readings = readings(deck, files, snap);
     let lang = deck.meta.as_ref().and_then(|m| m.lang.as_deref());
     let mut out = String::new();
     Reader { deck, snap, readings: &readings, lang }.read(&list.ops, &mut out);
@@ -549,6 +690,8 @@ fn attr(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// No data files: a test deck's sources are inline.
+    static NONE: std::sync::LazyLock<BTreeMap<String, Vec<u8>>> = std::sync::LazyLock::new(BTreeMap::new);
     use super::*;
     use crate::displaylist::{Blend, Color, FillRule, Glyph, IDENTITY, Paint, Path};
     use serde_json::json;
@@ -636,6 +779,95 @@ mod tests {
         }
     }
 
+    /// A deck of one chart, `chart`, over the source `kpi`, `source` as `deck.data.kpi` is
+    /// written, on one state.
+    fn charted(chart: Value, source: Value) -> Deck {
+        Deck::from_json(
+            &json!({
+                "scaena": crate::FORMAT_VERSION,
+                "canvas": { "width": 1920, "height": 1080 },
+                "theme": "theme.json",
+                "data": { "kpi": source },
+                "nodes": { "c": chart },
+                "states": [{ "id": "one", "props": { "c": {} } }]
+            })
+            .to_string(),
+        )
+        .expect("a deck")
+    }
+
+    /// A chart with no alt text is described from its data as it is when read (F6): its kind,
+    /// what its value axis counts, and each value by its category, as its axes write them; a
+    /// file's data read through the files given, an edit of it heard; a value the data lacks
+    /// unsaid; more than a dozen, each series' highest and lowest; and a person's own alt text,
+    /// or a kind this does not describe, as before.
+    #[test]
+    fn a_chart_with_no_alt_is_described_from_its_data_as_read() {
+        let line = json!({ "type": "chart", "kind": "line", "data": "@kpi",
+            "x": { "field": "month", "type": "ordinal", "format": "%b" },
+            "y": { "field": "visits", "type": "quantitative", "format": ",.0f", "title": "Sunday visits" } });
+        let file = json!({ "source": "data/kpi.csv", "schema": { "month": "date", "visits": "number" } });
+        let deck = charted(line.clone(), file.clone());
+        let csv = |jan: &str| {
+            BTreeMap::from([(
+                "data/kpi.csv".to_string(),
+                format!("month,visits\n2026-01,{jan}\n2026-02,1920\n").into_bytes(),
+            )])
+        };
+        let heard = |deck: &Deck, files: &BTreeMap<String, Vec<u8>>| {
+            let snaps = crate::resolve_states(deck).unwrap();
+            readings(deck, files, &snaps[0])["c"].alt.clone()
+        };
+        assert_eq!(heard(&deck, &csv("1840")).as_deref(), Some("Line chart: Sunday visits. Jan 1,840, Feb 1,920"));
+        assert_eq!(heard(&deck, &csv("1850")).as_deref(), Some("Line chart: Sunday visits. Jan 1,850, Feb 1,920"));
+        // A value the data lacks goes unsaid; the file not there, nothing is said.
+        assert_eq!(heard(&deck, &csv("")).as_deref(), Some("Line chart: Sunday visits. Feb 1,920"));
+        assert_eq!(heard(&deck, &BTreeMap::new()), None);
+        // A person's own alt text wins.
+        let mut own = line.clone();
+        own["alt"] = json!("Visits, rising");
+        assert_eq!(heard(&charted(own, file.clone()), &csv("1840")).as_deref(), Some("Visits, rising"));
+        // Inline rows, several series, more than a dozen values: each series' highest and lowest.
+        let rows: Vec<Value> = (1..=13)
+            .flat_map(|m| {
+                [
+                    json!({ "m": format!("M{m}"), "s": "North", "v": m }),
+                    json!({ "m": format!("M{m}"), "s": "South", "v": 20 - m }),
+                ]
+            })
+            .collect();
+        let bars = json!({ "type": "chart", "kind": "bar", "data": "@kpi",
+            "x": { "field": "m", "type": "ordinal" }, "y": { "field": "v", "type": "quantitative" },
+            "series": { "field": "s", "type": "nominal" } });
+        let inline = json!({ "source": { "inline": rows }, "schema": { "m": "string", "s": "string", "v": "number" } });
+        assert_eq!(
+            heard(&charted(bars, inline.clone()), &BTreeMap::new()).as_deref(),
+            Some("Bar chart: North, South. North: highest M13 13, lowest M1 1; South: highest M1 19, lowest M13 7")
+        );
+        // A scatter is not described: it reads as it did, with no words.
+        let scatter = json!({ "type": "chart", "kind": "scatter", "data": "@kpi",
+            "x": { "field": "m" }, "y": { "field": "v" } });
+        assert_eq!(heard(&charted(scatter, inline), &BTreeMap::new()), None);
+        // For a reader that has the deck alone, the PDF's writer: written into each state.
+        let described = describing(&deck, &csv("1850"), &["one".to_string()]);
+        assert_eq!(described.states[0].props["c"]["alt"], json!("Line chart: Sunday visits. Jan 1,850, Feb 1,920"));
+        assert!(deck.states[0].props["c"].get("alt").is_none(), "the deck itself is left as it is");
+    }
+
+    /// A date the axis writes no format for reads as a person says it: a year's first day its
+    /// year, a month's its month and year (F6).
+    #[test]
+    fn a_chart_s_dates_read_as_said() {
+        let line = json!({ "type": "chart", "kind": "line", "data": "@kpi",
+            "x": { "field": "d", "type": "temporal" }, "y": { "field": "v", "type": "quantitative" } });
+        let rows = json!({ "source": { "inline": [{ "d": "2021-01-01", "v": 1 }, { "d": "2021-06-01", "v": 2 }, { "d": "2021-06-15", "v": 3 }] },
+            "schema": { "d": "date", "v": "number" } });
+        let deck = charted(line, rows);
+        let snaps = crate::resolve_states(&deck).unwrap();
+        let alt = readings(&deck, &*NONE, &snaps[0])["c"].alt.clone().unwrap();
+        assert_eq!(alt, "Line chart. 2021 1, Jun 2021 2, 2021-06-15 3");
+    }
+
     fn deck() -> Deck {
         Deck::from_json(
             &json!({
@@ -687,7 +919,7 @@ mod tests {
         .expect("a deck");
         let snaps = crate::resolve_states(&deck).expect("snapshots");
         let kinds = |n: usize| {
-            let read = readings(&deck, &snaps[n]);
+            let read = readings(&deck, &*NONE, &snaps[n]);
             let mut kinds: Vec<(String, Kind)> = read.into_iter().map(|(id, r)| (id, r.kind)).collect();
             kinds.sort_by(|a, b| a.0.cmp(&b.0));
             kinds
@@ -793,7 +1025,7 @@ mod tests {
                 ],
             ),
         ];
-        let read = html(&deck, &snaps[0], &list);
+        let read = html(&deck, &*NONE, &snaps[0], &list);
         assert_eq!(
             read,
             concat!(
@@ -839,13 +1071,13 @@ mod tests {
         let mut list = DisplayList::new([1920.0, 1080.0]);
         list.ops = vec![layer(Some("m"), None, vec![layer(None, Some(crate::fetched::CREDIT_CELL), vec![])])];
         assert_eq!(
-            html(&deck, &snaps[0], &list),
+            html(&deck, &*NONE, &snaps[0], &list),
             concat!(
                 r#"<div role="img" data-node="m" aria-label="Map of Ferry Building"></div>"#,
                 r#"<p data-node="m" data-credit=""><a href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a> · Geoapify</p>"#,
             )
         );
-        let parts = parts(&deck, &snaps[0], &list);
+        let parts = parts(&deck, &*NONE, &snaps[0], &list);
         let said: Vec<(&str, &str)> = parts.iter().map(|p| (p.role, p.text.as_str())).collect();
         assert_eq!(said, [("figure", "Map of Ferry Building"), ("paragraph", "© OpenStreetMap · Geoapify")]);
     }
@@ -874,12 +1106,12 @@ mod tests {
         )
         .expect("a deck");
         let snaps = crate::resolve_states(&deck).expect("snapshots");
-        let read = readings(&deck, &snaps[0]);
+        let read = readings(&deck, &*NONE, &snaps[0]);
         let credit: String = read["t"].credit.iter().map(|(w, _)| w.as_str()).collect();
         assert_eq!(credit, "Boston · Oct 15, 2026 · Weather data by Open-Meteo.com");
         let mut list = DisplayList::new([1920.0, 1080.0]);
         list.ops = vec![layer(Some("t"), None, vec![layer(None, Some(crate::fetched::FOOT_CELL), vec![])])];
-        let parts = parts(&deck, &snaps[0], &list);
+        let parts = parts(&deck, &*NONE, &snaps[0], &list);
         let said: Vec<&str> = parts.iter().map(|p| p.role).collect();
         assert_eq!(said.last(), Some(&"paragraph"), "{parts:?}");
     }
@@ -921,7 +1153,7 @@ mod tests {
             ],
         )];
         assert_eq!(
-            html(&deck, &snaps[0], &list),
+            html(&deck, &*NONE, &snaps[0], &list),
             r#"<table data-node="w"><tr><td>Thu</td><td>Light rain</td></tr><tr><td>Fri</td><td>Clear</td></tr></table>"#
         );
     }
@@ -948,7 +1180,7 @@ mod tests {
         let mut list = DisplayList::new([1920.0, 1080.0]);
         list.ops = vec![layer(Some("poem"), None, vec![]), layer(Some("set"), None, vec![])];
         assert_eq!(
-            html(&deck, &snaps[0], &list),
+            html(&deck, &*NONE, &snaps[0], &list),
             concat!(
                 r#"<p data-node="poem">An old silent pond<br>A frog jumps into the pond<br>Splash! Silence again</p>"#,
                 r#"<p data-node="set">one &amp; two<br>three</p>"#,

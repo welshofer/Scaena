@@ -136,6 +136,19 @@ fn pngs_are_the_cpu_painters_frames_at_any_size() {
     assert_eq!(pngs.bytes, Some(files.iter().map(|f| std::fs::metadata(f).unwrap().len()).sum()));
 }
 
+/// A state the deck lacks is refused with the one meant where one is near it, else the deck's
+/// first few, as every other tool says it (agent dogfood 4: an agent guessed a state's id from
+/// its headline and was told only that it was unknown).
+#[test]
+fn a_render_of_a_state_the_deck_lacks_names_the_one_meant() {
+    let near = Render { state: "kerning".into(), ..Render::default() };
+    let err = render(Path::new(TORTURE), &near).expect_err("refused").to_string();
+    assert_eq!(err, "unknown state `kerning`; did you mean `kern`?");
+    let far = Render { state: "zzzzzzzz".into(), ..Render::default() };
+    let err = render(Path::new(TORTURE), &far).expect_err("refused").to_string();
+    assert!(err.starts_with("unknown state `zzzzzzzz`; the deck's states include `axes`"), "{err}");
+}
+
 #[test]
 fn an_image_export_says_what_it_needs() {
     let bundle = scaena_ops::open(Path::new(TORTURE)).unwrap();

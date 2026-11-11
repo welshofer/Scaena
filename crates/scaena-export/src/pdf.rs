@@ -224,7 +224,8 @@ fn write(deck: &Deck, pages: &[Page], assets: &Assets, settings: &PdfSettings) -
         let Some(snap) = snapshots.iter().find(|s| s.state_id == page.state) else {
             return Err(ExportError::Pdf(format!("`{}` is not a state of the deck", page.state)));
         };
-        let readings = reading::readings(deck, snap);
+        // Its charts' descriptions are in the deck as prepared (`reading::describing`).
+        let readings = reading::readings(deck, &std::collections::BTreeMap::new(), snap);
         headlines.push(reading::headline(deck, snap));
         let written: HashMap<String, String> =
             snap.nodes.iter().filter_map(|(id, props)| Some((id.clone(), as_written(props)?))).collect();
