@@ -520,9 +520,38 @@ pub fn citing(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> u
             .collect::<Vec<_>>()
             .join("\n")
     };
+    // The deck's sources by name and address, each with whether it holds sheets a figure could
+    // be a cell of (a CSV, a workbook, SEC's figures) or only words (a PDF, a page).
+    let given: Vec<(String, Option<String>, bool)> = (doc.pointer("/meta/narrative/sources").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            let name = s["name"].as_str()?.to_string();
+            let kind = s["kind"].as_str().unwrap_or_default();
+            let sheets = matches!(kind, "csv" | "workbook" | "sec filings");
+            Some((name, s["url"].as_str().map(str::to_string), sheets))
+        })
+        .collect();
+    // Whether a beat's evidence already names where its figures are from, and only sources of
+    // words: its slide's figure is that source's, never a cell that happens to hold the same
+    // value (W1's dogfood 10: "9 % de chiffre d'affaires", from a page, is no district's 9 %).
+    let sourced_in_words = |evidence: &Value| -> bool {
+        let named: Vec<bool> = (evidence.as_array().into_iter().flatten())
+            .filter_map(Value::as_str)
+            .filter(|e| !e.starts_with('@'))
+            .filter_map(|e| {
+                let name = e.strip_prefix("source:").unwrap_or(e);
+                given.iter().find(|(n, url, _)| n == name || url.as_deref() == Some(name)).map(|g| g.2)
+            })
+            .collect();
+        !named.is_empty() && named.iter().all(|sheets| !sheets)
+    };
     let mut cites: Vec<(usize, usize, Vec<String>)> = Vec::new();
     for (s, section) in doc.pointer("/spine/sections").and_then(Value::as_array).into_iter().flatten().enumerate() {
         for (b, beat) in section["beats"].as_array().into_iter().flatten().enumerate() {
+            if sourced_in_words(&beat["evidence"]) {
+                continue;
+            }
             let shown = beat["states"].as_array().into_iter().flatten().filter_map(Value::as_str);
             let words: Vec<String> =
                 shown.filter_map(|id| states.iter().find(|st| st["id"] == id)).map(&words_of_state).collect();
@@ -777,5 +806,28 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
         assert_eq!(cite("Since 2021, more boats", json!([])), json!([]), "a year cites nothing");
         assert_eq!(cite("Up 12 in a week", json!([])), json!([]), "too little to stand on");
         assert_eq!(cite("$86.9 a ride", json!([])), json!([]), "a percent column is no amount in dollars");
+        // A beat that names a source of words as its slide's, a page or a PDF, cites no cell
+        // that happens to hold its figure; one that names the sheet's own file still does
+        // (W1's dogfood 10).
+        let given = |evidence: Value| -> Value {
+            let (mut doc, files) = deck(&[("t", "Turnaways have five-folded to 9,800")], csv, None);
+            doc["data"]["kpi"]["schema"]["year"] = json!("number");
+            doc["meta"]["narrative"]["sources"] = json!([
+                { "name": "ferry.csv", "kind": "csv" },
+                { "name": "review.pdf", "kind": "pdf" },
+                { "name": "https://example.org/ferry", "kind": "web page", "url": "https://example.org/ferry" }
+            ]);
+            doc["spine"] = json!({ "sections": [{ "id": "a", "beats": [{ "id": "b", "claim": "c", "states": ["s"], "evidence": evidence }] }] });
+            citing(&mut doc, &files, &["kpi".into()]);
+            doc["spine"]["sections"][0]["beats"][0]["evidence"].clone()
+        };
+        assert_eq!(given(json!(["https://example.org/ferry"])), json!(["https://example.org/ferry"]));
+        assert_eq!(given(json!(["source:review.pdf"])), json!(["source:review.pdf"]));
+        assert_eq!(given(json!(["source:ferry.csv"])), json!(["source:ferry.csv", "@kpi"]));
+        assert_eq!(
+            given(json!(["source:review.pdf", "source:ferry.csv"])),
+            json!(["source:review.pdf", "source:ferry.csv", "@kpi"])
+        );
+        assert_eq!(given(json!([])), json!(["@kpi"]));
     }
 }
