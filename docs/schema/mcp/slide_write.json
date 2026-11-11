@@ -219,9 +219,18 @@
           "layout": { "type": "string" }
         },
         "required": ["slide", "words", "layout"]
+      },
+      "Quoted": {
+        "description": "How many figures a deck's slides write quote one of its data sources, so a data edit sets\nthem again (agent dogfood 3).",
+        "type": "object",
+        "properties": {
+          "source": { "description": "The data source, by its id.", "type": "string" },
+          "figures": { "description": "How many figures quote it.", "type": "integer", "minimum": 0 }
+        },
+        "required": ["source", "figures"]
       }
     },
-    "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset"],
+    "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset", "quoted"],
     "type": "object",
     "properties": {
       "applied": {
@@ -279,6 +288,11 @@
         "description": "Each of its items its layout sets in none of its places: the slide, by its number in the\ndeck, the item's words, and the layout (agent dogfood 2).",
         "type": "array",
         "items": { "$ref": "#/$defs/Unset" }
+      },
+      "quoted": {
+        "description": "Each of the deck's data sources whose cells its figures quote, by its id, and how many\nfigures: a quoted figure is set again from its cell by every data edit (agent dogfood 3).",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Quoted" }
       }
     }
   }

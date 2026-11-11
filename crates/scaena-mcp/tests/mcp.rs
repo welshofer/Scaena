@@ -1556,6 +1556,72 @@ async fn route_nines_bar_chart_of_months_lights_june_as_its_file_reads_it() {
     client.cancel().await.unwrap();
 }
 
+/// R1's agent dogfood 3: a hero figure a slide writes that is one cell of a data file given
+/// quotes it, in `deck_generate` and in `slide_write`, so a `data_edit` sets the slide again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hero_figure_quotes_the_cell_of_the_data_given() {
+    let root = scratch("hero-quoted");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("sales.csv"),
+        "month,revenue_keur,new_customers\n2026-01,412,38\n2026-02,398,35\n2026-03,455,44\n2026-04,471,47\n2026-05,502,52\n2026-06,538,61\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let hero = json!({
+        "slideTitle": "June brought the most new customers yet",
+        "layoutSuggestion": "Big Number",
+        "keyBullets": ["61 new customers in June"]
+    });
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[2] = hero.clone();
+    let quoting = |dir: &Path| -> Vec<Value> {
+        let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+        let mut quotes = Vec::new();
+        let mut walk = vec![d];
+        while let Some(v) = walk.pop() {
+            match v {
+                Value::Object(m) => {
+                    if let Some(q) = m.get("quote") {
+                        quotes.push(q.clone());
+                    }
+                    walk.extend(m.into_values());
+                }
+                Value::Array(a) => walk.extend(a),
+                _ => {}
+            }
+        }
+        quotes
+    };
+    let made_dir = root.join("made");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&made_dir),
+            "slides": { "executiveSummary": "A strong first half", "slides": slides },
+            "data": [{ "id": "sales", "file": "sales.csv" }]
+        }),
+    )
+    .await;
+    assert_eq!(made["quoted"], json!([{ "source": "sales", "figures": 1 }]), "{made:#}");
+    let quotes = quoting(&made_dir);
+    assert_eq!(quotes.len(), 1, "{quotes:#?}");
+    assert_eq!(quotes[0]["data"], json!("@sales"), "{quotes:#?}");
+
+    // The same slide written into a deck made by hand, the file attached first.
+    let hand = root.join("hand");
+    ok(&client, "deck_create", json!({ "bundle": path(&hand), "theme": "dusk" })).await;
+    ok(&client, "data_attach", json!({ "bundle": path(&hand), "id": "sales", "file": "sales.csv" })).await;
+    let written = ok(&client, "slide_write", json!({ "bundle": path(&hand), "slide": hero })).await;
+    assert_eq!(written["quoted"], json!([{ "source": "sales", "figures": 1 }]), "{written:#}");
+    assert_eq!(quoting(&hand).len(), 1);
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&hand) })).await["errors"], json!(0));
+    client.cancel().await.unwrap();
+}
+
 /// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
 /// the second and third too once the first has typed `year` as dates (B2), "On time" to
 /// `on_time_pct` with its unit's words aside, and a series named for no column says the file's

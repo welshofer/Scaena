@@ -224,6 +224,15 @@
         },
         "required": ["slide", "words", "layout"]
       },
+      "Quoted": {
+        "description": "How many figures a deck's slides write quote one of its data sources, so a data edit sets\nthem again (agent dogfood 3).",
+        "type": "object",
+        "properties": {
+          "source": { "description": "The data source, by its id.", "type": "string" },
+          "figures": { "description": "How many figures quote it.", "type": "integer", "minimum": 0 }
+        },
+        "required": ["source", "figures"]
+      },
       "Unbound": {
         "description": "A chart that names a data source and was not bound to it, and why (agent dogfood): the slide,\nby its number from 1, the source it named, and what kept it on its own rows.",
         "type": "object",
@@ -235,7 +244,7 @@
         "required": ["slide", "source", "why"]
       }
     },
-    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "unbound", "fixed"],
+    "required": ["created", "arc", "layouts", "fell", "unset", "attached", "quoted", "unbound", "fixed"],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -259,6 +268,11 @@
         "description": "Each data file given, attached as a source by its id.",
         "type": "array",
         "items": { "type": "string" }
+      },
+      "quoted": {
+        "description": "Each data file whose cells the slides' figures quote, by its id, and how many figures: a\nquoted figure is set again from its cell by every `data_edit`.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Quoted" }
       },
       "unbound": {
         "description": "Each chart that names a data source and was not drawn from it: the slide, the source it\nnamed, and why it kept its own rows.",
