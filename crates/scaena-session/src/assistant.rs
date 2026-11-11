@@ -191,6 +191,8 @@ struct DeckFind {
     #[serde(default)]
     words: bool,
     #[serde(default)]
+    kinds: Vec<scaena_core::patch::Kind>,
+    #[serde(default)]
     replace: Option<String>,
     #[serde(default)]
     dry_run: bool,
@@ -455,7 +457,7 @@ impl Session {
             }
             "deck_find" => {
                 let a: DeckFind = args(name, a)?;
-                let query = scaena_core::patch::Query { find: a.find, case: a.case, words: a.words };
+                let query = scaena_core::patch::Query { find: a.find, case: a.case, words: a.words, kinds: a.kinds };
                 let (mut searched, deck) = scaena_ops::find::searching(&b, &query, a.replace.as_deref())?;
                 if let Some(replaced) = &mut searched.replaced {
                     replaced.applied &= !a.dry_run;

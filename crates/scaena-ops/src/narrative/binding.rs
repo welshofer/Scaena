@@ -29,6 +29,15 @@ fn stem(name: &str) -> String {
     name.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
 }
 
+/// The words of a series' or a column's name that say what it measures, its unit's aside, as
+/// quoting reads a column's (agent dogfood 2): "On time" and `on_time_pct` alike, `ontime`.
+fn measured(name: &str) -> String {
+    (name.split(|c: char| !c.is_alphanumeric()))
+        .map(str::to_lowercase)
+        .filter(|w| !w.is_empty() && !super::quoting::UNITS.contains(&w.as_str()))
+        .collect()
+}
+
 /// The deck's data source `named` names: by its id, else by the file it is read from.
 pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
     let wanted = stem(named);
@@ -57,6 +66,9 @@ enum Named {
         short: bool,
         long: bool,
     },
+    /// A year alone ("2021"), naming a date on its first day, as a column of years typed `date`
+    /// holds it (agent dogfood 2).
+    Year,
 }
 
 /// Whether `cell` is `category` as a slide writes it: its words, or its number, or its date.
@@ -84,6 +96,10 @@ fn named(cell: &Datum, category: &str) -> Named {
                 return Named::No;
             }
             let number = |s: &str| s.bytes().all(|b| b.is_ascii_digit()).then(|| s.parse::<i64>().ok()).flatten();
+            if category.len() == 4 && number(category).is_some() {
+                let yes = c.month == 1 && number(category) == Some(c.year);
+                return if yes { Named::Year } else { Named::No };
+            }
             if let Some((y, m)) = category.split_once('-')
                 && y.len() == 4
                 && (1..=2).contains(&m.len())
@@ -131,7 +147,13 @@ pub fn bind(
             chart.categories.iter().all(|cat| table.rows.iter().any(|r| is(&r[c], cat)))
                 && table.rows.iter().all(|r| chart.categories.iter().any(|cat| is(&r[c], cat)))
         })
-        .ok_or_else(|| format!("no column of `{id}` holds the slide's categories ({})", chart.categories.join(", ")))?;
+        .ok_or_else(|| {
+            format!(
+                "no column of `{id}` holds the slide's categories ({}); its columns are {}",
+                chart.categories.join(", "),
+                listed(&table.columns.iter().collect::<Vec<_>>())
+            )
+        })?;
     // A month named without its year names one row, else the chart would read another year's.
     let months: Vec<Named> = (chart.categories.iter())
         .map(|cat| {
@@ -153,13 +175,22 @@ pub fn bind(
     let mut columns = Vec::new();
     for series in &chart.series {
         let named = series.name.as_deref().map(stem).filter(|n| !n.is_empty());
-        let column = match named.and_then(|n| numbers.iter().copied().find(|&c| stem(&table.columns[c]) == n)) {
+        let by_name = named.as_ref().and_then(|n| numbers.iter().copied().find(|&c| stem(&table.columns[c]) == *n));
+        // Else by what it measures, its unit's words aside: "On time" for `on_time_pct`.
+        let by_measure = || {
+            let wanted = series.name.as_deref().map(measured).filter(|n| !n.is_empty())?;
+            let mut found = numbers.iter().copied().filter(|&c| measured(&table.columns[c]) == wanted);
+            let one = found.next();
+            one.filter(|_| found.next().is_none())
+        };
+        let column = match by_name.or_else(by_measure) {
             Some(c) => c,
             None if !several && numbers.len() == 1 => numbers[0],
             None => {
                 return Err(format!(
-                    "no number column of `{id}` is named for the series {}",
-                    series.name.as_deref().map_or("with no name".to_string(), |n| format!("\u{201c}{n}\u{201d}"))
+                    "no number column of `{id}` is named for the series {}; its number columns are {}",
+                    series.name.as_deref().map_or("with no name".to_string(), |n| format!("\u{201c}{n}\u{201d}")),
+                    listed(&numbers.iter().map(|&c| &table.columns[c]).collect::<Vec<_>>())
                 ));
             }
         };
@@ -168,7 +199,32 @@ pub fn bind(
     agrees(chart, &table, x, &columns, id)?;
     let names: Vec<&str> = columns.iter().map(|&c| table.columns[c].as_str()).collect();
     node["data"] = json!(format!("@{id}"));
+    // What it marks by a category marks the row bound, as the column reads it: a year a date
+    // column holds, "2025", is its `2025-01-01` (agent dogfood 2), as lint reads `at.x`.
+    let read_as = |category: &str| -> Option<String> {
+        let row = table.rows.iter().find(|r| is(&r[x], category))?;
+        Some(row[x].label()).filter(|label| label != category)
+    };
+    for note in node.get_mut("annotations").and_then(Value::as_array_mut).into_iter().flatten() {
+        let Some(at) = note.pointer_mut("/at/x") else { continue };
+        let places: Vec<&mut Value> = match at {
+            Value::Array(ends) => ends.iter_mut().collect(),
+            one => vec![one],
+        };
+        for place in places {
+            if let Some(label) = place.as_str().and_then(read_as) {
+                *place = json!(label);
+            }
+        }
+    }
     node["x"]["field"] = json!(table.columns[x]);
+    // Its years print as the slide wrote them, a date column's first days by their year alone.
+    if node["x"].get("format").is_none() && !months.is_empty() {
+        let years = (chart.categories.iter()).all(|cat| table.rows.iter().any(|r| named(&r[x], cat) == Named::Year));
+        if years {
+            node["x"]["format"] = json!("%Y");
+        }
+    }
     // Its months print as the slide wrote them, each by its name alone.
     if node["x"].get("format").is_none()
         && !months.is_empty()
@@ -184,6 +240,20 @@ pub fn bind(
     if node["x"]["type"] == "temporal" && table.types[x] != ColumnType::Date {
         if years(deck, files, id, &table, x) {
             dated = Some(table.columns[x].clone());
+            // Its years typed as dates, what it marks by a year marks that year's first day,
+            // as lint then reads its rows (R1's ferry).
+            let first_day = |place: &mut Value| {
+                if let Some(y) = place.as_str().filter(|y| y.len() == 4 && y.bytes().all(|b| b.is_ascii_digit())) {
+                    *place = json!(format!("{y}-01-01"));
+                }
+            };
+            for note in node.get_mut("annotations").and_then(Value::as_array_mut).into_iter().flatten() {
+                match note.pointer_mut("/at/x") {
+                    Some(Value::Array(ends)) => ends.iter_mut().for_each(first_day),
+                    Some(one) => first_day(one),
+                    None => {}
+                }
+            }
         } else {
             node["x"]["type"] = json!("ordinal");
         }
@@ -240,6 +310,17 @@ fn years(deck: &Deck, files: &dyn SourceFiles, id: &str, table: &Table, x: usize
     let Some(decl) = typed.data.get_mut(id) else { return false };
     decl.schema.get_or_insert_with(Default::default).insert(column.clone(), "date".into());
     scaena_core::data::load(&typed, files, id).is_ok_and(|t| t.types[x] == ColumnType::Date)
+}
+
+/// `names` as a reader lists them: "`a`, `b`, and `c`", or "none".
+fn listed(names: &[&String]) -> String {
+    let quoted: Vec<String> = names.iter().map(|n| format!("`{n}`")).collect();
+    match quoted.as_slice() {
+        [] => "none".into(),
+        [one] => one.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
 }
 
 /// Whether each figure the slide writes is the file's, to the places the slide shows.
@@ -361,6 +442,12 @@ mod tests {
             (node["data"].clone(), node["x"]["field"].clone(), node["x"]["format"].clone(), node["y"]["field"].clone()),
             (json!("@sunday-visits"), json!("month"), json!("%b"), json!("sunday_visits"))
         );
+        // What it marks by a month marks that month's row as the date column reads it, so the
+        // deck still validates (Route 9's bar chart on main after #1045, E103).
+        let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2475.0]);
+        node["annotations"] = json!([{ "kind": "highlight", "at": { "x": "Jun" } }]);
+        bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap();
+        assert_eq!(node["annotations"][0]["at"]["x"], json!("2026-06-01"));
         // A figure the file says otherwise still keeps the chart on its own rows.
         let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2500.0]);
         let why = bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap_err();
@@ -377,5 +464,124 @@ mod tests {
         let why = bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap_err();
         assert!(why.contains("holds the slide's categories") || why.contains("more than one year"), "{why}");
         assert_eq!(node["data"], json!("@own"));
+    }
+
+    const FERRY: &str = "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2022,468000,90.4,1872,3100\n2023,521000,89.8,2084,4800\n2024,566000,88.1,2264,7200\n2025,604000,86.9,2416,9800\n";
+
+    /// R1's agent dogfood 2: `ferry.csv`, its `year` typed `date` as a first bind types it, or
+    /// as `data_attach` reads it before, a number.
+    fn ferry(year_dated: bool) -> (Deck, BTreeMap<String, Vec<u8>>) {
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        let year = if year_dated { "date" } else { "number" };
+        doc["data"]["ferry"] = json!({ "source": "data/ferry.csv", "schema": {
+            "year": year, "riders": "number", "on_time_pct": "number",
+            "fare_revenue_kusd": "number", "midday_turnaways": "number"
+        } });
+        let files = BTreeMap::from([("data/ferry.csv".to_string(), FERRY.as_bytes().to_vec())]);
+        (Deck::from_json(&doc.to_string()).unwrap(), files)
+    }
+
+    fn by_year(chart: &str, series: &str, values: &[f64]) -> (Value, ChartData) {
+        let node = json!({
+            "type": "chart", "chart": chart, "data": "@own",
+            "x": { "field": "category", "type": "ordinal" },
+            "y": { "field": "value", "type": "quantitative" }
+        });
+        let chart = ChartData {
+            categories: ["2021", "2022", "2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![Series { name: Some(series.into()), values: values.iter().map(|v| Some(*v)).collect() }],
+            unit: None,
+            source_id: Some("ferry".into()),
+        };
+        (node, chart)
+    }
+
+    /// A year a slide writes names a date column's first day of that year, once a first bind
+    /// has typed the column `date` (agent dogfood 2, B2): the later charts bind too, printing
+    /// their years as written.
+    #[test]
+    fn a_year_names_a_date_column_of_years() {
+        assert_eq!(named(&month(2021, 1), "2021"), Named::Year);
+        assert_eq!(named(&month(2021, 2), "2021"), Named::No);
+        assert_eq!(named(&month(2022, 1), "2021"), Named::No);
+        let (deck, files) = ferry(true);
+        let (mut node, chart) = by_year("line", "Riders", &[412000.0, 468000.0, 521000.0, 566000.0, 604000.0]);
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "ferry"), Ok(None));
+        assert_eq!(
+            (node["x"]["field"].clone(), node["x"]["format"].clone(), node["y"]["field"].clone()),
+            (json!("year"), json!("%Y"), json!("riders"))
+        );
+        // What it marks by a year marks that year's row as the column reads it.
+        let (mut node, chart) = by_year("bar", "Riders", &[412000.0, 468000.0, 521000.0, 566000.0, 604000.0]);
+        node["annotations"] = json!([
+            { "kind": "highlight", "at": { "x": "2025" } },
+            { "kind": "band", "at": { "x": ["2022", "2025"] }, "text": "since 2022" }
+        ]);
+        bind(&mut node, &chart, &deck, &files, "ferry").unwrap();
+        assert_eq!(node["annotations"][0]["at"]["x"], json!("2025-01-01"));
+        assert_eq!(node["annotations"][1]["at"]["x"], json!(["2022-01-01", "2025-01-01"]));
+        // A number column of years reads them as written.
+        let (deck, files) = ferry(false);
+        let (mut node, chart) = by_year("bar", "Riders", &[412000.0, 468000.0, 521000.0, 566000.0, 604000.0]);
+        node["annotations"] = json!([{ "kind": "highlight", "at": { "x": "2025" } }]);
+        bind(&mut node, &chart, &deck, &files, "ferry").unwrap();
+        assert_eq!(node["annotations"][0]["at"]["x"], json!("2025"));
+    }
+
+    /// A line along years that types its number column of years as dates marks its years as
+    /// that column then reads them, each year's first day (R1's ferry, after #1056).
+    #[test]
+    fn a_line_that_types_its_years_as_dates_marks_them_so() {
+        let (deck, files) = ferry(false);
+        let (mut node, chart) = by_year("line", "Riders", &[412000.0, 468000.0, 521000.0, 566000.0, 604000.0]);
+        node["x"]["type"] = json!("temporal");
+        node["annotations"] = json!([
+            { "kind": "highlight", "at": {} },
+            { "kind": "rule", "at": { "x": "2021" }, "text": "2021" },
+            { "kind": "band", "at": { "x": ["2022", "2025"] }, "text": "since 2022" }
+        ]);
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "ferry"), Ok(Some("year".into())));
+        assert_eq!(node["annotations"][1]["at"]["x"], json!("2021-01-01"));
+        assert_eq!(node["annotations"][2]["at"]["x"], json!(["2022-01-01", "2025-01-01"]));
+        assert_eq!(node["annotations"][1]["text"], json!("2021"), "its words as written");
+    }
+
+    /// A series named by what it measures binds to the column named so with its unit's words
+    /// (agent dogfood 2): "On time" to `on_time_pct`, whether the years are dates or numbers.
+    #[test]
+    fn a_series_binds_to_its_column_with_its_units_words_aside() {
+        for dated in [true, false] {
+            let (deck, files) = ferry(dated);
+            let (mut node, chart) = by_year("line", "On time", &[91.2, 90.4, 89.8, 88.1, 86.9]);
+            let bound = bind(&mut node, &chart, &deck, &files, "ferry");
+            assert!(bound.is_ok(), "dated {dated}: {bound:?}");
+            assert_eq!(node["y"]["field"], json!("on_time_pct"), "dated {dated}");
+        }
+        assert_eq!(measured("On-time %"), "ontime");
+        assert_eq!(measured("fare_revenue_kusd"), "farerevenue");
+    }
+
+    /// A series no number column is named for says the number columns the file has, so an agent
+    /// can name one from the result alone (agent dogfood 2).
+    #[test]
+    fn a_series_named_for_no_column_says_the_columns_there_are() {
+        let (deck, files) = ferry(true);
+        let (mut node, chart) = by_year("bar", "Turned away", &[1900.0, 3100.0, 4800.0, 7200.0, 9800.0]);
+        let why = bind(&mut node, &chart, &deck, &files, "ferry").unwrap_err();
+        assert_eq!(
+            why,
+            "no number column of `ferry` is named for the series \u{201c}Turned away\u{201d}; its number columns are \
+             `riders`, `on_time_pct`, `fare_revenue_kusd`, and `midday_turnaways`"
+        );
+        assert_eq!(node["data"], json!("@own"));
+        let (mut node, mut chart) = by_year("bar", "Riders", &[412000.0, 468000.0, 521000.0, 566000.0, 604000.0]);
+        chart.categories = ["FY21", "FY22", "FY23", "FY24", "FY25"].map(String::from).to_vec();
+        let why = bind(&mut node, &chart, &deck, &files, "ferry").unwrap_err();
+        assert!(
+            why.ends_with(
+                "its columns are `year`, `riders`, `on_time_pct`, `fare_revenue_kusd`, and `midday_turnaways`"
+            ),
+            "{why}"
+        );
     }
 }

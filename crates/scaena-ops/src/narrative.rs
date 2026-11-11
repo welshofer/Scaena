@@ -75,6 +75,20 @@ pub struct Made {
     /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<Fell>,
+    /// Each item a slide's layout sets in none of its places (agent dogfood 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<Unset>,
+}
+
+/// An item a slide's layout sets in none of its places (agent dogfood 2): the slide, by its number
+/// from 1, the item's words as written, and the layout, so an agent can give the item a slide, a
+/// layout, or the notes of its own. A chart's layout takes its takeaway alone, its figures in its
+/// data; a bullet past that is one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Unset {
+    pub slide: usize,
+    pub words: String,
+    pub layout: String,
 }
 
 /// A slide whose `layoutSuggestion` could not be taken as asked (agent dogfood): the slide, by
@@ -176,6 +190,9 @@ pub struct Generated {
     /// Each slide whose `layoutSuggestion` could not be taken as asked, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<Fell>,
+    /// Each item a slide's layout sets in none of its places (agent dogfood 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<Unset>,
     /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
@@ -260,6 +277,11 @@ pub struct Refused {
     pub slide: usize,
     pub what: String,
     pub why: String,
+    /// What let it go where lint did not: `figures`, words that write the slide's figures
+    /// otherwise, or `claim`, a title that drops its beat's claim or names a topic (W1 dogfood
+    /// 9). None for a change lint found worse, as every record before these reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -752,6 +774,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     };
     let mut unbound = Vec::new();
     let mut dropped = Vec::new();
+    // The deck as each chart is bound to it: a column a chart before it typed as dates is read
+    // so by the charts after it, whose marks then name its rows as lint reads them (R1's ferry).
+    let mut typed = deck.clone();
     for (i, states) in slides.iter().enumerate() {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
@@ -785,26 +810,52 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             });
             continue;
         };
-        match binding::bind(&mut node, &chart, deck, &write.files, &id) {
+        match binding::bind(&mut node, &chart, &typed, &write.files, &id) {
             Ok(dated) => {
                 if let Some(column) = dated {
                     doc["data"][&id]["schema"][&column] = json!("date");
+                    if let Some(decl) = typed.data.get_mut(&id) {
+                        decl.schema.get_or_insert_with(Default::default).insert(column, "date".into());
+                    }
                 }
                 doc["nodes"][&node_id] = node;
-                dropped.push(own);
+                dropped.push((own, id));
             }
             Err(why) => unbound.push(Unbound { slide: i + 1, source: named, why }),
         }
     }
-    // A chart's own rows, drawn by nothing now, go.
+    // A chart's own rows, drawn by nothing now, go, and a beat that cites them as its evidence
+    // cites the source they are bound to (W1 dogfood 9 F5), so no citation names what is gone.
     let text = doc["nodes"].to_string();
-    for own in dropped {
+    for (own, id) in dropped {
         if !text.contains(&format!("\"@{own}\"")) {
             doc["data"].as_object_mut().map(|d| d.remove(&own));
+            cite_again(&mut doc, &own, &id);
         }
     }
+    // Each beat whose slide writes one kept cell's value cites its source, so health finds the
+    // figure sourced, as a bound chart's beat cites its own (W1 dogfood 9 F5).
+    let sources: Vec<String> = deck.data.keys().filter(|id| !owned.contains(id)).cloned().collect();
+    quoting::citing(&mut doc, &write.files, &sources);
     write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
     Ok((write, unbound))
+}
+
+/// Each beat of `doc`'s spine that cites `@own` as its evidence cites `@id` in its place, once.
+fn cite_again(doc: &mut Value, own: &str, id: &str) {
+    let (was, now) = (format!("@{own}"), format!("@{id}"));
+    let sections = doc.pointer_mut("/spine/sections").and_then(Value::as_array_mut).into_iter().flatten();
+    for beat in sections.flat_map(|s| s["beats"].as_array_mut().into_iter().flatten()) {
+        let Some(evidence) = beat.get_mut("evidence").and_then(Value::as_array_mut) else { continue };
+        if !evidence.iter().any(|e| *e == was) {
+            continue;
+        }
+        let cited = evidence.iter().any(|e| *e == now);
+        evidence.retain(|e| *e != was || !cited);
+        for e in evidence.iter_mut().filter(|e| **e == was) {
+            *e = json!(now);
+        }
+    }
 }
 
 /// The chart a made chart's own rows (`source()`'s) draw: its categories in order, and a series
@@ -1547,9 +1598,13 @@ pub fn looked(
     theme: &str,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(Generated, Write), OpsError> {
-    // A title that drops what its beat claims, or names a topic where the slide stated its point,
-    // is let go before the deck is made again (W1's dogfood 8), as a figure changed is.
-    let (changes, titled) = held(shown.narrative, &before.0.layouts, changes);
+    // Words that write a slide's figures otherwise were let go as the answer was read, said
+    // here (W1 dogfood 9); a title that drops what its beat claims, or names a topic where the
+    // slide stated its point, is let go before the deck is made again (W1's dogfood 8).
+    let mut changes = changes;
+    let mut titled = figures_let_go(&mut changes);
+    let (changes, held) = held(shown.narrative, &before.0.layouts, changes);
+    titled.extend(held);
     if changes.is_empty() {
         let mut before = before;
         refuse(&mut before.0, &mut before.1, titled);
@@ -1575,7 +1630,7 @@ pub fn looked(
     let Some(after) = make(&changes)? else { return unchanged(before, invalid) };
     let refused = worse((&before.0, &before.1), (&after.0, &after.1));
     if refused.is_empty() {
-        return Ok(adopt(before.0, after, changes, titled));
+        return Ok(adopt(before.0, after, changes, titled, &[]));
     }
     // Each change let go, said with what lint found (lift-up USE-4).
     let mut said = titled.clone();
@@ -1593,7 +1648,7 @@ pub fn looked(
     if !worse((&before.0, &before.1), (&again.0, &again.1)).is_empty() {
         return unchanged(before, "lint found a slide the model changed worse for it");
     }
-    Ok(adopt(before.0, again, kept, said))
+    Ok(adopt(before.0, again, kept, said, &refused))
 }
 
 /// `changes` less each title that says less than the slide did (W1's dogfood 8), and each title
@@ -1652,7 +1707,8 @@ pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> 
                 None
             };
             if let Some(why) = why {
-                refused.push(Refused { slide: change.slide, what: format!("the title \u{201c}{title}\u{201d}"), why });
+                let what = format!("the title \u{201c}{title}\u{201d}");
+                refused.push(Refused { slide: change.slide, what, why, by: Some("claim".into()) });
                 change.title = None;
             }
         }
@@ -1753,9 +1809,35 @@ pub fn refusals(
                 .map(|f| scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone()))
                 .unwrap_or_else(|| "lint found the slide worse for it".into());
             let what = (changes.iter()).find(|c| c.slide == index + 1).map(asked).unwrap_or_else(|| "a change".into());
-            Refused { slide: index + 1, what, why }
+            Refused { slide: index + 1, what, why, by: None }
         })
         .collect()
+}
+
+/// What the model asked on each of `changes` that the answer's reading let go for writing the
+/// slide's figures otherwise (W1 dogfood 9), taken off them as the deck keeps it, a change that
+/// asks nothing else taken away.
+pub fn figures_let_go(changes: &mut Vec<Change>) -> Vec<Refused> {
+    let mut said = Vec::new();
+    for change in changes.iter_mut() {
+        let slide = change.slide;
+        let by = || Some("figures".to_string());
+        said.extend(std::mem::take(&mut change.figured).into_iter().map(|f| Refused {
+            slide,
+            what: f.what,
+            why: f.why,
+            by: by(),
+        }));
+    }
+    changes.retain(Change::changes);
+    said
+}
+
+/// `more` kept beside what `made` already says it let go, as [`refuse`] keeps them.
+pub fn refuse_too(made: &mut Generated, write: &mut Write, more: Vec<Refused>) {
+    let mut all = made.refused.clone();
+    all.extend(more.into_iter().filter(|r| !made.refused.contains(r)));
+    refuse(made, write, all);
 }
 
 /// `refused` kept as the report says them and as the deck keeps them, in `meta.narrative.refused`,
@@ -1800,21 +1882,22 @@ pub fn unkept(n: usize) -> String {
 }
 
 /// The deck `after` made with the model's `kept` changes, standing for `before`'s: the arc's
-/// fallback and the pictures carried over, and the changes `refused` said and kept with it.
+/// fallback and the pictures carried over, and the changes `refused` said and kept with it; the
+/// slides `worse` names by index, which lint found worse for theirs, said kept as made.
 pub fn adopt(
     before: Generated,
     after: (Generated, Write),
     kept: Vec<Change>,
     refused: Vec<Refused>,
+    worse: &[usize],
 ) -> (Generated, Write) {
     let (mut made, mut write) = after;
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
     made.looked = kept;
-    if !refused.is_empty() {
-        let slides: Vec<usize> = refused.iter().map(|r| r.slide - 1).collect();
-        made.unlooked = Some(as_made(&slides));
+    if !worse.is_empty() {
+        made.unlooked = Some(as_made(worse));
     }
     refuse(&mut made, &mut write, refused);
     (made, write)
@@ -2373,6 +2456,7 @@ pub fn making(
         fallback: None,
         layouts: made.layouts,
         fell: made.fell,
+        unset: made.unset,
         attached: Vec::new(),
         unbound: Vec::new(),
         fixed: Vec::new(),
@@ -2737,6 +2821,7 @@ fn assemble(
     let mut divided = false;
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
+    let (mut outgrown, mut unset): (Vec<Fell>, Vec<Unset>) = (Vec::new(), Vec::new());
     for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -2770,6 +2855,24 @@ fn assemble(
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
         let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
+        // A layout asked for by name that has no place for every item, set as a list of them all,
+        // is said (agent dogfood 2), as a name no layout is called is.
+        let asked = slide.layout_suggestion.trim();
+        let own = as_asked(slide).layout.identity();
+        if layouts::known(asked)
+            && matches!(layout.as_str(), "bullets" | "numbered")
+            && own != layout
+            && theme.layouts.contains_key(own)
+            && !holds(theme, own, items.len())
+            && !taken_as(asked, &layout)
+        {
+            let why = format!(
+                "`{own}` has no place for {} items, so it was set as {}",
+                items.len(),
+                if layout == "numbered" { "a numbered list of them all" } else { "a list of them all" }
+            );
+            outgrown.push(Fell { slide: i + 1, asked: asked.to_string(), layout: layout.clone(), why });
+        }
         // A slide never draws a figure its writer did not write (DF7-1): where it would, it is
         // made again as a list of its items, their words as written.
         let drawn: Vec<&Value> =
@@ -2780,11 +2883,23 @@ fn assemble(
             && theme.layouts.contains_key("bullets")
             && holds(theme, "bullets", items.len())
         {
-            (deck.nodes, deck.data) = (kept.0, kept.2);
+            (deck.nodes, deck.data) = (kept.0.clone(), kept.2.clone());
             deck.states.truncate(kept.1);
             made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last, peak))?;
             layout = "bullets".to_string();
             deck.relisted.push(first + i);
+        }
+        // A chart's layout takes its takeaway alone, its figures in its data: each item after it
+        // that none of its texts sets is said, not left out in silence (agent dogfood 2). Other
+        // layouts set an item in parts of their own (a matrix's cells, a table's columns), or
+        // leave a detail to the notes by design (DF7-5).
+        let words: Vec<String> = (deck.nodes.iter())
+            .filter(|(id, n)| !kept.0.contains_key(*id) && n["type"] == "text")
+            .map(|(_, n)| letters(&said_by(n)))
+            .collect();
+        let charted = matches!(layout.as_str(), "bar-chart" | "line-chart");
+        for item in items.iter().skip(1).filter(|item| charted && !set_in(item, &words)) {
+            unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
         }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
@@ -2915,7 +3030,13 @@ fn assemble(
     Ok((
         Made {
             deck: out,
-            fell: fell_back(narrative, &chosen),
+            fell: {
+                let mut fell = fell_back(narrative, &chosen);
+                fell.extend(outgrown);
+                scaena_core::sort::by_key(&mut fell, |f| f.slide);
+                fell
+            },
+            unset,
             layouts: chosen,
             assets: BTreeMap::new(),
             relisted: std::mem::take(&mut deck.relisted),
@@ -3439,7 +3560,7 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
 }
 
 /// Every figure in `text`, in order, as [`figure`] reads the first.
-fn figures_in(text: &str) -> Vec<String> {
+pub(crate) fn figures_in(text: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut rest = text;
     while let Some(f) = figure(rest) {
@@ -3702,6 +3823,34 @@ fn meaning(items: &[Item], lang: &str) -> Option<String> {
         Some(first) if led(first).is_some() => led(first).map(|(_, rest)| continued(&rest, lang)),
         _ => items.get(1).map(|i| i.whole.clone()),
     }
+}
+
+/// The words a text node says: its `text`, or its runs' in turn.
+fn said_by(node: &Value) -> String {
+    match (node["text"].as_str(), node["runs"].as_array()) {
+        (Some(text), _) => text.to_string(),
+        (None, Some(runs)) => runs.iter().filter_map(|r| r["text"].as_str()).collect(),
+        _ => String::new(),
+    }
+}
+
+/// `text`'s letters and digits alone, lower case: words compared as set, whatever their marks,
+/// spaces, quotes, and case ("1,900" and "1 900" alike).
+fn letters(text: &str) -> String {
+    text.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+/// Whether `item` is set on its slide, whose texts say `words` (each as [`letters`] has it): its
+/// words whole in one, or each of its parts in one: its label and its detail, or its figure and
+/// the words that run on from it. An item with nothing to say is set.
+fn set_in(item: &Item, words: &[String]) -> bool {
+    let somewhere = |part: &str| {
+        let part = letters(part);
+        part.is_empty() || words.iter().any(|w| w.contains(&part))
+    };
+    somewhere(&item.whole)
+        || item.label.as_deref().is_some_and(|label| somewhere(label) && somewhere(&item.detail))
+        || led(item).is_some_and(|(figure, rest)| somewhere(&figure) && somewhere(&rest))
 }
 
 /// The figure an item opens on and the words that run on from it, where no label sets them
@@ -7151,24 +7300,28 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     let words = |text: &str| -> Vec<String> {
         (text.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
     };
-    let runs_on = |category: &str| {
-        let said = words(takeaway.unwrap_or_default());
+    let runs_on = |text: &str, category: &str| {
+        let said = words(text);
         let named = words(category);
         (1..said.len()).any(|i| {
             matches!(said[i - 1].as_str(), "since" | "after" | "from") && said[i..].starts_with(named.as_slice())
         })
     };
-    match named.as_slice() {
-        [one] if (years || ordered(&chart.categories)) && runs_on(&chart.categories[*one]) => {
-            return chart.categories.len().checked_sub(1);
-        }
-        [one] => return Some(*one),
-        _ => {}
-    }
+    // The bar a sentence names: the latest where its words run on from the category they name
+    // ("since 2022"), else that one.
+    let lit =
+        |text: &str, one: usize| match (years || ordered(&chart.categories)) && runs_on(text, &chart.categories[one]) {
+            true => chart.categories.len().checked_sub(1),
+            false => Some(one),
+        };
     // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
-    // dipped in June"), ahead of any figure (W1's dogfood 8).
-    if let Some(i) = title.and_then(|t| headlined(&chart.categories, t)) {
-        return Some(i);
+    // dipped in June") (W1's dogfood 8): the claim, ahead of the category a takeaway names for
+    // what surrounds it ("Two clients moved their contracts into March", agent dogfood 3).
+    if let Some((t, i)) = title.and_then(|t| headlined(&chart.categories, t).map(|i| (t, i))) {
+        return lit(t, i);
+    }
+    if let [one] = named.as_slice() {
+        return lit(takeaway.unwrap_or_default(), *one);
     }
     // The figure a sentence lands on: its last that is one bar's value alone, never a figure of a
     // category's own name ("Q3", "FY25").
@@ -8219,6 +8372,42 @@ mod tests {
         assert_eq!(headlined(&["Jun".into(), "June".into()], "Ridership dipped in June"), None, "both name it");
         assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q4 beat plan"), Some(1));
         assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q45 beat plan"), None, "a figure is whole");
+        // The headline's month, ahead of another its takeaway names for what surrounds it (agent
+        // dogfood 3): "Im Februar sank…" lights Februar, not the März two clients moved into.
+        let months = ["Januar", "Februar", "März", "April", "Mai", "Juni"].map(String::from).to_vec();
+        let lit = |title: &str, takeaway: &str| {
+            let slide = Slide {
+                slide_title: title.into(),
+                layout_suggestion: "Bar Chart".into(),
+                key_bullets: vec![takeaway.into()],
+                chart_data: Some(ChartData {
+                    categories: months.clone(),
+                    series: vec![scaena_narrato::Series {
+                        name: Some("Umsatz".into()),
+                        values: [412., 398., 455., 471., 502., 538.].map(Some).to_vec(),
+                    }],
+                    ..ChartData::default()
+                }),
+                ..Slide::default()
+            };
+            let mut n = narrative("", vec![slide]);
+            n.brief.language = Some("German".into());
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            let chart =
+                made.deck["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap();
+            chart["annotations"][0]["at"]["x"].clone()
+        };
+        let moved = "Zwei Großkunden haben ihre Verträge in den März verschoben";
+        assert_eq!(lit("Im Februar sank der Umsatz auf 398 TEUR", moved), json!("Februar"));
+        // A headline that names none leaves the takeaway's month lit, as before.
+        assert_eq!(lit("Der Umsatz schwankte im Frühjahr", moved), json!("März"));
+        // A headline that names two months names no one bar: #1034's order decides, the takeaway's
+        // month first, else the bar the headline's figure lands on.
+        assert_eq!(lit("Von Februar bis Juni stieg der Umsatz", moved), json!("März"));
+        assert_eq!(
+            lit("Von Februar bis Juni stieg der Umsatz auf 538 TEUR", "Zwei Großkunden kamen dazu"),
+            json!("Juni")
+        );
     }
 
     #[test]
@@ -8258,6 +8447,7 @@ mod tests {
             subtitle: None,
             bullets: Some(vec!["EBITDA +18% im Jahr".into(), "Umsatz stabil".into()]),
             why: "Tighter.".into(),
+            ..Change::default()
         };
         let (looked, layouts) = changed(&talk, &[change]);
         let made = deck_as(&looked, &theme, &Pictures::new(), &layouts).unwrap();
@@ -10135,6 +10325,24 @@ mod tests {
     /// Route 9 free for twelve months" as "A free Route 9", or names a topic where the title
     /// stated its point, "How we would know it worked" as "Measurement" (W1's dogfood 8). A title
     /// that keeps what its beat claims and states it is taken.
+    /// A beat that cites a chart's own rows cites the source they were bound to, once, where it
+    /// cites that source already (W1 dogfood 9 F5); a citation of anything else stays.
+    #[test]
+    fn a_beat_cites_the_source_its_chart_was_bound_to() {
+        let mut doc = json!({ "spine": { "sections": [{ "id": "s", "beats": [
+            { "id": "a", "evidence": ["@own", "source:visits.csv"] },
+            { "id": "b", "evidence": ["@own", "@visits"] },
+            { "id": "c", "evidence": ["@other"] },
+            { "id": "d" }
+        ] }] } });
+        cite_again(&mut doc, "own", "visits");
+        let cited: Vec<&Value> = (0..4).map(|b| &doc["spine"]["sections"][0]["beats"][b]["evidence"]).collect();
+        assert_eq!(*cited[0], json!(["@visits", "source:visits.csv"]));
+        assert_eq!(*cited[1], json!(["@visits"]));
+        assert_eq!(*cited[2], json!(["@other"]));
+        assert!(cited[3].is_null());
+    }
+
     #[test]
     fn a_look_that_turns_a_claim_into_a_topic_is_let_go() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -10202,6 +10410,48 @@ mod tests {
         assert!(made.refused.is_empty(), "{:#?}", made.refused);
         // A health finding's label check reads the same words a topic.
         assert!(crate::health::names_topic("Measurement", 1) && !crate::health::names_topic("Measurement", 3));
+    }
+
+    /// What the look's reading let go for writing a slide's figures otherwise is kept beside
+    /// what else is refused, in the report and in `meta.narrative.refused`, and said as no
+    /// slide lint found worse (W1 dogfood 9); what else the answer asks stands.
+    #[test]
+    fn a_look_that_writes_a_figure_otherwise_is_said_let_go() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let n = route9();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let before = (made, write.unwrap());
+        let figured = |slide: usize, what: &str| Change {
+            slide,
+            why: "Tighter.".into(),
+            figured: vec![scaena_narrato::look::Figured {
+                what: what.into(),
+                why: "it drops 12, which the slide wrote".into(),
+            }],
+            ..Change::default()
+        };
+        let mut taken = figured(5, "the subtitle \u{201c}A year\u{201d}");
+        taken.title = Some("Discounts haven't moved the number".into());
+        let changes = vec![figured(6, "the title \u{201c}A free Route 9\u{201d}"), taken];
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, write) = looked(shown, changes, before, Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        let said: Vec<(usize, &str)> = made.refused.iter().map(|r| (r.slide, r.what.as_str())).collect();
+        assert_eq!(said, [(6, "the title \u{201c}A free Route 9\u{201d}"), (5, "the subtitle \u{201c}A year\u{201d}")]);
+        assert!(made.refused.iter().all(|r| r.why == "it drops 12, which the slide wrote"));
+        assert_eq!(made.unlooked, None, "no slide was found worse");
+        assert_eq!(made.looked.len(), 1, "{:#?}", made.looked);
+        assert!(made.looked[0].figured.is_empty());
+        let kept = &write.deck.meta.as_ref().unwrap().extra["narrative"]["refused"];
+        assert_eq!(kept.as_array().unwrap().len(), 2, "{kept:#}");
+        let deck = write.deck.to_value().unwrap();
+        assert!(
+            deck["nodes"]
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|n| n["text"] == "Discounts haven\u{2019}t moved the number")
+        );
     }
 
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says
@@ -11663,6 +11913,7 @@ mod tests {
                 slide: 4,
                 what: "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points".into(),
                 why: why.clone(),
+                by: None,
             }]
         );
         let (mut kept_made, mut kept_write) = (made.clone(), write.clone());
@@ -12474,6 +12725,68 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A chart's layout takes its takeaway alone: a bullet after it that no place sets is said in
+    /// `unset`, its words as written; and a layout asked for by name that has no place for every
+    /// item, set as a list of them all, in `fell` (agent dogfood 2). A closing that takes one of
+    /// its own (three takeaways) is said in neither.
+    #[test]
+    fn what_a_layout_leaves_out_or_outgrows_is_said() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let years = || ChartData {
+            categories: ["2021", "2022", "2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Turned away".into()),
+                values: [1900., 3100., 4800., 7200., 9800.].map(Some).to_vec(),
+            }],
+            ..ChartData::default()
+        };
+        let slide = |title: &str, kind: &str, bullets: &[&str], chart: Option<ChartData>| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: bullets.iter().map(|b| b.to_string()).collect(),
+            chart_data: chart,
+            ..Slide::default()
+        };
+        let slides = vec![
+            slide("Add a midday sailing", "Title", &[], None),
+            slide(
+                "Turnaways have five-folded in four years",
+                "Bar Chart",
+                &["Midday riders turned away, 2021 to 2025", "9,800 turned away in 2025, up from 1,900"],
+                Some(years()),
+            ),
+            slide(
+                "Fund the midday sailing from 2026",
+                "Closing",
+                &[
+                    "Approve $1.1M a year for a fourth daily sailing",
+                    "Review ridership and on-time performance after twelve months",
+                ],
+                None,
+            ),
+            slide(
+                "What to take away",
+                "Closing",
+                &["Demand is growing", "The boat is full", "A sailing fixes it"],
+                None,
+            ),
+        ];
+        let m = deck(&narrative("", slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(m.layouts[1], "bar-chart");
+        let unset: Vec<(usize, &str, &str)> =
+            m.unset.iter().map(|u| (u.slide, u.words.as_str(), u.layout.as_str())).collect();
+        assert_eq!(unset, [(2, "9,800 turned away in 2025, up from 1,900", "bar-chart")], "{:?}", m.unset);
+        assert_eq!(m.layouts[2], "bullets");
+        assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
+        let fell = &m.fell[0];
+        assert_eq!((fell.slide, fell.asked.as_str(), fell.layout.as_str()), (3, "Closing", "bullets"));
+        assert_eq!(fell.why, "`closing` has no place for 2 items, so it was set as a list of them all");
+        assert_eq!(m.layouts[3], "takeaways", "three points take a closing of their own, said nowhere");
+        // The takeaway alone, or a second bullet a place sets, is no item left out.
+        let one = slide("Turnaways have five-folded", "Bar Chart", &["Midday riders turned away"], Some(years()));
+        assert!(deck(&narrative("", vec![one]), &theme, &Pictures::new()).unwrap().unset.is_empty());
     }
 
     /// A made deck's hero figures quote the sheet given where one kept cell holds them: a Big

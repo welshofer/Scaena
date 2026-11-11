@@ -105,7 +105,7 @@ impl Default for Scaena {
         let mut tool_router = Self::tool_router();
         for route in tool_router.map.values_mut() {
             route.attr.input_schema = standard(&route.attr.input_schema);
-            route.attr.output_schema = route.attr.output_schema.as_deref().map(standard);
+            route.attr.output_schema = route.attr.output_schema.as_deref().map(|s| standard(&bare(s)));
         }
         Scaena {
             tool_router,
@@ -374,6 +374,37 @@ fn standard(schema: &Map<String, Value>) -> Arc<Map<String, Value>> {
     let mut schema = schema.clone();
     object(&mut schema);
     Arc::new(schema)
+}
+
+/// `schema`, a tool's output schema, without the prose its fields carry (`description`, `title`):
+/// what a result holds is said by the tool's description and read in the result itself, and the
+/// prose was three-quarters of what `tools/list` weighed, 154 of 213 KB (agent dogfood 2). Its
+/// shape stays whole, so a client that checks structured content still checks it; a field that is
+/// itself called `description` or `title` stays.
+fn bare(schema: &Map<String, Value>) -> Map<String, Value> {
+    fn object(o: &mut Map<String, Value>, fields: bool) {
+        if !fields {
+            o.retain(|key, v| !(matches!(key.as_str(), "description" | "title") && v.is_string()));
+        }
+        for (key, v) in o.iter_mut() {
+            if matches!(key.as_str(), "default" | "examples" | "const" | "enum") {
+                continue;
+            }
+            // The members of `properties` (and of `$defs`) are names, not keywords.
+            let names = matches!(key.as_str(), "properties" | "$defs" | "definitions" | "patternProperties");
+            value(v, names && !fields);
+        }
+    }
+    fn value(v: &mut Value, fields: bool) {
+        match v {
+            Value::Object(o) => object(o, fields),
+            Value::Array(a) => a.iter_mut().for_each(|v| value(v, false)),
+            _ => {}
+        }
+    }
+    let mut schema = schema.clone();
+    object(&mut schema, false);
+    schema
 }
 
 /// Who the client is, as the history of a bundle it edits names it: `agent:<name>`, by the
@@ -661,6 +692,12 @@ pub struct DeckFind {
     /// Whole words only: a match that neither begins nor ends inside a word.
     #[serde(default)]
     pub words: bool,
+    /// Only these kinds of words: `text` (the slides' texts), `alt` (descriptions), `notes`,
+    /// `claim` (the spine's beats' claims), `chart` (what a chart or a table writes), `data`
+    /// (the cells of its data); every kind without it. `["text"]` replaces a slide's words and
+    /// leaves the claims the outline settled as they are.
+    #[serde(default)]
+    pub kinds: Vec<scaena_core::patch::Kind>,
     /// Replace every match with this, in one patch: a `replace_text` where each text lives.
     #[serde(default)]
     pub replace: Option<String>,
@@ -965,10 +1002,12 @@ pub struct DeckGenerate {
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
     /// `Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;
     /// `Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name
-    /// that could not be taken is in the result's `fell`, with why), `keyBullets`,
-    /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
-    /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
-    /// `chartData` where a chart is drawn.
+    /// that could not be taken, or that had no place for every bullet and was set as a list,
+    /// is in the result's `fell`, with why), `keyBullets` (a chart's layout sets the first, its
+    /// takeaway, alone: each after it no place sets is in `unset`), `speakerNotes`, `beatIndex`
+    /// and `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),
+    /// `expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is
+    /// drawn. `scaena://examples/ferry.generate.json` is a whole call that lints clean.
     pub slides: Map<String, Value>,
     /// The theme to make it in: one that ships, by name (`dusk`, `daybreak`, `ember`, `salon`),
     /// or a theme file. `dusk` without it.
@@ -1110,6 +1149,10 @@ pub struct DeckGenerated {
     /// from 1, what it asked, the layout it took, and why.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<scaena_ops::narrative::Fell>,
+    /// Each item a slide's layout sets in none of its places: the slide, by its number from 1, the
+    /// item's words as written, and the layout. Give it a slide, a layout, or the notes of its own.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<scaena_ops::narrative::Unset>,
     /// Each data file given, attached as a source by its id.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
@@ -1176,7 +1219,9 @@ impl Scaena {
         duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
         layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); \
         place puts a node where it goes; choose sets a property where its value \
-        lives; replace_text changes words, keeping their runs. A patch that would make the deck invalid is refused. \
+        lives; replace_text changes words, keeping their runs. An op that does not read says the shape it is written \
+        in, and the skill `scaena://skills/author-deck` writes every op so. A patch that would make the deck invalid \
+        is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
         no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said \
@@ -1207,7 +1252,7 @@ impl Scaena {
         Parameters(a): Parameters<DeckFind>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<scaena_ops::find::Searched>, String> {
-        let query = Query { find: a.find, case: a.case, words: a.words };
+        let query = Query { find: a.find, case: a.case, words: a.words, kinds: a.kinds };
         let author = author(&context);
         blocking(move || {
             let b = held_if(a.replace.is_some(), &a.bundle, author)?;
@@ -1697,7 +1742,8 @@ impl Scaena {
         claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a \
         beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s \
         blank slide. Its set of texts held to one size and lint's fixes \
-        taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, \
+        taken, as a made deck's are; what no fix mends is in `left`, a text past its place first, and each item \
+        its layout sets in none of its places (a chart's takes its takeaway alone) in `unset`. One patch, \
         refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only \
         with `verbose`), with the slide's states, layout, and beat: a beat whose claim the slide it takes the \
         place of said, and its new headline does not, is in `restated`, with the `fix` that sets the claim to \
@@ -1795,6 +1841,7 @@ impl Scaena {
                 fallback: made.fallback,
                 layouts: made.layouts,
                 fell: made.fell,
+                unset: made.unset,
                 attached: made.attached,
                 unbound: made.unbound,
                 fixed: made.fixed,

@@ -499,3 +499,15 @@ fn the_skills_ask_only_what_the_code_does() {
     let state = &deck["states"][0];
     assert_eq!((state["transition"].as_str(), state["hold"].as_f64()), (Some("fast"), Some(4000.0)), "{state:#}");
 }
+
+/// The author-deck skill writes each semantic op as the patch compiler says it when one does not
+/// read (agent dogfood 2): every shape of `scaena_core::patch::SHAPES`, line for line.
+#[test]
+fn the_skill_writes_each_op_as_the_compiler_says_it() {
+    let (_, skill) = skills().into_iter().find(|(name, _)| name == "author-deck").unwrap();
+    let missing: Vec<&str> = (scaena_core::patch::SHAPES.iter())
+        .filter(|(_, shape)| !skill.lines().any(|l| l == *shape))
+        .map(|(name, _)| *name)
+        .collect();
+    assert!(missing.is_empty(), "author-deck writes no line for {missing:?}");
+}

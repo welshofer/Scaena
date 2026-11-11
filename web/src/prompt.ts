@@ -89,7 +89,9 @@ export function said(event: GeneratingEvent): string {
     case "unnoted":
       return `Notes not written for the talk: ${event.why}`;
     case "refused":
-      return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${event.why}`;
+      return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${sentence(event.why)}`;
+    case "unbound":
+      return `Slide ${event.slide}'s chart keeps its own rows, not ${event.source}'s: ${event.why}`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
@@ -97,6 +99,13 @@ export function said(event: GeneratingEvent): string {
     case "unfitted":
       return `Not rewritten to fit: ${event.why}`;
   }
+}
+
+/** `why` as a sentence of its own, its first letter a capital and a full stop at its end (W1
+ * dogfood 9): a change let go for its figures says "it drops 2,475, …", and lint's "Its text …". */
+export function sentence(why: string): string {
+  const out = why.charAt(0).toUpperCase() + why.slice(1);
+  return !out || /[.!?]$/.test(out) ? out : `${out}.`;
 }
 
 /** `ms`, how long a step has taken, as a person says it: nothing under five seconds, then " · 42 s",

@@ -43,6 +43,9 @@ pub struct Written {
     /// Its chart, where it names a data source and was not drawn from it, and why.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unbound: Vec<super::Unbound>,
+    /// Each of its items its layout sets in none of its places (agent dogfood 2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<super::Unset>,
 }
 
 /// `slide` built for the deck `doc`, in `theme`, as the deck's generator builds a slide: its
@@ -262,6 +265,7 @@ pub fn slide_into(
     let layout = made.layouts.first().cloned().unwrap_or_default();
     // Said by the slide's number in the deck.
     let fell: Vec<super::Fell> = made.fell.iter().map(|f| super::Fell { slide: index + 1, ..f.clone() }).collect();
+    let unset: Vec<super::Unset> = made.unset.iter().map(|u| super::Unset { slide: index + 1, ..u.clone() }).collect();
     let mut new_states: Vec<Value> = built.states[states_before..].to_vec();
     let states: Vec<String> = new_states.iter().filter_map(|s| s["id"].as_str().map(str::to_string)).collect();
     let begun = made.deck.pointer("/spine/sections/0").cloned();
@@ -447,7 +451,7 @@ pub fn slide_into(
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }
-    Ok(Written { patch, states, layout, beat: beat_id, what, fell, unbound })
+    Ok(Written { patch, states, layout, beat: beat_id, what, fell, unbound, unset })
 }
 
 /// Each run's link in `value` (a deck's nodes, its overrides, or its states) to one of `from`
@@ -548,6 +552,10 @@ pub struct SlideWritten {
     /// slide, the source it named, and why it kept its own rows (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unbound: Vec<super::Unbound>,
+    /// Each of its items its layout sets in none of its places: the slide, by its number in the
+    /// deck, the item's words, and the layout (agent dogfood 2).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unset: Vec<super::Unset>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -586,6 +594,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             beat: written.beat,
             fell: written.fell.clone(),
             unbound: written.unbound.clone(),
+            unset: written.unset.clone(),
             fixed: Vec::new(),
             left,
         };
@@ -639,6 +648,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
         left,
         fell: written.fell,
         unbound: written.unbound,
+        unset: written.unset,
     };
     Ok((out, write))
 }
@@ -650,7 +660,7 @@ impl SlideWritten {
         let p = &self.patched;
         self.report = Some(crate::patch::Reported {
             applied: p.applied,
-            ops: Vec::new(),
+            ops: None,
             summary: self.summary.clone(),
             patch: verbose.then(|| p.patch.clone()),
             added: p.added.clone(),
