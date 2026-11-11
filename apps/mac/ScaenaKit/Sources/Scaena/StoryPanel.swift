@@ -22,6 +22,9 @@ struct StoryPanel: View {
     /// The findings the story shown was read beside (`StoryLint.keyed`), and the reads asked again
     /// since by a lint of every state that found otherwise (lift-up 20261110 deferred).
     @State private var readWith: String?
+    /// The open rows as last read, each kept where it stood by the read before (editor dogfood 6).
+    @State private var places = StoryPlaces()
+    @State private var open: [[Health.Finding]] = []
     @State private var again = 0
 
     var body: some View {
@@ -104,7 +107,7 @@ struct StoryPanel: View {
                     }
                     // What to do first, open; the rest folded under one "N more" (lift-up S1).
                     let triaged = health.triaged()
-                    ForEach(Self.bySlide(triaged.open), id: \.first?.slide) { run in
+                    ForEach(open, id: \.first?.slide) { run in
                         row(run, health)
                     }
                     if !triaged.more.isEmpty {
@@ -123,6 +126,12 @@ struct StoryPanel: View {
                 Text(why).foregroundStyle(.secondary)
             }
         }
+        // A slide a row's words name shows it (editor dogfood 6).
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "scaena-state" else { return .discarded }
+            edits.go(String(url.absoluteString.dropFirst("scaena-state:".count)))
+            return .handled
+        })
         .opacity(asLastRead ? 0.6 : 1)
         .task(id: Asked(revision: editor.revision, again: again)) { await read() }
         .onChange(of: editor.linted) { _, linted in
@@ -142,12 +151,15 @@ struct StoryPanel: View {
         do {
             guard let read = try await editor.story(after: health), !Task.isCancelled else { return }
             health = read.health
+            open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health.findings)
             asLastRead = read.asLastRead
             if !read.asLastRead { grounded = (try? editor.session.grounded()) ?? [] }
             why = nil
         } catch {
             asLastRead = false
             health = nil
+            places = StoryPlaces()
+            open = []
             why = "Its story couldn't be read. \(Why.said(error))"
         }
     }
@@ -197,7 +209,8 @@ struct StoryPanel: View {
                     .lineLimit(1)
             }
             ForEach(run) { finding in
-                Text(Self.sentence(finding)).font(.callout)
+                // Each slide it names a link that shows it (editor dogfood 6).
+                Text(health.slidesShown(Self.sentence(finding))).font(.callout)
             }
             HStack(spacing: 8) {
                 ForEach(run.filter { $0.fix != nil }) { finding in
