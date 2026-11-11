@@ -41,6 +41,35 @@ struct StoryPanel: View {
                         Text(health.arc.map { "of 100, written to the \($0) arc" } ?? "of 100, no arc named")
                             .foregroundStyle(.secondary)
                     }
+                    // What holds the score down, each slide it names a button that shows it, as the
+                    // browser's Story says it (W1's dogfood 5): inline where it fits, else the
+                    // sentence over its slides' buttons.
+                    if let said = health.cappedSaid {
+                        let parts = health.cappedParts
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 0) {
+                                ForEach(parts.indices, id: \.self) { i in
+                                    if let state = parts[i].state {
+                                        Button(parts[i].words) { edits.go(state) }
+                                            .buttonStyle(.borderless)
+                                    } else {
+                                        Text(parts[i].words).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(said).foregroundStyle(.secondary)
+                                HStack {
+                                    ForEach(parts.indices.filter { parts[$0].state != nil }, id: \.self) { i in
+                                        Button("Show \(parts[i].words)") { if let state = parts[i].state { edits.go(state) } }
+                                            .buttonStyle(.borderless)
+                                    }
+                                }
+                            }
+                        }
+                        .font(.callout)
+                        .accessibilityIdentifier("story-capped")
+                    }
                     ForEach(Self.measures(health), id: \.name) { measure in
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(measure.name)
