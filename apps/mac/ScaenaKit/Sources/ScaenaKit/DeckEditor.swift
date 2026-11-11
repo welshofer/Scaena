@@ -102,6 +102,12 @@ public final class DeckEditor {
     /// once, and typing once its burst ends (`restate(since:)`).
     public private(set) var restating: Restated?
 
+    /// What the last text typed on the canvas made of the figures it typed over that quote their
+    /// data no more (dogfood-5 item 13), as the browser says it: "Slide 2: “$19.4” no longer
+    /// quotes revenue in the data “Q3 Revenue” · ⌘Z brings it back". None where it unquoted
+    /// nothing: a figure the words still say keeps its quote.
+    public private(set) var unquotedSaid: String?
+
     /// Why the deck shows no state, where it shows none: it opened, but its source does not
     /// compile or validate, so it is no deck to show or edit yet. What the window says in place
     /// of a slide, the source pane open to mend it.
@@ -222,6 +228,20 @@ public final class DeckEditor {
         return "\(named)'s story still says \(quoted(restating.claim)). Update it to \(quoted(says))?"
     }
 
+    /// The figures the last typing made words, said by the slide `state` is on and by each one's
+    /// source and column, as the browser's editor says them; none where there are none.
+    private func unquoted(in state: String?) -> String? {
+        guard let gone = try? session.unquoted(), !gone.isEmpty else { return nil }
+        let slides = slots.reduce(into: [String]()) { seen, slot in if seen.last != slot.slide { seen.append(slot.slide) } }
+        let slide = slots.first { $0.state == state }.flatMap { s in slides.firstIndex(of: s.slide) }
+        let named = slide.map { "Slide \($0 + 1)" } ?? "This slide"
+        let words = state.flatMap { try? session.call("words", ["state": .string($0)], as: JSONValue.self) }
+        let each = gone.map { g in
+            "“\(g.figure)” no longer quotes \(g.column) in the data “\(words?["sources"]?[g.data]?.string ?? g.data)”"
+        }
+        return "\(named): \(each.joined(separator: "; ")) · ⌘Z brings it back"
+    }
+
     /// What lint found in a change refused, as an editor says it (`scaena_core::words`, as the
     /// browser's `finding` says it): the object it is about, by what it shows in its state, else in
     /// the state shown, or the deck or its theme; then what it finds, in a sentence. A patch, a
@@ -275,6 +295,7 @@ public final class DeckEditor {
         made = typed.source
         uncompiled = typed.source
         slots = typed.timeline
+        unquotedSaid = unquoted(in: ops.lazy.compactMap { $0["state"]?.string }.first)
         // A lint begun on the deck before it is dropped, as one begun before a compile is.
         compiled += 1
         linter.latest.store(compiled, ordering: .relaxed)
