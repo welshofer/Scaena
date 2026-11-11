@@ -3640,7 +3640,8 @@ pub(crate) fn figures_in(text: &str) -> Vec<String> {
 /// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end. A
 /// plain space groups them too, as French is typed ("1 240 000"), where every group before it is
 /// of digits alone, the first of one to three and the rest of three: never a year and a count
-/// ("2025 120"), nor a decimal and what follows it ("2,4 000") (agent dogfood 4).
+/// ("2025 120"), nor a decimal and what follows it ("2,4 000"), nor a group a letter or a hyphen
+/// runs on from ("5 100-metre") (agent dogfood 4).
 fn digits(chars: &[char], start: usize) -> usize {
     let mut end = start;
     while end < chars.len() {
@@ -3648,7 +3649,10 @@ fn digits(chars: &[char], start: usize) -> usize {
         let three = (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
             && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
         let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}') && end > start && three;
-        let typed = c == ' ' && end > start && three && !(start > 0 && chars[start - 1].is_alphanumeric()) && {
+        // A group of three a letter or a hyphen runs on from is a figure of its own: "5 100-metre
+        // sprints" and "10 100m heats" are two, in English and French alike (agent dogfood 4).
+        let ends = chars.get(end + 4).is_none_or(|n| !(n.is_alphabetic() || *n == '-'));
+        let typed = c == ' ' && end > start && three && ends && !(start > 0 && chars[start - 1].is_alphanumeric()) && {
             // The groups before this space: digits alone, split by plain spaces, the first of one
             // to three and each after it of three.
             let before: String = chars[start..end].iter().collect();
@@ -8430,6 +8434,13 @@ mod tests {
         assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
         assert_eq!(figure("Les 3 200 v\u{e9}los du parc").as_deref(), Some("3 200"));
         assert_eq!(figure("Q3 100 clients").as_deref(), Some("100"));
+        // A group a letter or a hyphen runs on from is a figure of its own, in English and French.
+        assert_eq!(figures_in("the first 5 100-metre sprints"), ["5".to_string(), "100".to_string()]);
+        assert_eq!(figures_in("30 150-seat aircraft"), ["30".to_string(), "150".to_string()]);
+        assert_eq!(figures_in("10 100m heats"), ["10".to_string(), "100m".to_string()]);
+        assert_eq!(figures_in("les 5 100-m\u{e8}tres"), ["5".to_string(), "100".to_string()]);
+        assert_eq!(figure("1 240,5 trajets").as_deref(), Some("1 240,5"));
+        assert_eq!(typeset("the first 5 100-metre sprints", "en"), "the first 5 100-metre sprints");
         // The typesetter keeps such a figure on one line, its groups as French sets them.
         assert_eq!(typeset("1 240 000 trajets", "fr"), "1\u{a0}240\u{a0}000 trajets");
         assert_eq!(typeset("en 2025 120 v\u{e9}los", "fr"), "en 2025 120 v\u{e9}los");
