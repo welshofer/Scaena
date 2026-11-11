@@ -1235,6 +1235,39 @@ async fn deck_generate_takes_the_talks_minutes() {
     client.cancel().await.unwrap();
 }
 
+/// `slide_write` reports its patch as `deck_patch` reports one (agent dogfood): what changed in the
+/// slides and the story, the JSON Patch, every state of the deck, only with `verbose`.
+#[tokio::test(flavor = "multi_thread")]
+async fn slide_write_reports_its_patch_as_deck_patch_does() {
+    let root = scratch("slide-summary");
+    let client = connect_in(&root).await;
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let dir = root.join("deck");
+    let five = json!({ "executiveSummary": "Tidewater", "slides": slides["slides"].as_array().unwrap()[..5] });
+    ok(&client, "deck_generate", json!({ "bundle": path(&dir), "slides": five, "theme": "ember" })).await;
+    let slide = slides["slides"][5].clone();
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slide.clone() })).await;
+    assert!(w.get("patch").is_none(), "{w:#}");
+    let first = w["slide"][0].clone();
+    assert_eq!(w["summary"]["slides_added"], json!([first]), "{w:#}");
+    assert_eq!((w["applied"].clone(), w["errors"].clone()), (json!(true), json!(0)));
+    assert!(w.to_string().len() < 4000, "{} bytes", w.to_string().len());
+    // With `verbose`, the patch too, as deck_patch gives it.
+    let v =
+        ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slide, "dry_run": true, "verbose": true }))
+            .await;
+    assert!(v["patch"].as_array().is_some_and(|p| !p.is_empty()), "{v:#}");
+    assert_eq!(v["applied"], json!(false));
+    // And deck_patch's description gives set_state's shape, which an agent reaches for first.
+    let tools = client.list_all_tools().await.unwrap();
+    let patch = tools.iter().find(|t| t.name == "deck_patch").unwrap();
+    let said = patch.description.as_deref().unwrap_or_default();
+    assert!(said.contains(r#""op": "set_state", "id": STATE, "prop": "notes""#), "{said}");
+    client.cancel().await.unwrap();
+}
+
 /// A slide written into a beat that keeps notes of its own, or in place of a slide whose beat
 /// does, keeps its own notes on its first state, which a presenter reads, and a PDF with notes
 /// prints, before the beat's (agent dogfood): none the agent wrote is dropped.

@@ -1183,11 +1183,26 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         Some(arc) => format!("{arc}'s curve"),
         None => "a talk's curve".to_string(),
     };
+    // Where no slide declares its intensity, fidelity reads each as a talk usually runs where it
+    // stands, its words unread (W2's editor dogfood): the line says so, so it does not read as
+    // the slides' own against intensity's "no slide declares" (its figure is #850 FUNC-3's, Jay's).
+    let undeclared = !(read.iter().filter(|s| s.eligible()))
+        .any(|s| s.narrative_meta.as_ref().and_then(|n| n.expected_intensity).is_some_and(f64::is_finite));
     let fidelity = Measure {
         score: Some(fidelity_score as u32),
-        says: match bends.len() {
-            0 => format!("The intensity the slides declare follows {curve_of}."),
-            k => format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend")),
+        says: match (bends.len(), undeclared) {
+            (0, false) => format!("The intensity the slides declare follows {curve_of}."),
+            (k, false) => {
+                format!("{} {} the intensity away from {curve_of}.", counted(k, "slide"), agree(k, "bends", "bend"))
+            }
+            (0, true) => {
+                format!("No slide declares its intensity: read as a talk usually runs, the slides follow {curve_of}.")
+            }
+            (k, true) => format!(
+                "No slide declares its intensity: read as a talk usually runs, {} {} away from {curve_of}.",
+                counted(k, "slide"),
+                agree(k, "falls", "fall")
+            ),
         },
     };
     // Slides that declare what `of` reads, and of those, the ones read: a deck whose words the
@@ -1370,14 +1385,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             );
         }
         if s.body.trim().is_empty() && s.notes.trim().is_empty() {
-            find(
-                &s.id,
-                Severity::Warning,
-                Kind::Empty,
-                format!("Slide {k} says nothing past its headline, and has no notes."),
-                format!("Add to slide {k} what bears out its headline, or notes that say what to tell the room."),
-                None,
-            );
+            // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
+            // it lacks is the notes, never more on the slide.
+            let (says, ask) = if s.one_idea {
+                (
+                    format!("Slide {k} makes its one point in its headline, and has no notes."),
+                    format!("Add notes to slide {k} that say what to tell the room."),
+                )
+            } else {
+                (
+                    format!("Slide {k} says nothing past its headline, and has no notes."),
+                    format!("Add to slide {k} what bears out its headline, or notes that say what to tell the room."),
+                )
+            };
+            find(&s.id, Severity::Warning, Kind::Empty, says, ask, None);
         }
     }
     // A turn out of an agenda is the agenda's own to make (dogfood pass 10): it names the parts
@@ -3485,6 +3506,24 @@ mod tests {
         assert!(!fleet.balance.says.contains("makes a list of points"), "{}", fleet.balance.says);
     }
 
+    /// A one-idea slide with no notes is asked for its notes alone (W1's dogfood 6): a statement
+    /// makes its point in its headline by design, so health never asks to add to the slide.
+    #[test]
+    fn a_one_idea_slide_is_asked_for_notes_alone() {
+        let bare = |slides: &mut Vec<answer::Slide>| {
+            let s = slides.iter_mut().find(|s| s.layout_suggestion == "Statement").unwrap();
+            s.subtitle.clear();
+            s.speaker_notes.clear();
+        };
+        let deck = dogfood("keynote", "", bare);
+        let h = of(&deck);
+        let empty: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Empty).collect();
+        assert_eq!(empty.len(), 1, "{:#?}", h.findings);
+        let k = empty[0].slide;
+        assert_eq!(empty[0].says, format!("Slide {k} makes its one point in its headline, and has no notes."));
+        assert_eq!(empty[0].ask, format!("Add notes to slide {k} that say what to tell the room."));
+    }
+
     /// The close's words are not asked to carry its plan's intensity (W1's dogfood 6): the
     /// keynote's close weakened to "Thank you / Questions?" and planned calm reads far hotter by
     /// its few words, and is asked nothing of it; intensity's figure is as before.
@@ -4102,6 +4141,14 @@ mod tests {
         assert!(h.intensity.says.starts_with("No slide declares intensity"), "{}", h.intensity.says);
         assert!(h.tone.says.starts_with("No slide declares tone"), "{}", h.tone.says);
         assert_eq!((h.intensity.score, h.tone.score), (None, None));
+        // Fidelity reads the slides as a talk usually runs, and says so, never as their words
+        // (W2's editor dogfood); its figure is as before.
+        assert!(
+            h.fidelity.says.starts_with("No slide declares its intensity: read as a talk usually runs, "),
+            "{}",
+            h.fidelity.says
+        );
+        assert!(h.fidelity.score.is_some());
         assert!(!h.findings.iter().any(|f| f.fix.is_some()), "{:#?}", h.findings);
     }
 

@@ -393,6 +393,8 @@ struct SlideWrite {
     beat: Option<String>,
     #[serde(default)]
     dry_run: bool,
+    #[serde(default)]
+    verbose: bool,
 }
 
 /// What `deck_lint` returns, as its MCP tool does.
@@ -754,7 +756,7 @@ impl Session {
         let (mut written, write) = scaena_ops::narrative::slide_writing(&b, slide, &place, a.beat.as_deref(), icons)?;
         written.patched.applied &= !a.dry_run;
         let edited = self.write(write.filter(|_| !a.dry_run), by)?;
-        Ok(Called { edited, ..Called::of(written)? })
+        Ok(Called { edited, ..Called::of(written.verbose(a.verbose))? })
     }
 
     /// `slide_write`'s second half (lift-up FUNC-1), by `by`: `written`, a slide the browser's
@@ -768,7 +770,7 @@ impl Session {
         let (mut out, write) = scaena_ops::narrative::slide_polishing(&b, written)?;
         out.patched.applied &= !dry_run;
         let edited = self.write(write.filter(|_| !dry_run), by)?;
-        Ok(Called { edited, ..Called::of(out)? })
+        Ok(Called { edited, ..Called::of(out.verbose(false))? })
     }
 }
 
