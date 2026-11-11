@@ -458,6 +458,11 @@ fn unit_of(word: &str) -> String {
         "euro" | "euros" | "eur" => "€".into(),
         "pound" | "pounds" | "gbp" => "£".into(),
         "percent" | "per cent" => "%".into(),
+        // Thousands, millions, and billions of euros, as German and French accounts write them
+        // ("240 TEUR" is "240 k\u{20ac}", R2's Nordlicht).
+        "teur" | "teuro" | "t\u{20ac}" | "keur" | "k\u{20ac}" => "k\u{20ac}".into(),
+        "meur" | "m\u{20ac}" => "m\u{20ac}".into(),
+        "md\u{20ac}" | "mrd\u{20ac}" | "mds\u{20ac}" => "md\u{20ac}".into(),
         w if w.len() > 3 && w.ends_with('s') && !w.ends_with("ss") => w[..w.len() - 1].to_string(),
         w => w.to_string(),
     }
@@ -497,7 +502,9 @@ fn figures(text: &str) -> Vec<Figure> {
             number.chars().skip(sign.chars().count()).take_while(|c| c.is_ascii_digit() || ".,".contains(*c)).collect();
         let tail: String = number.chars().skip(sign.chars().count() + digits.chars().count()).collect();
         let value = digits.replace(',', "").trim_end_matches('.').to_string();
-        let after = words.get(k + 1).filter(|n| n.chars().all(char::is_alphabetic) && !n.is_empty());
+        let after = words
+            .get(k + 1)
+            .filter(|n| n.chars().all(|c| c.is_alphabetic() || c == '\u{20ac}') && n.chars().any(char::is_alphabetic));
         let unit = if !sign.is_empty() {
             unit_of(&sign)
         } else if !tail.is_empty() {
@@ -4703,6 +4710,11 @@ mod tests {
         assert_eq!(shown("40 miles")[0], ("40".into(), "40".into(), "mile".into()));
         assert_eq!(&shown("184,000 dollars")[0].1, &shown("$184,000")[0].1);
         assert_eq!(&shown("184,000 dollars")[0].2, &shown("$184,000")[0].2);
+        // A German or French account's thousands of euros are one unit however written.
+        for written in ["Pilotkosten: 240 TEUR", "240 k\u{20ac} im Jahr", "240k\u{20ac}", "240 KEUR"] {
+            assert_eq!(shown(written)[0].1, "240", "{written}");
+            assert_eq!(shown(written)[0].2, "k\u{20ac}", "{written}");
+        }
         assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
         assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
     }
