@@ -4063,6 +4063,11 @@ fn layout_for(
     let brief = items.iter().all(|i| i.detail.chars().count() <= 120);
     let side = |left: &'static str, right: &'static str| if index.is_multiple_of(2) { left } else { right };
     let storied = story(items) && theme.layouts.contains_key("statement");
+    // A slide asked for as code, or whose one item reads as code, shows it on Title and Code, its
+    // card the slide's width (agent dogfood 5).
+    let code = n == 1
+        && theme.layouts.contains_key("title-code")
+        && (code_asked(slide) || coded_in(slide, items, &items[0].whole).is_some());
     let wanted: &str = match identity {
         "title" if pictured => "title-split",
         "title" => "title-center",
@@ -4094,6 +4099,7 @@ fn layout_for(
             4 => "scorecard",
             _ => "number-grid",
         },
+        "body" if code => "title-code",
         "body" if pictured => "bullets-photo",
         // Three or four points each led by its figure, "64% have no car", are figures a room
         // reads at a glance, each on its card with its words under it (W1's dogfood 8).
@@ -4951,6 +4957,26 @@ fn coded_in(slide: &Slide, items: &[Item], text: &str) -> Option<&'static str> {
     (language.name != "plain").then_some(language.name)
 }
 
+/// Whether `slide` asks to be shown as code by its `layoutSuggestion` ("Code", "Code Block",
+/// "Code Snippet", "Snippet", "Source Code", "Code Sample"), as an agent asks it (agent dogfood 5).
+fn code_asked(slide: &Slide) -> bool {
+    let asked = slide.layout_suggestion.trim().to_lowercase();
+    ["code", "code block", "code snippet", "snippet", "source code", "code sample"].contains(&asked.as_str())
+}
+
+/// The language the one item of a slide asked for as code ([`code_asked`]) is written in: as
+/// [`coded_in`] finds it, else by the file its subtitle names alone ("TOML" for
+/// ".cargo/config.toml"), else plain text, which is code all the same (agent dogfood 5).
+fn asked_code_in(slide: &Slide, items: &[Item], text: &str) -> &'static str {
+    if let Some(language) = coded_in(slide, items, text) {
+        return language;
+    }
+    let subtitle = slide.subtitle.trim();
+    let file = (!subtitle.contains(char::is_whitespace) && subtitle.contains('.')).then_some(subtitle);
+    let hints = code::Hints { file, ..Default::default() };
+    code::detect(text, &hints).language().map_or("plain", |l| l.name)
+}
+
 /// The least share of its role's size code set side by side keeps before the two sides stand one
 /// above the other (PLAN 2.138): seven-eighths, 14 pt of the shipped role's 16. A pair shrinking
 /// less keeps the comparison side by side, which reads best as a pair.
@@ -5787,6 +5813,8 @@ impl Slots<'_> {
                 self.subtitle().or_else(|| self.item(0).map(|i| i.whole.clone()))
             }
             "hub" => self.subtitle().or_else(|| self.title()),
+            // Title and Code's code: the slide's one item, as written (agent dogfood 5).
+            "code" if layout == "title-code" => self.item(0).map(|i| i.whole.clone()),
             // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
             // A call to action's button: a bare closing's address (lift-up ATTR-3).
             "button" => calling(self.slide, self.items, self.lang, self.claim).map(|(_, address)| address),
@@ -6456,7 +6484,12 @@ impl Builder {
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
                     // An item written in code is set as code, in its language, on its card, in the
                     // theme's code role, its lines as written and fitted as code fits (dogfood 8a).
-                    let coded = ordinal(name).filter(|(_, part)| part.is_empty()).and_then(|_| s.coded(&text));
+                    let coded =
+                        ordinal(name).filter(|(_, part)| part.is_empty()).and_then(|_| s.coded(&text)).or_else(|| {
+                            // Title and Code's one place for it: in the language it is written in,
+                            // plain text where none is found (agent dogfood 5).
+                            (name == "code" && s.layout == "title-code").then(|| asked_code_in(s.slide, s.items, &text))
+                        });
                     if let Some(language) = coded {
                         node["text"] = json!(blocked(&text, language));
                         node["code"] = json!({ "language": language });
@@ -7202,7 +7235,10 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
     for slide in &mut out.slides {
         set(&mut slide.slide_title);
         set(&mut slide.subtitle);
-        slide.key_bullets.iter_mut().for_each(set);
+        // Code is set as written: no quotation mark curled, no dash made a range (agent dogfood 5).
+        if !code_asked(slide) {
+            slide.key_bullets.iter_mut().for_each(set);
+        }
         set(&mut slide.speaker_notes);
         slide.supporting_facts.iter_mut().for_each(set);
         slide.beat_name.iter_mut().for_each(set);
@@ -8140,6 +8176,50 @@ mod tests {
         assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
         // Code keeps its marks, as it keeps its case.
         assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
+    }
+
+    /// A slide asked for as code ("Code"), or a list of one item that reads as code in the language
+    /// of the file its subtitle names, shows it on Title and Code, the code in its language, as
+    /// written: a config file's straight quotes kept, its language named by the file its subtitle
+    /// names. A list of one item in words stays a list (agent dogfood 5).
+    #[test]
+    fn a_code_slide_shows_its_code_on_title_and_code() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = |title: &str, subtitle: &str, layout: &str, item: &str| Slide {
+            slide_title: title.into(),
+            subtitle: subtitle.into(),
+            layout_suggestion: layout.into(),
+            key_bullets: vec![item.into()],
+            ..Slide::default()
+        };
+        let signature = "fn render(document: &Deck, theme: &Theme, state: &str, t: f64) -> DisplayList";
+        let toml = "[target.wasm32-unknown-unknown]\nrustflags = [\"-C\", \"target-feature=+simd128\"]";
+        let slides = vec![
+            slide("One core, every screen", "", "Title", ""),
+            slide("Render is a pure function", "crates/scaena-engine", "Code", signature),
+            slide("The browser runs it with SIMD on", ".cargo/config.toml", "Code", toml),
+            slide("Sum the prices once", "src/price.rs", "Bullet List", "let total: f64 = prices.iter().sum();"),
+            slide("Each state is laid out once", "", "Bullet List", "Frames only sample between snapshots"),
+            slide("Keep layout out of the painters", "", "Closing", ""),
+        ];
+        let made = deck(&narrative("One core.", slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.layouts[1..5], ["title-code", "title-code", "title-code", "bullets"]);
+        let code: Vec<(String, String, String)> = (made.deck["nodes"].as_object().unwrap().values())
+            .filter_map(|n| {
+                let language = n["code"]["language"].as_str()?;
+                Some((language.into(), n["role"].as_str()?.into(), n["text"].as_str()?.into()))
+            })
+            .collect();
+        assert_eq!(
+            code,
+            [
+                // One line names no language by itself, and its subtitle names no file: plain
+                // text, still code, on its card in the code role.
+                ("plain".to_string(), "code".to_string(), signature.to_string()),
+                ("toml".to_string(), "code".to_string(), toml.to_string()),
+                ("rust".to_string(), "code".to_string(), "let total: f64 = prices.iter().sum();".to_string()),
+            ]
+        );
     }
 
     /// An item written in code is set as code in its language, on its card, in the theme's code
