@@ -1296,18 +1296,52 @@ enum AnimationReport {
     /// Each layer of each window of the app's scenes that holds an animation, said once a report.
     private static func say() {
         var said: [String] = []
-        func walk(_ layer: CALayer, _ window: String) {
-            for key in layer.animationKeys() ?? [] where said.count < 40 {
+        // Each view that animates, once: where it stands in its window, and what of the app's
+        // holds it, so a report names the chrome that keeps the app from settling (lift-up
+        // 20261110): the nearest view above it with an accessibility identifier or label, and the
+        // nearest whose class is not UIKit's or Core Animation's.
+        var placed: [String] = []
+        var seen = Set<ObjectIdentifier>()
+        func walk(_ layer: CALayer, _ window: UIWindow, _ name: String) {
+            let keys = layer.animationKeys() ?? []
+            for key in keys where said.count < 40 {
                 let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
-                said.append("\(window): \(type(of: layer)) of \(owner), \(key)")
+                said.append("\(name): \(type(of: layer)) of \(owner), \(key)")
             }
-            for sub in layer.sublayers ?? [] { walk(sub, window) }
+            if !keys.isEmpty, let view = layer.delegate as? UIView, seen.insert(ObjectIdentifier(view)).inserted,
+                placed.count < 12
+            {
+                placed.append("\(type(of: view)) at \(view.convert(view.bounds, to: window).integral) in \(holder(of: view))")
+            }
+            for sub in layer.sublayers ?? [] { walk(sub, window, name) }
         }
         for scene in UIApplication.shared.connectedScenes {
             guard let scene = scene as? UIWindowScene else { continue }
-            for window in scene.windows { walk(window.layer, String(describing: type(of: window))) }
+            for window in scene.windows { walk(window.layer, window, String(describing: type(of: window))) }
         }
         animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
+        if !placed.isEmpty {
+            animationsLog.debug("animating views: \(placed.joined(separator: "; "), privacy: .public)")
+        }
+    }
+
+    /// What of the app holds `view`: the nearest view above it that a person or a test names (its
+    /// accessibility identifier, else its label), and the nearest whose class is the app's or
+    /// SwiftUI's rather than UIKit's or Core Animation's.
+    private static func holder(of view: UIView) -> String {
+        var named: String?
+        var classed: String?
+        var at: UIView? = view.superview
+        while let up = at, named == nil || classed == nil {
+            if named == nil {
+                if let id = up.accessibilityIdentifier, !id.isEmpty { named = "'\(id)'" }
+                else if let label = up.accessibilityLabel, !label.isEmpty { named = "\"\(label)\"" }
+            }
+            let kind = String(describing: type(of: up))
+            if classed == nil, !kind.hasPrefix("UI"), !kind.hasPrefix("_UI"), !kind.hasPrefix("CA") { classed = kind }
+            at = up.superview
+        }
+        return "\(named ?? "nothing named"), \(classed ?? "UIKit alone")"
     }
 }
 #endif

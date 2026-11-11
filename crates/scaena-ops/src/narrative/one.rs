@@ -37,6 +37,9 @@ pub struct Written {
     pub layout: String,
     pub beat: String,
     pub what: String,
+    /// Its `layoutSuggestion`, where it could not be taken as asked, and why (agent dogfood).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<super::Fell>,
 }
 
 /// `slide` built for the deck `doc`, in `theme`, as the deck's generator builds a slide: its
@@ -51,14 +54,16 @@ pub struct Written {
 /// - gives it a beat after that slide's beat, in its section, its claim the slide's title and its
 ///   notes the slide's, where the deck has a spine; or puts it in `beat`, a beat of the spine
 ///   whose claim the slide tells, which keeps what it says, the slide's beat giving only what it
-///   lacks (lift-up M1);
+///   lacks (lift-up M1), and the slide's own notes, where the beat keeps others, going on its
+///   first state, which a presenter reads before its beat's (agent dogfood);
 /// - begins a spine, a section holding the slide's beat, in a deck with no slide yet but
 ///   `deck_create`'s blank one, which the slide takes the place of, so a deck written slide by
 ///   slide has its story; a deck made by hand with no spine keeps none, the slide's notes on its
 ///   first state;
 /// - for [`Place::Replace`], puts it in the old slide's beat, which keeps its id, its claim, its
 ///   evidence, its notes, its time, and what else it holds; gives it the old slide's transition,
-///   hold, furniture, and notes, and every link to the old slide; and takes the old slide away
+///   hold, furniture, and notes, the slide's own notes winning where it gives them, and every
+///   link to the old slide; and takes the old slide away
 ///   with `remove_slide`, its nodes no other slide shows going with it. A picture the old slide
 ///   showed is shown again, in a layout that holds one, and so is the chart it showed, from its
 ///   rows, where the slide written draws none of its own.
@@ -218,6 +223,8 @@ pub fn slide_into(
     };
     let (made, built) = assemble(&narrative, theme, &pictures, &BTreeMap::new(), seed, index, total)?;
     let layout = made.layouts.first().cloned().unwrap_or_default();
+    // Said by the slide's number in the deck.
+    let fell: Vec<super::Fell> = made.fell.iter().map(|f| super::Fell { slide: index + 1, ..f.clone() }).collect();
     let mut new_states: Vec<Value> = built.states[states_before..].to_vec();
     let states: Vec<String> = new_states.iter().filter_map(|s| s["id"].as_str().map(str::to_string)).collect();
     let begun = made.deck.pointer("/spine/sections/0").cloned();
@@ -235,6 +242,24 @@ pub fn slide_into(
                 first[key] = value.clone();
             }
         }
+    }
+
+    // A beat the slide joins that says notes of its own keeps them, a planned beat's or the old
+    // slide's: the slide's own notes go on its first state, which a presenter reads before its
+    // beat's, so none the slide gives are dropped (agent dogfood).
+    let joined = match (planned, old) {
+        (Some((s, b)), _) => Some(&sections[s]["beats"][b]),
+        (None, Some(i)) => slides[i].iter().rev().find_map(|k| {
+            (sections.iter().flat_map(|x| x["beats"].as_array().into_iter().flatten()))
+                .find(|b| b["states"].as_array().is_some_and(|l| l.iter().any(|x| x == id_of(*k))))
+        }),
+        _ => None,
+    };
+    let said = |v: Option<&Value>| v.and_then(Value::as_str).filter(|n| !n.trim().is_empty()).map(str::to_string);
+    if let (Some(joined), Some(own), Some(first)) = (joined, said(beat.get("notes")), new_states.first_mut())
+        && said(joined.get("notes")).is_some_and(|kept| kept != own)
+    {
+        first["notes"] = json!(own);
     }
 
     // A deck made by hand with no spine keeps none: the slide's notes go on its first state, so
@@ -379,7 +404,7 @@ pub fn slide_into(
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }
-    Ok(Written { patch, states, layout, beat: beat_id, what })
+    Ok(Written { patch, states, layout, beat: beat_id, what, fell })
 }
 
 /// Each run's link in `value` (a deck's nodes, its overrides, or its states) to one of `from`
@@ -463,6 +488,10 @@ pub struct SlideWritten {
     pub beat: String,
     pub fixed: Vec<Finding>,
     pub left: Vec<Finding>,
+    /// Its `layoutSuggestion`, where it could not be taken as asked: the slide, by its number in
+    /// the deck, what it asked, the layout it took, and why (agent dogfood).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<super::Fell>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -497,6 +526,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             slide: written.states,
             layout: written.layout,
             beat: written.beat,
+            fell: written.fell.clone(),
             fixed: Vec::new(),
             left,
         };
@@ -538,7 +568,15 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     };
     let mut left: Vec<Finding> = left;
     scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
-    let out = SlideWritten { patched, slide: written.states, layout: written.layout, beat: written.beat, fixed, left };
+    let out = SlideWritten {
+        patched,
+        slide: written.states,
+        layout: written.layout,
+        beat: written.beat,
+        fixed,
+        left,
+        fell: written.fell,
+    };
     Ok((out, write))
 }
 

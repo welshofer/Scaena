@@ -934,8 +934,9 @@ pub struct SlideWrite {
     #[serde(default)]
     pub replace: Option<String>,
     /// The id of a beat of the spine whose claim this slide tells, as `spine_update` planned it:
-    /// the slide's states join it, and it keeps what it says, the slide giving only what it lacks
-    /// (its notes, Narrato's fields); without `after`, the slide stands where the spine plans it,
+    /// the slide's states join it, and it keeps its claim, evidence, and notes, the slide giving
+    /// only what it lacks (Narrato's fields); the slide's own `speakerNotes` go on its first
+    /// state, which a presenter reads before the beat's; without `after`, the slide stands where the spine plans it,
     /// after that beat's slides, else after the nearest earlier beat's, else before the nearest
     /// later beat's. Without it, the slide gets a beat of its own after the slide
     /// before it, and a deck with no spine yet begins one. Not with `replace`, which keeps the
@@ -954,7 +955,9 @@ pub struct DeckGenerate {
     pub bundle: String,
     /// The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with
     /// `slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,
-    /// `Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,
+    /// `Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;
+    /// `Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name
+    /// that could not be taken is in the result's `fell`, with why), `keyBullets`,
     /// `speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),
     /// `expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;
     /// `chartData` where a chart is drawn.
@@ -1083,6 +1086,10 @@ pub struct DeckGenerated {
     pub fallback: Option<String>,
     /// Each slide's layout, in order.
     pub layouts: Vec<String>,
+    /// Each slide whose `layoutSuggestion` could not be taken as asked: the slide, by its number
+    /// from 1, what it asked, the layout it took, and why.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fell: Vec<scaena_ops::narrative::Fell>,
     /// The findings whose fixes were applied, each checked by laying its state out again.
     pub fixed: Vec<Finding>,
 }
@@ -1657,7 +1664,8 @@ impl Scaena {
         slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place \
         filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that \
         holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes \
-        no other slide shows taken away with it), or at the end. Its states join `beat`, a beat of the spine whose \
+        no other slide shows taken away with it), or at the end. Its `speakerNotes` are its first state's \
+        own wherever the beat it joins keeps notes of its own, so a presenter reads them on it. Its states join `beat`, a beat of the spine whose \
         claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a \
         beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s \
         blank slide. Its set of texts held to one size and lint's fixes \
@@ -1742,6 +1750,7 @@ impl Scaena {
                 arc: made.arc,
                 fallback: made.fallback,
                 layouts: made.layouts,
+                fell: made.fell,
                 fixed: made.fixed,
             })
         })

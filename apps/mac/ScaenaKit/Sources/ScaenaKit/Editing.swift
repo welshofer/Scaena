@@ -184,6 +184,9 @@ public struct Choices: Decodable, Sendable {
     /// A picture's frame, said, where its theme frames pictures (PLAN T.3a): the theme's, which
     /// nothing on the picture changes, so the inspector shows it and offers nothing.
     public let framed: String?
+    /// What the beat that tells the state cites, with the state's own choices (W1's dogfood 5):
+    /// where a source the deck was grounded in is added; none where no beat tells it.
+    public let cites: CiteChoice?
 
     /// Whether the writing tools have words to write for what is offered (PLAN 2.101): a text's, a
     /// picture's description, or the slide's notes. A shape, a chart, a table, or a group has none,
