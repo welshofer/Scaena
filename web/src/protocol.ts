@@ -1621,6 +1621,9 @@ export interface Brief {
    * the one the audience names, if any (lift-up FUNC-5). */
   personaId?: string;
   voice?: string;
+  /** The minutes the talk is given, 1 to 600: the length it asks where none is chosen, and the
+   * slot health paces it against (W1's dogfood 10), as `scaena generate --minutes` gives them. */
+  minutes?: number;
 }
 
 /** What a brief may ask, as Narrato knows it: its goals, lengths, and ways a deck is delivered,

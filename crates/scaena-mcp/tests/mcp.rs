@@ -1236,7 +1236,7 @@ async fn deck_generate_takes_the_talks_minutes() {
         deck["meta"]["narrative"]["brief"].clone()
     };
     let ten = root.join("ten");
-    ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
+    let made_ten = ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
     let b = brief(&ten);
     assert_eq!((b["minutes"].clone(), b["length"].clone()), (json!(10), json!("5-10 slides")), "{b:#}");
     // A length given wins, the minutes kept beside it.
@@ -1250,8 +1250,20 @@ async fn deck_generate_takes_the_talks_minutes() {
     assert_eq!(brief(&both)["minutes"], json!(10));
     // A brief with none keeps none.
     let none = root.join("none");
-    ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
+    let made_none = ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
     assert!(brief(&none).get("minutes").is_none());
+    // The notes are budgeted to fill the minutes asked, else the middle of the length's slot
+    // (agent dogfood 3): ten minutes, against the 7.5 that "5-10 slides" gives. Each slide's
+    // words, and how long the talk runs as health times it, are said with them.
+    let words = |made: &Value| -> u64 {
+        made["notes"]["budgets"].as_array().unwrap().iter().map(|b| b["words"].as_u64().unwrap()).sum()
+    };
+    assert_eq!(made_ten["notes"]["slot"], json!(10.0), "{made_ten:#}");
+    assert_eq!(made_none["notes"]["slot"], json!(7.5), "{made_none:#}");
+    assert_eq!(made_ten["notes"]["budgets"].as_array().unwrap().len(), 6);
+    assert_eq!(made_ten["notes"]["budgets"][0]["slide"], json!(1));
+    assert!(words(&made_ten) > words(&made_none), "{} against {}", words(&made_ten), words(&made_none));
+    assert!(made_ten["notes"]["run"].as_f64().is_some_and(|r| r > 0.0), "{made_ten:#}");
     client.cancel().await.unwrap();
 }
 
@@ -1274,6 +1286,8 @@ async fn slide_write_reports_its_patch_as_deck_patch_does() {
     assert_eq!(w["summary"]["slides_added"], json!([first]), "{w:#}");
     assert_eq!((w["applied"].clone(), w["errors"].clone()), (json!(true), json!(0)));
     assert!(w.to_string().len() < 4000, "{} bytes", w.to_string().len());
+    // What the notes are to fill, the slide written among them (agent dogfood 3).
+    assert_eq!(w["notes"]["budgets"].as_array().map(Vec::len), Some(6), "{w:#}");
     // With `verbose`, the patch too, as deck_patch gives it.
     let v =
         ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slide, "dry_run": true, "verbose": true }))
@@ -1679,6 +1693,67 @@ async fn r1s_ferry_deck_binds_both_its_charts_and_lints_clean() {
     client.cancel().await.unwrap();
 }
 
+/// R1's agent dogfood 3, a German board update: a chart whose `chartData.sourceId` is the id the
+/// data file was attached by says its source by the file's name, "Quelle: umsatz.csv", never the
+/// id "umsatz"; the file is kept among the deck's sources, and a slide whose `sourceRef` names it
+/// cites it in its beat's evidence.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chart_says_its_data_file_by_its_name() {
+    let root = scratch("source-line");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("umsatz.csv"),
+        "monat,umsatz_teur,neukunden,abwanderung_pct\nJanuar,412,38,2.1\nFebruar,398,31,2.4\nM\u{e4}rz,455,44,2.0\nApril,471,47,1.9\nMai,502,52,1.7\nJuni,538,61,1.5\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let months = json!(["Januar", "Februar", "M\u{e4}rz", "April", "Mai", "Juni"]);
+    let chart = |layout: &str, title: &str, source_ref: &str| {
+        json!({
+            "slideTitle": title,
+            "layoutSuggestion": layout,
+            "keyBullets": ["Zwei Gro\u{df}kunden haben ihre Vertr\u{e4}ge in den M\u{e4}rz verschoben"],
+            "sourceRef": source_ref,
+            "chartData": {
+                "categories": months,
+                // Named by its column, so it binds whatever the unit's words (W1's).
+                "series": [{ "name": "umsatz_teur", "values": [412, 398, 455, 471, 502, 538] }],
+                "sourceId": "umsatz",
+                "unit": "TEUR"
+            }
+        })
+    };
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[2] = chart("Line Chart", "Der Umsatz stieg von 412 auf 538 TEUR", "umsatz.csv");
+    slides[3] = chart("Bar Chart", "Im Februar sank der Umsatz auf 398 TEUR", "bericht-h1.pdf");
+    let bundle = root.join("nordlicht");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&bundle),
+            "language": "German",
+            "slides": { "executiveSummary": "Ein starkes erstes Halbjahr", "slides": slides },
+            "data": [{ "id": "umsatz", "file": "umsatz.csv" }]
+        }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let text = std::fs::read_to_string(bundle.join("deck.json")).unwrap();
+    let d: Value = serde_json::from_str(&text).unwrap();
+    let said: Vec<&str> = (d["nodes"].as_object().unwrap().values())
+        .filter_map(|n| n["text"].as_str())
+        .filter(|t| t.starts_with("Quelle"))
+        .collect();
+    assert_eq!(said, ["Quelle: umsatz.csv", "Quelle: umsatz.csv"], "{said:?}");
+    assert_eq!(d["meta"]["narrative"]["sources"][0]["name"], json!("umsatz.csv"));
+    assert!(text.contains("source:umsatz.csv"), "the line chart's beat cites the file");
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await["errors"], json!(0));
+    client.cancel().await.unwrap();
+}
+
 /// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
 /// the second and third too once the first has typed `year` as dates (B2), "On time" to
 /// `on_time_pct` with its unit's words aside, and a series named for no column says the file's
@@ -1997,5 +2072,155 @@ async fn a_chart_that_names_a_data_source_draws_from_it() {
     assert_eq!(w["unset"][0]["words"], "A second line no place of the chart sets", "{w:#}");
     let made = ok(&client, "deck_generate", json!({ "bundle": path(&root.join("unset")), "slides": deck(two) })).await;
     assert_eq!(made["unset"][0]["words"], "A second line no place of the chart sets", "{made:#}");
+    client.cancel().await.unwrap();
+}
+
+/// `deck_generate` of `slides` into `bundle`, grounded in `sources`.
+async fn generated(client: &Client, bundle: &Path, slides: &Value, sources: Value) -> CallToolResult {
+    call(client, "deck_generate", json!({ "bundle": path(bundle), "slides": slides, "sources": sources })).await
+}
+
+/// `deck_generate`'s `sources` (agent dogfood 3, R1's (8)): each rule a source is held to, its
+/// refusal naming `sources[i]`, the bundle never made. A file under this server's folder, in no
+/// hidden folder, through no link out of it, a regular file of at most 256 MB; an address a public
+/// `https` one, never SEC's, read only where the server was handed a reader, its user and password
+/// taken off before it is read and never kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generates_sources_are_held_to_what_the_server_may_read() {
+    let root = scratch("sources");
+    let here = root.join("here");
+    let away = root.join("away");
+    std::fs::create_dir_all(here.join(".notes")).unwrap();
+    std::fs::create_dir_all(here.join("notes")).unwrap();
+    std::fs::create_dir_all(&away).unwrap();
+    std::fs::write(here.join(".notes/brief.md"), "# The brief\n").unwrap();
+    std::fs::write(away.join("brief.md"), "# The brief\n").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(away.join("brief.md"), here.join("linked.md")).unwrap();
+    // Past the 256 MB a source may be, sparse, so nothing is written to disk but its length.
+    std::fs::File::create(here.join("big.csv")).unwrap().set_len((256 << 20) + 1).unwrap();
+    std::fs::write(
+        here.join("sales.csv"),
+        "month,revenue_keur,new_customers\n2026-01,412,38\n2026-02,398,35\n2026-03,455,44\n",
+    )
+    .unwrap();
+    std::fs::write(here.join("report.md"), "# H1 report\n\nTwo branches would cost 240 TEUR.\n").unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let slides = json!({ "executiveSummary": "H1", "slides": catalog["slides"].as_array().unwrap()[..5] });
+    // What the server's reader was asked, in place of the web.
+    let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = asked.clone();
+    let reader: scaena_mcp::SourceReader = std::sync::Arc::new(move |spec: &str| {
+        seen.lock().unwrap().push(spec.to_string());
+        Ok(scaena_sources::Source {
+            name: spec.to_string(),
+            kind: scaena_sources::Kind::Html,
+            text: "Ridership rose.".into(),
+            sheets: Vec::new(),
+            pdf: None,
+        })
+    });
+    let served = scaena_mcp::Scaena::default().with_dir(here.clone()).with_sources(reader);
+    let client = serve(served, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let refused = |result: &CallToolResult, field: &str, why: &str| {
+        assert_eq!(result.is_error, Some(true), "{field}: {}", text(result));
+        let said = text(result);
+        assert!(said.contains(&format!("sources[0].{field}")), "{said}");
+        assert!(said.contains(why), "{why}: {said}");
+    };
+    let cases = [
+        ("hidden", json!([{ "file": ".notes/brief.md" }]), "file", "outside where this server reads"),
+        ("parent", json!([{ "file": "../away/brief.md" }]), "file", "outside where this server reads"),
+        ("away", json!([{ "file": path(&away.join("brief.md")) }]), "file", "outside where this server reads"),
+        ("folder", json!([{ "file": "notes" }]), "file", "is no file"),
+        ("big", json!([{ "file": "big.csv" }]), "file", "past the 256 MB"),
+        ("http", json!([{ "url": "http://example.com/report" }]), "url", "public https address"),
+        ("numeric", json!([{ "url": "https://127.1/report" }]), "url", "public https address"),
+        ("private", json!([{ "url": "https://10.0.0.8/report" }]), "url", "public https address"),
+        ("sec", json!([{ "url": "sec:AAPL" }]), "url", "SEC asks each request"),
+    ];
+    for (dir, sources, field, why) in cases {
+        refused(&generated(&client, &here.join(dir), &slides, sources).await, field, why);
+        assert!(!here.join(dir).exists(), "{dir}: no bundle is made");
+    }
+    #[cfg(unix)]
+    {
+        refused(
+            &generated(&client, &here.join("linked"), &slides, json!([{ "file": "linked.md" }])).await,
+            "file",
+            "outside where",
+        );
+        assert!(!here.join("linked").exists());
+    }
+    assert!(asked.lock().unwrap().is_empty(), "nothing refused was asked of the web: {:?}", asked.lock().unwrap());
+    // The second of two refusals is named by its own place.
+    let second =
+        generated(&client, &here.join("second"), &slides, json!([{ "file": "report.md" }, { "url": "sec:AAPL" }]))
+            .await;
+    assert!(text(&second).contains("sources[1].url"), "{}", text(&second));
+
+    // Given, each is kept by its name or its address, its sheet a data source, no bytes copied;
+    // the address read and kept with no user or password.
+    let sources = json!([
+        { "file": "report.md" },
+        { "file": "sales.csv" },
+        { "url": "https://user:secret@example.com/ridership.html" }
+    ]);
+    let made = generated(&client, &here.join("made"), &slides, sources).await;
+    assert_ne!(made.is_error, Some(true), "{}", text(&made));
+    let made = made.structured_content.unwrap();
+    assert_eq!(*asked.lock().unwrap(), ["https://example.com/ridership.html"]);
+    let names: Vec<&str> = made["sources"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["report.md", "sales.csv", "https://example.com/ridership.html"], "{made:#}");
+    assert_eq!(made["sources"][2]["address"], json!("https://example.com/ridership.html"));
+    assert!(made["kept"][0]["id"].is_string(), "the CSV is kept as data: {made:#}");
+    let deck = std::fs::read_to_string(here.join("made/deck.json")).unwrap();
+    assert!(!deck.contains("secret") && !deck.contains("user:"), "no user or password is kept");
+    let d: Value = serde_json::from_str(&deck).unwrap();
+    let kept: Vec<&str> =
+        d["meta"]["narrative"]["sources"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(kept, ["report.md", "sales.csv", "https://example.com/ridership.html"]);
+    assert!(!here.join("made/report.md").exists() && !here.join("made/assets/report.md").exists(), "no copy");
+    client.cancel().await.unwrap();
+
+    // A server handed no reader reads no address.
+    let bare = connect_in(&here).await;
+    refused(
+        &generated(&bare, &here.join("unreached"), &slides, json!([{ "url": "https://example.com/report" }])).await,
+        "url",
+        "reaches no web",
+    );
+    assert!(!here.join("unreached").exists());
+    bare.cancel().await.unwrap();
+}
+
+/// `deck_generate`'s source files together are held to the 1 GB a bundle's files may be, so one
+/// call reads no more into the server's memory, the one that crosses it named; and at most 16
+/// sources are given at once (the coordinator's review of #1084). Sparse files: nothing is
+/// written to disk but their lengths, and none is read.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generates_sources_are_held_to_a_gigabyte_together() {
+    let root = scratch("sources-total");
+    let client = connect_in(&root).await;
+    for k in 0..5 {
+        std::fs::File::create(root.join(format!("part-{k}.csv"))).unwrap().set_len(250 << 20).unwrap();
+    }
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let slides = json!({ "executiveSummary": "H1", "slides": catalog["slides"].as_array().unwrap()[..5] });
+    // 250 MB each: the fifth comes to 1,250 MB with the four before it.
+    let five: Vec<Value> = (0..5).map(|k| json!({ "file": format!("part-{k}.csv") })).collect();
+    let result = generated(&client, &root.join("five"), &slides, json!(five)).await;
+    assert_eq!(result.is_error, Some(true), "{}", text(&result));
+    assert!(text(&result).contains("sources[4].file: the files come to 1250 MB"), "{}", text(&result));
+    assert!(!root.join("five").exists());
+    // Seventeen sources, whatever they are, are too many.
+    let many: Vec<Value> = (0..17).map(|k| json!({ "url": format!("https://example.com/{k}") })).collect();
+    let result = generated(&client, &root.join("many"), &slides, json!(many)).await;
+    assert_eq!(result.is_error, Some(true));
+    assert!(text(&result).contains("sources: 17 given, past the 16"), "{}", text(&result));
     client.cancel().await.unwrap();
 }

@@ -2789,7 +2789,7 @@ impl Session {
         let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
         let snap = (snapshots.iter().find(|s| s.state_id == state))
             .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
-        Ok(scaena_core::reading::html(&self.deck, snap, &list))
+        Ok(scaena_core::reading::html(&self.deck, &*self.files, snap, &list))
     }
 
     /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
@@ -2807,7 +2807,7 @@ impl Session {
         let snapshots = scaena_core::resolve_states(&self.deck).map_err(|e| Error::Deck(e.to_string()))?;
         let snap = (snapshots.iter().find(|s| s.state_id == state))
             .ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
-        Ok(scaena_core::reading::parts(&self.deck, snap, &list))
+        Ok(scaena_core::reading::parts(&self.deck, &*self.files, snap, &list))
     }
 
     /// The fonts and images the engine was built from, as painters read them.
@@ -5074,6 +5074,49 @@ mod tests {
         assert_eq!(back.patch, [serde_json::json!({ "op": "show_node", "node": given.id, "state": "mix" })]);
         s.tool("deck_patch", serde_json::json!({ "ops": back.patch }), by()).unwrap();
         assert_eq!(named(&mut s, "mix"), Some(serde_json::json!(given.id)));
+    }
+
+    /// A chart a person gave alt text reads by it; one with none is described from its data as it
+    /// is when read (F6): through `html`, the player's live region and the single file, `parts`,
+    /// the Mac's VoiceOver, and the deck the PDF's writer tags, each hearing a cell edited in the
+    /// Data tab at once, with no step that could be missed.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_chart_with_no_alt_is_heard_as_its_data_reads_now() {
+        let mut s = revenue();
+        let html = |s: &mut Session| s.reading("revenue").unwrap();
+        let parts = |s: &mut Session| {
+            let parts = s.reads("revenue").unwrap();
+            parts.into_iter().find(|p| p.node == "rev").map(|p| p.text).unwrap_or_default()
+        };
+        let tagged = |s: &Session| {
+            let prepared = scaena_export::pdf::Prepared::from_bytes(&s.pdf_laid_out(false).unwrap()).unwrap();
+            // The page that draws the chart: a slide at its last state, as the PDF draws each.
+            let snaps = scaena_core::resolve_states(&prepared.deck).unwrap();
+            let paged = |x: &&scaena_core::Snapshot| prepared.pages.iter().any(|p| p.state == x.state_id);
+            let snap = snaps.iter().filter(paged).find(|x| x.nodes.contains_key("rev")).unwrap();
+            let read = scaena_core::reading::readings(&prepared.deck, &BTreeMap::new(), snap);
+            read["rev"].alt.clone().unwrap_or_default()
+        };
+        // A person's own alt text wins.
+        assert_eq!(parts(&mut s), "Quarterly revenue by product, Q4 2025 through Q3 2026.");
+        let gone = serde_json::json!([{ "op": "remove", "path": "/nodes/rev/alt" }]);
+        let by = || assistant::Caller { author: "user", at: None };
+        s.tool("deck_patch", serde_json::json!({ "ops": gone }), by()).unwrap();
+        let said = parts(&mut s);
+        assert!(said.starts_with("Bar chart: Core, Pro"), "{said}");
+        assert!(said.contains("2025-Q4 $18.2"), "{said}");
+        assert!(html(&mut s).contains("2025-Q4 $18.2"));
+        assert!(tagged(&s).contains("2025-Q4 $18.2"), "{}", tagged(&s));
+        // A cell edited in the Data tab is heard at once, by every reader.
+        let edit = scaena_ops::data::DataEdit {
+            source: "q3".into(),
+            edits: vec![scaena_ops::data::RowEdit::Set { row: 0, column: "revenue".into(), value: "20.2".into() }],
+        };
+        s.data_edit(&edit, false, by()).unwrap();
+        for heard in [parts(&mut s), html(&mut s), tagged(&s)] {
+            assert!(heard.contains("2025-Q4 $20.2") && !heard.contains("$18.2"), "{heard}");
+        }
     }
 
     /// The revenue example, its files handed over as a page hands them.
