@@ -55,8 +55,8 @@ pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
     by_id.cloned().or_else(by_file)
 }
 
-/// The data sources a chart's `named` source may be: the one called so, else each sheet the
-/// deck keeps from the workbook named, whose id is the workbook's name and the sheet's
+/// The data sources a chart's `named` source may be: the one called so, else the one sheet the
+/// deck keeps by that sheet's own name, else each sheet the deck keeps from the workbook named, whose id is the workbook's name and the sheet's
 /// (`navette-mensuel` for "navette.xlsx"), in the deck's order. A model names the file it was
 /// given, never the id Scaena kept a sheet under (W1's dogfood 10).
 pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
@@ -65,6 +65,13 @@ pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
     }
     if stem(named).chars().count() < 3 {
         return Vec::new();
+    }
+    // A sheet by its own name, as the workbook shows it ("Annuel" for `velo-2025-annuel`), where
+    // one sheet the deck keeps is called so (agent dogfood 4).
+    let own = format!("-{}", slug(named.trim(), "data"));
+    let sheets: Vec<String> = deck.data.keys().filter(|id| id.ends_with(&own)).cloned().collect();
+    if sheets.len() == 1 {
+        return sheets;
     }
     // The ids `keeping` makes of a workbook's sheets: the slug of its name, its extension off,
     // then each sheet's (`navette-mensuel`), so a source of another file whose name begins alike
