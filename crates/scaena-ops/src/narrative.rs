@@ -752,6 +752,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     };
     let mut unbound = Vec::new();
     let mut dropped = Vec::new();
+    // The deck as each chart is bound to it: a column a chart before it typed as dates is read
+    // so by the charts after it, whose marks then name its rows as lint reads them (R1's ferry).
+    let mut typed = deck.clone();
     for (i, states) in slides.iter().enumerate() {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
@@ -785,10 +788,13 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             });
             continue;
         };
-        match binding::bind(&mut node, &chart, deck, &write.files, &id) {
+        match binding::bind(&mut node, &chart, &typed, &write.files, &id) {
             Ok(dated) => {
                 if let Some(column) = dated {
                     doc["data"][&id]["schema"][&column] = json!("date");
+                    if let Some(decl) = typed.data.get_mut(&id) {
+                        decl.schema.get_or_insert_with(Default::default).insert(column, "date".into());
+                    }
                 }
                 doc["nodes"][&node_id] = node;
                 dropped.push(own);
