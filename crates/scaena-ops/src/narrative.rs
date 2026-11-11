@@ -8922,7 +8922,7 @@ mod tests {
         assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2\u{a0}Mio.\u{a0}\u{20ac}");
         // A figure the builder writes is written as its chart's labels write it, in the deck's language,
         // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
-        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("board-de", "der-umsatz-wachst-seit-funf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
         assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
         // Its Go set as Go, on its card (dogfood 8a F1).
         let deepdive = &decks.iter().find(|(n, _)| *n == "deepdive").unwrap().1.deck;
