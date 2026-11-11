@@ -219,3 +219,59 @@ Take **C4**, and **C2's balance half** with it (C8): count a slide whose notes r
 It does not end the compression at the top. Eight decks still score 90–95. That top band is right to be close, because those decks are close. What separates them for a reader (an unresolved hook, a slide in the wrong place, a long tail after the peak) is not something health reads, and no weighting of what it does read will find it.
 
 If Jay wants a wider top band too, the evidence here argues against getting it from turn or tone counts. The way to get it is a measure of its own: the open-loop and long-tail readings. That would be new work, not a change of weights.
+
+## What separates the top band: three detectors, tried
+
+Those three things are what a reader separated the top decks by: an unresolved hook, a slide in the wrong place, and a long tail after the peak. No change of weights reaches them, so I tried each as a detector on the thirteen decks. A detector of this kind would give a coaching finding with an ask, and no figure would move.
+
+I wrote the detectors as a script over the decks' slides and notes, outside the engine. Each was scored against the reader's notes above, which flag:
+- **open loops:** lecture's hook never resolved, and training's "three traps" listing two;
+- **slides out of place:** pitch's market funnel after the proof (slide 12), deepdive's decision brief and quote inside the results (slides 10–11), and climate's Questions before the close (slide 24);
+- **long tails:** launch's pricing, FAQ and steps after its proof, and appeal's testimonials slowing the run into the ask (slide 9).
+
+| detector | hits | misses | false alarms | verdict |
+| --- | --- | --- | --- | --- |
+| long tail | 2 | 0 | 0 | build, as an info |
+| out of place, by words | – | – | 55 of 154 slides | no |
+| out of place, Q&A before the close | 1 | 2 | 0 | no: it coaches against good practice |
+| open loop, a hook's question that never returns | 1 | 0 | 1 | no |
+
+### Long tail
+
+**The rule.** Count the slides that stand between two points:
+- the last slide planned within 0.1 of the deck's peak intensity;
+- the closing run: Closing, The Ask, Next Steps, Takeaways, Poster, a Q&A, or a thanks.
+
+The finding fires where those slides number three or more and are a fifth of the deck or more, and no section divider stands among them.
+
+**What it finds.**
+- Appeal: slides 7–9, 24% of its notes' words.
+- Launch: slides 11–13, 21%.
+
+**The rule's parts.**
+- At two slides or more, it would also fire on grant's slides 7–8, which the reader does not flag.
+- Without the divider rule, it would fire on climate's Response section (slides 16–22), which the reader called earned. A divider opens a new part of the talk, so what follows it is not a run-down.
+- It reads the plan's intensity, which every made deck carries. A deck with no plan gets no finding.
+
+The three thresholds (0.1, three slides, a fifth) and the divider rule were set on these thirteen decks, so the finding is an info, not a warning.
+
+### Out of place
+
+**By words.** A slide's words were compared with its own beat's slides and with other beats'. This does not work:
+- it fires on 55 of 154 slides at a ratio of 1.5, and on 2 at 3.0, both fleet's and neither a reader's flag;
+- the fixtures' beats are the writers' own labels, and what the reader flagged is the order of the argument (a market slide after the proof), which no beat's words show;
+- health's drift already finds deepdive's slide 11, which stands in a beat after its own.
+
+**A Questions slide that is not the last.** It finds climate's slide 24 and nothing else. It is not built, because standard speaking advice is the reverse: take questions, then close again yourself, so the talk ends on its own words and not on the last question. Climate's slide 25 is that close, so a finding there would coach against the advice. What the reader's climate note means is that twenty-five slides of facts end with no person and no story, and the Questions slide is only where that shows.
+
+### Open loop
+
+**A hook's question whose distinctive words never come back in the close.** At best this gives one hit and one false alarm, and only by asking for two words to come back:
+- lecture's slide 3 fires, rightly: "gynecologists", "mammogram", "21%" and "breast cancer" never return, only "answer";
+- launch's "What if your team never wrote a first reply again?" fires too, though its reveal at slide 7 answers it. The words it answers with ("reply", "first") run through the whole deck, so they are not distinctive.
+
+Words cannot tell an unanswered puzzle from an answered one, so it is not built.
+
+**Promises in the notes ("by the end", "at the end").** These are in keynote's, lecture's and training's notes, and all three are kept, so there is nothing to find.
+
+**The count case.** Training's "three traps" listing two is found already (#1008).
