@@ -12139,6 +12139,16 @@ mod tests {
         let mut slide = slides.iter().find(|s| s.chart_data.is_some()).unwrap().clone();
         slide.chart_data = None;
         let read = read_by(&files);
+        // Notes the slide gives are its own, and win (agent dogfood); with none, the old slide's
+        // stay, as below.
+        let mut given = slide.clone();
+        given.speaker_notes = "Name the quarter first.".into();
+        let w =
+            slide_into(&doc, &theme, given, &Place::Replace("revenue".into()), None, BTreeMap::new(), &read).unwrap();
+        let mine = patched_in(&doc, &w.patch, &files);
+        let shown = mine["states"].as_array().unwrap().iter().find(|s| s["id"] == w.states[0].as_str()).unwrap();
+        assert_eq!(shown["notes"], json!("Name the quarter first."));
+        slide.speaker_notes = String::new();
         let written =
             slide_into(&doc, &theme, slide, &Place::Replace("revenue".into()), None, BTreeMap::new(), &read).unwrap();
         let after = patched_in(&doc, &written.patch, &files);
@@ -12160,7 +12170,8 @@ mod tests {
         let state = after["states"].as_array().unwrap().iter().find(|s| s["id"] == first.as_str()).unwrap();
         let charted = state["props"].as_object().unwrap().keys().any(|id| after["nodes"][id]["type"] == "chart");
         assert!(charted, "the chart is drawn again");
-        // Its transition, hold, and notes are the old slide's, and a link to it goes to it.
+        // Its transition, hold, and notes, where it gives none, are the old slide's, and a link to
+        // it goes to it.
         assert_eq!(state["transition"], doc["states"][1]["transition"]);
         assert_eq!(state["hold"], doc["states"][1]["hold"]);
         assert_eq!(state["notes"], json!("Pause on the bar."));

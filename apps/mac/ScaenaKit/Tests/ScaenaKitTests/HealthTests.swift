@@ -145,3 +145,29 @@ import Testing
             == "7 more: 2 unsourced figure, 1 topic headline, 1 change let go, 1 broken slide, 1 big idea, 1 tone")
     #expect(Health.kindSaid("arc") == "arc", "a kind with no words of its own is said as it is")
 }
+
+/// A figure no source backs cites one of the deck's sources (W1's dogfood 5): `source:NAME` added to
+/// its beat's evidence where `StateChoices.cites` says it lives, the list whole where the beat cites
+/// nothing yet, and nothing made where it cites that source already. A deck made by hand was
+/// grounded in nothing, and its states' choices say where their beat's evidence is.
+@Test @MainActor func aFigureCitesASourceInItsBeatsEvidence() throws {
+    func choice(_ json: String) throws -> CiteChoice { try JSONDecoder().decode(CiteChoice.self, from: Data(json.utf8)) }
+    let none = try choice(#"{"beat": "opening", "at": "/spine/sections/0/beats/0/evidence", "evidence": []}"#)
+    #expect(
+        none.citing("notes.md")
+            == [["op": "add", "path": "/spine/sections/0/beats/0/evidence", "value": ["source:notes.md"]]])
+    let some = try choice(#"{"beat": "doubled", "at": "/spine/sections/1/beats/0/evidence", "evidence": ["@q3"]}"#)
+    #expect(some.citing("notes.md") == [["op": "add", "path": "/spine/sections/1/beats/0/evidence/-", "value": "source:notes.md"]])
+    let cited = try choice(#"{"beat": "doubled", "at": "/x", "evidence": ["@q3", "source:notes.md"]}"#)
+    #expect(cited.citing("notes.md") == nil, "a source cited twice")
+
+    let sources = try JSONDecoder().decode(
+        [Grounded].self,
+        from: Data(#"[{"name": "notes.md", "kind": "file", "bytes": 10, "truncated": false, "cited": [], "states": []}]"#.utf8))
+    #expect(sources == [Grounded(name: "notes.md", kind: "file", url: nil)])
+
+    let session = try ScaenaSession(directory: b1)
+    #expect(try session.grounded().isEmpty, "B1, made by hand, was grounded in something")
+    let state = try #require(try session.states().first)
+    _ = try session.stateChoices(state: state).cites
+}
