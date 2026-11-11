@@ -466,6 +466,40 @@ pub fn quoting(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> 
     counts
 }
 
+/// [`quoting`] over a slide being written into the deck `doc`, its own `nodes` and `states`
+/// alone: each figure they write that is one cell of the deck's own data sources, those a person
+/// or an agent attached (`data_attach`, `deck_generate`'s `data`), quotes it, and nothing else of
+/// the deck is touched (agent dogfood 3). `data` is the slide's own, which no figure quotes.
+pub fn quoting_slide(
+    doc: &Value,
+    nodes: &mut Map<String, Value>,
+    states: &mut [Value],
+    data: &Map<String, Value>,
+    files: &dyn SourceFiles,
+) -> Vec<(String, usize)> {
+    let sources: Vec<String> = doc["data"].as_object().into_iter().flatten().map(|(id, _)| id.clone()).collect();
+    if sources.is_empty() {
+        return Vec::new();
+    }
+    let mut slide = doc.clone();
+    slide["nodes"] = Value::Object(nodes.clone());
+    slide["states"] = Value::Array(states.to_vec());
+    let held = slide["data"].as_object_mut().expect("the deck holds data");
+    for (id, d) in data {
+        held.entry(id.clone()).or_insert_with(|| d.clone());
+    }
+    let counts = quoting(&mut slide, files, &sources);
+    if counts.iter().any(|(_, n)| *n > 0) {
+        if let Some(quoted) = slide["nodes"].as_object() {
+            *nodes = quoted.clone();
+        }
+        if let Some(quoted) = slide["states"].as_array() {
+            states.clone_from_slice(quoted);
+        }
+    }
+    counts.into_iter().filter(|(_, n)| *n > 0).collect()
+}
+
 /// The sources of `cells` a figure of `text` is the value of, each once: where the figure, as
 /// written, is exactly one cell's value, no other cell holding it, and its units agree; a year
 /// and a figure that says too little to stand on its value cite nothing.

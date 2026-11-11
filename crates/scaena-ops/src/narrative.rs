@@ -196,6 +196,9 @@ pub struct Generated {
     /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
+    /// Each data file given whose cells the slides' figures quote, and how many (agent dogfood 3).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub quoted: Vec<Quoted>,
     /// Each chart that names a data source and was not drawn from it, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unbound: Vec<Unbound>,
@@ -230,6 +233,23 @@ pub struct Generated {
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
+}
+
+/// How many figures a deck's slides write quote one of its data sources, so a data edit sets
+/// them again (agent dogfood 3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Quoted {
+    /// The data source, by its id.
+    pub source: String,
+    /// How many figures quote it.
+    pub figures: usize,
+}
+
+impl Quoted {
+    /// Each source of `counts` that some figure quotes.
+    pub fn of(counts: Vec<(String, usize)>) -> Vec<Quoted> {
+        counts.into_iter().filter(|(_, n)| *n > 0).map(|(source, figures)| Quoted { source, figures }).collect()
+    }
 }
 
 /// An address a made deck links: the slide that first shows it, from 1, and where it goes.
@@ -1249,8 +1269,19 @@ pub fn from_slides(
                 }
             }
         }
-        let (write, unbound) = binding(write)?;
+        let (mut write, unbound) = binding(write)?;
         made.unbound = unbound;
+        // Each figure a slide writes that is one cell of a data file given quotes it, as a made
+        // deck's figures quote a sheet its sources gave (G1), so a data edit sets the slide again
+        // (agent dogfood 3).
+        if !made.attached.is_empty() {
+            let mut doc = write.deck.to_value().context("the deck")?;
+            let counts = quoting::quoting(&mut doc, &write.files, &made.attached);
+            if counts.iter().any(|(_, n)| *n > 0) {
+                write.deck = Deck::from_json(&doc.to_string()).context("the deck")?;
+            }
+            made.quoted = Quoted::of(counts);
+        }
         crate::create::make(dir, write)?;
     }
     Ok(made)
@@ -2458,6 +2489,7 @@ pub fn making(
         fell: made.fell,
         unset: made.unset,
         attached: Vec::new(),
+        quoted: Vec::new(),
         unbound: Vec::new(),
         fixed: Vec::new(),
         fitted: Vec::new(),
