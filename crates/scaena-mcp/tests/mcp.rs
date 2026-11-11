@@ -543,6 +543,12 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert_eq!(again["applied"], json!(false), "{again:#}");
+    // Its beat's claim, which the slide it takes the place of said, is said no more: reported
+    // with the fix that sets it to the headline the new slide shows (agent dogfood 2).
+    let restated = &again["restated"][0];
+    assert_eq!(restated["claim"], one["slideTitle"], "{again:#}");
+    assert!(restated["says"].as_str().is_some_and(|s| !s.is_empty()), "{again:#}");
+    assert_eq!(restated["fix"][1]["value"], restated["says"], "{again:#}");
     let both = call(
         &client,
         "slide_write",
