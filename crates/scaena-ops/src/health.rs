@@ -776,6 +776,11 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>, bool)> {
     (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect(), timed))
 }
 
+/// How long the talk runs, in seconds, as [`talk`] times it: none where it cannot be timed.
+pub(crate) fn talk_seconds(deck: &Deck) -> Option<f64> {
+    talk(deck, &slides(deck)).map(|(seconds, ..)| seconds)
+}
+
 /// A talk's minutes, rounded, as a person says them: "about 8 minutes", "under a minute".
 fn minutes(seconds: f64) -> String {
     match (seconds / 60.0).round() as usize {

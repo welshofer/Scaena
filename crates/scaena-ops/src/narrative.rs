@@ -52,7 +52,7 @@ pub fn slide_from(raw: &Value) -> Result<Slide, OpsError> {
 }
 mod quoting;
 pub use binding::Unbound;
-pub use notes::{noted, speaking};
+pub use notes::{Budget, Notes, budgeted, noted, speaking};
 
 /// The canvas a made deck draws on.
 const CANVAS: [u32; 2] = [1920, 1080];
@@ -227,6 +227,10 @@ pub struct Generated {
     /// deck sends its audience (lift-up 20261025 SEC-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<Linked>,
+    /// What the deck's notes are to fill (agent dogfood 3): the talk's slot, how long it runs,
+    /// and each slide's words, for an agent that writes its notes again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<Notes>,
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
@@ -1223,6 +1227,7 @@ pub fn from_slides(
         }
         let (write, unbound) = binding(write)?;
         made.unbound = unbound;
+        made.notes = budgeted(&write.deck).ok();
         crate::create::make(dir, write)?;
     }
     Ok(made)
@@ -2410,6 +2415,7 @@ pub fn making(
         unnoted: None,
         links: Vec::new(),
         refused: Vec::new(),
+        notes: None,
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());

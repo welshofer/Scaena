@@ -219,6 +219,32 @@
           "layout": { "type": "string" }
         },
         "required": ["slide", "words", "layout"]
+      },
+      "Notes": {
+        "description": "What a deck's notes are to fill, for an agent that writes them (agent dogfood 3): the talk's\n`slot`, in minutes; how long the talk `run`s now, as health times it (its beats' durations,\nholds, and notes said aloud), where it can be timed; and each slide's `budgets`, the words its\nnotes are to run to so the talk fills the slot.",
+        "type": "object",
+        "properties": {
+          "slot": {
+            "description": "The minutes the talk is given: the brief's `minutes`, else the middle of its length's slot.",
+            "type": "number"
+          },
+          "run": {
+            "description": "The minutes the talk runs now, to a tenth, as `deck_health`'s pacing times it.",
+            "type": ["number", "null"]
+          },
+          "budgets": {
+            "description": "Each slide, by its number from 1, and the words its notes are to run to.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/Budget" }
+          }
+        },
+        "required": ["slot", "budgets"]
+      },
+      "Budget": {
+        "description": "A slide's notes' budget: the slide, by its number from 1, and the words.",
+        "type": "object",
+        "properties": { "slide": { "type": "integer", "minimum": 0 }, "words": { "type": "integer", "minimum": 0 } },
+        "required": ["slide", "words"]
       }
     },
     "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset"],
@@ -279,6 +305,10 @@
         "description": "Each of its items its layout sets in none of its places: the slide, by its number in the\ndeck, the item's words, and the layout (agent dogfood 2).",
         "type": "array",
         "items": { "$ref": "#/$defs/Unset" }
+      },
+      "notes": {
+        "description": "What the deck's notes are to fill once the slide is written (agent dogfood 3): the talk's\n`slot` in minutes, how long it `run`s, and each slide's `budgets` in words; where the\ndeck has a spine to time it by.",
+        "anyOf": [{ "$ref": "#/$defs/Notes" }, { "type": "null" }]
       }
     }
   }
