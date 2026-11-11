@@ -871,6 +871,21 @@ fn labels(headline: &str) -> bool {
     (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
+/// The shipped themes' layouts that show a measure: a figure's, or a chart's (the calibration
+/// against a reader). A run of them in one part of the talk is one move, each slide another figure
+/// under the same frame, though their words share none.
+const MEASURES: [&str; 9] = [
+    "metric-trend",
+    "bar-chart",
+    "line-chart",
+    "price-chart",
+    "donut-chart",
+    "chart-bullets",
+    "two-charts",
+    "pictograph",
+    "funnel",
+];
+
 /// The shipped themes' layouts whose headline is a figure's, or names the figures under it.
 const FIGURES: [&str; 11] = [
     "stat",
@@ -1242,8 +1257,22 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let bridged: Vec<&String> = (turns.iter().map(|(id, _)| id))
         .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && bridges(&read[i - 1], &read[i])))
         .collect();
+    // A turn inside a part of the talk between two slides that each show a measure, a figure's or a
+    // chart's, is the part's next figure, not a lost room (the calibration against a reader):
+    // qbr's metrics and the climate talk's data slides under the frame their part gives them.
+    let measures = |i: usize| {
+        (slides.get(i).and_then(|s| s.states.first()))
+            .and_then(|&k| deck.states.get(k)?.layout.as_deref())
+            .is_some_and(|l| FIGURES.contains(&l) || MEASURES.contains(&l))
+    };
+    let figured: Vec<&String> = (turns.iter())
+        .filter(|(_, edge)| !edge)
+        .map(|(id, _)| id)
+        .filter(|id| read.iter().position(|s| &s.id == *id).is_some_and(|i| i > 0 && measures(i - 1) && measures(i)))
+        .collect();
     let soft = turns.iter().filter(|(_, edge)| *edge).count();
-    let hard = turns.len() - soft;
+    let hard = turns.len() - soft - figured.len();
+    let paired = figured.len();
     // By words alone, neighbouring slides share few even where one follows from the other: no
     // number, only where the talk turns.
     let coherence = Measure {
@@ -1251,19 +1280,27 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             health::coherence::Method::Embedding => Some(m.coherence.score as u32),
             health::coherence::Method::Keyword => None,
         },
-        says: match (hard, soft) {
-            (0, 0) => "No slide breaks from the one before it, read by their words.".into(),
+        says: match (hard, soft, paired) {
+            (0, 0, 0) => "No slide breaks from the one before it, read by their words.".into(),
             // Each count said only where it has one, and a turn at a beat's edge as the finding
             // says it, a new part beginning (the coordinator's read of B1 and fleet).
             _ => format!(
                 "Read by their words: {}{}.",
-                match (hard, soft) {
-                    (0, soft) => format!("{} where a new part of the talk begins", counted(soft, "slide")),
-                    (hard, 0) => format!("{} where the talk turns sharply", counted(hard, "slide")),
-                    (hard, soft) => format!(
-                        "{} where the talk turns sharply, {soft} where a new part of the talk begins",
-                        counted(hard, "slide")
-                    ),
+                {
+                    let said: Vec<String> = [
+                        (hard, "where the talk turns sharply"),
+                        (soft, "where a new part of the talk begins"),
+                        (paired, "where one figure follows another"),
+                    ]
+                    .into_iter()
+                    .filter(|&(n, _)| n > 0)
+                    .enumerate()
+                    .map(|(k, (n, what))| match k {
+                        0 => format!("{} {what}", counted(n, "slide")),
+                        _ => format!("{n} {what}"),
+                    })
+                    .collect();
+                    said.join(", ")
                 },
                 match bridged.len() {
                     0 => String::new(),
@@ -1515,7 +1552,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             continue;
         }
         let (k, before) = (i + 1, i);
-        if *edge {
+        if figured.contains(&id) {
+            // One figure after another in a part of the talk: information, the room's frame the
+            // part's, with the ask a turn makes.
+            find(
+                id,
+                Severity::Info,
+                Kind::Turn,
+                format!("Slide {k} shows another figure with no word from slide {before}: say what links the two."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
+                None,
+            );
+        } else if *edge {
             // A turn at a beat's edge opens a new part of the talk, no loss (W1's second read of
             // fleet): information, so a sharp turn inside a beat comes first, with the same ask.
             let part = beat_named(i).unwrap_or_else(|| "a new part of the talk".to_string());
@@ -4008,6 +4058,33 @@ mod tests {
         // A big idea in another script has no words to read by: nothing is found of it.
         deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("気候変動は止められる");
         assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::BigIdea));
+    }
+
+    /// A part of the talk that moves from one figure to the next is one move, though the slides
+    /// share no word (the calibration against a reader): on the QBR, the turns between its metric
+    /// slides, a number grid, a line, a bar, and a funnel, are information, with the turn's ask,
+    /// and the coherence line counts them apart; a turn into a slide that shows no measure stays a
+    /// warning. No figure moves.
+    #[test]
+    fn a_run_of_figures_in_one_part_is_one_move() {
+        let h = of(&dogfood("qbr", "", |_| {}));
+        let turn = |k: usize| h.findings.iter().find(|f| f.kind == Kind::Turn && f.slide == k).expect("a turn");
+        for k in [4, 6, 7] {
+            let f = turn(k);
+            assert_eq!(f.severity, Severity::Info, "{f:#?}");
+            assert_eq!(
+                f.says,
+                format!("Slide {k} shows another figure with no word from slide {}: say what links the two.", k - 1)
+            );
+            assert!(
+                f.ask.starts_with(&format!("Open slide {k}'s notes with the line that carries the talk")),
+                "{}",
+                f.ask
+            );
+        }
+        assert_eq!(turn(9).severity, Severity::Warning, "a turn into the scenarios is the room's to follow");
+        assert!(h.coherence.says.contains("3 where one figure follows another"), "{}", h.coherence.says);
+        assert_eq!(h.coherence.score, None, "no figure moves");
     }
 
     #[test]
