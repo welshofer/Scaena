@@ -1405,6 +1405,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         health::coherence::Method::Embedding => (m.coherence.breaks.iter())
             .map(|b| (b.slide_id.clone(), b.severity == health::coherence::Severity::Soft))
             .collect(),
+        // A deck whose words no space sets apart is not read for its turns, as it is not for its
+        // claims (health read of a Japanese deck): each headline reads as one word, so every pair
+        // of slides shared none and turned, and the ask named a whole headline as the word to carry.
+        health::coherence::Method::Keyword if spaceless(language) => Vec::new(),
         health::coherence::Method::Keyword => {
             let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
             // Each pair by its own words, read in any script (W1's dogfood 7): Vzestup's split at
@@ -1447,6 +1451,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             health::coherence::Method::Keyword => None,
         },
         says: match (hard, soft, paired) {
+            _ if m.coherence.method == health::coherence::Method::Keyword && spaceless(language) => format!(
+                "Not read by words: health reads words a space sets apart, and this deck is in {}.",
+                language.and_then(language_named).unwrap_or_else(|| "a script set without spaces".to_string())
+            ),
             (0, 0, 0) => "No slide breaks from the one before it, read by their words.".into(),
             // Each count said only where it has one, and a turn at a beat's edge as the finding
             // says it, a new part beginning (the coordinator's read of B1 and fleet).
@@ -5171,6 +5179,36 @@ mod tests {
         assert_eq!(claims.len(), 1, "{claims:?}");
         assert_eq!(claims[0].severity, Severity::Info);
         assert!(claims[0].says.ends_with("and this deck is in Japanese."), "{}", claims[0].says);
+    }
+
+    /// A deck in Japanese, Chinese, or Korean is not read for its turns (health read of a Japanese
+    /// deck): each headline, one long run of letters, read as one word, so every pair of slides
+    /// shared none and turned, and the ask named a whole headline as the word to carry across. The
+    /// coherence line says why, as intensity and tone say theirs; its figure, none by words, stays.
+    #[test]
+    fn turns_are_not_read_where_no_space_sets_words_apart() {
+        let japanese = |slides: &mut Vec<answer::Slide>| {
+            let titles = ["売上は前年より伸びました", "本館はもう満席です", "利用が増えた理由は三つあります"];
+            for (k, s) in slides.iter_mut().enumerate() {
+                s.slide_title = format!("{}（{}）", titles[k % titles.len()], k + 1);
+                s.key_bullets = vec![];
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", japanese);
+        let turned = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::Turn).count();
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let read = of(&deck);
+        assert!(turned(&read) > 0, "read as words, every pair turns: {:#?}", read.findings);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let h = of(&deck);
+        assert_eq!(turned(&h), 0, "{:#?}", h.findings);
+        assert_eq!(
+            h.coherence.says,
+            "Not read by words: health reads words a space sets apart, and this deck is in Japanese."
+        );
+        assert_eq!((h.coherence.score, h.score), (read.coherence.score, read.score));
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
