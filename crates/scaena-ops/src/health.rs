@@ -463,6 +463,29 @@ fn unit_of(word: &str) -> String {
     }
 }
 
+/// The figures the deck's runs that quote a cell of its data write ([`figures`]), each its value
+/// and unit: what a data file the deck was given backs (ADR-0019).
+fn quoted_figures(deck: &Deck) -> Vec<Figure> {
+    let Ok(doc) = deck.to_value() else { return Vec::new() };
+    let mut out = Vec::new();
+    let mut walk = vec![&doc];
+    while let Some(v) = walk.pop() {
+        match v {
+            Value::Object(m) => {
+                if m.contains_key("quote")
+                    && let Some(text) = m.get("text").and_then(Value::as_str)
+                {
+                    out.extend(figures(text));
+                }
+                walk.extend(m.values());
+            }
+            Value::Array(a) => walk.extend(a),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The figures `text` writes, in order: each a word with a digit that no letter begins ("38%",
 /// "$1.4M", "2.5×", "40-mile"), not a year ("2026") and not a count under ten standing alone
 /// ("Week 1", "3 steps"), so a name's digits ("Q3", "p99") and a slide's numbering are no figure.
@@ -2502,8 +2525,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let mut unsourced: Vec<(String, String)> = Vec::new();
     if !sources.is_empty() {
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
-        // sourced is sourced where it is said again (W1's dogfood 5).
-        let mut known: Vec<(String, String)> = Vec::new();
+        // sourced is sourced where it is said again (W1's dogfood 5). A figure that quotes a cell
+        // of the deck's data is that data's, a file it was given (agent dogfood 3), wherever it
+        // stands.
+        let mut known: Vec<(String, String)> = quoted_figures(deck).into_iter().map(|f| (f.value, f.unit)).collect();
         for (i, s) in read.iter().enumerate() {
             let shown = format!("{}\n{}", s.title, s.body);
             let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
@@ -4590,6 +4615,25 @@ mod tests {
         assert_eq!(ask, "Say on slide 8 where 38% comes from, naming the source, or cite the source it is from.");
         let figured = of(&made).findings.into_iter().find(|f| f.kind == Kind::Source).and_then(|f| f.figure);
         assert_eq!(figured.as_deref(), Some("38%"), "the finding says its figure");
+        // Its 38% a run that quotes a cell of the deck's data, as a figure a given file holds is
+        // quoted (agent dogfood 3), slide 8 is found sourced.
+        let mut quoting = made.clone();
+        let id = (quoting["nodes"].as_object().unwrap().iter())
+            .find(|(_, n)| n["text"].as_str().is_some_and(|t| t.contains("38%")))
+            .map(|(id, _)| id.clone())
+            .expect("a text says 38%");
+        let text = quoting["nodes"][&id]["text"].as_str().unwrap().to_string();
+        let (before, after) = text.split_once("38%").unwrap();
+        let quote = json!({ "data": "@pilot", "column": "fuel_cut", "row": 0 });
+        let runs: Vec<Value> =
+            [json!({ "text": before }), json!({ "text": "38%", "quote": quote }), json!({ "text": after })]
+                .into_iter()
+                .filter(|r| r["text"] != "")
+                .collect();
+        let node = quoting["nodes"][&id].as_object_mut().unwrap();
+        node.remove("text");
+        node.insert("runs".into(), runs);
+        assert!(unsourced(&quoting).is_empty(), "{:?}", unsourced(&quoting));
         // Its `sourceRef` given, slide 8 is cited and found sourced.
         let named = |slides: &mut Vec<answer::Slide>| slides[7].source_ref = Some("pilot.csv".into());
         assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), named)).is_empty());
