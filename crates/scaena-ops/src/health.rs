@@ -1958,6 +1958,39 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
     }
+    // A headline that counts what its slide lists ("Three traps that make reviews useless") is
+    // held to the count, in an English deck (the calibration against a reader): a slide that
+    // promises three and lists two loses the room on the third. No patch: which is right, the
+    // count or the list, is the writer's.
+    for (i, s) in read.iter().enumerate() {
+        if !english || i == 0 || framing(i) || s.one_idea || s.drawn || !s.eligible() {
+            continue;
+        }
+        let (Some(said), listed) = (counts(&s.title), bullets(s)) else { continue };
+        if listed == 0 || listed == said {
+            continue;
+        }
+        let k = i + 1;
+        let word = |n: usize| match n {
+            1..=12 => {
+                ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"]
+                    [n - 1]
+                    .to_string()
+            }
+            n => n.to_string(),
+        };
+        let (said, listed) = (word(said), word(listed));
+        find(
+            &s.id,
+            Severity::Warning,
+            Kind::Story,
+            format!("Slide {k}'s headline counts {said}, and the slide lists {listed}."),
+            format!(
+                "Make slide {k}'s headline and its list agree: list the {said} it promises, or count the {listed} it lists."
+            ),
+            None,
+        );
+    }
     let mut unnoted = Vec::new();
     let mut aloud = Vec::new();
     for (i, s) in read.iter().enumerate() {
@@ -2494,6 +2527,46 @@ fn spaceless(language: Option<&str>) -> bool {
 /// The fewest points the slides that make several make on average before balance marks a deck
 /// down: Vzestup's floor, `metrics`' "Add more bullets to thin slides" (ADR-0032).
 const FLOOR_POINTS: f64 = 2.0;
+
+/// What a headline counts, where it counts the things its slide lists: a number from two to
+/// twelve, in words or figures, before a word that names them ("Three traps", "in five parts"),
+/// never a measure ("six hours", "40 miles") or a figure's own words ("one in seven").
+fn counts(headline: &str) -> Option<usize> {
+    const WORDS: [&str; 11] =
+        ["two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+    const MEASURES: [&str; 20] = [
+        "in", "of", "times", "percent", "seconds", "minutes", "hours", "days", "weeks", "months", "years", "quarters",
+        "miles", "people", "points", "dollars", "x", "to", "and", "or",
+    ];
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let mut found = None;
+    for (i, w) in words.iter().enumerate() {
+        let n = WORDS
+            .iter()
+            .position(|n| n == w)
+            .map(|k| k + 2)
+            .or_else(|| w.parse::<usize>().ok().filter(|n| (2..=12).contains(n)));
+        let Some(n) = n else { continue };
+        // A ratio's second number ("one in twelve", "two of three") counts nothing listed.
+        let number = |w: &str| w == "one" || WORDS.contains(&w) || w.parse::<f64>().is_ok();
+        if i >= 2 && matches!(words[i - 1].as_str(), "in" | "of" | "out") && number(&words[i - 2]) {
+            continue;
+        }
+        let next = words.get(i + 1).map(String::as_str);
+        if next.is_none_or(|next| MEASURES.contains(&next) || next.chars().all(|c| c.is_ascii_digit())) {
+            continue;
+        }
+        // Two counts in one headline say nothing plain about the list.
+        if found.is_some() {
+            return None;
+        }
+        found = Some(n);
+    }
+    found
+}
 
 /// The bullet lines balance counts on a slide: those its body sets as a list's items.
 fn bullets(s: &SlideForHealth) -> usize {
@@ -3339,6 +3412,45 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// A headline that counts what its slide lists is held to the count (the calibration against a
+    /// reader): the training deck's "Three traps that make reviews useless" lists two. A measure,
+    /// a figure's words, a count kept, and a deck in another language are not found.
+    #[test]
+    fn a_headline_that_counts_its_list_is_held_to_it() {
+        let h = of(&dogfood("training", "", |_| {}));
+        let counted: Vec<&Finding> =
+            h.findings.iter().filter(|f| f.kind == Kind::Story && f.says.contains("headline counts")).collect();
+        assert_eq!(counted.len(), 1, "{:#?}", h.findings);
+        assert_eq!(counted[0].slide, 8);
+        assert_eq!(counted[0].says, "Slide 8's headline counts three, and the slide lists two.");
+        assert_eq!(
+            counted[0].ask,
+            "Make slide 8's headline and its list agree: list the three it promises, or count the two it lists."
+        );
+        assert!(counted[0].fix.is_none());
+        // What a headline counts, and what it does not.
+        assert_eq!(counts("Three traps that make reviews useless"), Some(3));
+        assert_eq!(counts("Write it in five parts, in this order"), Some(5));
+        assert_eq!(counts("4 steps took it to production"), Some(4));
+        for none in [
+            "Your dispatchers spend six hours a day planning routes",
+            "One in twelve freight invoices is wrong",
+            "Storms washed out 40 miles of trail",
+            "Two mistakes and three fixes",
+            "We changed one loop",
+        ] {
+            assert_eq!(counts(none), None, "{none}");
+        }
+        // The list put right: nothing found.
+        let kept = |slides: &mut Vec<answer::Slide>| slides[7].key_bullets.push("Timelines with no timestamps".into());
+        let h = of(&dogfood("training", "", kept));
+        assert!(!h.findings.iter().any(|f| f.says.contains("headline counts")), "{:#?}", h.findings);
+        // In another language, not read.
+        let mut deck = dogfood("training", "", |_| {});
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        assert!(!of(&deck).findings.iter().any(|f| f.says.contains("headline counts")));
     }
 
     /// A turn's pair is read by its words in any script (W1's dogfood 7): Vzestup's split at
