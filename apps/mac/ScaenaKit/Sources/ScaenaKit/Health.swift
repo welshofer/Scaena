@@ -73,6 +73,15 @@ public struct Health: Decodable, Sendable {
     /// The big idea the settled outline names, the one sentence the audience should remember,
     /// where it names one (lift-up 10-24b FUNC-1).
     public let bigIdea: String?
+    /// An ask health offers an empty conversation: what its button says, and the question.
+    public struct Ask: Decodable, Equatable, Sendable {
+        public let label: String
+        public let question: String
+    }
+    /// Where the deck's slides state three or more figures, the ask that has the assistant find
+    /// two that seem the same measure with different values, changing nothing until the person
+    /// says which is right (`docs/examples/health-calibration.md`, change 5).
+    public let compare: Ask?
 }
 
 extension Health {

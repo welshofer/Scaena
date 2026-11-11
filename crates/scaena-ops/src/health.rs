@@ -64,6 +64,32 @@ pub struct Health {
     /// None where nothing caps it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capped: Option<Capped>,
+    /// Where the deck's slides state three or more figures, the ask an empty conversation offers
+    /// to have the assistant find two that seem the same measure with different values: words
+    /// cannot tell a measure said twice from a goal, a step, or a before and after, and a model
+    /// reading the deck can (`docs/examples/health-calibration.md`, change 5). One ask, so the
+    /// browser and the Mac say the same.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compare: Option<Ask>,
+}
+
+/// An ask the assistant is offered to begin with: what its button says, and the question.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Ask {
+    pub label: String,
+    pub question: String,
+}
+
+/// The figures that ask the assistant whether any disagree: three distinct ones at least.
+const COMPARED: usize = 3;
+
+/// The ask that has the assistant compare the deck's figures, quoting each it finds at odds and
+/// changing nothing until the person says which is right.
+fn comparing() -> Ask {
+    Ask {
+        label: "Check the figures agree".into(),
+        question: "Do any of this deck's figures disagree? Read every figure the slides state, each with its slide. Name any two that seem to be the same measure with different values: quote both, and say which slide each is on. Change nothing until I say which is right.".into(),
+    }
 }
 
 /// The score held down by the slides that do not stand.
@@ -2167,6 +2193,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     });
     let score = cap.map_or(score, |c| score.min(c));
 
+    // The figures the slides state, each value and unit once.
+    let mut stated: Vec<(String, String)> = Vec::new();
+    for r in &read {
+        for f in figures(&format!("{}\n{}", r.title, r.body)) {
+            if !stated.contains(&(f.value.clone(), f.unit.clone())) {
+                stated.push((f.value, f.unit));
+            }
+        }
+    }
+    let compare = (stated.len() >= COMPARED).then(comparing);
     Ok(Health {
         score,
         arc: arc_name,
@@ -2181,6 +2217,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         findings,
         big_idea,
         capped,
+        compare,
     })
 }
 
@@ -2458,6 +2495,31 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A deck whose slides state three or more figures offers the ask that compares them, as a model
+    /// reads them (`docs/examples/health-calibration.md`, change 5): keynote's 31 outage hours a
+    /// year against 286 to 2 is a reader's to weigh. A deck that states fewer offers none.
+    #[test]
+    fn a_deck_of_figures_offers_to_compare_them() {
+        let h = of(&dogfood("keynote", "", |_| {}));
+        let ask = h.compare.expect("keynote states its outage hours, its cost, and more");
+        assert_eq!(ask, comparing());
+        assert!(ask.question.contains("Change nothing until I say which is right"), "{}", ask.question);
+        let plain = |slides: &mut Vec<answer::Slide>| {
+            let words = |t: &str| t.chars().filter(|c| !c.is_ascii_digit()).collect::<String>();
+            for s in slides.iter_mut() {
+                s.slide_title = words(&s.slide_title);
+                s.subtitle = words(&s.subtitle);
+                s.key_bullets = s.key_bullets.iter().map(|b| words(b)).collect();
+                s.chart_data = None;
+            }
+        };
+        assert_eq!(
+            of(&dogfood("keynote", "", plain)).compare,
+            None,
+            "a deck that states no figures is asked nothing of them"
+        );
     }
 
     /// A made deck that links an address neither its brief nor its sources name is warned of it,

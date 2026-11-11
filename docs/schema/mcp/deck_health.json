@@ -198,6 +198,12 @@
           }
         },
         "required": ["slides", "cap", "score"]
+      },
+      "Ask": {
+        "description": "An ask the assistant is offered to begin with: what its button says, and the question.",
+        "type": "object",
+        "properties": { "label": { "type": "string" }, "question": { "type": "string" } },
+        "required": ["label", "question"]
       }
     },
     "required": [
@@ -259,6 +265,10 @@
       "capped": {
         "description": "Where slides lint finds an error on cap the score (ADR-0032 item 1): those slides, the cap,\nand the score the deck would have had, so the editors can say why it fell (W1's dogfood 5).\nNone where nothing caps it.",
         "anyOf": [{ "$ref": "#/$defs/Capped" }, { "type": "null" }]
+      },
+      "compare": {
+        "description": "Where the deck's slides state three or more figures, the ask an empty conversation offers\nto have the assistant find two that seem the same measure with different values: words\ncannot tell a measure said twice from a goal, a step, or a before and after, and a model\nreading the deck can (`docs/examples/health-calibration.md`, change 5). One ask, so the\nbrowser and the Mac say the same.",
+        "anyOf": [{ "$ref": "#/$defs/Ask" }, { "type": "null" }]
       }
     }
   }

@@ -377,6 +377,21 @@ private actor Lost {
     #expect(offered[0].question.contains("narrative health"), "it leads with health")
 }
 
+/// A deck whose slides state three or more figures offers health's ask to compare them, as the
+/// browser does, before every slide's claim (health calibration, change 5).
+@Test func aDeckOfFiguresOffersToCompareThem() throws {
+    let measure = #"{"score": 70, "says": "fine"}"#
+    let json = """
+        {"score": 80, "pacing": \(measure), "balance": \(measure), "coherence": \(measure),
+         "fidelity": \(measure), "intensity": \(measure), "tone": \(measure), "slides": [], "findings": [],
+         "compare": {"label": "Check the figures agree", "question": "Do any of this deck's figures disagree? Change nothing until I say which is right."}}
+        """
+    let health = try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    let offered = StartingAsk.offered(by: health)
+    #expect(offered.map(\.label) == ["Make this talk stronger", "Check the figures agree", "Check every slide says its claim"])
+    #expect(offered[1].question.hasPrefix("Do any of this deck's figures disagree?"))
+}
+
 /// A conversation too long for the model is asked again once, with half as much of tools'
 /// results, and answered; too long again, it is said in a person's words (lift-up PERF-3).
 @MainActor

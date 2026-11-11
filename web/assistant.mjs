@@ -22,7 +22,8 @@
 // provider's answer said (it works with its models, or is refused, in a person's words), kept
 // for the tab, or on the device, encrypted, and forgotten.
 // Exits 1 on any failure.
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { decode, launch, serve, tab } from "./serve.mjs";
@@ -860,6 +861,52 @@ try {
     await page.close();
     scripted.close();
   }
+
+  // A deck whose slides state three or more figures offers to compare them, by the model reading
+  // them (health calibration, change 5): the keynote's 31 outage hours a year beside its 286 to 2.
+  // The ask is health's own words, the Mac's too; pressed, it is sent as the question, the deck's
+  // own words fenced as data in the facts beside it.
+  await (async () => {
+    const made = "target/web-assistant/keynote";
+    await rm(made, { recursive: true, force: true });
+    execFileSync(
+      "cargo",
+      ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", made, "Port Alder's microgrid",
+        "--slides", "tests/fixtures/dogfood/keynote.slides.json", "--no-look", "--pictures", "none", "--length", "11-15 slides"],
+      { stdio: "inherit" },
+    );
+    const scripted = await provider(WIRE.anthropic);
+    const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await page.goto(`${site.origin}/web/dist/editor.html?painter=cpu&bundle=/${made}/deck.json&assistant-timeout=3000`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "assistant");
+    await choose(page, "anthropic", scripted.origin, "anthropic-test-key");
+    const label = "Check the figures agree";
+    await page
+      .waitForFunction((l) => [...document.querySelectorAll("#starters button")].some((b) => b.textContent === l), label, { timeout: 60000 })
+      .catch(() => {});
+    const asks = await page.evaluate(() => [...document.querySelectorAll("#starters button")].map((b) => b.textContent));
+    check(asks.includes(label) && asks.at(-1) === "Check every slide says its claim", `a deck of figures offers to compare them: ${JSON.stringify(asks)}`);
+    const sent = scripted.requests.length;
+    scripted.state.slow = 4000;
+    await page.evaluate((l) => [...document.querySelectorAll("#starters button")].find((b) => b.textContent === l).click(), label);
+    const waited = Date.now();
+    while (scripted.requests.length === sent && Date.now() - waited < 15000) await page.waitForTimeout(100);
+    const body = scripted.requests[sent]?.body;
+    const words = JSON.stringify(body?.messages ?? "");
+    check(
+      words.includes("Do any of this deck's figures disagree?") && words.includes("Change nothing until I say which is right"),
+      `pressed, it asks the model to compare the figures and change nothing: ${words.slice(0, 200)}`,
+    );
+    const system = JSON.stringify(body?.system ?? "");
+    check(/<data label=\\"[a-z-]+\\">[^]*Port Alder/.test(system), `the deck's own words reach the model fenced as data: ${system.slice(system.indexOf("--- the deck open ---"), system.indexOf("--- the deck open ---") + 200)}`);
+    await page.evaluate(() => document.querySelector("#stop").click());
+    await page.waitForFunction(() => document.querySelector("#thinking").hidden, null, { timeout: 15000 }).catch(() => {});
+    await context.close();
+    scripted.close();
+  })();
 } finally {
   await browser.close();
   site.close();
