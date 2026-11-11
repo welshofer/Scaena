@@ -3832,8 +3832,10 @@ fn spacing(c: char) -> bool {
     matches!(c, ' ' | '\u{a0}' | '\u{202f}' | '\u{2009}')
 }
 
-/// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million".
-const SPACED_MAGNITUDES: [&str; 22] = [
+/// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million", and
+/// Spanish's, Italian's, and Portuguese's ("1.234,5 millones", "3,4 milioni", "1,2 milh\u{f5}es",
+/// "2 mil millones"; R2's Valdemar). The longest that stands whole is read.
+const SPACED_MAGNITUDES: [&str; 35] = [
     "Tsd.",
     "Tsd",
     "Mio.",
@@ -3856,6 +3858,19 @@ const SPACED_MAGNITUDES: [&str; 22] = [
     "mld.",
     "mld",
     "mil",
+    "mill\u{f3}n",
+    "millones",
+    "mil millones",
+    "bill\u{f3}n",
+    "billones",
+    "milione",
+    "milioni",
+    "miliardo",
+    "miliardi",
+    "milh\u{e3}o",
+    "milh\u{f5}es",
+    "mil milh\u{f5}es",
+    "bilh\u{f5}es",
 ];
 
 /// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
@@ -8375,6 +8390,16 @@ mod tests {
         assert_eq!(figure("Der Umsatz stieg auf 538 TEUR").as_deref(), Some("538 TEUR"));
         // A word that only begins so is no unit of the figure.
         assert_eq!(figures_in("240 TEURE Sachen"), ["240".to_string()]);
+        // Spanish's, Italian's, and Portuguese's magnitudes stay with their figure (R2's Valdemar).
+        assert_eq!(figures_in("1.234,5 millones de litros al a\u{f1}o"), ["1.234,5 millones".to_string()]);
+        assert_eq!(figure("Una inversi\u{f3}n de 2 mil millones").as_deref(), Some("2 mil millones"));
+        assert_eq!(figure("Un mill\u{f3}n de visitas").as_deref(), None, "no figure before it");
+        assert_eq!(figure("Llegaron 1 mill\u{f3}n de visitas").as_deref(), Some("1 mill\u{f3}n"));
+        assert_eq!(figure("Ricavi di 3,4 milioni nel 2026").as_deref(), Some("3,4 milioni"));
+        assert_eq!(figure("Receita de 1,2 milh\u{f5}es em 2026").as_deref(), Some("1,2 milh\u{f5}es"));
+        assert_eq!(figure("Inversi\u{f3}n de 2,3 M\u{20ac} en 2026").as_deref(), Some("2,3 M\u{20ac}"));
+        // A word that only begins as one is none: "500 millonarios" counts people.
+        assert_eq!(figure("500 millonarios en la ciudad").as_deref(), Some("500"));
     }
 
     #[test]

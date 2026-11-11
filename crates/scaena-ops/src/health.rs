@@ -5120,6 +5120,9 @@ mod tests {
         assert_eq!(named("betreut heute 40 % mehr Anfragen"), one("40 %", "%"));
         assert_eq!(named("Umsatz von 48,6 Mio. € im Quartal"), one("48,6 Mio. €", "mio"));
         assert_eq!(named("une hausse de 18 %, puis la suite"), one("18 %", "%"));
+        // Spanish's magnitudes and currencies are named whole too (R2's Valdemar).
+        assert_eq!(named("Inversi\u{f3}n de 2,3 M\u{20ac} en 2026"), one("2,3 M\u{20ac}", "m\u{20ac}"));
+        assert_eq!(named("unos 1.234,5 millones de litros")[0].0, "1.234,5 millones");
         // A magnitude and its currency as one word, as the builder reads it, whole, thousands of
         // euros one unit however written (W1's #1080).
         assert_eq!(named("Kosten: 240 TEUR für zwei Stellen"), one("240 TEUR", "k\u{20ac}"));
