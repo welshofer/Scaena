@@ -1532,6 +1532,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             continue;
         }
         let (k, before) = (i + 1, i);
+        // The words of the slide before that a bridge might carry over, named so the writer
+        // need not guess what "a word of slide b's" is.
+        let such = carried(&read[i - 1], &read[i]);
         if *edge {
             // A turn at a beat's edge opens a new part of the talk, no loss (W1's second read of
             // fleet): information, so a sharp turn inside a beat comes first, with the same ask.
@@ -1544,7 +1547,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
                 ),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -1555,7 +1558,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Turn,
                 format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -1701,26 +1704,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             true => format!("Slide {k} reads flatter than it was written to be."),
             false => format!("Slide {k} reads hotter than it was written to be."),
         };
+        // The words the reading was made of, as a tone ask names its own (R1's MCP dogfood).
+        let named = intensed(&health::intensity::heard(&read[i].text(), language).unwrap_or_default());
         // In a person's words; the figures are for the assistant, which reads the deck's. Where
         // the plan bends from the arc, the words are to carry what the place calls for, not the
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
         let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
-                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.",
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.{named}",
                 level(calls)
             ),
             Some(calls) if g.detected < calls => format!(
-                "Make slide {k}'s words carry the intensity its place in the story calls for ({}): sharper verbs, a figure that lands.",
+                "Make slide {k}'s words carry the intensity its place in the story calls for ({}): sharper verbs, a figure that lands.{named}",
                 level(calls)
             ),
             Some(calls) => format!(
-                "Calm slide {k}'s words to the intensity its place in the story calls for ({}); they read {detected}.",
+                "Calm slide {k}'s words to the intensity its place in the story calls for ({}); they read {detected}.{named}",
                 level(calls)
             ),
             None if g.gap > 0.0 => format!(
-                "Make slide {k}'s words carry the intensity it declares ({declared}): sharper verbs, a figure that lands."
+                "Make slide {k}'s words carry the intensity it declares ({declared}): sharper verbs, a figure that lands.{named}"
             ),
-            None => format!("Calm slide {k}'s words to the intensity it declares ({declared}); they read {detected}."),
+            None => format!(
+                "Calm slide {k}'s words to the intensity it declares ({declared}); they read {detected}.{named}"
+            ),
         };
         // No fix: the plan's intensity is the arc's, which the words are to carry, not follow.
         find(&g.slide_id, Severity::Warning, Kind::Intensity, says, ask, None);
@@ -2470,7 +2477,7 @@ fn unstopped(sentence: &str) -> &str {
     sentence.trim_end().trim_end_matches('.').trim_end()
 }
 
-/// The most words a tone ask names on either side.
+/// The most words a tone or an intensity ask names on either side.
 const TONED: usize = 4;
 
 /// The words a tone was read from, as a sentence a tone ask ends with: those read as grave, the
@@ -2478,13 +2485,31 @@ const TONED: usize = 4;
 /// reads none ("Health reads “missed” and “outage” as grave, and no word as hopeful."). Nothing
 /// where no word was read.
 fn toned(heard: &[(String, f64)]) -> String {
-    let side = |grave: bool| -> Vec<String> {
-        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == grave && *w != 0.0).collect();
+    named(heard, ("grave", "hopeful"), false)
+}
+
+/// The words an intensity was read from, as [`toned`] names a tone's (R1's MCP dogfood): those read
+/// as heated first, then those read as calm, a `!` or a `?` named as the mark it is ("Health reads
+/// “you” and its question mark as heated, and no word as calm.").
+fn intensed(heard: &[(String, f64)]) -> String {
+    named(heard, ("calm", "heated"), true)
+}
+
+/// `heard`'s words as a sentence: those weighed below zero, called `sides.0`, and those above,
+/// `sides.1`, the side above first where `above_first`, each weightiest first, at most [`TONED`],
+/// and named once; nothing where no word was read.
+fn named(heard: &[(String, f64)], sides: (&str, &str), above_first: bool) -> String {
+    let side = |below: bool| -> Vec<String> {
+        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == below && *w != 0.0).collect();
         // Weightiest first; the sort is stable, so a tie keeps the order the words stand in.
         scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
         let mut out: Vec<String> = Vec::new();
         for (w, _) in words {
-            let quoted = format!("\u{201c}{w}\u{201d}");
+            let quoted = match w.as_str() {
+                "!" => "its exclamation mark".to_string(),
+                "?" => "its question mark".to_string(),
+                _ => format!("\u{201c}{w}\u{201d}"),
+            };
             if !out.contains(&quoted) && out.len() < TONED {
                 out.push(quoted);
             }
@@ -2496,12 +2521,51 @@ fn toned(heard: &[(String, f64)]) -> String {
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
-    let (grave, hopeful) = (side(true), side(false));
-    match (grave.is_empty(), hopeful.is_empty()) {
+    let (below, above) = (side(true), side(false));
+    let ((first, a), (second, b)) = match above_first {
+        true => ((above, sides.1), (below, sides.0)),
+        false => ((below, sides.0), (above, sides.1)),
+    };
+    match (first.is_empty(), second.is_empty()) {
         (true, true) => String::new(),
-        (false, true) => format!(" Health reads {} as grave, and no word as hopeful.", list(&grave)),
-        (true, false) => format!(" Health reads {} as hopeful, and no word as grave.", list(&hopeful)),
-        (false, false) => format!(" Health reads {} as grave, and {} as hopeful.", list(&grave), list(&hopeful)),
+        (false, true) => format!(" Health reads {} as {a}, and no word as {b}.", list(&first)),
+        (true, false) => format!(" Health reads {} as {b}, and no word as {a}.", list(&second)),
+        (false, false) => format!(" Health reads {} as {a}, and {} as {b}.", list(&first), list(&second)),
+    }
+}
+
+/// The words a line that carries the room across a turn might take from the slide before it,
+/// `was`, into `next` (R1's MCP dogfood): those that would answer the turn as [`bridges`] reads
+/// one, a word `was` uses and `next` does not, taken from its headline in the order they stand,
+/// else from its body, each a word as written whole, no figure and none of the commonest words,
+/// at most three, as a clause the
+/// turn's ask names them in; nothing where it has none.
+fn carried(was: &SlideForHealth, next: &SlideForHealth) -> String {
+    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let (ours, theirs) = (words(was), words(next));
+    let ordered = |text: &str| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        // A word as written whole, so a contraction's half ("didn") is not named, though it reads
+        // as one; a word in any script is, as the bridge reads it ("größe").
+        let lowered = text.to_lowercase();
+        let whole = lowered.split(|c: char| !c.is_alphanumeric() && c != '\'' && c != '\u{2019}');
+        for w in whole.filter(|w| w.chars().all(char::is_alphanumeric)) {
+            let fits = ours.contains(w) && !theirs.contains(w) && !COMMON.contains(&w);
+            if fits && w.chars().any(char::is_alphabetic) && !out.iter().any(|o| o == w) && out.len() < 3 {
+                out.push(w.to_string());
+            }
+        }
+        out
+    };
+    let mut found = ordered(&was.title);
+    if found.is_empty() {
+        found = ordered(&was.body);
+    }
+    let quoted: Vec<String> = found.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
+    match quoted.as_slice() {
+        [] => String::new(),
+        [one] => format!(", such as {one}"),
+        [rest @ .., last] => format!(", such as {} or {last}", rest.join(", ")),
     }
 }
 
@@ -2988,7 +3052,7 @@ mod tests {
         assert_eq!(
             turn.ask,
             format!(
-                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
+                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s, such as \u{201c}signal\u{201d}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
                 b = k - 1
             )
         );
@@ -3007,6 +3071,9 @@ mod tests {
         };
         let found = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state);
 
+        // The word the ask names answers the turn (R1's MCP dogfood).
+        let h = noted(&mut deck, "The signal is where we go next.".to_string());
+        assert!(!found(&h), "the word named bridges: {:#?}", h.findings);
         let h = noted(&mut deck, format!("From {carried} we turn to what comes next.\nThen the rest."));
         assert!(!found(&h), "{:#?}", h.findings);
         assert!(h.coherence.says.contains("; the notes bridge "), "{}", h.coherence.says);
@@ -3477,6 +3544,9 @@ mod tests {
         let c = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "Mehr Müll heißt neue Wege.");
         let before = slide("Die Größe des Mülls", "• Müll wächst jährlich", "");
         assert!(bridges(&before, &c), "Müll carries the room across");
+        // The turn's ask names the words the bridge reads, whole in any script (R1's MCP dogfood).
+        let after = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "");
+        assert_eq!(carried(&before, &after), ", such as \u{201c}größe\u{201d} or \u{201c}mülls\u{201d}");
 
         // On the German board deck, two slides of one beat that share only Größe and Müll: no turn.
         let paired = |slides: &mut Vec<answer::Slide>| {
@@ -3887,7 +3957,7 @@ mod tests {
         );
         assert_eq!(
             opened.ask,
-            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches, in a word of slide 3's: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches, in a word of slide 3's, such as \u{201c}late\u{201d}, \u{201c}deliveries\u{201d} or \u{201c}cost\u{201d}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
         );
         assert_eq!(fleet.coherence.score, None, "no figure moves");
         assert_eq!(
@@ -4266,9 +4336,41 @@ mod tests {
         assert_eq!(finding.says, format!("Slide {k} reads {way} than it was written to be."));
         // Asked of the words on that slide, held to its plan or, where the plan bends, its place.
         assert!(finding.ask.to_lowercase().contains(&format!("slide {k}'s words")), "{}", finding.ask);
+        // It names the words its reading was made of (R1's MCP dogfood), as a tone ask does.
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        let heard = health::intensity::heard(&read[i].text(), None).unwrap_or_default();
+        let named = intensed(&heard);
+        assert!(!named.is_empty(), "words that read an intensity: {heard:?}");
+        assert!(finding.ask.ends_with(&named), "{}", finding.ask);
         // The plan is the arc's: the words are to carry it, so no fix declares what they read
         // in its place.
         assert_eq!(finding.fix, None);
+    }
+
+    /// An intensity ask names its words as a tone ask does, heated first, a mark as the mark it
+    /// is, each once and at most four a side (R1's MCP dogfood).
+    #[test]
+    fn an_intensity_ask_names_what_it_heard() {
+        let w = |pairs: &[(&str, f64)]| pairs.iter().map(|(w, n)| (w.to_string(), *n)).collect::<Vec<_>>();
+        assert_eq!(
+            intensed(&w(&[("you", 1.2), ("?", 1.0), ("you", 1.2), ("summary", -0.5)])),
+            " Health reads \u{201c}you\u{201d} and its question mark as heated, and \u{201c}summary\u{201d} as calm."
+        );
+        assert_eq!(
+            intensed(&w(&[("record", 2.0)])),
+            " Health reads \u{201c}record\u{201d} as heated, and no word as calm."
+        );
+        assert_eq!(
+            intensed(&w(&[("overview", -0.5)])),
+            " Health reads \u{201c}overview\u{201d} as calm, and no word as heated."
+        );
+        assert_eq!(intensed(&[]), "");
+        assert_eq!(
+            toned(&w(&[("missed", -1.0), ("win", 0.5)])),
+            " Health reads \u{201c}missed\u{201d} as grave, and \u{201c}win\u{201d} as hopeful.",
+            "a tone ask reads as before"
+        );
     }
 
     /// Health says nothing it did not read (Jay's call, 2026-10-25). Words the lexicons read
