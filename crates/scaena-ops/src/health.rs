@@ -791,7 +791,7 @@ fn language_named(language: &str) -> Option<String> {
 }
 
 /// The layouts that frame a talk rather than make one of its points: covers, dividers, and agendas.
-const FRAMING: [&str; 10] = [
+pub(crate) const FRAMING: [&str; 10] = [
     "title",
     "photo-title",
     "title-center",
@@ -881,6 +881,13 @@ const VERBS: &str = "\
 /// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
 /// so such a label is missed rather than a point found wanting.
 fn labels(headline: &str) -> bool {
+    names_topic(headline, 3)
+}
+
+/// Whether `headline`, of `fewest` words to six, names a topic rather than stating a point, as
+/// [`labels`] reads one: a word or two ("Measurement") counts where the look rewrites a title
+/// that stated its point (W1's dogfood 8).
+pub(crate) fn names_topic(headline: &str, fewest: usize) -> bool {
     let headline = headline.trim();
     if headline.ends_with('?') {
         return false;
@@ -900,7 +907,7 @@ fn labels(headline: &str) -> bool {
         let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
         (w.chars().count() >= 5 && w.ends_with("ed")) || PASTS.contains(&w.as_str()) || (of(w) && !plural)
     };
-    (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
+    (fewest..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
 /// The shipped themes' layouts that show a measure: a figure's, or a chart's (the calibration
@@ -979,7 +986,7 @@ fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth) -> Option<String> {
 }
 
 /// The layouts a talk closes in (ADR-0032 item 6).
-const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
+pub(crate) const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
 
 /// Headlines that thank the room or open the floor, in the languages a made deck is written in:
 /// the first words of a closing slide that a layout of any kind may hold.
