@@ -28,7 +28,11 @@ pub fn slot(deck: &Deck) -> f64 {
 pub struct Notes {
     /// The minutes the talk is given: the brief's `minutes`, else the middle of its length's slot.
     pub slot: f64,
-    /// The minutes the talk runs now, to a tenth, as `deck_health`'s pacing times it.
+    /// The minutes the talk runs now, to a tenth, as `deck_health`'s pacing times it: each beat
+    /// the longest of its `duration` (a made deck's estimate from its words), its holds, and its
+    /// notes said aloud. Not the notes alone, which `deck_health` says apart ("its notes as
+    /// written run about …"): notes short of `budgets` leave the talk at the estimate (agent
+    /// dogfood 4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<f64>,
     /// Each slide, by its number from 1, and the words its notes are to run to.

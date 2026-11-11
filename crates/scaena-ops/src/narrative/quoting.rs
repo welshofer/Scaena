@@ -784,6 +784,24 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
         );
     }
 
+    /// A French figure whose thousands are grouped as French is typed, by a plain space, is set
+    /// with the space that never breaks and quotes its cell (agent dogfood 4); a year beside a
+    /// count is two figures.
+    #[test]
+    fn a_french_figure_grouped_by_a_plain_space_quotes_its_cell() {
+        let csv = "annee,trajets\n2024,1050000\n2025,1240000\n";
+        let set = crate::narrative::typeset("1 240 000", "fr");
+        assert_eq!(set, "1\u{a0}240\u{a0}000");
+        let words = [("s-number", set.as_str()), ("s-claim", "trajets en 2025, 18 % de plus qu'en 2024")];
+        let q = quotes(&words, csv, Some("fr"));
+        assert_eq!(q.len(), 1, "{q:?}");
+        assert_eq!(q[0].0, "1\u{a0}240\u{a0}000");
+        assert_eq!((q[0].1["column"].as_str(), q[0].1["row"]["annee"].as_str()), (Some("trajets"), Some("2025")));
+        // "2025 120" is a year and a count, never 2,025,120.
+        let csv = "annee,velos\n2025,120\n";
+        assert!(quotes(&[("t", "en 2025 120 v\u{e9}los")], csv, Some("fr")).iter().all(|(w, _)| w != "2025 120"));
+    }
+
     /// A slide's hero figure, alone in its text, reads what it means beside it: a Big Number's
     /// figure its claim, and a line's callout its takeaway (W1's dogfood 9).
     #[test]

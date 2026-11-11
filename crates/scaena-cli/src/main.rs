@@ -936,7 +936,14 @@ fn run(cli: Cli) -> Result<ExitCode> {
         Cmd::Generate(args) => generate::run(*args, cli.json),
         Cmd::Mcp => {
             let transport = std::sync::Arc::new(maps::Ureq::new());
-            scaena_mcp::stdio_with(transport).context("serving MCP on stdio")?;
+            // `deck_generate`'s web sources, read as `scaena generate --source` reads one: by an
+            // agent that connects only to public addresses, each redirect held to one, sending no
+            // SEC contact and no GitHub token of the user's.
+            let agent = sources::agent();
+            let reach = scaena_sources::fetch::Reach::default();
+            let reader: scaena_mcp::SourceReader =
+                std::sync::Arc::new(move |spec| sources::read(spec, &agent, &reach).map_err(|e| format!("{e:#}")));
+            scaena_mcp::stdio_with_sources(transport, reader).context("serving MCP on stdio")?;
             Ok(ExitCode::SUCCESS)
         }
     }
