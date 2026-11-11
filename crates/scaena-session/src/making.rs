@@ -362,6 +362,7 @@ mod tests {
             assets: Default::default(),
             relisted: Vec::new(),
             fell: Vec::new(),
+            unset: Vec::new(),
         }
     }
 

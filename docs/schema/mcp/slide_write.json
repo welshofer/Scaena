@@ -1,6 +1,6 @@
 {
   "name": "slide_write",
-  "description": "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes no other slide shows taken away with it), or at the end. Its `speakerNotes` are its first state's own wherever the beat it joins keeps notes of its own, so a presenter reads them on it. Its states join `beat`, a beat of the spine whose claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s blank slide. Its set of texts held to one size and lint's fixes taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only with `verbose`), with the slide's states, layout, and beat: a beat whose claim the slide it takes the place of said, and its new headline does not, is in `restated`, with the `fix` that sets the claim to that headline.",
+  "description": "Write one slide into the deck as its generator builds slides (lift-up FUNC-1), from a slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes no other slide shows taken away with it), or at the end. Its `speakerNotes` are its first state's own wherever the beat it joins keeps notes of its own, so a presenter reads them on it. Its states join `beat`, a beat of the spine whose claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s blank slide. Its set of texts held to one size and lint's fixes taken, as a made deck's are; what no fix mends is in `left`, a text past its place first, and each item its layout sets in none of its places (a chart's takes its takeaway alone) in `unset`. One patch, refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only with `verbose`), with the slide's states, layout, and beat: a beat whose claim the slide it takes the place of said, and its new headline does not, is in `restated`, with the `fix` that sets the claim to that headline.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "slide"],
@@ -209,9 +209,19 @@
           "why": { "type": "string" }
         },
         "required": ["slide", "source", "why"]
+      },
+      "Unset": {
+        "description": "An item a slide's layout sets in none of its places (agent dogfood 2): the slide, by its number\nfrom 1, the item's words as written, and the layout, so an agent can give the item a slide, a\nlayout, or the notes of its own. A chart's layout takes its takeaway alone, its figures in its\ndata; a bullet past that is one.",
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer", "minimum": 0 },
+          "words": { "type": "string" },
+          "layout": { "type": "string" }
+        },
+        "required": ["slide", "words", "layout"]
       }
     },
-    "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound"],
+    "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset"],
     "type": "object",
     "properties": {
       "applied": {
@@ -264,6 +274,11 @@
         "description": "Its chart, where it names a data source of the deck's and was not drawn from it: the\nslide, the source it named, and why it kept its own rows (agent dogfood).",
         "type": "array",
         "items": { "$ref": "#/$defs/Unbound" }
+      },
+      "unset": {
+        "description": "Each of its items its layout sets in none of its places: the slide, by its number in the\ndeck, the item's words, and the layout (agent dogfood 2).",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Unset" }
       }
     }
   }
