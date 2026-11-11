@@ -454,6 +454,11 @@ export async function generate(
         // Each chart that names a source and is not drawn from it, said as the CLI says it (W1
         // dogfood 9), so a data edit that leaves it as it was surprises no one.
         for (const u of made.unbound ?? []) hear({ kind: "unbound", ...u });
+        // Each layout not taken as asked, and each bullet a chart's layout sets nowhere, said as
+        // the CLI says them (W1's dogfood 10), so words the slide does not show are not lost
+        // unseen.
+        for (const f of made.fell ?? []) hear({ kind: "fell", ...f });
+        for (const u of made.unset ?? []) hear({ kind: "unset", ...u });
         const files = making.files();
         if (!files) {
           const errors = made.created.findings.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);

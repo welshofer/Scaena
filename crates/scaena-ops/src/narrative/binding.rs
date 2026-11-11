@@ -584,4 +584,40 @@ mod tests {
             "{why}"
         );
     }
+
+    const UMSATZ: &str = "monat,umsatz_teur,neukunden,abwanderung_pct\nJanuar,412,38,2.1\nFebruar,398,31,2.4\nM\u{e4}rz,455,44,2.0\nApril,471,47,1.9\nMai,502,52,1.7\nJuni,538,61,1.5\n";
+
+    /// R1's agent dogfood 3: a German file's columns carry German accounts' unit words
+    /// (`umsatz_teur`), and its series bind by what they measure, "Umsatz" to `umsatz_teur` and
+    /// "Abwanderung" to `abwanderung_pct`.
+    #[test]
+    fn a_german_series_binds_to_its_column_with_its_units_words_aside() {
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["data"]["umsatz"] = json!({ "source": "data/umsatz.csv", "schema": {
+            "monat": "string", "umsatz_teur": "number", "neukunden": "number", "abwanderung_pct": "number"
+        } });
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        let files = BTreeMap::from([("data/umsatz.csv".to_string(), UMSATZ.as_bytes().to_vec())]);
+        for (series, values, column) in [
+            ("Umsatz", [412.0, 398.0, 455.0, 471.0, 502.0, 538.0], "umsatz_teur"),
+            ("Abwanderung", [2.1, 2.4, 2.0, 1.9, 1.7, 1.5], "abwanderung_pct"),
+        ] {
+            let mut node = json!({
+                "type": "chart", "chart": "line", "data": "@own",
+                "x": { "field": "category", "type": "ordinal" },
+                "y": { "field": "value", "type": "quantitative" }
+            });
+            let chart = ChartData {
+                categories: ["Januar", "Februar", "M\u{e4}rz", "April", "Mai", "Juni"].map(String::from).to_vec(),
+                series: vec![Series { name: Some(series.into()), values: values.iter().map(|v| Some(*v)).collect() }],
+                unit: None,
+                source_id: Some("umsatz".into()),
+            };
+            let bound = bind(&mut node, &chart, &deck, &files, "umsatz");
+            assert!(bound.is_ok(), "{series}: {bound:?}");
+            assert_eq!(node["y"]["field"], json!(column), "{series}");
+        }
+        assert_eq!(measured("umsatz_teur"), "umsatz");
+        assert_eq!(measured("Umsatz (Mio. EUR)"), "umsatz");
+    }
 }
