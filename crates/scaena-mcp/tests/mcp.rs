@@ -388,6 +388,14 @@ async fn an_agent_builds_a_deck_with_the_tools_alone() {
     assert_eq!(found["matches"], 2, "{found:#}");
     assert_eq!(found["found"][0]["lives"], "/spine/sections/0/beats/1/claim", "{found:#}");
     assert_eq!(found["found"][1]["lives"], "/states/1/props/title/text", "{found:#}");
+    // Of the slides' texts alone, the claim the spine settled left as it is (agent dogfood 2).
+    let texts = json!({ "bundle": bundle, "find": "doubled", "kinds": ["text"], "replace": "grew", "dry_run": true });
+    let texts = ok(&client, "deck_find", texts).await;
+    assert_eq!(texts["matches"], 1, "{texts:#}");
+    assert_eq!(texts["found"][0]["lives"], "/states/1/props/title/text", "{texts:#}");
+    // The headline changes and the claim does not: the claim, said no more, is restated.
+    assert_eq!(texts["replaced"]["restated"][0]["path"], "/spine/sections/0/beats/1/claim", "{texts:#}");
+    assert_eq!(texts["replaced"]["restated"][0]["claim"], "Revenue doubled.", "{texts:#}");
     let replaced = ok(&client, "deck_find", json!({ "bundle": bundle, "find": "doubled", "replace": "grew" })).await;
     assert_eq!(replaced["replaced"]["applied"], true, "{replaced:#}");
     let read = ok(&client, "deck_read", json!({ "bundle": bundle, "scn": true })).await;

@@ -3,7 +3,27 @@
   "description": "Find text across the deck's words, in every state (PLAN 2.47, 2.83): its texts, each node's description (`alt`), each state's notes, each beat's claim and notes, the titles and notes a chart or a table draws, and the string values of its data (`kind`), once for each place they are written (the node's own, a state's delta, the deck's overrides, a state, a beat, or a data source), with the states that show them from there and each match, in characters. With `replace`, every match is replaced in one patch, a `replace_text` where each text lives and a JSON Patch `replace` of the rest where they are written, reported as `deck_patch` reports a patch (`replaced`); a value of the data (a cell, or a value a highlight picks out) is found and left as it is, where it stands listed in `kept`, for `data_edit`.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "required": ["bundle", "find"],
+    "$defs": {
+      "Kind": {
+        "description": "What words a match is in.",
+        "oneOf": [
+          { "description": "A text node's text.", "type": "string", "const": "text" },
+          { "description": "A node's description, its `alt`.", "type": "string", "const": "alt" },
+          { "description": "A state's speaker notes, or a beat's.", "type": "string", "const": "notes" },
+          { "description": "A beat's claim.", "type": "string", "const": "claim" },
+          {
+            "description": "Words a chart or a table draws that the deck writes: an axis's or a channel's `title`, a\nlegend's `title`, an annotation's `text`, a column's `title`, or a value an annotation's\n`at` picks out (`x`, `series`), which names a value of the data it is drawn from and is kept.",
+            "type": "string",
+            "const": "chart"
+          },
+          {
+            "description": "A cell of a data source: written inline in the deck (`data.<name>.source.inline`), or in a\nfile the bundle holds, which `file` names.",
+            "type": "string",
+            "const": "data"
+          }
+        ]
+      }
+    },
     "type": "object",
     "properties": {
       "bundle": { "description": "The bundle: a directory, a `.scaena` zip, or a `deck.json`.", "type": "string" },
@@ -13,6 +33,12 @@
         "description": "Whole words only: a match that neither begins nor ends inside a word.",
         "type": "boolean",
         "default": false
+      },
+      "kinds": {
+        "description": "Only these kinds of words: `text` (the slides' texts), `alt` (descriptions), `notes`,\n`claim` (the spine's beats' claims), `chart` (what a chart or a table writes), `data`\n(the cells of its data); every kind without it. `[\"text\"]` replaces a slide's words and\nleaves the claims the outline settled as they are.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Kind" },
+        "default": []
       },
       "replace": {
         "description": "Replace every match with this, in one patch: a `replace_text` where each text lives.",
@@ -25,7 +51,8 @@
         "default": false
       }
     },
-    "additionalProperties": false
+    "additionalProperties": false,
+    "required": ["bundle", "find"]
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
