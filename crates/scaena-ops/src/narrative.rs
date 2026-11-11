@@ -277,6 +277,11 @@ pub struct Refused {
     pub slide: usize,
     pub what: String,
     pub why: String,
+    /// What let it go where lint did not: `figures`, words that write the slide's figures
+    /// otherwise, or `claim`, a title that drops its beat's claim or names a topic (W1 dogfood
+    /// 9). None for a change lint found worse, as every record before these reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -1570,9 +1575,13 @@ pub fn looked(
     theme: &str,
     font: &dyn Fn(&str) -> Result<Vec<u8>, OpsError>,
 ) -> Result<(Generated, Write), OpsError> {
-    // A title that drops what its beat claims, or names a topic where the slide stated its point,
-    // is let go before the deck is made again (W1's dogfood 8), as a figure changed is.
-    let (changes, titled) = held(shown.narrative, &before.0.layouts, changes);
+    // Words that write a slide's figures otherwise were let go as the answer was read, said
+    // here (W1 dogfood 9); a title that drops what its beat claims, or names a topic where the
+    // slide stated its point, is let go before the deck is made again (W1's dogfood 8).
+    let mut changes = changes;
+    let mut titled = figures_let_go(&mut changes);
+    let (changes, held) = held(shown.narrative, &before.0.layouts, changes);
+    titled.extend(held);
     if changes.is_empty() {
         let mut before = before;
         refuse(&mut before.0, &mut before.1, titled);
@@ -1598,7 +1607,7 @@ pub fn looked(
     let Some(after) = make(&changes)? else { return unchanged(before, invalid) };
     let refused = worse((&before.0, &before.1), (&after.0, &after.1));
     if refused.is_empty() {
-        return Ok(adopt(before.0, after, changes, titled));
+        return Ok(adopt(before.0, after, changes, titled, &[]));
     }
     // Each change let go, said with what lint found (lift-up USE-4).
     let mut said = titled.clone();
@@ -1616,7 +1625,7 @@ pub fn looked(
     if !worse((&before.0, &before.1), (&again.0, &again.1)).is_empty() {
         return unchanged(before, "lint found a slide the model changed worse for it");
     }
-    Ok(adopt(before.0, again, kept, said))
+    Ok(adopt(before.0, again, kept, said, &refused))
 }
 
 /// `changes` less each title that says less than the slide did (W1's dogfood 8), and each title
@@ -1675,7 +1684,8 @@ pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> 
                 None
             };
             if let Some(why) = why {
-                refused.push(Refused { slide: change.slide, what: format!("the title \u{201c}{title}\u{201d}"), why });
+                let what = format!("the title \u{201c}{title}\u{201d}");
+                refused.push(Refused { slide: change.slide, what, why, by: Some("claim".into()) });
                 change.title = None;
             }
         }
@@ -1776,9 +1786,35 @@ pub fn refusals(
                 .map(|f| scaena_core::words::said(&f.code, f.measure.as_ref()).unwrap_or_else(|| f.message.clone()))
                 .unwrap_or_else(|| "lint found the slide worse for it".into());
             let what = (changes.iter()).find(|c| c.slide == index + 1).map(asked).unwrap_or_else(|| "a change".into());
-            Refused { slide: index + 1, what, why }
+            Refused { slide: index + 1, what, why, by: None }
         })
         .collect()
+}
+
+/// What the model asked on each of `changes` that the answer's reading let go for writing the
+/// slide's figures otherwise (W1 dogfood 9), taken off them as the deck keeps it, a change that
+/// asks nothing else taken away.
+pub fn figures_let_go(changes: &mut Vec<Change>) -> Vec<Refused> {
+    let mut said = Vec::new();
+    for change in changes.iter_mut() {
+        let slide = change.slide;
+        let by = || Some("figures".to_string());
+        said.extend(std::mem::take(&mut change.figured).into_iter().map(|f| Refused {
+            slide,
+            what: f.what,
+            why: f.why,
+            by: by(),
+        }));
+    }
+    changes.retain(Change::changes);
+    said
+}
+
+/// `more` kept beside what `made` already says it let go, as [`refuse`] keeps them.
+pub fn refuse_too(made: &mut Generated, write: &mut Write, more: Vec<Refused>) {
+    let mut all = made.refused.clone();
+    all.extend(more.into_iter().filter(|r| !made.refused.contains(r)));
+    refuse(made, write, all);
 }
 
 /// `refused` kept as the report says them and as the deck keeps them, in `meta.narrative.refused`,
@@ -1823,21 +1859,22 @@ pub fn unkept(n: usize) -> String {
 }
 
 /// The deck `after` made with the model's `kept` changes, standing for `before`'s: the arc's
-/// fallback and the pictures carried over, and the changes `refused` said and kept with it.
+/// fallback and the pictures carried over, and the changes `refused` said and kept with it; the
+/// slides `worse` names by index, which lint found worse for theirs, said kept as made.
 pub fn adopt(
     before: Generated,
     after: (Generated, Write),
     kept: Vec<Change>,
     refused: Vec<Refused>,
+    worse: &[usize],
 ) -> (Generated, Write) {
     let (mut made, mut write) = after;
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
     made.looked = kept;
-    if !refused.is_empty() {
-        let slides: Vec<usize> = refused.iter().map(|r| r.slide - 1).collect();
-        made.unlooked = Some(as_made(&slides));
+    if !worse.is_empty() {
+        made.unlooked = Some(as_made(worse));
     }
     refuse(&mut made, &mut write, refused);
     (made, write)
@@ -8347,6 +8384,7 @@ mod tests {
             subtitle: None,
             bullets: Some(vec!["EBITDA +18% im Jahr".into(), "Umsatz stabil".into()]),
             why: "Tighter.".into(),
+            ..Change::default()
         };
         let (looked, layouts) = changed(&talk, &[change]);
         let made = deck_as(&looked, &theme, &Pictures::new(), &layouts).unwrap();
@@ -10293,6 +10331,48 @@ mod tests {
         assert!(crate::health::names_topic("Measurement", 1) && !crate::health::names_topic("Measurement", 3));
     }
 
+    /// What the look's reading let go for writing a slide's figures otherwise is kept beside
+    /// what else is refused, in the report and in `meta.narrative.refused`, and said as no
+    /// slide lint found worse (W1 dogfood 9); what else the answer asks stands.
+    #[test]
+    fn a_look_that_writes_a_figure_otherwise_is_said_let_go() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let n = route9();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let before = (made, write.unwrap());
+        let figured = |slide: usize, what: &str| Change {
+            slide,
+            why: "Tighter.".into(),
+            figured: vec![scaena_narrato::look::Figured {
+                what: what.into(),
+                why: "it drops 12, which the slide wrote".into(),
+            }],
+            ..Change::default()
+        };
+        let mut taken = figured(5, "the subtitle \u{201c}A year\u{201d}");
+        taken.title = Some("Discounts haven't moved the number".into());
+        let changes = vec![figured(6, "the title \u{201c}A free Route 9\u{201d}"), taken];
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, write) = looked(shown, changes, before, Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        let said: Vec<(usize, &str)> = made.refused.iter().map(|r| (r.slide, r.what.as_str())).collect();
+        assert_eq!(said, [(6, "the title \u{201c}A free Route 9\u{201d}"), (5, "the subtitle \u{201c}A year\u{201d}")]);
+        assert!(made.refused.iter().all(|r| r.why == "it drops 12, which the slide wrote"));
+        assert_eq!(made.unlooked, None, "no slide was found worse");
+        assert_eq!(made.looked.len(), 1, "{:#?}", made.looked);
+        assert!(made.looked[0].figured.is_empty());
+        let kept = &write.deck.meta.as_ref().unwrap().extra["narrative"]["refused"];
+        assert_eq!(kept.as_array().unwrap().len(), 2, "{kept:#}");
+        let deck = write.deck.to_value().unwrap();
+        assert!(
+            deck["nodes"]
+                .as_object()
+                .unwrap()
+                .values()
+                .any(|n| n["text"] == "Discounts haven\u{2019}t moved the number")
+        );
+    }
+
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says
     /// its beat's claim, the thanks under it, so the deck ends on its ask; where the slide gives
     /// somewhere to act and the claim asks, Call to Action, the claim its words (W1's dogfood 8).
@@ -11752,6 +11832,7 @@ mod tests {
                 slide: 4,
                 what: "the layout Two Columns, the title \u{201c}Heat, mapped\u{201d} and new points".into(),
                 why: why.clone(),
+                by: None,
             }]
         );
         let (mut kept_made, mut kept_write) = (made.clone(), write.clone());
