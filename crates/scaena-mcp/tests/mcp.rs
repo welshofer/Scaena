@@ -1236,7 +1236,7 @@ async fn deck_generate_takes_the_talks_minutes() {
         deck["meta"]["narrative"]["brief"].clone()
     };
     let ten = root.join("ten");
-    ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
+    let made_ten = ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
     let b = brief(&ten);
     assert_eq!((b["minutes"].clone(), b["length"].clone()), (json!(10), json!("5-10 slides")), "{b:#}");
     // A length given wins, the minutes kept beside it.
@@ -1250,8 +1250,20 @@ async fn deck_generate_takes_the_talks_minutes() {
     assert_eq!(brief(&both)["minutes"], json!(10));
     // A brief with none keeps none.
     let none = root.join("none");
-    ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
+    let made_none = ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
     assert!(brief(&none).get("minutes").is_none());
+    // The notes are budgeted to fill the minutes asked, else the middle of the length's slot
+    // (agent dogfood 3): ten minutes, against the 7.5 that "5-10 slides" gives. Each slide's
+    // words, and how long the talk runs as health times it, are said with them.
+    let words = |made: &Value| -> u64 {
+        made["notes"]["budgets"].as_array().unwrap().iter().map(|b| b["words"].as_u64().unwrap()).sum()
+    };
+    assert_eq!(made_ten["notes"]["slot"], json!(10.0), "{made_ten:#}");
+    assert_eq!(made_none["notes"]["slot"], json!(7.5), "{made_none:#}");
+    assert_eq!(made_ten["notes"]["budgets"].as_array().unwrap().len(), 6);
+    assert_eq!(made_ten["notes"]["budgets"][0]["slide"], json!(1));
+    assert!(words(&made_ten) > words(&made_none), "{} against {}", words(&made_ten), words(&made_none));
+    assert!(made_ten["notes"]["run"].as_f64().is_some_and(|r| r > 0.0), "{made_ten:#}");
     client.cancel().await.unwrap();
 }
 
@@ -1274,6 +1286,8 @@ async fn slide_write_reports_its_patch_as_deck_patch_does() {
     assert_eq!(w["summary"]["slides_added"], json!([first]), "{w:#}");
     assert_eq!((w["applied"].clone(), w["errors"].clone()), (json!(true), json!(0)));
     assert!(w.to_string().len() < 4000, "{} bytes", w.to_string().len());
+    // What the notes are to fill, the slide written among them (agent dogfood 3).
+    assert_eq!(w["notes"]["budgets"].as_array().map(Vec::len), Some(6), "{w:#}");
     // With `verbose`, the patch too, as deck_patch gives it.
     let v =
         ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slide, "dry_run": true, "verbose": true }))
@@ -1676,6 +1690,67 @@ async fn r1s_ferry_deck_binds_both_its_charts_and_lints_clean() {
     assert_eq!(d["data"]["ferry"]["schema"]["year"], json!("date"));
     let lint = ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await;
     assert_eq!(lint["errors"], json!(0), "{lint:#}");
+    client.cancel().await.unwrap();
+}
+
+/// R1's agent dogfood 3, a German board update: a chart whose `chartData.sourceId` is the id the
+/// data file was attached by says its source by the file's name, "Quelle: umsatz.csv", never the
+/// id "umsatz"; the file is kept among the deck's sources, and a slide whose `sourceRef` names it
+/// cites it in its beat's evidence.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chart_says_its_data_file_by_its_name() {
+    let root = scratch("source-line");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("umsatz.csv"),
+        "monat,umsatz_teur,neukunden,abwanderung_pct\nJanuar,412,38,2.1\nFebruar,398,31,2.4\nM\u{e4}rz,455,44,2.0\nApril,471,47,1.9\nMai,502,52,1.7\nJuni,538,61,1.5\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let months = json!(["Januar", "Februar", "M\u{e4}rz", "April", "Mai", "Juni"]);
+    let chart = |layout: &str, title: &str, source_ref: &str| {
+        json!({
+            "slideTitle": title,
+            "layoutSuggestion": layout,
+            "keyBullets": ["Zwei Gro\u{df}kunden haben ihre Vertr\u{e4}ge in den M\u{e4}rz verschoben"],
+            "sourceRef": source_ref,
+            "chartData": {
+                "categories": months,
+                // Named by its column, so it binds whatever the unit's words (W1's).
+                "series": [{ "name": "umsatz_teur", "values": [412, 398, 455, 471, 502, 538] }],
+                "sourceId": "umsatz",
+                "unit": "TEUR"
+            }
+        })
+    };
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[2] = chart("Line Chart", "Der Umsatz stieg von 412 auf 538 TEUR", "umsatz.csv");
+    slides[3] = chart("Bar Chart", "Im Februar sank der Umsatz auf 398 TEUR", "bericht-h1.pdf");
+    let bundle = root.join("nordlicht");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&bundle),
+            "language": "German",
+            "slides": { "executiveSummary": "Ein starkes erstes Halbjahr", "slides": slides },
+            "data": [{ "id": "umsatz", "file": "umsatz.csv" }]
+        }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let text = std::fs::read_to_string(bundle.join("deck.json")).unwrap();
+    let d: Value = serde_json::from_str(&text).unwrap();
+    let said: Vec<&str> = (d["nodes"].as_object().unwrap().values())
+        .filter_map(|n| n["text"].as_str())
+        .filter(|t| t.starts_with("Quelle"))
+        .collect();
+    assert_eq!(said, ["Quelle: umsatz.csv", "Quelle: umsatz.csv"], "{said:?}");
+    assert_eq!(d["meta"]["narrative"]["sources"][0]["name"], json!("umsatz.csv"));
+    assert!(text.contains("source:umsatz.csv"), "the line chart's beat cites the file");
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await["errors"], json!(0));
     client.cancel().await.unwrap();
 }
 

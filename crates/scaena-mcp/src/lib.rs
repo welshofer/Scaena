@@ -1004,7 +1004,9 @@ pub struct DeckGenerate {
     /// `Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name
     /// that could not be taken, or that had no place for every bullet and was set as a list,
     /// is in the result's `fell`, with why), `keyBullets` (a chart's layout sets the first, its
-    /// takeaway, alone: each after it no place sets is in `unset`), `speakerNotes`, `beatIndex`
+    /// takeaway, alone: each after it no place sets is in `unset`), `speakerNotes` (what the
+    /// presenter says, written to fill the talk: the result's `notes` gives the slot and each
+    /// slide's words), `beatIndex`
     /// and `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),
     /// `expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is
     /// drawn. `scaena://examples/ferry.generate.json` is a whole call that lints clean.
@@ -1062,7 +1064,10 @@ pub struct DeckGenerate {
     /// slide whose `chartData.sourceId` names one, by its id or its file's name, else whose
     /// `sourceRef` does, draws its chart from it where the file holds the slide's categories
     /// (a date column's months by their names too, "Jan" or "January 2026") and figures, and the
-    /// result's `unbound` says why of each that does not.
+    /// result's `unbound` says why of each that does not. Each file is a source the deck is
+    /// grounded in, by its file's name: a chart's source line says it, a slide whose `sourceRef`
+    /// names it, or whose figure is one of its cells, cites it, and `deck_health` then asks where
+    /// each figure no source backs comes from.
     #[serde(default)]
     pub data: Vec<scaena_ops::create::Attach>,
 }
@@ -1166,6 +1171,12 @@ pub struct DeckGenerated {
     pub unbound: Vec<scaena_ops::narrative::Unbound>,
     /// The findings whose fixes were applied, each checked by laying its state out again.
     pub fixed: Vec<Finding>,
+    /// What the notes are to fill: the talk's `slot` in minutes (the brief's `minutes`, else the
+    /// middle of its length's slot), how long the talk `run`s as `deck_health` times it, and each
+    /// slide's `budgets` in words. Notes far short of their budget leave the talk short of its
+    /// slot: write them again to it (`set_state`'s `notes`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<scaena_ops::narrative::Notes>,
 }
 
 // --- tools ----------------------------------------------------------------------------
@@ -1850,6 +1861,7 @@ impl Scaena {
                 quoted: made.quoted,
                 unbound: made.unbound,
                 fixed: made.fixed,
+                notes: made.notes,
             })
         })
         .await
