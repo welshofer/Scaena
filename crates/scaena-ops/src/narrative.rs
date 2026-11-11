@@ -2825,6 +2825,9 @@ fn assemble(
         Some(outline) => (outline.beats.iter()).map(|b| b.name.split(':').next().unwrap_or(&b.name).trim()).collect(),
         None => arc.beat_names(),
     };
+    // The arc's own names, English, and whether the deck is too (W1's dogfood 10).
+    let arc_names = arc.beat_names();
+    let english = deck_lang(&narrative.brief).is_none_or(|tag| tag == "en");
     let count = narrative.slides.len();
     let varied = varied(narrative);
     // The slide the talk peaks on, where the whole deck is made at once: one slide written into
@@ -2970,11 +2973,18 @@ fn assemble(
         // "Solution") in the PDF's outline, the player's picker, and the Story tab. Narrato
         // echoes the arc's names, so a name that is one of them is no name of the model's. Where
         // the person settled an outline, its beat's name stands in for the model's and the
-        // headline both: the slides were written to it (narrative FUNC-1).
+        // headline both: the slides were written to it (narrative FUNC-1). In a deck in another
+        // language, an outline's name that is the arc's own is English, no name for its part of
+        // a French talk: the model's name for the beat, or the headline, stands in for it (W1's
+        // dogfood 10: "Existing Approaches" over "Approches existantes").
         if last_beat != Some(beat) {
-            let outlined = narrative.outline.is_some();
-            let named = (slide.beat_name.as_deref().map(str::trim))
-                .filter(|n| !n.is_empty() && !outlined && !names.iter().any(|arc| arc.eq_ignore_ascii_case(n)));
+            let arcs = |n: &str| names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n));
+            let outlined = narrative.outline.is_some()
+                && (english
+                    || names
+                        .get(beat)
+                        .is_some_and(|settled| !arc_names.iter().any(|a| a.eq_ignore_ascii_case(settled))));
+            let named = (slide.beat_name.as_deref().map(str::trim)).filter(|n| !n.is_empty() && !outlined && !arcs(n));
             let headline = Some(slide.slide_title.as_str()).filter(|t| !t.trim().is_empty() && !outlined);
             let name = match (divider, named, headline) {
                 (true, _, _) => slide.slide_title.as_str(),
@@ -12827,6 +12837,70 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A deck in another language titles each section by the model's name for its beat, else its
+    /// first slide's headline, never by the arc's English name the settled outline carries (W1's
+    /// dogfood 10: "Existing Approaches" over "Approches existantes"). A name the person gave a
+    /// beat in the outline stands, and an English deck's sections are the outline's, as before.
+    #[test]
+    fn a_french_decks_sections_are_named_in_french() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = |title: &str, kind: &str, beat: usize, name: &str| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: if kind == "Bullets" { vec!["Un".into(), "Deux".into()] } else { vec![] },
+            beat_index: Some(beat),
+            beat_name: Some(name.into()),
+            ..Slide::default()
+        };
+        let mut n = narrative(
+            "La navette rapproche le centre.",
+            vec![
+                slide("Prolonger la navette", "Title", 0, "Probl\u{e8}me"),
+                slide("La fr\u{e9}quentation progresse", "Bullets", 1, "Impact"),
+                slide("62 % des usagers n\u{2019}ont pas de voiture", "Bullets", 2, "Approches existantes"),
+                slide("La navette co\u{fb}te peu", "Bullets", 3, "Solution"),
+                slide("Le plan mobilit\u{e9} la porte", "Bullets", 4, "Proof"),
+                slide("Voter la prolongation", "Closing", 5, "Appel \u{e0} l\u{2019}action"),
+            ],
+        );
+        let beat = |name: &str, claim: &str| scaena_narrato::outline::Beat {
+            name: name.into(),
+            claim: claim.into(),
+            slides: 1,
+        };
+        n.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "La navette rapproche le centre.".into(),
+            beats: vec![
+                beat("Problem: Define core challenge and stakes", "Un probl\u{e8}me."),
+                beat("Impact: Quantify cost of inaction", "Un impact."),
+                beat("Existing Approaches: Why they fall short", "Sans voiture."),
+                beat("Le co\u{fb}t", "Peu cher."),
+                beat("Proof: Case studies, data, demos", "Le plan."),
+                beat("Call to Action: Next steps", "Voter."),
+            ],
+        });
+        let titles = |n: &Narrative| -> Vec<String> {
+            let made = deck(n, &theme, &Pictures::new()).unwrap();
+            (made.deck["spine"]["sections"].as_array().unwrap().iter())
+                .map(|s| s["title"].as_str().unwrap().to_string())
+                .collect()
+        };
+        n.brief.language = Some("French".into());
+        assert_eq!(
+            titles(&n),
+            [
+                "Probl\u{e8}me",
+                "La fr\u{e9}quentation progresse",
+                "Approches existantes",
+                "Le co\u{fb}t",
+                "Le plan mobilit\u{e9} la porte",
+                "Appel \u{e0} l\u{2019}action"
+            ]
+        );
+        n.brief.language = None;
+        assert_eq!(titles(&n), ["Problem", "Impact", "Existing Approaches", "Le co\u{fb}t", "Proof", "Call to Action"]);
     }
 
     /// A chart's layout takes its takeaway alone: a bullet after it that no place sets is said in

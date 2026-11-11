@@ -1750,12 +1750,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
             .is_some_and(|l| l == "agenda" || l.starts_with("agenda-") || l == "section" || l.starts_with("section-"))
     };
-    // The beat a slide opens, by the one name the settled outline gives it, else its own.
+    // The beat a slide opens, by the one name the settled outline gives it, else its own. In a
+    // deck in another language, a name that is an arc's own is English, no name for a part of
+    // the talk: the model's own name for the beat stands in, else none (W1's dogfood 10:
+    // "Opens Existing Approaches" in a French deck whose beat was "Approches existantes").
+    let arcs =
+        |n: &str| scaena_narrato::arcs::arcs().iter().any(|a| a.beat_names().iter().any(|b| b.eq_ignore_ascii_case(n)));
     let beat_named = |i: usize| -> Option<String> {
         let meta = read[i].narrative_meta.as_ref()?;
-        let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
+        let settled = (meta.beat_index)
+            .and_then(|b| narrative.and_then(|n| n.pointer(&format!("/outline/beats/{b}/name"))))
             .and_then(Value::as_str);
-        settled.or(meta.beat_name.as_deref()).map(headed).filter(|n| !n.is_empty()).map(str::to_string)
+        [settled, meta.beat_name.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(headed)
+            .find(|n| !n.is_empty() && (english || !arcs(n)))
+            .map(str::to_string)
     };
     // A connective in the deck's own language, as its speaker would open with one.
     let (so, but) = connectives(language);
@@ -4299,6 +4310,36 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// A turn's ask in a deck in another language names the part it opens by the model's name for
+    /// the beat, never the arc's English one the settled outline carries (W1's dogfood 10: "Opens
+    /// Existing Approaches" in a French deck whose beat was "Approches existantes"); an English
+    /// deck's asks name the outline's, as before.
+    #[test]
+    fn a_french_turn_names_its_part_in_french() {
+        let arc = scaena_narrato::arcs::arcs().iter().find(|a| a.arc == "Hero's Journey").unwrap();
+        let english: Vec<&str> = arc.beat_names();
+        let opened = |deck: &Value| -> Vec<String> {
+            (of(deck).findings.iter())
+                .filter(|f| f.kind == Kind::Turn && f.says.contains(" opens "))
+                .map(|f| f.says.clone())
+                .collect()
+        };
+        let mut deck = dogfood("route9", "", |slides| {
+            for s in slides.iter_mut() {
+                s.beat_name = Some(format!("Partie {}", s.beat_index.unwrap_or_default() + 1));
+            }
+        });
+        let beats: Vec<Value> = english.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"]["beats"] = json!(beats);
+        let said = opened(&deck);
+        assert!(!said.is_empty(), "{:#?}", of(&deck).findings);
+        assert!(said.iter().all(|s| english.iter().any(|n| s.contains(&format!(" opens {n} ")))), "{said:#?}");
+        deck["meta"]["narrative"]["brief"]["language"] = json!("French");
+        let said = opened(&deck);
+        assert!(!said.is_empty());
+        assert!(said.iter().all(|s| s.contains(" opens Partie ")), "{said:#?}");
     }
 
     /// Where the slides balance counts list under two points on average, the content slides that
