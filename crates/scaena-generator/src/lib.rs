@@ -626,6 +626,21 @@ impl Generation {
     }
 }
 
+/// The deck `made` (JSON `{ deck, files: { PATH: TEXT } }`, as the editor's `Making.unbound`
+/// gives it) with each chart that names one of its data sources drawn from it, as `scaena
+/// generate` binds them (agent dogfood): JSON `{ deck, unbound }`, each chart not bound and why.
+/// Here, not in the editor's module, which SPEC §15 holds to its size.
+#[wasm_bindgen]
+pub fn bound(made: &str) -> Result<String, JsError> {
+    let made: Value = serde_json::from_str(made).map_err(|e| error(format!("the deck made: {e}")))?;
+    let deck = scaena_core::Deck::from_json(&made["deck"].to_string()).map_err(error)?;
+    let files = (made["files"].as_object().into_iter().flatten())
+        .map(|(path, text)| (path.clone(), text.as_str().unwrap_or_default().as_bytes().to_vec()))
+        .collect();
+    let (deck, unbound) = scaena_ops::narrative::bound(&deck, files).map_err(error)?;
+    Ok(json!({ "deck": deck, "unbound": unbound }).to_string())
+}
+
 /// One picture a person asks for in an editor (PLAN 2.107): of `subject`, in their words, in
 /// `theme`'s palette (the theme's JSON), made as `look` (`illustration` or `photo`), for a place
 /// `width` × `height` on the slide: JSON `[{ slide, prompt, frame, alt }]`, which a `Painting`
