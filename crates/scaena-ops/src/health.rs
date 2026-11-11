@@ -470,11 +470,17 @@ fn unit_of(word: &str) -> String {
 /// source backs (the ferry deck's "a fourth sailing at 1:10"); a ratio written so ("1:20") is
 /// missed with it.
 /// A figure's unit is its sign, its scale, the word joined to it ("40-mile"), or the word after it.
+/// A percent, a currency, or a magnitude set apart from it by a space, as German and French set
+/// them ("40 %", "48,6 Mio. €"), is shown with it, read as the builder reads a figure
+/// (`narrative::figures_in`), so a finding names the figure the slide writes (R1's agent
+/// dogfood 3: "writes 40" for "40 %").
 fn figures(text: &str) -> Vec<Figure> {
     let words: Vec<&str> = text
         .split_whitespace()
         .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))))
         .collect();
+    // Each figure as the builder reads it, a mark set apart after it with it ("48,6 Mio. €").
+    let spelled = crate::narrative::figures_in(text);
     let mut out = Vec::new();
     for (k, w) in words.iter().enumerate() {
         let starts = w.chars().next().is_some_and(|c| !c.is_alphabetic());
@@ -498,12 +504,17 @@ fn figures(text: &str) -> Vec<Figure> {
         let tail: String = number.chars().skip(sign.chars().count() + digits.chars().count()).collect();
         let value = digits.replace(',', "").trim_end_matches('.').to_string();
         let after = words.get(k + 1).filter(|n| n.chars().all(char::is_alphabetic) && !n.is_empty());
+        let spaced = (spelled.iter())
+            .find(|s| s.strip_prefix(number).is_some_and(|rest| rest.starts_with([' ', '\u{a0}', '\u{202f}'])));
+        let percent = spaced.is_some_and(|s| s.ends_with(['%', '\u{2030}']));
         let unit = if !sign.is_empty() {
             unit_of(&sign)
         } else if !tail.is_empty() {
             unit_of(&tail)
         } else if let Some(word) = joined {
             unit_of(word)
+        } else if percent {
+            "%".into()
         } else {
             after.map(|a| unit_of(a)).unwrap_or_default()
         };
@@ -511,7 +522,7 @@ fn figures(text: &str) -> Vec<Figure> {
             Some(word) => {
                 format!("{number} {}", if word.ends_with('s') { word.to_string() } else { format!("{word}s") })
             }
-            None => w.to_string(),
+            None => spaced.cloned().unwrap_or_else(|| w.to_string()),
         };
         out.push(Figure { shown, value, unit });
     }
@@ -796,6 +807,18 @@ fn slot((lo, hi): (u32, Option<u32>)) -> String {
         (0, Some(hi)) => format!("a slot of up to {hi} minutes"),
         (lo, Some(hi)) => format!("a {lo}\u{2013}{hi} minute slot"),
         (lo, None) => format!("a slot of {lo} minutes or more"),
+    }
+}
+
+/// Two connectives a speaker opens a slide's notes with in `language`, which carry nothing across
+/// alone: German's "Also" and "Aber", French's "Donc" and "Mais", else English's "So" and "But"
+/// (health's English-only sweep, item 2).
+fn connectives(language: Option<&str>) -> (&'static str, &'static str) {
+    let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
+        "de" | "deu" | "ger" | "german" | "deutsch" => ("Also", "Aber"),
+        "fr" | "fra" | "fre" | "french" | "français" | "francais" => ("Donc", "Mais"),
+        _ => ("So", "But"),
     }
 }
 
@@ -1349,11 +1372,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             false => String::new(),
         };
         let average = balance.avg_bullets_per_slide;
+        let points = points(average);
         if average < 2.0 {
-            short.push(format!("slides make {average} points each{over}, where two to five read as full"));
+            short.push(format!("slides make {average} {points} each{over}, where two to five read as full"));
         }
         if average > 5.0 {
-            short.push(format!("slides make {average} points each{over}, more than a room takes in"));
+            short.push(format!("slides make {average} {points} each{over}, more than a room takes in"));
         }
     }
     if balance.avg_speaker_notes_length < 30.0 {
@@ -1704,6 +1728,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(Value::as_str);
         settled.or(meta.beat_name.as_deref()).map(headed).filter(|n| !n.is_empty()).map(str::to_string)
     };
+    // A connective in the deck's own language, as its speaker would open with one.
+    let (so, but) = connectives(language);
     for (id, edge) in turns.iter().filter(|(id, _)| !bridged.contains(&id)) {
         let Some(&i) = place.get(id.as_str()) else { continue };
         if i > 0 && agenda(i - 1) {
@@ -1722,7 +1748,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Turn,
                 format!("Slide {k} shows another figure with no word from slide {before}: say what links the two."),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}{so}\u{201d}, \u{201c}{but}\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -1738,7 +1764,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
                 ),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s{such}: a connective alone (\u{201c}{so}\u{201d}, \u{201c}{but}\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -1749,7 +1775,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Turn,
                 format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
                 format!(
-                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s{such}: a connective alone (\u{201c}{so}\u{201d}, \u{201c}{but}\u{201d}) carries nothing across."
                 ),
                 None,
             );
@@ -3128,6 +3154,12 @@ fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Opti
     (!thin.is_empty()).then_some(thin)
 }
 
+/// The noun balance's average counts in, agreeing with the figure as it reads, as [`agree`] has a
+/// count agree: "1 point", else "1.8 points" (Nordlicht, R1's agent dogfood 3).
+fn points(average: f64) -> &'static str {
+    agree(if average.to_string() == "1" { 1 } else { 2 }, "point", "points")
+}
+
 /// Slides by place as a sentence names them: "slide 4", "slides 1 and 10", "slides 1, 4 and 10".
 fn slide_list(at: &[usize]) -> String {
     let named: Vec<String> = at.iter().map(|i| (i + 1).to_string()).collect();
@@ -4431,6 +4463,38 @@ mod tests {
         assert!(ask.contains("such as \u{201c}risiken\u{201d} or \u{201c}zeigen\u{201d}:"), "{ask}");
     }
 
+    /// A turn's ask gives its connectives in the deck's language (health's English-only sweep,
+    /// item 2): a German deck's speaker opens with "Also" or "Aber", a French one's with "Donc" or
+    /// "Mais"; an English deck's ask is as before, "So" and "But".
+    #[test]
+    fn a_turn_names_connectives_in_the_decks_language() {
+        assert_eq!(connectives(Some("German")), ("Also", "Aber"));
+        assert_eq!(connectives(Some("fr-FR")), ("Donc", "Mais"));
+        assert_eq!(connectives(None), ("So", "But"));
+        assert_eq!(connectives(Some("Japanese")), ("So", "But"), "another language's are English's, as before");
+        let turned = |slides: &mut Vec<answer::Slide>| {
+            for (k, title) in ["Zwei Risiken zeigen sich deutlich", "Fahrplan bis Ende 2027"].into_iter().enumerate() {
+                let s = &mut slides[7 + k];
+                s.slide_title = title.into();
+                s.key_bullets = vec![];
+                s.layout_suggestion = "Statement".into();
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", turned);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let h = of(&deck);
+        let ask = (h.findings.iter())
+            .find(|f| f.kind == Kind::Turn && f.slide == 9)
+            .map(|f| f.ask.clone())
+            .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
+        assert!(
+            ask.ends_with("a connective alone (\u{201c}Also\u{201d}, \u{201c}Aber\u{201d}) carries nothing across."),
+            "{ask}"
+        );
+    }
+
     /// A turn's ask names no French joining word to carry across in a French deck (health's
     /// English-only sweep, item 3), as a German deck's names no German one: "ainsi", "notre", and
     /// "toutes" give way to the words the slide is about.
@@ -4500,6 +4564,12 @@ mod tests {
         };
         let all = of(&dogfood("fleet", "", every));
         assert!(!all.balance.says.contains(", over "), "{}", all.balance.says);
+        // An average that reads as one is one point, as a reader says it (Nordlicht, R1's agent
+        // dogfood 3, read "Slides make 1 points each"); any other is points.
+        assert_eq!(points(1.0), "point");
+        for other in [0.0, 0.8, 1.5, 2.0, 5.5] {
+            assert_eq!(points(other), "points", "{other}");
+        }
     }
 
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
@@ -4873,6 +4943,40 @@ mod tests {
         assert!(plain.is_empty(), "{plain:?}");
         let priced = unsourced(&grounded_dogfood("fleet", "", pilot(), timed(", for $1.1M a year")));
         assert!(priced.iter().any(|s| s.contains("writes $1.1M")), "{priced:?}");
+    }
+
+    /// A figure a German or French slide sets apart from its percent, currency, or scale is named
+    /// with them (R1's agent dogfood 3: Nordlicht's "40 % mehr Anfragen" was "writes 40"); an
+    /// English figure is named as before, a word after it ("40 miles") left out.
+    #[test]
+    fn a_figure_is_named_with_the_marks_set_apart_after_it() {
+        let named = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.unit)).collect::<Vec<_>>();
+        let one = |shown: &str, unit: &str| vec![(shown.to_string(), unit.to_string())];
+        assert_eq!(named("betreut heute 40 % mehr Anfragen"), one("40 %", "%"));
+        assert_eq!(named("Umsatz von 48,6 Mio. € im Quartal"), one("48,6 Mio. €", "mio"));
+        assert_eq!(named("une hausse de 18 %, puis la suite"), one("18 %", "%"));
+        // What the builder does not read as one figure, health names as the builder reads it.
+        assert_eq!(named("Kosten: 240 TEUR für zwei Stellen"), one("240", "teur"));
+        assert_eq!(named("40 miles of trail, 38% more"), [one("40", "mile"), one("38%", "%")].concat());
+        // On the German board deck, made from a source, slide 8's unsourced figure is named whole.
+        let board = || {
+            vec![scaena_narrato::Provenance {
+                name: "bericht.pdf".into(),
+                kind: "pdf".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+            }]
+        };
+        let said = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "Der Vertrieb ist voll ausgelastet".into();
+            slides[7].key_bullets = vec!["Jede Stelle betreut 40 % mehr Anfragen".into()];
+            slides[7].layout_suggestion = "Bullet List".into();
+        };
+        let h = of(&grounded_dogfood("board-de", "", board(), said));
+        let source = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == 8).expect("slide 8's figure");
+        let says = source.says.replace(['\u{a0}', '\u{202f}'], " ");
+        assert!(says.starts_with("Slide 8 writes 40 %, and names no source"), "{says}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
