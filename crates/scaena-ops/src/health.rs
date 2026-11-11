@@ -3111,12 +3111,13 @@ mod tests {
     fn a_turn_the_notes_bridge_is_not_found() {
         let mut deck = climate();
         let before = of(&deck);
+        // Its first turn its words do not make: none is found out of its divider, so slide 5's.
         let turn = before.findings.iter().find(|f| f.kind == Kind::Turn).expect("a turn its words do not make").clone();
         let k = turn.slide;
         assert_eq!(
             turn.ask,
             format!(
-                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s, such as \u{201c}signal\u{201d}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
+                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s, such as \u{201c}hottest\u{201d} or \u{201c}record\u{201d}: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
                 b = k - 1
             )
         );
@@ -3136,7 +3137,7 @@ mod tests {
         let found = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Turn && f.state == turn.state);
 
         // The word the ask names answers the turn (R1's MCP dogfood).
-        let h = noted(&mut deck, "The signal is where we go next.".to_string());
+        let h = noted(&mut deck, "The hottest year is where we go next.".to_string());
         assert!(!found(&h), "the word named bridges: {:#?}", h.findings);
         let h = noted(&mut deck, format!("From {carried} we turn to what comes next.\nThen the rest."));
         assert!(!found(&h), "{:#?}", h.findings);
