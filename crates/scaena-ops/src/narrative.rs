@@ -3638,7 +3638,7 @@ fn digits(chars: &[char], start: usize) -> usize {
         let three = (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
             && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
         let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}') && end > start && three;
-        let typed = c == ' ' && end > start && three && {
+        let typed = c == ' ' && end > start && three && !(start > 0 && chars[start - 1].is_alphanumeric()) && {
             // The groups before this space: digits alone, split by plain spaces, the first of one
             // to three and each after it of three.
             let before: String = chars[start..end].iter().collect();
@@ -7199,6 +7199,9 @@ fn typeset(text: &str, lang: &str) -> String {
             {
                 out.push('\u{2013}')
             }
+            // A figure's thousands a plain space groups, as French is typed, stay on one line, set
+            // as the deck's locale sets them (agent dogfood 4).
+            ' ' if grouping(&chars, i) => out.push('\u{a0}'),
             // A figure and its unit, and a day and its month, stay on one line (DF7-2).
             ' ' if joined(&chars, i) => out.push('\u{a0}'),
             '%' | '\u{2030}'
@@ -7253,6 +7256,19 @@ fn dialed(chars: &[char], at: usize) -> bool {
         .is_some_and(|c| *c == '+');
     let round = chars[at - 1] == '0' && chars[end - 1] == '0' && chars[at + 1] != '0';
     ((before, after) == (3, 4) && !round) || (before, after) == (5, 4) || opened
+}
+
+/// Whether the space at `at` groups a figure's thousands, "1 240 000", as [`digits`] reads one.
+fn grouping(chars: &[char], at: usize) -> bool {
+    let Some(last) = at.checked_sub(1).filter(|b| chars[*b].is_ascii_digit()) else { return false };
+    let mut start = last;
+    while start > 0 && (chars[start - 1].is_ascii_digit() || chars[start - 1] == ' ') {
+        start -= 1;
+    }
+    while !chars[start].is_ascii_digit() {
+        start += 1;
+    }
+    digits(chars, start) > at
 }
 
 /// Whether the space at `at` joins a figure to its unit ("140 ms", "+18 %", "48,6 Mio. €"), or a
@@ -8388,6 +8404,10 @@ mod tests {
         assert_eq!(figures_in("3 1000 4"), ["3".to_string(), "1000".to_string(), "4".to_string()]);
         assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
         assert_eq!(figure("Les 3 200 v\u{e9}los du parc").as_deref(), Some("3 200"));
+        assert_eq!(figure("Q3 100 clients").as_deref(), Some("100"));
+        // The typesetter keeps such a figure on one line, its groups as French sets them.
+        assert_eq!(typeset("1 240 000 trajets", "fr"), "1\u{a0}240\u{a0}000 trajets");
+        assert_eq!(typeset("en 2025 120 v\u{e9}los", "fr"), "en 2025 120 v\u{e9}los");
     }
 
     #[test]
@@ -9019,7 +9039,7 @@ mod tests {
         // A figure whose thousands a plain space groups, as French is typed, stays whole: "1"
         // alone drew a figure its writer never wrote (agent dogfood 4).
         let (_, number) = made("Big Number", &["1 240 000", "trips in 2025, 18% more than in 2024"]);
-        has(&number, "number", "1 240 000");
+        has(&number, "number", "1\u{a0}240\u{a0}000");
         // A funnel's stage keeps its figure beside its name.
         let (_, funnel) = made(
             "Funnel",
