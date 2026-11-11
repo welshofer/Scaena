@@ -80,6 +80,10 @@ pub fn noted(made: &mut Generated, mut write: Write, written: Vec<(usize, String
             duration::factor(&str_of(&narrato["layout"]), &str_of(&narrato["visual"]), &str_of(&beat["claim"]));
         if let Some(seconds) = beat["duration"].as_f64() {
             beat["duration"] = json!(duration::respoken(seconds, notes::counted(was), notes::counted(&text), factor));
+            // Notes written to the slot are its plan, no estimate any more.
+            if let Some(narrato) = beat["media"]["narrato"].as_object_mut() {
+                narrato.remove("estimated");
+            }
         }
         beat["notes"] = json!(text);
         taken.push(slide);
