@@ -643,7 +643,8 @@ fn spoken(notes: &str) -> f64 {
 }
 
 /// What gives a beat its time: the `duration` it is given, its states' holds, or its notes said
-/// aloud, whichever comes to most.
+/// aloud, whichever comes to most. A `duration` that is still the estimate a made deck wrote from
+/// its words (`media.narrato.estimated`) counts, but times no beat: the talk runs at least so long.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Timed {
     Given,
@@ -658,23 +659,33 @@ type Beaten = (usize, f64, Timed);
 /// How long the talk runs, by its beats (lift-up FUNC-1): each beat the most of its `duration`,
 /// the holds of its states, as a video paces it, and its notes and its states' own said aloud,
 /// so that notes deepened lengthen the talk; and each beat's seconds, and what gives them, by the
-/// index of the first slide it tells. None where a beat has neither a `duration` nor a hold on
-/// every state, or a slide neither a beat nor holds, as a deck written by hand with no spine.
-fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
+/// index of the first slide it tells; and whether any beat's time was given, by a `duration` that
+/// is not the estimate a made deck wrote or by its holds, so a talk timed by its words alone reads
+/// as a floor (the calibration against a reader). None where a beat has neither a `duration` nor
+/// a hold on every state, or a slide neither a beat nor holds, as a deck written by hand with no
+/// spine.
+fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>, bool)> {
     let state = |id: &str| deck.states.iter().find(|s| s.id == id);
     let mut told: Vec<((usize, usize), usize, f64, Timed)> = Vec::new();
     let mut seconds = 0.0;
+    let mut timed = false;
     for (k, slide) in slides.iter().enumerate() {
         match slide.beat {
             Some((i, j, _)) if told.iter().any(|(at, ..)| *at == (i, j)) => {}
             Some((i, j, beat)) => {
                 let holds: Vec<Option<f64>> = beat.states.iter().map(|s| state(s).and_then(|s| s.hold)).collect();
                 let held = holds.iter().flatten().sum::<f64>() / 1000.0;
+                let estimated = (beat.media.as_ref())
+                    .and_then(|m| m.pointer("/narrato/estimated"))
+                    .and_then(Value::as_f64)
+                    .zip(beat.duration)
+                    .is_some_and(|(e, d)| e == d);
                 let given = match beat.duration {
                     Some(d) => d,
                     None if holds.iter().all(Option::is_some) => 0.0,
                     None => return None,
                 };
+                timed |= (beat.duration.is_some() && !estimated) || (!holds.is_empty() && held > 0.0);
                 // Its notes as the presenter reads them, each once: each state's own, else the
                 // beat's (SPEC §2.6).
                 let mut read: Vec<&str> = Vec::new();
@@ -693,10 +704,11 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>)> {
             None => {
                 let holds: Option<Vec<f64>> = slide.states.iter().map(|&s| deck.states[s].hold).collect();
                 seconds += holds?.iter().sum::<f64>() / 1000.0;
+                timed = true;
             }
         }
     }
-    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect()))
+    (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect(), timed))
 }
 
 /// A talk's minutes, rounded, as a person says them: "about 8 minutes", "under a minute".
@@ -1165,11 +1177,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         (None, None) => None,
     };
-    if let Some((seconds, _)) = talk {
-        let said = capitalized(&minutes(seconds));
-        pacing.says = match &given {
-            Some((_, _, _, against, _)) => format!("{} {said} of talk, {against}.", pacing.says),
-            None => format!("{} {said} of talk.", pacing.says),
+    if let Some((seconds, _, timed)) = &talk {
+        let against = given.as_ref().map(|(_, _, _, against, _)| format!(", {against}")).unwrap_or_default();
+        pacing.says = match timed {
+            true => format!("{} {} of talk{against}.", pacing.says, capitalized(&minutes(*seconds))),
+            // Timed by its words alone, the talk runs at least that long: no beat says how long.
+            false => format!(
+                "{} At least {} of talk from its words{against}; no beat is timed.",
+                pacing.says,
+                counted(((seconds / 60.0).round() as usize).max(1), "minute")
+            ),
         };
     }
     let score = match (asked, &arc_name) {
@@ -2197,9 +2214,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
-    if let (Some((seconds, beats)), Some((given, asked_for, (lo, hi), _, rounded))) = (&talk, &given) {
+    if let (Some((seconds, beats, timed)), Some((given, asked_for, (lo, hi), _, rounded))) = (&talk, &given) {
         let said = if *rounded { (seconds / 60.0).round() } else { seconds / 60.0 };
-        let under = said < *lo;
+        // A talk no beat times runs at least as long as its words take: never found short (the
+        // calibration against a reader), whatever its brief asks; found long, as words past the
+        // slot are.
+        let under = *timed && said < *lo;
         if under || hi.is_some_and(|hi| said > hi) {
             let mut by: Vec<Beaten> = beats.clone();
             scaena_core::sort::by_key(&mut by, |&(_, s, _)| (s * 1000.0) as i64);
@@ -4087,6 +4107,50 @@ mod tests {
         assert_eq!(h.coherence.score, None, "no figure moves");
     }
 
+    /// A talk timed by its words alone, every beat's `duration` still the estimate a made deck
+    /// wrote, is a floor (the calibration against a reader): said as at least so long, never found
+    /// short of its slot, whatever its brief asks, and still found long past it. A beat a person
+    /// times makes the talk timed, held to its slot as before.
+    #[test]
+    fn a_talk_timed_by_its_words_alone_is_a_floor() {
+        let short = |h: &Health| h.findings.iter().any(|f| f.kind == Kind::Pacing && f.says.contains("short of"));
+        let deck = dogfood("fleet", "", |_| {});
+        let h = of(&deck);
+        assert!(
+            h.pacing.says.contains("At least ") && h.pacing.says.ends_with("; no beat is timed."),
+            "{}",
+            h.pacing.says
+        );
+        assert!(!short(&h), "{:#?}", h.findings);
+        // A brief that asks minutes is a plan for the talk, not for its beats: still no floor found short.
+        let mut asked = deck.clone();
+        asked["meta"]["narrative"]["brief"]["minutes"] = json!(30);
+        let h = of(&asked);
+        assert!(!short(&h), "{:#?}", h.findings);
+        assert!(h.pacing.says.contains("where its brief asks 30 minutes; no beat is timed."), "{}", h.pacing.says);
+        // Words past the slot are found long all the same.
+        let mut long = asked.clone();
+        let at = beat_of(&long, long["states"][1]["id"].as_str().unwrap());
+        long.pointer_mut(&at).unwrap()["notes"] = json!("word ".repeat(140 * 40));
+        let h = of(&long);
+        assert!(h.findings.iter().any(|f| f.kind == Kind::Pacing && f.says.contains(", past ")), "{:#?}", h.findings);
+        // One beat a person times, its duration no longer the estimate: the talk is timed, and
+        // short of its slot as before.
+        let mut timed = asked.clone();
+        timed.pointer_mut(&at).unwrap()["duration"] = json!(60);
+        let h = of(&timed);
+        assert!(h.pacing.says.contains(" of talk, where its brief asks 30 minutes."), "{}", h.pacing.says);
+        assert!(short(&h), "{:#?}", h.findings);
+        // A deck saved before the estimate was kept reads its durations as given, as it did.
+        let mut older = asked;
+        for section in older["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat["media"]["narrato"].as_object_mut().unwrap().remove("estimated");
+            }
+        }
+        assert!(short(&of(&older)));
+    }
+
     #[test]
     fn a_generated_talk_reads_as_its_beats_tell_it() {
         let deck = climate();
@@ -4110,7 +4174,7 @@ mod tests {
             h.pacing,
             Measure {
                 score: Some(100),
-                says: "25 slides, as the brief asked (16\u{2013}25). About 8 minutes of talk, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot.".into()
+                says: "25 slides, as the brief asked (16\u{2013}25). At least 8 minutes of talk from its words, where 16\u{2013}25 slides is a 31\u{2013}45 minute slot; no beat is timed.".into()
             }
         );
         // Read by its words alone, coherence gets no number.
