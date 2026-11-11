@@ -254,6 +254,15 @@ struct StoryPanel: View {
                         .disabled(asLastRead)
                         .accessibilityIdentifier("story-edit-headline")
                 }
+                // A slide that says again what the one before said, or adds least to it, offers to
+                // fold into it, as its to-do says (editor dogfood 6), as the browser's Story row does.
+                if run.contains(where: { $0.kind == "story" || $0.kind == "pacing" }),
+                    let label = Slide.folding(first.state, in: editor.slots)
+                {
+                    Button(label) { edits.fold(first.state) }
+                        .disabled(asLastRead)
+                        .accessibilityIdentifier("story-fold")
+                }
                 // The slide it is about shown first: a question begins with what the window shows,
                 // which "this slide" means to the assistant (lift-up USE-5).
                 Button("Ask the Assistant") {

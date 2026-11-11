@@ -73,6 +73,9 @@ struct PanelEdits {
     /// Show the state and type in the text that heads it, its words selected, so what is typed takes
     /// their place (editor dogfood 6).
     let headline: (_ state: String) -> Void
+    /// Fold the slide `state` is on into the slide before it, one step to undo, or say why it
+    /// cannot be (editor dogfood 6).
+    var fold: (_ state: String) -> Void = { _ in }
     /// Put a question to the assistant: its panel shown, the question in its box to send.
     let ask: (_ question: String) -> Void
     /// Say what an edit did, as the window says it for a moment.
