@@ -46,3 +46,17 @@ import Testing
     let field = try session.choices(state: "cover", node: "title").fields.first { $0.prop == "align/x" }
     #expect(field?.value?.string == "end")
 }
+
+/// The Play menu's Remote… takes its key from `MenuKey.remote`, so the Mac's menu and the iPad's
+/// menu bar show ⌥⌘K and Help finds it (lift-up 20261110). Read from the app's source: the chord
+/// itself cannot be pressed on the simulator, which delivers it without its modifiers
+/// (`docs/gate-4.md`), and the menus are the app's, which no ScaenaKit test builds.
+@Test func thePlayMenusRemoteTakesItsKeyFromMenuKey() throws {
+    let menus = try String(
+        contentsOf: repository.appending(path: "apps/mac/ScaenaKit/Sources/Scaena/Menus.swift"), encoding: .utf8)
+    let lines = menus.components(separatedBy: "\n")
+    let remote = try #require(lines.firstIndex { $0.contains("Button(\"Remote…\")") }, "no Remote… in the Play menu")
+    #expect(
+        lines[remote + 1].contains(".keyboardShortcut(MenuKey.remote.key, modifiers: MenuKey.remote.modifiers)"),
+        "Remote… takes another key: \(lines[remote + 1])")
+}

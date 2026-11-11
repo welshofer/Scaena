@@ -8,7 +8,8 @@ import SwiftUI
 /// locks and unlocks, ⌘{, ⌘|, and ⌘} align a text left, center, and right, and ⇧⌘D duplicates the
 /// slide. ⌘+ and ⌘− stay the slide's zoom, as the window's Zoom has them. ⌥⌘K is the Play menu's
 /// Remote…, beside its Play (⌥⌘P) and Rehearse (⌥⌘R), which a keyboard reaches on the iPad, whose
-/// menu bar a test does not (lift-up 20261110; Jay may choose another).
+/// menu bar a test does not; XCUITest on the simulator delivers it without its modifiers, so the
+/// chord itself waits on an iPad's keyboard (lift-up 20261110; Jay may choose another).
 public enum MenuKey: CaseIterable, Sendable {
     case duplicate
     case group
