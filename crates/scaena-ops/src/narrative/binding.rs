@@ -7,6 +7,7 @@
 
 use scaena_core::Deck;
 use scaena_core::data::{ColumnType, Datum, SourceFiles, Table};
+use scaena_core::inserts::slug;
 use scaena_narrato::ChartData;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -62,11 +63,16 @@ pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
     if let Some(id) = source_named(deck, named) {
         return vec![id];
     }
-    let wanted = stem(named);
-    if wanted.chars().count() < 3 {
+    if stem(named).chars().count() < 3 {
         return Vec::new();
     }
-    deck.data.keys().filter(|id| stem(id).starts_with(&wanted)).cloned().collect()
+    // The ids `keeping` makes of a workbook's sheets: the slug of its name, its extension off,
+    // then each sheet's (`navette-mensuel`), so a source of another file whose name begins alike
+    // (`navettes`) is never claimed.
+    let file = named.trim().rsplit_once('/').map_or(named.trim(), |(_, file)| file);
+    let base = slug(file.rsplit_once('.').map_or(file, |(stem, _)| stem), "data");
+    let sheet = format!("{base}-");
+    deck.data.keys().filter(|id| **id == base || id.starts_with(&sheet)).cloned().collect()
 }
 
 /// `node` bound to the first of `ids` that holds its slide's rows, as [`bind`] binds it: that

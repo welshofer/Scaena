@@ -12800,9 +12800,23 @@ mod tests {
             ],
             ..source("navette.xlsx", Kind::Sheets, "## Sheet: Mensuel")
         };
-        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[book])).unwrap();
+        // A CSV of another file whose name begins alike, kept beside the workbook, holding the
+        // districts' rows too: the workbook's name never claims it.
+        let other = Source {
+            sheets: vec![sheet(
+                "navettes.csv",
+                &[&["quartier", "voyageurs"], &["Nord", "14800"], &["Gare", "11200"], &["Sud", "5600"]],
+            )],
+            ..source("navettes.csv", Kind::Csv, "quartier,voyageurs")
+        };
+        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[other, book])).unwrap();
         let ids: Vec<Option<&str>> = kept.iter().map(|k| k.id.as_deref()).collect();
-        assert_eq!(ids, [Some("navette-mensuel"), Some("navette-quartiers")]);
+        assert_eq!(ids, [Some("navettes"), Some("navette-mensuel"), Some("navette-quartiers")]);
+        assert_eq!(
+            binding::sources_named(&write.deck, "navette.xlsx"),
+            ["navette-mensuel", "navette-quartiers"],
+            "not navettes"
+        );
         let (write, unbound) = binding(write).unwrap();
         assert!(unbound.is_empty(), "{unbound:#?}");
         let deck = write.deck.to_value().unwrap();
