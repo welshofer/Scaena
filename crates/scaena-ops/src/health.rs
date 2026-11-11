@@ -765,6 +765,19 @@ const FRAMING: [&str; 10] = [
     "agenda-photo",
 ];
 
+/// The irregular pasts a headline states its point in that [`VERBS`] does not spell out, a short
+/// closed list (the calibration against a reader): "We rebuilt 52 miles, not 40" states a point,
+/// and read without its verb it was found a topic. Each is a past no noun shares.
+const PASTS: [&str; 19] = [
+    "caught", "fought", "lent", "outran", "overcame", "quit", "rebuilt", "redrew", "regrew", "rewrote", "shot", "shut",
+    "sped", "stole", "swept", "threw", "tore", "undercut", "upheld",
+];
+
+/// Whether `w` is one of [`VERBS`] or [`PASTS`].
+fn spelled(w: &str) -> bool {
+    VERBS.split_ascii_whitespace().any(|v| v == w) || PASTS.contains(&w)
+}
+
 /// The verbs a headline that states its point carries, each form spelled out, base, -s, past,
 /// and -ing, with the contractions that hold one (lift-up 10-25b FUNC-4), apart by spaces, as
 /// [`labels`] reads it. A word here that is also a noun ("plan", "report") keeps a headline
@@ -839,8 +852,7 @@ fn labels(headline: &str) -> bool {
         .collect();
     // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
     // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
-    let verb =
-        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
+    let verb = |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || spelled(w);
     (3..=6).contains(&words.len()) && !words.iter().any(verb)
 }
 
@@ -870,7 +882,7 @@ fn verb(word: &str) -> bool {
     let w = word.replace('\u{2019}', "'");
     let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase();
     let contracted = ["n't", "'re", "'ve", "'ll", "'m", "'d", "'s"].iter().any(|c| w.ends_with(c));
-    contracted || (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w)
+    contracted || (w.chars().count() >= 5 && w.ends_with("ed")) || spelled(&w)
 }
 
 /// The line under a slide's headline that says its claim, where the headline names a topic
@@ -2854,6 +2866,10 @@ mod tests {
         }
         // A gerund names a topic.
         assert!(labels("Pricing by region"));
+        // An irregular past states a point (the calibration against a reader): the grant's.
+        assert!(!labels("We rebuilt 52 miles, not 40"));
+        assert!(!labels("6,820 volunteer hours rebuilt it"));
+        assert!(!labels("Crews swept every trail by June"));
 
         let deck = climate();
         let h = of(&deck);
