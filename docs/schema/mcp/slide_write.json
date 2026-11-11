@@ -40,14 +40,9 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Summary": {
-        "description": "What a patch changed in a deck's slides, each by the id of its first state, and in its\nspine's beats, each by its id: what was added, taken away, moved among the rest, or, a beat,\ntold otherwise (its claim, states, evidence, notes, or time). Each list is in the deck's order,\nand left out when empty.",
         "type": "object",
         "properties": {
-          "json_patch": {
-            "description": "How many of the ops given were JSON Patch.",
-            "type": "integer",
-            "minimum": 0
-          },
+          "json_patch": { "type": "integer", "minimum": 0 },
           "slides_added": { "type": "array", "items": { "type": "string" } },
           "slides_removed": { "type": "array", "items": { "type": "string" } },
           "slides_moved": { "type": "array", "items": { "type": "string" } },
@@ -68,10 +63,8 @@
         ]
       },
       "JsonOp": {
-        "description": "RFC 6902's ops.",
         "oneOf": [
           {
-            "description": "Put `value` at `path`: a member of an object (one already there is replaced, in its\nplace), or an item of an array, at an index or at its end (`-`).",
             "type": "object",
             "properties": {
               "path": { "$ref": "#/$defs/Pointer" },
@@ -81,13 +74,11 @@
             "required": ["op", "path", "value"]
           },
           {
-            "description": "Take away what is at `path`.",
             "type": "object",
             "properties": { "path": { "$ref": "#/$defs/Pointer" }, "op": { "type": "string", "const": "remove" } },
             "required": ["op", "path"]
           },
           {
-            "description": "Replace what is at `path`, which must be there.",
             "type": "object",
             "properties": {
               "path": { "$ref": "#/$defs/Pointer" },
@@ -97,7 +88,6 @@
             "required": ["op", "path", "value"]
           },
           {
-            "description": "`remove` at `from`, then `add` at `path`. A member moved within its object keeps its\nplace: a rename.",
             "type": "object",
             "properties": {
               "from": { "$ref": "#/$defs/Pointer" },
@@ -107,7 +97,6 @@
             "required": ["op", "from", "path"]
           },
           {
-            "description": "`add` at `path` what is at `from`.",
             "type": "object",
             "properties": {
               "from": { "$ref": "#/$defs/Pointer" },
@@ -117,7 +106,6 @@
             "required": ["op", "from", "path"]
           },
           {
-            "description": "Fail the patch unless `path` holds `value` (numbers equal by value: 1 is 1.0).",
             "type": "object",
             "properties": {
               "path": { "$ref": "#/$defs/Pointer" },
@@ -128,69 +116,39 @@
           }
         ]
       },
-      "Pointer": {
-        "description": "A JSON Pointer (RFC 6901): empty, the whole document, or `/`-separated tokens, `~1` for a\n`/` and `~0` for a `~` inside one.",
-        "type": "string",
-        "pattern": "^(/.*)?$"
-      },
+      "Pointer": { "type": "string", "pattern": "^(/.*)?$" },
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
       "Restated": {
-        "description": "A beat whose claim its slide said before an edit and says no more: what it claimed, what the\nslide says now, and the patch that sets the claim to it.",
         "type": "object",
         "properties": {
-          "beat": { "description": "The beat, by its id.", "type": "string" },
-          "state": {
-            "description": "The state of the beat's slide whose words `says` are, or, with none, the beat's first.",
-            "type": "string"
-          },
-          "path": { "description": "Where the claim is, as a JSON pointer.", "type": "string" },
-          "claim": { "description": "The claim, as the beat still says it.", "type": "string" },
-          "says": {
-            "description": "What the slide says now: the words of the text that said the claim, in the state it said\nit in, else the last that shows it; none where every such text was taken away.",
-            "type": ["string", "null"]
-          },
-          "fix": {
-            "description": "The patch that sets the claim to what the slide says, where it says something: a `test`\nof the old claim, then a `replace`.",
-            "type": "array",
-            "items": true
-          }
+          "beat": { "type": "string" },
+          "state": { "type": "string" },
+          "path": { "type": "string" },
+          "claim": { "type": "string" },
+          "says": { "type": ["string", "null"] },
+          "fix": { "type": "array", "items": true }
         },
         "required": ["beat", "state", "path", "claim"]
       },
       "Fell": {
-        "description": "A slide whose `layoutSuggestion` could not be taken as asked (agent dogfood): the slide, by\nits number from 1, what it asked, the layout it took, and why, so an agent can ask again.",
         "type": "object",
         "properties": {
           "slide": { "type": "integer", "minimum": 0 },
@@ -201,7 +159,6 @@
         "required": ["slide", "asked", "layout", "why"]
       },
       "Unbound": {
-        "description": "A chart that names a data source and was not bound to it, and why (agent dogfood): the slide,\nby its number from 1, the source it named, and what kept it on its own rows.",
         "type": "object",
         "properties": {
           "slide": { "type": "integer", "minimum": 0 },
@@ -211,7 +168,6 @@
         "required": ["slide", "source", "why"]
       },
       "Unset": {
-        "description": "An item a slide's layout sets in none of its places (agent dogfood 2): the slide, by its number\nfrom 1, the item's words as written, and the layout, so an agent can give the item a slide, a\nlayout, or the notes of its own. A chart's layout takes its takeaway alone, its figures in its\ndata; a bullet past that is one.",
         "type": "object",
         "properties": {
           "slide": { "type": "integer", "minimum": 0 },
@@ -221,79 +177,32 @@
         "required": ["slide", "words", "layout"]
       },
       "Quoted": {
-        "description": "How many figures a deck's slides write quote one of its data sources, so a data edit sets\nthem again (agent dogfood 3).",
         "type": "object",
-        "properties": {
-          "source": { "description": "The data source, by its id.", "type": "string" },
-          "figures": { "description": "How many figures quote it.", "type": "integer", "minimum": 0 }
-        },
+        "properties": { "source": { "type": "string" }, "figures": { "type": "integer", "minimum": 0 } },
         "required": ["source", "figures"]
       }
     },
     "required": ["slide", "layout", "beat", "fixed", "left", "fell", "unbound", "unset", "quoted"],
     "type": "object",
     "properties": {
-      "applied": {
-        "description": "Whether the deck was written: not under a dry run, nor when the patch was refused.",
-        "type": "boolean"
-      },
-      "ops": {
-        "description": "The semantic ops given (SPEC §7.3), in order, as given; JSON Patch ops are counted in\n`summary`.",
-        "type": "array",
-        "items": true
-      },
-      "summary": { "description": "What changed in the deck's slides and its story.", "$ref": "#/$defs/Summary" },
-      "patch": {
-        "description": "With `verbose`, the patch as RFC 6902, in order.",
-        "type": ["array", "null"],
-        "items": { "$ref": "#/$defs/JsonOp" }
-      },
-      "added": {
-        "description": "What `validate` and `lint` find after the patch that they did not before.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "removed": {
-        "description": "What they found before that they do not after.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
-      "states": {
-        "description": "The states it changes, by id, as [`Patched`] says them.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "restated": {
-        "description": "Each beat whose claim its slide said before the patch and says no more, as [`Patched`]\nsays them (lift-up FUNC-2). Left out when none.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Restated" }
-      },
+      "applied": { "type": "boolean" },
+      "ops": { "type": ["array", "null"], "items": true },
+      "summary": { "$ref": "#/$defs/Summary" },
+      "patch": { "type": ["array", "null"], "items": { "$ref": "#/$defs/JsonOp" } },
+      "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "errors": { "type": "integer", "minimum": 0 },
+      "states": { "type": "array", "items": { "type": "string" } },
+      "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } },
       "slide": { "type": "array", "items": { "type": "string" } },
       "layout": { "type": "string" },
       "beat": { "type": "string" },
       "fixed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "left": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
-      "fell": {
-        "description": "Its `layoutSuggestion`, where it could not be taken as asked: the slide, by its number in\nthe deck, what it asked, the layout it took, and why (agent dogfood).",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Fell" }
-      },
-      "unbound": {
-        "description": "Its chart, where it names a data source of the deck's and was not drawn from it: the\nslide, the source it named, and why it kept its own rows (agent dogfood).",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Unbound" }
-      },
-      "unset": {
-        "description": "Each of its items its layout sets in none of its places: the slide, by its number in the\ndeck, the item's words, and the layout (agent dogfood 2).",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Unset" }
-      },
-      "quoted": {
-        "description": "Each of the deck's data sources whose cells its figures quote, by its id, and how many\nfigures: a quoted figure is set again from its cell by every data edit (agent dogfood 3).",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Quoted" }
-      }
+      "fell": { "type": "array", "items": { "$ref": "#/$defs/Fell" } },
+      "unbound": { "type": "array", "items": { "$ref": "#/$defs/Unbound" } },
+      "unset": { "type": "array", "items": { "$ref": "#/$defs/Unset" } },
+      "quoted": { "type": "array", "items": { "$ref": "#/$defs/Quoted" } }
     }
   }
 }

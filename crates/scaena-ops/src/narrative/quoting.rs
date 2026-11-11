@@ -500,6 +500,91 @@ pub fn quoting_slide(
     counts.into_iter().filter(|(_, n)| *n > 0).collect()
 }
 
+/// The sources of `cells` a figure of `text` is the value of, each once: where the figure, as
+/// written, is exactly one cell's value, no other cell holding it, and its units agree; a year
+/// and a figure that says too little to stand on its value cite nothing.
+fn cited_in(text: &str, cells: &[Cell], locale: &Locale) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for f in figures(text, locale).iter().filter(|f| !year(f)) {
+        let mut found: Vec<&Cell> = Vec::new();
+        for reading in readings(f).into_iter().filter(|r| r.telling) {
+            let span = &text[reading.span.0..reading.span.1];
+            let Ok(format) = NumberFormat::parse(&reading.format) else { continue };
+            for cell in cells {
+                if same(cell.value, reading.value) && signed(&format.format(cell.value, locale)) == signed(span) {
+                    found.push(cell);
+                }
+            }
+        }
+        let Some(first) = found.first() else { continue };
+        let one = |c: &&Cell| c.source == first.source && c.column == first.column && c.row == first.row;
+        if found.iter().all(one) && fits(first, f) && !out.iter().any(|s| s == first.source) {
+            out.push(first.source.to_string());
+        }
+    }
+    out
+}
+
+/// `doc`, a deck as JSON, with each beat whose slide writes a figure that is one cell's value of
+/// the sources named `sources`, as [`cited_in`] reads it, citing that source in its evidence
+/// (`@id`), so health finds its figure sourced (W1 dogfood 9 F5). A citation says less than a
+/// quote, so the words around the figure need not name the cell's column. How many beats it
+/// cited a source for.
+pub fn citing(doc: &mut Value, files: &dyn SourceFiles, sources: &[String]) -> usize {
+    let Ok(deck) = Deck::from_json(&doc.to_string()) else { return 0 };
+    let tables: Vec<(String, Table)> =
+        sources.iter().filter_map(|id| data::load(&deck, files, id).ok().map(|t| (id.clone(), t))).collect();
+    let cells = cells(&tables);
+    if cells.is_empty() {
+        return 0;
+    }
+    let locale = Locale::of(deck.meta.as_ref().and_then(|m| m.lang.as_deref()));
+    let texts: Vec<String> = (doc["nodes"].as_object().into_iter().flatten())
+        .filter(|(_, n)| n["type"] == "text" && n.get("code").is_none())
+        .map(|(id, _)| id.clone())
+        .collect();
+    let states = doc["states"].as_array().cloned().unwrap_or_default();
+    let words_of_state = |state: &Value| -> String {
+        (texts.iter())
+            .filter_map(|id| {
+                let props = state["props"].get(id)?;
+                let own = props.get("text").is_some() || props.get("runs").is_some();
+                Some(if own { said(props) } else { said(&doc["nodes"][id]) })
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mut cites: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    for (s, section) in doc.pointer("/spine/sections").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        for (b, beat) in section["beats"].as_array().into_iter().flatten().enumerate() {
+            let shown = beat["states"].as_array().into_iter().flatten().filter_map(Value::as_str);
+            let words: Vec<String> =
+                shown.filter_map(|id| states.iter().find(|st| st["id"] == id)).map(&words_of_state).collect();
+            let cited = cited_in(&words.join("\n"), &cells, locale);
+            if !cited.is_empty() {
+                cites.push((s, b, cited));
+            }
+        }
+    }
+    let mut count = 0;
+    for (s, b, cited) in cites {
+        let beat = &mut doc["spine"]["sections"][s]["beats"][b];
+        if !beat["evidence"].is_array() {
+            beat["evidence"] = json!([]);
+        }
+        let evidence = beat["evidence"].as_array_mut().expect("evidence is a list");
+        let before = evidence.len();
+        for source in cited {
+            let named = json!(format!("@{source}"));
+            if !evidence.contains(&named) {
+                evidence.push(named);
+            }
+        }
+        count += usize::from(evidence.len() > before);
+    }
+    count
+}
+
 /// `props` saying its words as `runs`.
 fn set_runs(props: &mut Map<String, Value>, runs: Vec<Value>) {
     props.remove("text");
@@ -702,5 +787,29 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
         assert!(one("Q3 FY26 closed in 2026").is_empty());
         let q = quotes(&[("t", "A 41% share of the market")], "quarter,share\nQ3,0.4123\n", None);
         assert!(q.is_empty(), "41% hides the rounding of 41.23%");
+    }
+
+    /// A slide that writes one kept cell's value cites its source in its beat's evidence, though
+    /// no word beside it names the column (W1 dogfood 9 F5); a value two cells hold, a year, a
+    /// figure that says too little, and one whose units disagree cite nothing.
+    #[test]
+    fn a_slide_writing_one_cells_value_cites_its_source() {
+        let csv = "year,riders,on_time_pct,fare_revenue_kusd,midday_turnaways\n2021,412000,91.2,1648,1900\n2025,604000,86.9,2416,9800\n";
+        let cite = |text: &str, existing: Value| -> Value {
+            let (mut doc, files) = deck(&[("t", text)], csv, None);
+            doc["data"]["kpi"]["schema"]["year"] = json!("number");
+            doc["spine"] = json!({ "sections": [{ "id": "a", "beats": [{ "id": "b", "claim": "c", "states": ["s"], "evidence": existing }] }] });
+            citing(&mut doc, &files, &["kpi".into()]);
+            doc["spine"]["sections"][0]["beats"][0]["evidence"].clone()
+        };
+        assert_eq!(
+            cite("Turnaways have five-folded to 9,800", json!(["source:ferry.csv"])),
+            json!(["source:ferry.csv", "@kpi"])
+        );
+        assert_eq!(cite("86.9% sailed on time", json!([])), json!(["@kpi"]));
+        assert_eq!(cite("9,800 and again 9,800", json!(["@kpi"])), json!(["@kpi"]), "once");
+        assert_eq!(cite("Since 2021, more boats", json!([])), json!([]), "a year cites nothing");
+        assert_eq!(cite("Up 12 in a week", json!([])), json!([]), "too little to stand on");
+        assert_eq!(cite("$86.9 a ride", json!([])), json!([]), "a percent column is no amount in dollars");
     }
 }
