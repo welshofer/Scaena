@@ -127,3 +127,95 @@ The one case a reader found, keynote's 31 outage hours a year against 286, is ru
 Figures that disagree belong with the model. The assistant's "Ask about this deck" is the place for "do any of this deck's figures disagree?", which a model reads in context. That touches the assistant's prompt and its fence, so it will be routed as an item of its own.
 
 Behind these five, the **score compression** (9 of 13 decks within 90–95) is the larger question. It is *score-moving* and Jay's: health's score weighs pacing, balance and fidelity, and none of the three reads repetition, notes read aloud or an unresolved hook. Changes 1 and 5 would give it findings to weigh, should Jay want it to.
+
+## Score compression: candidate fixes, measured
+
+This section is the evidence for Jay's decision on the compression above. Nothing in it is on main. Each candidate was prototyped against the same 13 decks, built as in the method above, on a scratch branch that is not pushed. All figures come from health as it stands on main after #1022: pacing finds no short talk where no beat is timed. The coaching changes still in review, #1027 (a part's run of figures) and #1028 (no turn out of a divider), move turn findings, so the two candidates that read turns are given both ways.
+
+A correction to the count above: on these 13 decks, ten score 90–95 inclusive, not nine. Board-de, fleet and pitch all sit at 90.
+
+**What the score is today.** In a deck read by its words, health's score is Vzestup's fallback composite of three measures:
+- pacing (weight 0.20);
+- balance (0.25): bullets, notes length, and slides that show something, a third each;
+- arc fidelity (0.25).
+
+Coherence carries no score when read by words. Intensity and tone are measured but not weighed. The cap applies only where lint finds a slide that does not stand. None of the 13 decks has one, so the cap's slope moves nothing here.
+
+That is why the score is compressed. All 13 decks pace at 90–100. Ten balance at 87–100, and twelve show fidelity at 79–90. What a reader marks down sits in measures and findings the score does not weigh: notes read aloud, a slide said twice, an unresolved hook, turns that lose the room.
+
+### The candidates
+
+| | candidate | what it changes | ADR-0032 |
+|---|---|---|---|
+| C1 | coherence from turns | words-read coherence scored 100 − 15 per turn warning − 5 per turn info, weighed 0.30 as Vzestup weighs embedding coherence | a new item: Vzestup gives coherence by words no score |
+| C2 | pacing and balance by their warnings | pacing −10 per pacing warning; balance −5 per warning of its own kinds (`dense`, `thin`, `notes`, `story`) | amends item 3 (what balance counts) |
+| C3 | the cap's slope | ten points a broken slide, made steeper or shallower | amends item 1; **no effect here**, no deck capped |
+| C4 | notes read aloud counted in balance | a slide whose notes read it aloud counts as having none in balance's notes third | amends item 3 |
+| C5 | each warning costs points *(mine)* | the score less 1.5 per warning of any kind | a new item |
+| C6 | intensity and tone weighed in *(mine)* | each at 0.15 beside pacing, balance and fidelity | a new item, departing from Vzestup's composite |
+| C7 | C4 and C5 together *(mine)* | | items 3 and new |
+| C8 | C2 and C4 together | | item 3 |
+
+### The 13 scores, before and after
+
+Decks are listed in the reader's order, best first.
+
+| deck | base | C1 | C2 | C3 | C4 | C5 | C6 | C7 | C8 |
+|---|---|---|---|---|---|---|---|---|---|
+| keynote | 94 | 94 | 94 | 94 | 94 | 85 | 88 | 85 | 94 |
+| appeal | 93 | 88 | 93 | 93 | 93 | 86 | 87 | 86 | 93 |
+| pitch | 90 | 81 | 88 | 90 | 90 | 75 | 86 | 75 | 88 |
+| deepdive | 93 | 88 | 93 | 93 | 93 | 88 | 90 | 89 | 93 |
+| qbr | 95 | 77 | 95 | 95 | 95 | 88 | 92 | 87 | 95 |
+| launch | 91 | 88 | 91 | 91 | 91 | 80 | 87 | 81 | 91 |
+| lecture | 94 | 88 | 94 | 94 | 94 | 91 | 91 | 91 | 94 |
+| board-de | 90 | 87 | 90 | 90 | 90 | 87 | 87 | 87 | 90 |
+| climate | 84 | 58 | 84 | 84 | 84 | 63 | 83 | 63 | 84 |
+| training | 93 | 95 | 91 | 93 | 93 | 90 | 91 | 90 | 91 |
+| grant | 78 | 77 | 72 | 78 | 70 | 72 | 78 | 64 | 65 |
+| fleet | 90 | 81 | 85 | 90 | 80 | 84 | 86 | 74 | 75 |
+| cargo | 68 | 73 | 68 | 68 | 68 | 65 | 71 | 65 | 68 |
+
+| | ρ against the reader | decks at 90–95 | spread | largest single-deck move |
+|---|---|---|---|---|
+| base | +0.65 | 10 | 27 | none |
+| C1 | +0.47 | 2 | 37 | climate 84 → 58 |
+| C1, after #1027 and #1028 | +0.55 | 4 | 37 | climate 84 → 58 |
+| C2 | **+0.72** | 8 | 27 | grant 78 → 72 |
+| C3 | +0.65 | 10 | 27 | none |
+| C4 | **+0.70** | 9 | 27 | fleet 90 → 80 |
+| C5 | +0.30 | 2 | 28 | climate 84 → 63 |
+| C5, after #1027 and #1028 | +0.39 | 4 | 27 | climate 84 → 68 |
+| C6 | +0.48 | 4 | 21 | keynote 94 → 88 |
+| C7 | +0.37 | 2 | 28 | climate 84 → 63 |
+| C8 | **+0.72** | 8 | 29 | fleet 90 → 75 |
+
+ρ is Spearman's rank correlation of health's order with the reader's, tied scores taking their average rank.
+
+### What the numbers say
+
+- **Spreading the band and following the reader are different things.** C1, C5, C6 and C7 empty the 90–95 band, leaving two to four decks there, and each makes the ranking worse than today's +0.65.
+  - They punish turns and intensity and tone warnings. Those are most numerous on long data decks (climate, qbr) and on decks whose subject is trouble (pitch, keynote). A reader does not mark those down.
+  - C6 drops keynote, the reader's best, six points for tone it reads "graver than written" on a story about an ice storm.
+- **Only the balance candidates follow the reader.** C2 and C4 move only the decks with the tells a reader names first:
+  - fleet and grant, whose notes read every slide aloud;
+  - training, whose headline counts three and lists two;
+  - pitch, whose one read-aloud slide and dense chart cost it two.
+
+  Every deck a reader ranks well keeps its score. C8, the two together, moves fleet from 90 to 75 and grant from 78 to 65, below climate and next to cargo, where the reader puts them.
+- **C2's pacing half does nothing now.** #1022 left no pacing warning on these decks, so C2 is its balance half alone.
+- **No candidate lifts pitch** (reader 3, health 8–10). What holds it down is tone reading a fix's words as trouble, and balance's 1.8 points a slide. Neither is a story fault, and no change to the composite reaches that.
+- **The cap is not where the compression is.** No deck here has a slide lint finds broken.
+
+### Recommendation
+
+Take **C4**, and **C2's balance half** with it (C8): count a slide whose notes read it aloud as having no notes in balance, and take five points off balance for each warning of balance's own kinds (dense, thin, notes, and a slide said twice or a count not kept).
+
+- It raises ρ from +0.65 to +0.72.
+- It leaves every deck a reader ranks in the top eight as it is.
+- It drops fleet and grant fifteen and thirteen points, to about where a reader puts them.
+- It amends one ADR-0032 item, item 3 (what balance counts). It keeps Vzestup's weights and composite, and moves no deck without a warning that names why.
+
+It does not end the compression at the top. Eight decks still score 90–95. That top band is right to be close, because those decks are close. What separates them for a reader (an unresolved hook, a slide in the wrong place, a long tail after the peak) is not something health reads, and no weighting of what it does read will find it.
+
+If Jay wants a wider top band too, the evidence here argues against getting it from turn or tone counts. The way to get it is a measure of its own: the open-loop and long-tail readings. That would be new work, not a change of weights.
