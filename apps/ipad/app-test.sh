@@ -22,9 +22,9 @@ udid=$("$here/simulator.sh")
 # debug build gives the canvas's text input no keyboard of iOS's (`CanvasKeys.inputView`). That
 # pass tests keys with no software keyboard shown, not iOS's own hardware-keyboard mode or its
 # shortcuts bar, which an iPad's keyboard checks. The tests that need the software keyboard up run
-# after, in a pass of their own; none is left out. Each test reads its pass from `SCAENA_KEYBOARD`
-# (`TEST_RUNNER_` hands it to the tests) and holds it: no software keyboard in the first, and one
-# in the second.
+# in a pass of their own, before it; none is left out. Each test reads its pass from `SCAENA_KEYBOARD`
+# (`TEST_RUNNER_` hands it to the tests) and holds it: the software keyboard up in its pass, and
+# none in the other.
 software=(
   ScaenaUITests/TouchTests/testTheKeyboardKeepsTheLineTypedInAboveIt
   ScaenaUITests/KeysTests/testTypingInCodeSettles
@@ -62,10 +62,13 @@ tests() {
   xcodebuild test-without-building -quiet -project Scaena.xcodeproj -scheme ScaenaApp -destination "$destination" \
     -derivedDataPath "$built" -test-timeouts-enabled YES -maximum-test-execution-time-allowance 600 "$@" || status=$?
 }
-echo "--- the UI tests with no software keyboard" >>"$said"
-TEST_RUNNER_SCAENA_KEYBOARD=hardware tests -resultBundlePath "$results" "${software[@]/#/-skip-testing:}"
+# The software keyboard's pass first, on the device as it booted: after the other pass's keys, typed
+# with no software keyboard shown, iOS keeps to its hardware-keyboard mode for every app, showing
+# only its bar of shortcuts, 70 points tall, until the device boots again (#1067's third run).
 echo "--- the UI tests with the software keyboard" >>"$said"
 TEST_RUNNER_SCAENA_KEYBOARD=software tests -resultBundlePath "$softly" "${software[@]/#/-only-testing:}"
+echo "--- the UI tests with no software keyboard" >>"$said"
+TEST_RUNNER_SCAENA_KEYBOARD=hardware tests -resultBundlePath "$results" "${software[@]/#/-skip-testing:}"
 kill "$logging" 2>/dev/null || true
 [ "$status" -eq 0 ] || engine_log
 # The two passes as one result bundle, so their counts, failures, and screenshots are read as one
