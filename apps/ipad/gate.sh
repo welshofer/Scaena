@@ -23,17 +23,20 @@ if [ "${1:-}" = --release ]; then
   "$here/engine.sh" sim release
   destination="platform=iOS Simulator,arch=arm64,id=$("$here/simulator.sh")"
   configuration=Release
-  signing=
+  # Release builds every architecture the simulator runs, x86_64 too, and the engine is built for
+  # arm64's alone: so the active one only, as Debug builds (#1052's first run, the gate's tests
+  # linked for x86_64 and finding no `scaena_*` symbol).
+  settings=ONLY_ACTIVE_ARCH=YES
 elif [ -n "${1:-}" ]; then
   "$here/engine.sh" device release
   destination="platform=iOS,id=$1"
   configuration=Release
-  signing=-allowProvisioningUpdates
+  settings=-allowProvisioningUpdates
 else
   "$here/engine.sh" sim debug
   destination="platform=iOS Simulator,arch=arm64,id=$("$here/simulator.sh")"
   configuration=Debug
-  signing=
+  settings=
 fi
 cd "$here"
 xcodegen generate --quiet
@@ -43,7 +46,7 @@ rm -rf "$results"
 status=0
 # shellcheck disable=SC2086
 xcodebuild test -project Scaena.xcodeproj -scheme ScaenaGate -configuration "$configuration" \
-  -destination "$destination" -resultBundlePath "$results" $signing >"$said" 2>&1 || status=$?
+  -destination "$destination" -resultBundlePath "$results" $settings >"$said" 2>&1 || status=$?
 [ "$status" -eq 0 ] || engine_log
 summary=$("$here/results.sh" "$results")
 echo "$summary"
