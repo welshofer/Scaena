@@ -934,8 +934,9 @@ pub struct SlideWrite {
     #[serde(default)]
     pub replace: Option<String>,
     /// The id of a beat of the spine whose claim this slide tells, as `spine_update` planned it:
-    /// the slide's states join it, and it keeps what it says, the slide giving only what it lacks
-    /// (its notes, Narrato's fields); without `after`, the slide stands where the spine plans it,
+    /// the slide's states join it, and it keeps its claim, evidence, and notes, the slide giving
+    /// only what it lacks (Narrato's fields); the slide's own `speakerNotes` go on its first
+    /// state, which a presenter reads before the beat's; without `after`, the slide stands where the spine plans it,
     /// after that beat's slides, else after the nearest earlier beat's, else before the nearest
     /// later beat's. Without it, the slide gets a beat of its own after the slide
     /// before it, and a deck with no spine yet begins one. Not with `replace`, which keeps the
@@ -945,6 +946,10 @@ pub struct SlideWrite {
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
+    /// The patch compiled to JSON Patch too (`patch`), which a slide makes long: every state of
+    /// the deck, as `deck_patch`'s `verbose` gives it.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1146,7 +1151,8 @@ impl Scaena {
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and \
         duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
-        layout, transition, hold, and notes; place puts a node where it goes; choose sets a property where its value \
+        layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); \
+        place puts a node where it goes; choose sets a property where its value \
         lives; replace_text changes words, keeping their runs. A patch that would make the deck invalid is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \
         added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds \
@@ -1663,13 +1669,14 @@ impl Scaena {
         slide in the JSON Narrato writes (`deck_generate`'s `slides`): its layout chosen for its items, each place \
         filled, its figures, builds, and icons, in the deck's theme and the brief it keeps. After the slide that \
         holds `after`, in place of the slide that holds `replace` (its beat kept, its picture shown again, the nodes \
-        no other slide shows taken away with it), or at the end. Its states join `beat`, a beat of the spine whose \
+        no other slide shows taken away with it), or at the end. Its `speakerNotes` are its first state's \
+        own wherever the beat it joins keeps notes of its own, so a presenter reads them on it. Its states join `beat`, a beat of the spine whose \
         claim it tells (plan the spine with `spine_update` first), which keeps what it says; with none, it gets a \
         beat of its own, and a deck with no spine yet begins one, the slide taking the place of `deck_create`'s \
         blank slide. Its set of texts held to one size and lint's fixes \
         taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, \
-        refused as `deck_patch` refuses one, reported as `deck_patch` reports one, with the slide's states, layout, \
-        and beat.")]
+        refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only \
+        with `verbose`), with the slide's states, layout, and beat.")]
     async fn slide_write(
         &self,
         Parameters(a): Parameters<SlideWrite>,
@@ -1687,7 +1694,7 @@ impl Scaena {
             };
             let icons = scaena_ops::narrative::icons_found(&slide.icons);
             let b = open_by(&a.bundle, author)?;
-            scaena_ops::narrative::slide_write(&b, slide, &place, a.beat.as_deref(), icons, a.dry_run)
+            scaena_ops::narrative::slide_write(&b, slide, &place, a.beat.as_deref(), icons, a.dry_run, a.verbose)
         })
         .await
         .map(Json)
