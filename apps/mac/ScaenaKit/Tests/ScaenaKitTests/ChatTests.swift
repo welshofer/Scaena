@@ -474,6 +474,50 @@ private actor Lost {
     #expect(said(assistant) == ["The cover is clean."])
 }
 
+/// A window too busy to show a piece for longer than the silence deadline is not the provider
+/// going quiet: the answer is read on once the window is free, not asked again.
+@MainActor
+@Test func aWindowBusyShowingAPieceIsNoSilence() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let events = streaming("The cover is clean.")
+    let asked = Seen()
+    let go = Seen()
+    let assistant = Assistant(editor: editor, send: { _ in (Data(), 0) }) { _, heard in
+        let first = await asked.kept.isEmpty
+        await asked.keep(await asked.kept + ["asked"])
+        var whole = ""
+        for (i, event) in events.enumerated() {
+            whole += event
+            await heard(event)
+            // After its first word, the provider waits until the window is about to be held, then
+            // goes on at once: the next piece waits on the main actor, not on the provider.
+            if first && i == 2 {
+                await go.keep(["half"])
+                while await go.kept != ["go"] { try await Task.sleep(for: .milliseconds(5)) }
+            }
+        }
+        return (Data(whole.utf8), 200)
+    }
+    assistant.silence = 1
+    assistant.waits = [0.05]
+    assistant.ask("Is the cover clean?", provider: .anthropic, model: "a-model", key: "sk-test")
+    var waited = 0
+    while await go.kept != ["half"], waited < 1000 {
+        try await Task.sleep(for: .milliseconds(5))
+        waited += 1
+    }
+    #expect(await go.kept == ["half"])
+    await go.keep(["go"])
+    // The main actor held three times the deadline, as a window busy laying out a deck holds it.
+    usleep(3_000_000)
+    for _ in 0..<1000 where assistant.working {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(!assistant.working)
+    #expect(await asked.kept.count == 1, "asked once")
+    #expect(said(assistant) == ["The cover is clean."])
+}
+
 /// An answer that stops in the middle for longer than the silence deadline is given up on and
 /// asked again (narrative REL-3), the words it had said taken back.
 @MainActor
