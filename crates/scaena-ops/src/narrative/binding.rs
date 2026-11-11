@@ -7,6 +7,7 @@
 
 use scaena_core::Deck;
 use scaena_core::data::{ColumnType, Datum, SourceFiles, Table};
+use scaena_core::inserts::slug;
 use scaena_narrato::ChartData;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -52,6 +53,50 @@ pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
         })
     };
     by_id.cloned().or_else(by_file)
+}
+
+/// The data sources a chart's `named` source may be: the one called so, else each sheet the
+/// deck keeps from the workbook named, whose id is the workbook's name and the sheet's
+/// (`navette-mensuel` for "navette.xlsx"), in the deck's order. A model names the file it was
+/// given, never the id Scaena kept a sheet under (W1's dogfood 10).
+pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
+    if let Some(id) = source_named(deck, named) {
+        return vec![id];
+    }
+    if stem(named).chars().count() < 3 {
+        return Vec::new();
+    }
+    // The ids `keeping` makes of a workbook's sheets: the slug of its name, its extension off,
+    // then each sheet's (`navette-mensuel`), so a source of another file whose name begins alike
+    // (`navettes`) is never claimed.
+    let file = named.trim().rsplit_once('/').map_or(named.trim(), |(_, file)| file);
+    let base = slug(file.rsplit_once('.').map_or(file, |(stem, _)| stem), "data");
+    let sheet = format!("{base}-");
+    deck.data.keys().filter(|id| **id == base || id.starts_with(&sheet)).cloned().collect()
+}
+
+/// `node` bound to the first of `ids` that holds its slide's rows, as [`bind`] binds it: that
+/// source's id and the column it typed as dates, if any; else why not, each source saying its
+/// own where there are several, and `node` as it was.
+pub fn bind_first(
+    node: &mut Value,
+    chart: &ChartData,
+    deck: &Deck,
+    files: &dyn SourceFiles,
+    ids: &[String],
+) -> Result<(String, Option<String>), String> {
+    let mut whys = Vec::new();
+    for id in ids {
+        let mut tried = node.clone();
+        match bind(&mut tried, chart, deck, files, id) {
+            Ok(dated) => {
+                *node = tried;
+                return Ok((id.clone(), dated));
+            }
+            Err(why) => whys.push(if ids.len() == 1 { why } else { format!("`{id}`: {why}") }),
+        }
+    }
+    Err(whys.join("; "))
 }
 
 /// How a cell is a category as a slide writes it: not, wholly, or by its month's name alone, which

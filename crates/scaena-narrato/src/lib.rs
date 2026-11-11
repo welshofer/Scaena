@@ -707,7 +707,7 @@ impl Generation {
             topic: &brief.topic,
             audience: &brief.audience,
             modality: brief.modality.as_deref(),
-            minutes: notes::minutes(&brief.length),
+            minutes: notes::slot(brief.minutes, &brief.length),
             language: brief.language.as_deref(),
             voice: brief.voice.as_deref(),
             big_idea: narrative.outline.as_ref().map(|o| o.big_idea.as_str()),

@@ -455,17 +455,29 @@ public final class Assistant {
         var tooLong = false
     }
 
-    /// When the answer being read last said something: never, until its first line.
+    /// When the answer being read last said something: never, until its first line. The time a
+    /// piece takes to be shown is the window's, not the provider's: while the main actor is busy,
+    /// the next piece cannot be read, so a piece being handled is no silence, and the silence
+    /// counts from when it was shown.
     private actor Lines {
         private var last: ContinuousClock.Instant?
+        private var handling = false
 
+        /// A piece heard, before it is shown.
         func heard() {
             last = .now
+            handling = true
         }
 
-        /// Whether the answer has begun and said nothing for `silence` since.
+        /// The piece shown: the provider's silence counts from now.
+        func handled() {
+            last = .now
+            handling = false
+        }
+
+        /// Whether the answer has begun and said nothing for `silence` since, no piece being shown.
         func quiet(for silence: TimeInterval) -> Bool {
-            guard let last else { return false }
+            guard let last, !handling else { return false }
             return ContinuousClock.now - last > .seconds(silence)
         }
     }
@@ -531,6 +543,7 @@ public final class Assistant {
                 try await stream(request) { chunk in
                     await lines.heard()
                     await self.heard(chunk)
+                    await lines.handled()
                 }
             }
             group.addTask {

@@ -801,6 +801,11 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>, bool)> {
     (!told.is_empty()).then(|| (seconds, told.into_iter().map(|(_, k, s, by)| (k, s, by)).collect(), timed))
 }
 
+/// How long the talk runs, in seconds, as [`talk`] times it: none where it cannot be timed.
+pub(crate) fn talk_seconds(deck: &Deck) -> Option<f64> {
+    talk(deck, &slides(deck)).map(|(seconds, ..)| seconds)
+}
+
 /// A talk's minutes, rounded, as a person says them: "about 8 minutes", "under a minute".
 fn minutes(seconds: f64) -> String {
     match (seconds / 60.0).round() as usize {
@@ -1097,10 +1102,28 @@ const THANKS: [&str; 16] = [
     "質問",
 ];
 
+/// The plan layouts a talk closes in, as Narrato names them (`media.narrato.layout`): a slide
+/// planned in one closes the talk whatever theme layout its items were set in.
+const CLOSING_PLANS: [&str; 9] =
+    ["closing", "call to action", "next steps", "q&a", "q & a", "qa", "questions", "takeaways", "poster"];
+
+/// Whether the slide's beat planned it in a layout that closes the talk ([`CLOSING_PLANS`]):
+/// health read of a Spanish deck, whose Closing of two items was set as bullets.
+fn planned_close(slide: &Slide) -> bool {
+    let Some((_, _, beat)) = slide.beat else { return false };
+    let planned = beat.media.as_ref().and_then(|m| m.pointer("/narrato/layout")).and_then(Value::as_str);
+    // Written as Narrato names them ("Next Steps") or as a theme's layouts are ("next-steps").
+    planned.is_some_and(|l| CLOSING_PLANS.contains(&l.trim().to_lowercase().replace('-', " ").as_str()))
+}
+
 /// The first states of the deck's closing slides: the last run of slides in a closing layout,
-/// next steps, or questions, or headed with thanks or questions alone (ADR-0032 item 6).
+/// next steps, or questions, or planned in one ([`planned_close`]), or headed with thanks or
+/// questions alone (ADR-0032 item 6).
 fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String> {
     let closes = |i: usize| {
+        if planned_close(&slides[i]) {
+            return true;
+        }
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         let title = read[i].title.trim().to_lowercase();
         // Next steps and the floor opened belong to a close too, before or after its last word
@@ -1421,6 +1444,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         health::coherence::Method::Embedding => (m.coherence.breaks.iter())
             .map(|b| (b.slide_id.clone(), b.severity == health::coherence::Severity::Soft))
             .collect(),
+        // A deck whose words no space sets apart is not read for its turns, as it is not for its
+        // claims (health read of a Japanese deck): each headline reads as one word, so every pair
+        // of slides shared none and turned, and the ask named a whole headline as the word to carry.
+        health::coherence::Method::Keyword if spaceless(language) => Vec::new(),
         health::coherence::Method::Keyword => {
             let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
             // Each pair by its own words, read in any script (W1's dogfood 7): Vzestup's split at
@@ -1463,6 +1490,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             health::coherence::Method::Keyword => None,
         },
         says: match (hard, soft, paired) {
+            _ if m.coherence.method == health::coherence::Method::Keyword && spaceless(language) => format!(
+                "Not read by words: health reads words a space sets apart, and this deck is in {}.",
+                language.and_then(language_named).unwrap_or_else(|| "a script set without spaces".to_string())
+            ),
             (0, 0, 0) => "No slide breaks from the one before it, read by their words.".into(),
             // Each count said only where it has one, and a turn at a beat's edge as the finding
             // says it, a new part beginning (the coordinator's read of B1 and fleet).
@@ -1737,12 +1768,23 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .and_then(|&k| deck.states.get(k)?.layout.as_deref())
             .is_some_and(|l| l == "agenda" || l.starts_with("agenda-") || l == "section" || l.starts_with("section-"))
     };
-    // The beat a slide opens, by the one name the settled outline gives it, else its own.
+    // The beat a slide opens, by the one name the settled outline gives it, else its own. In a
+    // deck in another language, a name that is an arc's own is English, no name for a part of
+    // the talk: the model's own name for the beat stands in, else none (W1's dogfood 10:
+    // "Opens Existing Approaches" in a French deck whose beat was "Approches existantes").
+    let arcs =
+        |n: &str| scaena_narrato::arcs::arcs().iter().any(|a| a.beat_names().iter().any(|b| b.eq_ignore_ascii_case(n)));
     let beat_named = |i: usize| -> Option<String> {
         let meta = read[i].narrative_meta.as_ref()?;
-        let settled = (narrative.and_then(|n| n.pointer(&format!("/outline/beats/{}/name", meta.beat_index?))))
+        let settled = (meta.beat_index)
+            .and_then(|b| narrative.and_then(|n| n.pointer(&format!("/outline/beats/{b}/name"))))
             .and_then(Value::as_str);
-        settled.or(meta.beat_name.as_deref()).map(headed).filter(|n| !n.is_empty()).map(str::to_string)
+        [settled, meta.beat_name.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(headed)
+            .find(|n| !n.is_empty() && (english || !arcs(n)))
+            .map(str::to_string)
     };
     // A connective in the deck's own language, as its speaker would open with one.
     let (so, but) = connectives(language);
@@ -2200,13 +2242,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // before the thanks (its thesis, its ask, its steps); else its last slide. A beat that ends
         // the deck may begin well before its close, and a word or two of the idea a slide says in
         // passing lands nothing (W1's dogfood 3); a slide of an earlier beat is that beat's, not
-        // the close's (dogfood 4).
+        // the close's (dogfood 4); and a divider opening the closing beat lands no idea of its
+        // own (the climate talk's "What We Can Do", once its Next Steps closed by their plan).
         let last = read.len().checked_sub(1);
         let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index);
         let mut run: Vec<usize> = (0..read.len()).filter(|&i| closing.contains(&read[i].id)).collect();
         if let Some(&first) = run.first()
             && first > 0
             && beat(first - 1) == beat(first)
+            && !framing(first - 1)
         {
             run.insert(0, first - 1);
         }
@@ -3241,13 +3285,15 @@ const COMMON: [&str; 105] = [
 /// The words of more than three letters that join a sentence's parts in `language`, which a turn's
 /// ask never names as one to carry across: [`GERMAN`] in a German deck (R1's agent dogfood 3:
 /// "sich", "zwei", and "voll" were named), [`FRENCH`] in a French one (health's English-only
-/// sweep, item 3), else [`COMMON`], English's, as before.
+/// sweep, item 3), [`SPANISH`] in a Spanish one (health read of a Spanish deck: "tres" was
+/// named), else [`COMMON`], English's, as before.
 fn joining(language: Option<&str>) -> &'static [&'static str] {
     let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
     let head = tag.split(['-', '_', ' ']).next().unwrap_or_default();
     match head {
         "de" | "deu" | "ger" | "german" | "deutsch" => &GERMAN,
         "fr" | "fra" | "fre" | "french" | "français" | "francais" => &FRENCH,
+        "es" | "spa" | "spanish" | "español" | "espanol" => &SPANISH,
         _ => &COMMON,
     }
 }
@@ -3279,6 +3325,20 @@ const FRENCH: [&str; 108] = [
     "quel", "quelle", "quelles", "quels", "quelque", "quelques", "quoi", "sans", "selon", "sept", "sera", "seront",
     "sinon", "sommes", "sont", "sous", "souvent", "surtout", "tandis", "tant", "toujours", "tous", "tout", "toute",
     "toutes", "très", "trois", "trop", "vers", "voici", "voilà", "votre", "vous", "vraiment",
+];
+
+/// Words of more than three letters a Spanish sentence holds that say nothing of what it is about:
+/// those that join its parts, the counts to twelve, and the words that only weigh another.
+const SPANISH: [&str; 109] = [
+    "además", "ahora", "algo", "alguna", "algunas", "alguno", "algunos", "ante", "antes", "aquí", "aunque", "bien",
+    "cada", "casi", "cinco", "como", "cómo", "contra", "cual", "cuál", "cuando", "cuándo", "cuatro", "desde",
+    "después", "diez", "doce", "donde", "dónde", "durante", "ella", "ellas", "ellos", "entre", "esta", "está",
+    "estaba", "estado", "estamos", "están", "estar", "estas", "este", "esto", "estos", "fueron", "hace", "hacer",
+    "hacia", "hasta", "menos", "mientras", "misma", "mismo", "mucho", "muchas", "muchos", "nada", "ninguna", "ninguno",
+    "nosotros", "nuestra", "nuestro", "nuestras", "nuestros", "nueve", "ocho", "once", "otra", "otras", "otro",
+    "otros", "para", "pero", "poco", "poder", "porque", "puede", "pueden", "pues", "quién", "quienes", "sean", "según",
+    "seis", "sido", "siempre", "siete", "sino", "sobre", "solo", "sólo", "somos", "también", "tanto", "tener", "tiene",
+    "tienen", "todas", "todo", "todos", "tras", "tres", "unas", "unos", "usted", "ustedes", "vamos", "veces",
 ];
 
 /// The words of more than three letters a big idea is about: `content_words` less [`COMMON`].
@@ -3978,7 +4038,8 @@ mod tests {
                 "Four Years of Records",
                 "The Path to Net Zero",
                 "Pledges Versus the 1.5°C Path",
-                "Next Steps for Our Team"
+                // "Next Steps for Our Team" is planned as Next Steps: part of the close, which
+                // makes no point of its own to state (health read of a Spanish deck).
             ],
             "{base:#?}"
         );
@@ -4288,6 +4349,36 @@ mod tests {
         deck
     }
 
+    /// A turn's ask in a deck in another language names the part it opens by the model's name for
+    /// the beat, never the arc's English one the settled outline carries (W1's dogfood 10: "Opens
+    /// Existing Approaches" in a French deck whose beat was "Approches existantes"); an English
+    /// deck's asks name the outline's, as before.
+    #[test]
+    fn a_french_turn_names_its_part_in_french() {
+        let arc = scaena_narrato::arcs::arcs().iter().find(|a| a.arc == "Hero's Journey").unwrap();
+        let english: Vec<&str> = arc.beat_names();
+        let opened = |deck: &Value| -> Vec<String> {
+            (of(deck).findings.iter())
+                .filter(|f| f.kind == Kind::Turn && f.says.contains(" opens "))
+                .map(|f| f.says.clone())
+                .collect()
+        };
+        let mut deck = dogfood("route9", "", |slides| {
+            for s in slides.iter_mut() {
+                s.beat_name = Some(format!("Partie {}", s.beat_index.unwrap_or_default() + 1));
+            }
+        });
+        let beats: Vec<Value> = english.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
+        deck["meta"]["narrative"]["outline"]["beats"] = json!(beats);
+        let said = opened(&deck);
+        assert!(!said.is_empty(), "{:#?}", of(&deck).findings);
+        assert!(said.iter().all(|s| english.iter().any(|n| s.contains(&format!(" opens {n} ")))), "{said:#?}");
+        deck["meta"]["narrative"]["brief"]["language"] = json!("French");
+        let said = opened(&deck);
+        assert!(!said.is_empty());
+        assert!(said.iter().all(|s| s.contains(" opens Partie ")), "{said:#?}");
+    }
+
     /// Where the slides balance counts list under two points on average, the content slides that
     /// list fewest are named, so balance's line has a slide to act on (R1's MCP dogfood): fleet
     /// with slide 4 thinned to one bar. A deck at the floor finds none.
@@ -4590,6 +4681,48 @@ mod tests {
             .map(|f| f.ask.clone())
             .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
         assert!(ask.contains("such as \u{201c}risques\u{201d} or \u{201c}pèsent\u{201d}:"), "{ask}");
+    }
+
+    /// A turn's ask names no Spanish joining word to carry across in a Spanish deck (health read of
+    /// a Spanish deck: "tres" was named beside "plan" and "avanza"), as a French deck's names no
+    /// French one.
+    #[test]
+    fn a_spanish_turn_names_no_joining_word_to_carry() {
+        let slide = |title: &str| SlideForHealth { title: title.into(), ..SlideForHealth::default() };
+        let (was, next) =
+            (slide("El plan avanza en tres fases"), slide("Sin inversión, las pérdidas volverán a subir"));
+        assert_eq!(
+            carried(&was, &next, joining(Some("Spanish"))),
+            ", such as \u{201c}plan\u{201d}, \u{201c}avanza\u{201d} or \u{201c}fases\u{201d}"
+        );
+        let (was, next) = (slide("Cada barrio tiene tres fugas"), slide("Reparar cuesta menos que perder agua"));
+        assert_eq!(
+            carried(&was, &next, joining(Some("es-ES"))),
+            ", such as \u{201c}barrio\u{201d} or \u{201c}fugas\u{201d}"
+        );
+        assert_eq!(carried(&was, &next, joining(Some("español"))), carried(&was, &next, &SPANISH));
+        assert!(carried(&was, &next, joining(None)).contains("\u{201c}cada\u{201d}"), "English's list keeps it");
+
+        // On the board deck told in Spanish, slide 9 turns from slide 8, which says little but its
+        // joining words beside two that tell.
+        let turned = |slides: &mut Vec<answer::Slide>| {
+            for (k, title) in ["Tres riesgos pesan ahora", "Calendario hasta 2027"].into_iter().enumerate() {
+                let s = &mut slides[7 + k];
+                s.slide_title = title.into();
+                s.key_bullets = vec![];
+                s.layout_suggestion = "Statement".into();
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", turned);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Spanish");
+        let h = of(&deck);
+        let ask = (h.findings.iter())
+            .find(|f| f.kind == Kind::Turn && f.slide == 9)
+            .map(|f| f.ask.clone())
+            .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
+        assert!(ask.contains("such as \u{201c}riesgos\u{201d} or \u{201c}pesan\u{201d}:"), "{ask}");
     }
 
     /// Balance's line says how many slides its average is over, where it counts fewer than the
@@ -5008,6 +5141,9 @@ mod tests {
         assert_eq!(named("betreut heute 40 % mehr Anfragen"), one("40 %", "%"));
         assert_eq!(named("Umsatz von 48,6 Mio. € im Quartal"), one("48,6 Mio. €", "mio"));
         assert_eq!(named("une hausse de 18 %, puis la suite"), one("18 %", "%"));
+        // Spanish's magnitudes and currencies are named whole too (R2's Valdemar).
+        assert_eq!(named("Inversi\u{f3}n de 2,3 M\u{20ac} en 2026"), one("2,3 M\u{20ac}", "m\u{20ac}"));
+        assert_eq!(named("unos 1.234,5 millones de litros")[0].0, "1.234,5 millones");
         // A magnitude and its currency as one word, as the builder reads it, whole, thousands of
         // euros one unit however written (W1's #1080).
         assert_eq!(named("Kosten: 240 TEUR für zwei Stellen"), one("240 TEUR", "k\u{20ac}"));
@@ -5291,6 +5427,36 @@ mod tests {
         assert_eq!(claims.len(), 1, "{claims:?}");
         assert_eq!(claims[0].severity, Severity::Info);
         assert!(claims[0].says.ends_with("and this deck is in Japanese."), "{}", claims[0].says);
+    }
+
+    /// A deck in Japanese, Chinese, or Korean is not read for its turns (health read of a Japanese
+    /// deck): each headline, one long run of letters, read as one word, so every pair of slides
+    /// shared none and turned, and the ask named a whole headline as the word to carry across. The
+    /// coherence line says why, as intensity and tone say theirs; its figure, none by words, stays.
+    #[test]
+    fn turns_are_not_read_where_no_space_sets_words_apart() {
+        let japanese = |slides: &mut Vec<answer::Slide>| {
+            let titles = ["売上は前年より伸びました", "本館はもう満席です", "利用が増えた理由は三つあります"];
+            for (k, s) in slides.iter_mut().enumerate() {
+                s.slide_title = format!("{}（{}）", titles[k % titles.len()], k + 1);
+                s.key_bullets = vec![];
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", japanese);
+        let turned = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::Turn).count();
+        deck["meta"]["narrative"]["brief"]["language"] = json!("German");
+        let read = of(&deck);
+        assert!(turned(&read) > 0, "read as words, every pair turns: {:#?}", read.findings);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let h = of(&deck);
+        assert_eq!(turned(&h), 0, "{:#?}", h.findings);
+        assert_eq!(
+            h.coherence.says,
+            "Not read by words: health reads words a space sets apart, and this deck is in Japanese."
+        );
+        assert_eq!((h.coherence.score, h.score), (read.coherence.score, read.score));
     }
 
     /// The settled outline read (lift-up 10-24b FUNC-1): a deck whose beats each say their claim
@@ -5710,6 +5876,38 @@ mod tests {
         );
     }
 
+    /// A close is known by its plan as well as its layout (health read of a Spanish deck): a slide
+    /// its beat planned as a Closing, a Call to Action, Next Steps, or Q&A closes the talk though
+    /// its items were set in another layout, so a calm plan there is no bend. Planned as anything
+    /// else, the same slide bends. Findings only: fidelity counts every slide, so no figure moves.
+    #[test]
+    fn a_close_is_known_by_its_plan_whatever_layout_it_was_set_in() {
+        let mut deck = climate();
+        let before = of(&deck);
+        let last = before.slides.last().unwrap().state.clone();
+        let title = before.slides.last().unwrap().title.to_lowercase();
+        assert!(!THANKS.iter().any(|t| title.starts_with(t)), "the close is not known by its headline: {title}");
+        let at = deck["states"].as_array().unwrap().iter().position(|s| s["id"] == last.as_str()).unwrap();
+        deck["states"][at]["layout"] = json!("bullets");
+        let beat = beat_of(&deck, &last);
+        *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(0.0);
+        let cooler =
+            |h: &Health| h.findings.iter().any(|f| f.state == last && f.kind == Kind::Arc && f.says.contains("cooler"));
+        deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!("Bullets");
+        let open = of(&deck);
+        assert!(cooler(&open), "planned as a list, a calm last slide bends: {:#?}", open.findings);
+        for plan in ["Closing", "Call to Action", "Next Steps", "Q&A"] {
+            deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!(plan);
+            let closed = of(&deck);
+            assert!(!cooler(&closed), "planned as {plan}, it closes the talk: {:#?}", closed.findings);
+            assert_eq!(
+                (closed.fidelity.score, closed.score, closed.balance.score),
+                (open.fidelity.score, open.score, open.balance.score),
+                "no figure moves"
+            );
+        }
+    }
+
     /// Health says nothing it did not read (Jay's call, 2026-10-25). Words the lexicons read
     /// nothing of, within `SILENT` of neutral, are not found far from what a slide declares, while
     /// words that read something still are (ADR-0032 item 2); and a calm close is no bend: the
@@ -5780,8 +5978,11 @@ mod tests {
         let closed = of(&deck);
         assert!(!cooler(&closed, &last), "a calm close is no bend: {:#?}", closed.findings);
         assert_eq!(closed.slides.last().unwrap().standing, Standing::Ok);
-        // The same slide in a layout that does not close, and headed as no thanks, bends.
+        // The same slide in a layout that does not close, planned as none, and headed as no
+        // thanks, bends.
         deck["states"][at]["layout"] = json!("statement");
+        let beat = beat_of(&deck, &last);
+        deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!("Statement");
         let open = of(&deck);
         let title = open.slides.last().unwrap().title.to_lowercase();
         if !THANKS.iter().any(|t| title.starts_with(t)) {
@@ -5805,6 +6006,9 @@ mod tests {
                     (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == slide.state.as_str()).unwrap();
                 deck["states"][at]["layout"] = json!(layout);
                 declare(deck, &slide.state, "intensity", 0.0);
+                // Planned as it is laid out, so the slide before the close is planned as none.
+                let beat = beat_of(deck, &slide.state);
+                deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!(layout);
             }
         };
         for step in ["next-steps", "qa"] {

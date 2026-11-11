@@ -241,13 +241,13 @@ pub fn slide_into(
         let new_chart = (built.nodes.iter())
             .find(|(id, n)| !nodes_before.contains_key(*id) && n["type"] == "chart")
             .map(|(id, _)| id.clone());
-        let sourced = super::binding::source_named(&deck, named);
-        match (new_chart, sourced) {
-            (Some(node_id), Some(id)) => {
+        let sourced = super::binding::sources_named(&deck, named);
+        match (new_chart, sourced.is_empty()) {
+            (Some(node_id), false) => {
                 let mut node = built.nodes[&node_id].clone();
                 let own = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string);
-                match super::binding::bind(&mut node, chart, &deck, files, &id) {
-                    Ok(dated) => {
+                match super::binding::bind_first(&mut node, chart, &deck, files, &sourced) {
+                    Ok((id, dated)) => {
                         retyped = dated.map(|column| (id.clone(), column));
                         built.nodes.insert(node_id, node);
                         if let Some(own) = own.filter(|own| *own != id) {
@@ -257,7 +257,7 @@ pub fn slide_into(
                     Err(why) => unbound.push(super::Unbound { slide: index + 1, source: named.to_string(), why }),
                 }
             }
-            (Some(_), None) if !deck.data.is_empty() => {
+            (Some(_), true) if !deck.data.is_empty() => {
                 let ids: Vec<&str> = deck.data.keys().map(String::as_str).collect();
                 let why = format!("no data source of the deck is called that; it holds {}", ids.join(", "));
                 unbound.push(super::Unbound { slide: index + 1, source: named.to_string(), why });
@@ -584,6 +584,11 @@ pub struct SlideWritten {
     /// figures: a quoted figure is set again from its cell by every data edit (agent dogfood 3).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub quoted: Vec<super::Quoted>,
+    /// What the deck's notes are to fill once the slide is written (agent dogfood 3): the talk's
+    /// `slot` in minutes, how long it `run`s, and each slide's `budgets` in words; where the
+    /// deck has a spine to time it by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<super::Notes>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -624,6 +629,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             unbound: written.unbound.clone(),
             unset: written.unset.clone(),
             quoted: written.quoted.clone(),
+            notes: None,
             fixed: Vec::new(),
             left,
         };
@@ -666,6 +672,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     let mut left: Vec<Finding> = left;
     scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
     let summary = write.as_ref().map(|w| crate::patch::summary(&b.deck, &w.deck)).unwrap_or_default();
+    let notes = write.as_ref().filter(|w| w.deck.spine.is_some()).and_then(|w| super::budgeted(&w.deck).ok());
     let out = SlideWritten {
         patched,
         summary,
@@ -679,6 +686,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
         unbound: written.unbound,
         unset: written.unset,
         quoted: written.quoted,
+        notes,
     };
     Ok((out, write))
 }

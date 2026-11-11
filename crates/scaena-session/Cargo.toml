@@ -61,3 +61,5 @@ scaena-core = { workspace = true, features = ["syllables"] }
 scaena-history.workspace = true
 # Reads back the zip of every slide's PNG (PLAN 2.122).
 zip.workspace = true
+# Reads back the PDF laid out, as its own module reads it, to hear what it tags (F6).
+scaena-export.workspace = true
