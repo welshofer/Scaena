@@ -706,7 +706,8 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
 }
 
 /// `deck`, a deck not yet written, and the data files written beside it, `files`, with each made
-/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`) drawn from the data source of that name the
+/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`, else its slide's own,
+/// `chartSourceRef`, said nothing of where it names no data source, dogfood 9) drawn from the data source of that name the
 /// deck holds (agent dogfood): the chart's own rows dropped where nothing else reads them. Each
 /// chart that names a source and is not bound, and why, is in what comes back; one that names
 /// none is drawn from its own rows, as before, and not said. A deck with no data source but its
@@ -739,19 +740,22 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         let media = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
             .find(|b| b.states.iter().any(|s| s == state))
             .and_then(|b| serde_json::to_value(&b.media).ok())?;
-        let named = media.pointer("/narrato/chartSource").and_then(Value::as_str)?.to_string();
+        let (named, cited) = match media.pointer("/narrato/chartSource").and_then(Value::as_str) {
+            Some(named) => (named.to_string(), false),
+            None => (media.pointer("/narrato/chartSourceRef").and_then(Value::as_str)?.to_string(), true),
+        };
         let series: Vec<String> = (media.pointer("/narrato/chartSeries").and_then(Value::as_array).into_iter())
             .flatten()
             .map(|n| n.as_str().unwrap_or_default().to_string())
             .collect();
-        Some((named, series))
+        Some((named, series, cited))
     };
     let mut unbound = Vec::new();
     let mut dropped = Vec::new();
     for (i, states) in slides.iter().enumerate() {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
-        let Some((named, series)) = named_of(&state.id) else { continue };
+        let Some((named, series, cited)) = named_of(&state.id) else { continue };
         let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
             continue;
         };
@@ -769,6 +773,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             one.name = Some(name.clone());
         }
         let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+            // A slide's own source that is no data source of the deck is a file of words.
+            if cited {
+                continue;
+            }
             let ids: Vec<&str> = deck.data.keys().filter(|id| !owned.contains(id)).map(String::as_str).collect();
             unbound.push(Unbound {
                 slide: i + 1,
@@ -3113,8 +3121,17 @@ fn media(slide: &Slide) -> Value {
     // is given (agent dogfood, [`binding`]).
     let named = slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()).map(str::trim);
     put("chartSource", named.filter(|v| !v.is_empty()).map(|v| json!(v)));
+    // Else the source its slide's facts come from, which Narrato asks of every slide and its
+    // chart's own only where known: it binds the chart where it names one of the deck's data
+    // sources, and is no source to be said unbound where it names a file of words (dogfood 9).
+    let cited = (slide.chart_data.as_ref())
+        .filter(|_| named.is_none_or(str::is_empty))
+        .and(slide.source_ref.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    put("chartSourceRef", cited.map(|v| json!(v)));
     // And its series' names, which pick the source's columns ([`binding`]).
-    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty())))
+    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty()) || cited.is_some()))
         .map(|c| c.series.iter().map(|s| s.name.clone().unwrap_or_default()).collect::<Vec<_>>());
     put("chartSeries", series.map(|names| json!(names)));
     Value::Object(m)
@@ -6921,7 +6938,12 @@ fn typeset(text: &str, lang: &str) -> String {
                 i += 3;
                 continue;
             }
-            '-' if (i > 0 && digit(i - 1) && digit(i + 1) && !chained(&chars, i) && !dialed(&chars, i))
+            '-' if (i > 0
+                && digit(i - 1)
+                && digit(i + 1)
+                && !chained(&chars, i)
+                && !dialed(&chars, i)
+                && !dated(&chars, i))
                 || (before == Some(' ') && after == Some(' ')) =>
             {
                 out.push('\u{2013}')
@@ -7038,6 +7060,16 @@ fn chained(chars: &[char], at: usize) -> bool {
     let before = start >= 2 && chars[start - 1] == '-' && chars[start - 2].is_ascii_digit();
     let after = chars.get(end) == Some(&'-') && chars.get(end + 1).is_some_and(char::is_ascii_digit);
     before || after
+}
+
+/// Whether the hyphen at `at` is an ISO month's, a year of four figures then a month from 01 to
+/// 12: "2026-01", "1990-05", which a typesetter keeps, as it keeps a date's ("2026-01-15",
+/// [`chained`]); "2024-25", "1990-95", and "10-12" are ranges (W1 dogfood 9 F4).
+fn dated(chars: &[char], at: usize) -> bool {
+    let start = chars[..at].iter().rposition(|c| !c.is_ascii_digit()).map_or(0, |p| p + 1);
+    let end = chars[at + 1..].iter().position(|c| !c.is_ascii_digit()).map_or(chars.len(), |p| at + 1 + p);
+    let month: String = chars[at + 1..end].iter().collect();
+    at - start == 4 && month.len() == 2 && matches!(month.parse::<u8>(), Ok(1..=12))
 }
 
 /// Whether `chart`'s categories are years, two or more of them: a line along them runs on time,
@@ -7921,6 +7953,19 @@ mod tests {
         assert_eq!(typeset_en("500-1000 employees"), "500\u{2013}1000 employees");
         assert_eq!(typeset_en("250-1000 ms"), "250\u{2013}1000\u{a0}ms");
         assert_eq!(typeset_en("Call 555-1234 or 555-0140"), "Call 555-1234 or 555-0140");
+    }
+
+    /// An ISO month or date keeps its hyphens, a year of four figures then a month from 01 to 12,
+    /// so a chart's categories still name a file's months (W1 dogfood 9 F4); a range is a range.
+    #[test]
+    fn an_iso_month_keeps_its_hyphen() {
+        assert_eq!(typeset_en("2026-01"), "2026-01");
+        assert_eq!(typeset_en("From 2026-01-15 on"), "From 2026-01-15 on");
+        assert_eq!(typeset_en("1990-05"), "1990-05");
+        assert_eq!(typeset_en("2026-12, not 2026-13"), "2026-12, not 2026\u{2013}13");
+        assert_eq!(typeset_en("1990-95"), "1990\u{2013}95");
+        assert_eq!(typeset_en("2024-25"), "2024\u{2013}25");
+        assert_eq!(typeset_en("10-12"), "10\u{2013}12");
     }
 
     /// A figure never parts from its unit, nor a scale from its currency, nor a German day from its
