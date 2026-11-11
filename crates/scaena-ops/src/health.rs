@@ -1109,12 +1109,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("no slide balance counts makes a list of points: {named}. The rest make one point by design")
             }
         });
-    } else if balance.avg_bullets_per_slide < 2.0 {
-        short
-            .push(format!("slides make {} points each, where two to five read as full", balance.avg_bullets_per_slide));
-    }
-    if balance.avg_bullets_per_slide > 5.0 {
-        short.push(format!("slides make {} points each, more than a room takes in", balance.avg_bullets_per_slide));
+    } else {
+        // Over the slides it counts, which it says where it counts fewer than the deck shows: a
+        // cut of two points over five slides moves the average by 0.4, as W1's dogfood 7 found.
+        let shown = read.iter().filter(|s| s.eligible()).count();
+        let over = match pointed.len() < shown {
+            true => format!(", over {} of the {shown} slides, those made to list points", pointed.len()),
+            false => String::new(),
+        };
+        let average = balance.avg_bullets_per_slide;
+        if average < 2.0 {
+            short.push(format!("slides make {average} points each{over}, where two to five read as full"));
+        }
+        if average > 5.0 {
+            short.push(format!("slides make {average} points each{over}, more than a room takes in"));
+        }
     }
     if balance.avg_speaker_notes_length < 30.0 {
         short.push(format!("their notes run {} characters, too few to speak from", balance.avg_speaker_notes_length));
@@ -3117,6 +3126,28 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// Balance's line says how many slides its average is over, where it counts fewer than the
+    /// deck shows (W1's dogfood 7): two points cut over five slides move it 0.4, which over nine
+    /// would read as an error in the arithmetic. The figure is Vzestup's.
+    #[test]
+    fn balance_says_the_slides_its_average_is_over() {
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let h = of(&dogfood("fleet", "", thinned));
+        assert_eq!(
+            h.balance.says,
+            "Slides make 1.8 points each, over 4 of the 10 slides, those made to list points, where two to five read as full."
+        );
+        // A deck whose every slide balance counts says nothing of it.
+        let every = |slides: &mut Vec<answer::Slide>| {
+            for s in slides.iter_mut() {
+                s.layout_suggestion = "Bullets".into();
+                s.key_bullets.truncate(1);
+            }
+        };
+        let all = of(&dogfood("fleet", "", every));
+        assert!(!all.balance.says.contains(", over "), "{}", all.balance.says);
     }
 
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
