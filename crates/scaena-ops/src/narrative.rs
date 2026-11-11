@@ -2593,6 +2593,9 @@ fn assemble(
             entry["evidence"] = json!(evidence);
         }
         entry["media"] = json!({ "narrato": media(slide) });
+        // The duration is Narrato's estimate from its words, which health reads as no time given
+        // while the two still match (the calibration against a reader).
+        entry["media"]["narrato"]["estimated"] = json!(seconds);
         sections.last_mut().expect("opened above")["beats"].as_array_mut().expect("an array").push(entry);
     }
 
@@ -7943,6 +7946,18 @@ mod tests {
         assert!((21.5..=24.5).contains(&minutes(&spoken)), "the talk runs {:.1} minutes", minutes(&spoken));
         assert_eq!(made.noted, (1..=13).collect::<Vec<_>>());
         assert_eq!(made.unnoted, None);
+        // Narrato's estimate is kept beside each beat's duration while it stands, so health reads
+        // the talk as timed by its words alone; notes written to the slot are its plan, and keep
+        // none (the calibration against a reader).
+        let estimated = |deck: &Deck| -> Vec<Option<f64>> {
+            let spine = deck.spine.as_ref().unwrap();
+            (spine.sections.iter().flat_map(|s| &s.beats))
+                .map(|b| b.media.as_ref().and_then(|m| m.pointer("/narrato/estimated")).and_then(Value::as_f64))
+                .collect()
+        };
+        let drafts: Vec<Option<f64>> = beats(&drafted).iter().map(|(_, d)| Some(*d)).collect();
+        assert_eq!(estimated(&drafted), drafts, "each beat its estimate, as its duration");
+        assert!(estimated(&spoken).iter().all(Option::is_none), "{:?}", estimated(&spoken));
         let written: Value = serde_json::from_str(&answered).unwrap();
         for ((notes, _), asked) in beats(&spoken).iter().zip(written["notes"].as_array().unwrap()) {
             assert_eq!(notes, asked["notes"].as_str().unwrap());
