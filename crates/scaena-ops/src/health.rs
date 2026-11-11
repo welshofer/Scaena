@@ -356,16 +356,9 @@ const ONE_IDEA: [&str; 9] = [
 /// any one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2). A
 /// grid of short places, a SWOT or a timeline, makes few in each.
 fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<usize>), OpsError> {
-    readings_shown(deck, slides).map(|(read, most, _)| (read, most))
-}
-
-/// [`readings`], with each slide's headline as it shows, which a slide's `title` is not where its
-/// beat keeps a claim the headline was typed away from (W2's editor dogfood 6).
-fn readings_shown(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     let mut out = Vec::with_capacity(slides.len());
     let mut most = Vec::with_capacity(slides.len());
-    let mut headlines = Vec::with_capacity(slides.len());
     for slide in slides {
         let (Some(&first), Some(&last)) = (slide.states.first(), slide.states.last()) else { continue };
         let beat = slide.beat.map(|(.., b)| b);
@@ -377,12 +370,10 @@ fn readings_shown(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
             matches!(p.get("semantic").and_then(Value::as_str), Some("claim"))
                 || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
         };
-        let headed = texts.iter().find(|t| headline(t.1)).map(|t| words(t.1).trim().to_string()).unwrap_or_default();
         let title = match beat.map(|b| b.claim.trim()).filter(|c| !c.is_empty()) {
             Some(claim) => claim.to_string(),
-            None => headed.clone(),
+            None => texts.iter().find(|t| headline(t.1)).map(|t| words(t.1).trim().to_string()).unwrap_or_default(),
         };
-        headlines.push(headed);
         // Each item of a set its own point, its parts together; each item of a list one too.
         let mut lines: Vec<(Option<&str>, String)> = Vec::new();
         let mut points = 0;
@@ -442,11 +433,8 @@ fn readings_shown(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
         });
         most.push(points);
     }
-    Ok((out, most, headlines))
+    Ok((out, most))
 }
-
-/// The slides as health reads them, the most points each makes, and each one's headline as shown.
-type Readings = (Vec<SlideForHealth>, Vec<usize>, Vec<String>);
 
 /// A figure a slide writes: as written, its value with its marks between digits taken out
 /// ("184,000" is 184000), and its unit, a currency's sign, a percent, a scale, or the word it
@@ -1156,7 +1144,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let asked =
         (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
     let slides = slides(deck);
-    let (read, most, headlines) = readings_shown(deck, &slides)?;
+    let (read, most) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
     // What heads each slide as the reader hears it (SPEC §3.12): its heading's words, a figure's
@@ -1880,7 +1868,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         // The words the reading was made of, as a tone ask names its own (R1's MCP dogfood).
         let heard = health::intensity::heard(&read[i].text(), language).unwrap_or_default();
-        let named = format!("{}{}", intensed(&heard), whereabouts(&heard, &headlines[i], &read[i]));
+        let named = format!("{}{}", intensed(&heard), whereabouts(&heard, &heading[i], &read[i]));
         // In a person's words; the figures are for the assistant, which reads the deck's. Where
         // the plan bends from the arc, the words are to carry what the place calls for, not the
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
@@ -1920,7 +1908,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The words the reading was made of (W1's dogfood 3): a writer warming a slide moves
         // its tone only with words the lexicon reads, so the ask names them.
         let heard = health::valence::heard(&read[i].text(), language).unwrap_or_default();
-        let named = format!("{}{}", toned(&heard), whereabouts(&heard, &headlines[i], &read[i]));
+        let named = format!("{}{}", toned(&heard), whereabouts(&heard, &heading[i], &read[i]));
         let (says, ask) = match g.gap > 0.0 {
             true => (
                 format!("Slide {k} reads graver than it was written to be."),
@@ -4852,12 +4840,16 @@ mod tests {
         assert!(finding.ask.to_lowercase().contains(&format!("slide {k}'s words")), "{}", finding.ask);
         // It names the words its reading was made of (R1's MCP dogfood), as a tone ask does.
         let d = Deck::from_value(&deck).unwrap();
-        let (read, _, headlines) = readings_shown(&d, &slides(&d)).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        // The heading the slide shows, as health reads it (SPEC §3.12).
+        let snaps = resolve_states(&d).unwrap();
+        let shown = scaena_core::reading::headline(&d, &snaps[*slides(&d)[i].states.last().unwrap()]);
+        let headline = shown.unwrap_or_else(|| read[i].title.clone());
         let heard = health::intensity::heard(&read[i].text(), None).unwrap_or_default();
         let named = intensed(&heard);
         assert!(!named.is_empty(), "words that read an intensity: {heard:?}");
         // And where they stand, after them (W2's editor dogfood 6).
-        let placed = whereabouts(&heard, &headlines[i], &read[i]);
+        let placed = whereabouts(&heard, &headline, &read[i]);
         assert!(!placed.is_empty());
         assert!(finding.ask.ends_with(&format!("{named}{placed}")), "{}", finding.ask);
         // The plan is the arc's: the words are to carry it, so no fix declares what they read
