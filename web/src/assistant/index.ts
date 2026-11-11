@@ -373,8 +373,10 @@ async function mapFetch(
  * changed; or why it did not. */
 export async function slideWrite(session: Session, args: unknown, author: string): Promise<[string, boolean, boolean]> {
   const stop = (message: string): [string, boolean, boolean] => [JSON.stringify({ message }), true, false];
-  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; beat?: unknown; dry_run?: unknown };
-  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "beat", "dry_run"].includes(k));
+  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; beat?: unknown; dry_run?: unknown; verbose?: unknown };
+  // `verbose` is the MCP tool's, which keeps the JSON Patch in the report; the page's report is
+  // the summary alone, the patch the editor's own.
+  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "beat", "dry_run", "verbose"].includes(k));
   const place = (v: unknown) => v === undefined || v === null || typeof v === "string";
   if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace) || !place(a.beat)) {
     return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; `beat`, a beat of the spine; and `dry_run`");

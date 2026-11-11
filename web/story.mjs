@@ -62,6 +62,10 @@ try {
     [...document.querySelectorAll("#story [data-legend] > span")].map((k) => ({ words: k.textContent.trim(), lines: new Set([...k.getClientRects()].map((r) => Math.round(r.top))).size })),
   );
   check(keys.length === 9 && keys.every((k) => k.lines === 1), `the legend's keys each stand on one line: ${JSON.stringify(keys.filter((k) => k.lines !== 1).map((k) => k.words))} of ${keys.length}`);
+  // Each in a person's words: a slide off the arc's curve, and one outside its part of the talk
+  // (W2's editor dogfood).
+  const legend = keys.map((k) => k.words);
+  check(legend.includes("off the curve") && legend.includes("outside its part of the talk"), `the legend says what a mark means in a person's words: ${JSON.stringify(legend)}`);
 
   const findings = await page.evaluate(() => window.scaena.story.health().findings);
   check(findings.length > 5, `the deck has more to look at than five: ${findings.length}`);
@@ -83,6 +87,16 @@ try {
   check(!(await first.isVisible()), "folded until it is opened");
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
+
+  // Check the claim stands only on a row about what its slide claims: its claim not carried, a
+  // topic headline, the big idea, or a turn; never on a row about its words' count or its notes
+  // alone (W1's dogfood 7).
+  const claimed = new Set(["claim", "label", "bigIdea", "turn"]);
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => ({ slide: Number(li.dataset.slide), kinds: [...li.querySelectorAll("p[data-kind]")].map((p) => p.dataset.kind), check: !!li.querySelector("[data-check]") })),
+  );
+  const wrong = rows.filter((r) => r.check !== r.kinds.some((k) => claimed.has(k)));
+  check(rows.some((r) => r.check) && rows.some((r) => !r.check) && !wrong.length, `Check the claim stands on the rows about a claim alone: ${JSON.stringify(wrong.map((r) => [r.slide, r.kinds]))} of ${rows.length}`);
 
   // Ask the assistant keeps a question already drafted in its box, the finding's put after it
   // (lift-up 20261110 deferred).
