@@ -481,8 +481,17 @@ const ROWS_SHOWN: usize = 40;
 /// past its place first.
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct SlideWritten {
-    #[serde(flatten)]
+    /// The patch, as the session and the CLI read it; what a client is told is `report`.
+    #[serde(skip)]
     pub patched: Patched,
+    /// What changed in the deck's slides and its story, as `deck_patch`'s `summary` says it.
+    #[serde(skip)]
+    pub summary: crate::patch::Summary,
+    /// The patch reported as `deck_patch` reports one ([`SlideWritten::verbose`] makes it): what
+    /// changed in the slides and the story, and its JSON Patch only where asked for, since a
+    /// slide compiles to whole arrays of states (agent dogfood).
+    #[serde(flatten)]
+    pub report: Option<crate::patch::Reported>,
     pub slide: Vec<String>,
     pub layout: String,
     pub beat: String,
@@ -522,6 +531,8 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     let Some(write) = write.filter(|_| !first.refused) else {
         let left = first.added.clone();
         let out = SlideWritten {
+            summary: crate::patch::Summary::default(),
+            report: None,
             patched: first,
             slide: written.states,
             layout: written.layout,
@@ -568,8 +579,11 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
     };
     let mut left: Vec<Finding> = left;
     scaena_core::sort::by_key(&mut left, |f| f.code != "E100");
+    let summary = write.as_ref().map(|w| crate::patch::summary(&b.deck, &w.deck)).unwrap_or_default();
     let out = SlideWritten {
         patched,
+        summary,
+        report: None,
         slide: written.states,
         layout: written.layout,
         beat: written.beat,
@@ -578,6 +592,26 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
         fell: written.fell,
     };
     Ok((out, write))
+}
+
+impl SlideWritten {
+    /// The report as `deck_patch` gives one (agent dogfood): the JSON Patch kept only where
+    /// `verbose` asks for it.
+    pub fn verbose(mut self, verbose: bool) -> SlideWritten {
+        let p = &self.patched;
+        self.report = Some(crate::patch::Reported {
+            applied: p.applied,
+            ops: Vec::new(),
+            summary: self.summary.clone(),
+            patch: verbose.then(|| p.patch.clone()),
+            added: p.added.clone(),
+            removed: p.removed.clone(),
+            errors: p.errors,
+            states: p.states.clone(),
+            restated: p.restated.clone(),
+        });
+        self
+    }
 }
 
 /// `slide` written into the bundle's deck where `place` says, in `beat` where one is named, as the
@@ -590,13 +624,14 @@ pub fn slide_write(
     beat: Option<&str>,
     icons: BTreeMap<String, Icon>,
     dry_run: bool,
+    verbose: bool,
 ) -> Result<SlideWritten, OpsError> {
     let (mut out, write) = slide_writing(b, slide, place, beat, icons)?;
     match write {
         Some(write) if !dry_run => crate::lint::write(b, write)?,
         _ => out.patched.applied &= !dry_run,
     }
-    Ok(out)
+    Ok(out.verbose(verbose))
 }
 
 /// What to ask a model for one slide at `place` in the deck `doc` (lift-up FUNC-1), the person's
