@@ -845,6 +845,87 @@ fn carried(props: &scaena_core::document::Props) -> bool {
 /// The roles a fold may join words to: a slide's place for words, the body first, then its lede.
 const JOINED: [&str; 3] = ["body", "lede", "quote"];
 
+/// The words a slide folded at `last` carries, one line each, in the order it reads (SPEC §3.12):
+/// its headline first, then each other text it carries, by paragraph. A big number's figure goes
+/// with its meaning, as health reads one ("12,000: riders a day"): a slide's one figure with its
+/// headline, as the slide is read by it, and each of several with the text read after it; a
+/// figure the slide before (`was`) shows already is not carried again.
+fn folded_words(
+    b: &Bundle,
+    deck: &Deck,
+    last: &scaena_core::Snapshot,
+    was: &scaena_core::Snapshot,
+) -> Result<Vec<String>, OpsError> {
+    let theme = crate::theme(b)?;
+    let data = crate::lint::data_files(b)?;
+    let mut engine = crate::lint::engine_with(b, &theme, None)?;
+    let mut read = Vec::new();
+    engine.frames_at_rest(deck, &theme, &data, None, std::slice::from_ref(&last.state_id), |_, list| {
+        read = scaena_core::reading::parts(deck, last, &list);
+        Ok::<(), OpsError>(())
+    })?;
+    let is_text = |id: &str| deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text);
+    let figure = |p: &scaena_core::document::Props| {
+        matches!(p.get("role").and_then(Value::as_str), Some("numeral" | "hero" | "figure"))
+    };
+    let said = |p: &scaena_core::document::Props| {
+        scaena_core::reading::words(p).split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    // A figure the slide before shows, by its words.
+    let shown_before = |words: &str| was.nodes.iter().any(|(id, p)| is_text(id) && figure(p) && said(p) == words);
+    let heading = scaena_core::reading::headline_node(deck, last);
+    // The texts it carries, in the order it reads, each once.
+    let mut texts: Vec<(&String, &scaena_core::document::Props)> = Vec::new();
+    for part in &read {
+        if let Some((id, p)) = last.nodes.get_key_value(&part.node)
+            && is_text(id)
+            && Some(id.as_str()) != heading.as_deref()
+            && carried(p)
+            && !texts.iter().any(|(t, _)| *t == id)
+        {
+            texts.push((id, p));
+        }
+    }
+    let figures: Vec<String> = texts.iter().filter(|(_, p)| figure(p)).map(|(_, p)| said(p)).collect();
+    let mut lines = Vec::new();
+    let head = heading.as_deref().and_then(|h| last.nodes.get(h)).map(said).filter(|h| !h.is_empty());
+    // One figure goes with the headline, as `reading::headline` reads the slide.
+    let one = figures.len() == 1 && !shown_before(&figures[0]);
+    match (one, head) {
+        (true, _) => lines.push(scaena_core::reading::headline(deck, last).unwrap_or_else(|| figures[0].clone())),
+        (false, Some(head)) => lines.push(head),
+        (false, None) => {}
+    }
+    let mut pending: Option<String> = None;
+    for (_, p) in texts {
+        let words = said(p);
+        if figure(p) {
+            if let Some(alone) = pending.take() {
+                lines.push(alone);
+            }
+            if figures.len() > 1 && !shown_before(&words) {
+                pending = Some(words);
+            }
+            continue;
+        }
+        let mut paragraphs = scaena_core::reading::words(p)
+            .split('\n')
+            .map(|w| w.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .into_iter();
+        if let Some(fig) = pending.take() {
+            match paragraphs.next() {
+                Some(meaning) => lines.push(format!("{fig}: {meaning}")),
+                None => lines.push(fig),
+            }
+        }
+        lines.extend(paragraphs);
+    }
+    lines.extend(pending);
+    Ok(lines)
+}
+
 /// The patch that folds the slide of `state` into the slide before it (editor dogfood 6), as a
 /// Story row and the slides' menu offer it where a slide says again what the one before said, or
 /// adds least to it: the folded slide's headline, then each other text it shows at its last step,
@@ -880,25 +961,10 @@ pub fn folding(b: &Bundle, state: &str) -> Result<Folded, OpsError> {
     let into = deck.states[prev[0]].id.clone();
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let (was, last) = (&snaps[*prev.last().unwrap_or(&prev[0])], &snaps[*folded.last().unwrap_or(&folded[0])]);
-    let is_text = |id: &str| deck.nodes.get(id).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text);
     // The previous slide's place for words, where it has one; else its notes take them.
     let target = joined_place(deck, was);
-    // The folded slide's words: its headline as it reads, then each other text it carries.
-    let mut lines: Vec<String> = Vec::new();
-    let heading = scaena_core::reading::headline_node(deck, last);
-    if let Some(headline) = scaena_core::reading::headline(deck, last) {
-        lines.push(headline);
-    }
-    let figure = |p: &scaena_core::document::Props| {
-        matches!(p.get("role").and_then(Value::as_str), Some("numeral" | "hero" | "figure"))
-    };
-    for (id, p) in &last.nodes {
-        if !is_text(id) || Some(id.as_str()) == heading.as_deref() || !carried(p) || (figure(p) && !lines.is_empty()) {
-            continue;
-        }
-        let words = scaena_core::reading::words(p);
-        lines.extend(words.split('\n').map(str::trim).filter(|w| !w.is_empty()).map(str::to_string));
-    }
+    // The folded slide's words, in the order it reads (SPEC §3.12), its headline first.
+    let lines = folded_words(b, deck, last, was)?;
     let joined = lines.join("\n");
     let mut patch = Vec::new();
     if let Some((target, props)) = target
@@ -1130,6 +1196,55 @@ mod tests {
         let notes = beat.notes.as_deref().unwrap_or("");
         assert!(notes.starts_with(&format!("{headline}\n{body}\n")), "{notes}");
         assert!(notes.contains("\n\nSay why now.\n\nBuild the tool we would design today"), "{notes}");
+    }
+
+    fn trails() -> Bundle {
+        crate::open(std::path::Path::new("../../docs/examples/trails.deck.json")).unwrap()
+    }
+
+    /// A slide's words fold in the order it reads (SPEC §3.12), not the order its nodes are
+    /// written: trails' budget, its note put in front of its reason, reads its reason first.
+    #[test]
+    fn a_slides_words_fold_in_the_order_it_reads() {
+        let mut b = trails();
+        let budget = b.deck.state_index("budget").unwrap();
+        b.deck.states[budget].props.insert("budget-aside".into(), serde_json::from_value(json!({ "z": 10 })).unwrap());
+        let before = shown(&b.deck, "funding", "funding-body");
+        let folded = folding(&b, "budget").unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        let deck = applied(&b, &folded.patch);
+        assert_eq!(
+            shown(&deck, "funding", "funding-body"),
+            format!(
+                "{before}\nWe came in $6,600 under budget\nCrews drove farther to reach the Alpine segments.\nFood and travel ran $7,200 over."
+            ),
+            "the reason, written after the note, is read before it"
+        );
+    }
+
+    /// A big number's figure folds with its meaning, as health reads the slide ("6,820 volunteer
+    /// hours this season"), and is not said again where the slide before shows it already.
+    #[test]
+    fn a_big_numbers_figure_folds_with_its_meaning_unless_shown_before() {
+        let b = trails();
+        let notes = |deck: &Deck| scaena_core::spine::notes(deck, "promise").unwrap_or("").to_string();
+        let folded = folding(&b, "hours").unwrap();
+        assert_eq!((folded.to, folded.said.as_str()), (FoldsTo::Notes, "Folded slide 4 into slide 3's notes"));
+        let carried = notes(&applied(&b, &folded.patch));
+        assert!(
+            carried.contains("6,820 volunteer hours this season\nMore than three full-time years of work"),
+            "{carried}"
+        );
+        // The slide before shows the figure: its meaning goes, the figure not said twice.
+        let mut b = trails();
+        let promise = b.deck.state_index("promise").unwrap();
+        b.deck.states[promise].props.insert(
+            "promise-sub".into(),
+            serde_json::from_value(json!({ "role": "numeral", "text": "6,820" })).unwrap(),
+        );
+        let carried = notes(&applied(&b, &folding(&b, "hours").unwrap().patch));
+        assert!(carried.contains("volunteer hours this season\nMore than three"), "{carried}");
+        assert!(!carried.lines().any(|l| l.starts_with("6,820")), "{carried}");
     }
 
     /// Words that would run past the place they join are no fold (E100): laid out, refused. B1's
