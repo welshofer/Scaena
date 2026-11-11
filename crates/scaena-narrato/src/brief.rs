@@ -149,6 +149,11 @@ pub struct Brief {
     pub goal: String,
     /// One of [`LENGTHS`].
     pub length: String,
+    /// The minutes the talk is given (agent dogfood): the length it asks for where none is given
+    /// ([`length_for_minutes`]), and the slot health paces the talk against. Scaena's own field,
+    /// which Narrato's prompts never read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minutes: Option<u32>,
     /// How it is delivered, as [`MODALITIES`] sends it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modality: Option<String>,
@@ -238,6 +243,8 @@ impl Brief {
         } else {
             DEFAULT_GOAL.into()
         };
+        // A minute a talk runs at least, ten hours at most: a slot a brief can be paced against.
+        let minutes = self.minutes.map(|m| m.clamp(1, 600));
         let length = if filled(&self.length) {
             if !LENGTHS.contains(&self.length.as_str()) {
                 return Err(BriefError {
@@ -249,6 +256,8 @@ impl Brief {
                 });
             }
             self.length.clone()
+        } else if let Some(minutes) = minutes {
+            length_for_minutes(minutes).into()
         } else {
             DEFAULT_LENGTH.into()
         };
@@ -265,6 +274,7 @@ impl Brief {
             audience,
             goal,
             length,
+            minutes,
             modality: some(&self.modality, limits::MODALITY).or_else(|| Some(MODALITIES[0].1.into())),
             desired_outcomes: some(&self.desired_outcomes, limits::DESIRED_OUTCOMES),
             persona_id: self.persona_id.as_deref().map(|s| js::first_units(s, limits::PERSONA_ID)),
@@ -347,6 +357,22 @@ pub fn minutes_for_slides(least: usize) -> (u32, Option<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A brief's minutes give its length where none is given, and are kept beside one that is
+    /// (agent dogfood): ten minutes is 5–10 slides, and a length given wins.
+    #[test]
+    fn minutes_give_a_length_where_none_is_given() {
+        let asked = |length: &str, minutes: Option<u32>| {
+            Brief { topic: "x".into(), length: length.into(), minutes, ..Brief::default() }.validated().unwrap()
+        };
+        let ten = asked("", Some(10));
+        assert_eq!((ten.length.as_str(), ten.minutes), ("5-10 slides", Some(10)));
+        assert_eq!(asked("", Some(40)).length, "16-25 slides");
+        let both = asked("11-15 slides", Some(10));
+        assert_eq!((both.length.as_str(), both.minutes), ("11-15 slides", Some(10)));
+        assert_eq!(asked("", None).length, DEFAULT_LENGTH);
+        assert_eq!(asked("", Some(0)).minutes, Some(1));
+    }
 
     /// A language Narrato names is kept by its English name however it is written; another is
     /// kept as written (lift-up 10-25b STAB-2).

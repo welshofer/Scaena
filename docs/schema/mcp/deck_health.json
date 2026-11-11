@@ -81,7 +81,10 @@
         "description": "Something to look at on one slide: what it says, what to ask the assistant, and, where one\nis safe, a fix.",
         "type": "object",
         "properties": {
-          "state": { "description": "The slide's first state.", "type": "string" },
+          "state": {
+            "description": "The step it was read at, which an editor shows: the slide's first state for a finding about\nits notes or its plan, or that it does not stand, else its last, built whole.",
+            "type": "string"
+          },
           "slide": { "description": "The slide's number, from 1.", "type": "integer", "minimum": 0 },
           "severity": { "$ref": "#/$defs/Severity" },
           "kind": { "$ref": "#/$defs/Kind" },
@@ -90,6 +93,10 @@
           "fix": { "anyOf": [{ "$ref": "#/$defs/Fix" }, { "type": "null" }] },
           "figure": {
             "description": "The figure a `source` finding found no source for, as the slide writes it.",
+            "type": ["string", "null"]
+          },
+          "path": {
+            "description": "Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to\nits beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the\neditors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is\nthe person's (ADR-0032, item 4).",
             "type": ["string", "null"]
           }
         },
