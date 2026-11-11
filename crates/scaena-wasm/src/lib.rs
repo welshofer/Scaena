@@ -1091,6 +1091,12 @@ impl Player {
         serde_json::to_string(&self.0.adding_state(state, what).map_err(js)?).map_err(js)
     }
 
+    /// The patch that folds `state`'s slide into the slide before it, as JSON: `{ into, patch,
+    /// said, refused? }` (editor dogfood 6).
+    pub fn folding(&self, state: &str) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.folding(state).map_err(js)?).map_err(js)
+    }
+
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
     /// goes there, nothing placed in them, as JSON: each `{ slot, rect, words, typed, role? }` (PLAN
     /// 3.30), which the canvas outlines.

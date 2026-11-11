@@ -41,6 +41,8 @@
 //   and the bend's "Set its Intensity" each show the slide and the field in the Format tab, in view
 //   and in focus; and a topic headline's "Edit its headline", on the fleet deck with slide 4 titled
 //   by its topic, types in the text that heads the slide, its words selected (editor dogfood 6).
+//   There, the slide that says again what the one before said offers "Fold into slide N's notes",
+//   that slide a big number with no place for words, which folds it into them, said so.
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6); and on B1, slide
 //   4's words cut answer its finding read at the slide's last step.
@@ -932,6 +934,33 @@ try {
         typingIn.selected?.[0] === 0 && typingIn.selected?.[1] === typingIn.selected?.[2],
       `a press shows the slide and types in its headline, its words selected: ${JSON.stringify(typingIn)}`,
     );
+    // A slide that says again what the slide before said offers to fold into it, as its to-do says
+    // (editor dogfood 6): pressed, its slide is gone, its headline read on the slide before, one
+    // change said in a person's words.
+    await page.keyboard.press("Escape");
+    const again = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.kind === "story"));
+    const foldIt = page.locator(`#story [data-findings] li[data-slide="${again?.slide}"] button[data-fold]`).first();
+    check(
+      (await foldIt.count()) === 1 && (await foldIt.textContent()) === `Fold into slide ${again?.slide - 1}'s notes`,
+      `its row offers the fold, into the notes of a big number, which has no place for words: ${await foldIt.textContent().catch(() => "")}`,
+    );
+    const count = await page.evaluate(() => new Set(window.scaena.last().slots.map((s) => s.slide)).size);
+    const head = await page.evaluate((st) => window.scaena.last().slots.find((s) => s.state === st)?.headline, again?.state);
+    const was = await page.evaluate(() => window.scaena.source());
+    await foldIt.click().catch((e) => failures.push(`no fold to press: ${e.message}`));
+    await page.waitForFunction((s) => window.scaena.source() !== s, was, { timeout: 30000 }).catch(() => {});
+    await page.waitForFunction((n) => new Set(window.scaena.last().slots.map((s) => s.slide)).size === n - 1, count, { timeout: 30000 }).catch(() => {});
+    const status = await page.locator("#status").textContent();
+    const after = await page.evaluate(() => window.scaena.source());
+    check(
+      (await page.evaluate(() => new Set(window.scaena.last().slots.map((s) => s.slide)).size)) === count - 1 && status.startsWith(`Folded slide ${again?.slide} into slide ${again?.slide - 1}'s notes`),
+      `pressed, slide ${again?.slide} folds into the notes of the slide before: ${status}`,
+    );
+    // Notes of more than a line are a block under `notes """`: the headline one of its lines.
+    const lines = after.split("\n");
+    const at = lines.findIndex((l) => !!head && l.includes(head));
+    const opens = lines.slice(0, at + 1).reverse().find((l) => /^\s*notes "/.test(l) || /^\s*"{3,}\s*$/.test(l)) ?? "";
+    check(at >= 0 && /^\s*notes "/.test(opens), `its headline is in those notes: ${opens.trim()} … ${lines[at]?.trim()}`);
     await page.close();
   })();
 } catch (e) {

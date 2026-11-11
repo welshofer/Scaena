@@ -19,7 +19,8 @@
 //   change.
 // - It is read again whenever the deck changes while the tab is shown, the last answer winning.
 import { observing } from "./life";
-import type { CiteChoice, Finding, Health, HealthFinding } from "./protocol";
+import type { CiteChoice, Finding, FoldsTo, Health, HealthFinding } from "./protocol";
+import { foldLabel } from "./protocol";
 import type { Stage } from "./stage";
 
 /** What the panel asks of the editor around it. */
@@ -32,6 +33,9 @@ export interface StoryEditor {
   /** Show `state` and the Format tab's `field` for it, scrolled to and in focus, or for its headline,
    * typing begun in it with its words selected (editor dogfood 6). */
   field(state: string, field: Field): Promise<void>;
+  /** Fold the slide `state` is on into the slide before it, one change to undo, or say why it cannot
+   * be (editor dogfood 6). */
+  fold(state: string): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
   make(ops: unknown[], done: string): Promise<void>;
   /** Put `question` to the assistant: its tab shown, the question in its box. */
@@ -43,6 +47,8 @@ export interface StoryEditor {
    * text heads it: what its row names it by, since health names a slide by its beat's claim
    * (editor dogfood 4). */
   headline(slide: string): string | undefined;
+  /** Where the words of the slide `state` is on would go, folded into the slide before it. */
+  foldsTo(state: string): FoldsTo | undefined;
   /** Every state of the deck as it stands, a slide's steps among them. */
   states(): string[];
   /** What lint last found wrong on the slide `slide` is a step of, any step of it: what its marks
@@ -648,6 +654,16 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.dataset.field = field;
       button.textContent = FIELD[field];
       button.addEventListener("click", () => void editor.field(state, field));
+      actions.append(button);
+    }
+    // A slide that says again what the one before said, or adds least to it, offers to fold into it,
+    // as its to-do says (editor dogfood 6).
+    if (slide > 1 && run.some((f) => f.kind === "story" || f.kind === "pacing")) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.fold = "";
+      button.textContent = foldLabel(`slide ${slide - 1}`, editor.foldsTo(state));
+      button.addEventListener("click", () => void editor.fold(state));
       actions.append(button);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
