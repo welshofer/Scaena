@@ -87,6 +87,9 @@ export interface Slot {
   /** The words that head it, where a text does: what the presenter's navigator names its slide by
    * (lift-up 10-24b USE-1, USE-4). */
   headline?: string;
+  /** The text that heads it, which the editor types in when a finding asks for its headline (editor
+   * dogfood 6). */
+  headlineNode?: string;
   /** Its place in the talk, where a beat names it (lift-up FUNC-2). */
   story?: StoryPlace;
   start: number;
