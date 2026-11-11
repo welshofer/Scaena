@@ -21,6 +21,7 @@ scaena-core = { workspace = true, features = ["syllables"] }
 scaena-ops = { workspace = true, features = ["shipped", "narrato", "smaller"] }
 scaena-resources.workspace = true
 scaena-objects.workspace = true
+scaena-sources.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 base64.workspace = true
