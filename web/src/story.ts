@@ -34,12 +34,12 @@ export interface StoryEditor {
   /** Check `state`'s words against its beat's claim by the writing tools' model, which offers
    * the headline rewritten to carry it (narrative FUNC-4). */
   check(state: string): void;
-  /** The words that head the slide whose first state is `slide`, as the deck reads now, where a
+  /** The words that head the step `slide` of a slide, as the deck reads now, where a
    * text heads it: what its row names it by, since health names a slide by its beat's claim
    * (editor dogfood 4). */
   headline(slide: string): string | undefined;
-  /** What lint last found wrong on the slide whose first state is `slide`, any step of it: what
-   * its marks on the canvas stand for (editor dogfood 4). */
+  /** What lint last found wrong on the slide `slide` is a step of, any step of it: what its marks
+   * on the canvas stand for (editor dogfood 4). */
   issues(slide: string): Finding[];
   /** What lint last found in the deck, a state's or every state's: what the worker reads health
    * beside. */
@@ -54,6 +54,8 @@ export interface StoryEditor {
   /** What the beat that tells `state` cites, where one does. */
   cites(state: string): Promise<CiteChoice | undefined>;
   say(text: string): void;
+  /** Say what an edit answered after what the status says of the edit itself (editor dogfood 6). */
+  answered(text: string): void;
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
 }
@@ -192,9 +194,94 @@ const SEVERITY = ["info", "warning", "error"] as const;
  * before it, so no finding is told by its colour alone (lift-up 20261110 USE-1, WCAG 1.4.1). */
 const WORD: Record<(typeof SEVERITY)[number], string> = { error: "Error", warning: "Warning", info: "Note" };
 
+/** The slides a row's words name ("slides 1, 5 and 11", "slide 4's", "slides 10–11"), each a
+ * button that shows it where health reads that slide, the words as they were (editor dogfood 6):
+ * a to-do about several slides reaches each of them, as the cap line's slides do. */
+export function slidesShown(text: string, h: Health): (string | HTMLButtonElement)[] {
+  const parts: (string | HTMLButtonElement)[] = [];
+  const named = /\b([Ss]lides?) (\d+(?:(?:, | and |, and |–)\d+)*)/g;
+  let from = 0;
+  for (const m of text.matchAll(named)) {
+    parts.push(text.slice(from, m.index), `${m[1]} `);
+    for (const piece of m[2].split(/(, and |, | and |–)/)) {
+      const n = Number(piece);
+      const state = /^\d+$/.test(piece) ? h.slides[n - 1]?.state : undefined;
+      if (!state) {
+        parts.push(piece);
+        continue;
+      }
+      const go = document.createElement("button");
+      go.type = "button";
+      go.dataset.toSlide = state;
+      go.textContent = piece;
+      go.ariaLabel = `Show slide ${n}`;
+      parts.push(go);
+    }
+    from = m.index + m[0].length;
+  }
+  parts.push(text.slice(from));
+  return parts.filter((p) => p !== "");
+}
+
+/** Where a finding's row stood when last drawn, and where each stands now: a finding is told by
+ * its kind and slide, or, where the deck had and has one finding of its kind, by the kind alone,
+ * as pacing's, whose slide moves to the shortest beat as notes are deepened (editor dogfood 6). */
+function places(findings: HealthFinding[]) {
+  const kinds = new Map<string, number>();
+  for (const f of findings) kinds.set(f.kind, (kinds.get(f.kind) ?? 0) + 1);
+  const alone = (f: HealthFinding) => kinds.get(f.kind) === 1;
+  return {
+    /** Where `f` stood in `stood`, else none. */
+    at: (stood: Map<string, number>, f: HealthFinding) => stood.get(`${f.kind} ${f.slide}`) ?? (alone(f) ? stood.get(f.kind) : undefined),
+    /** The keys `f` is found by at the next read, standing at `i`. */
+    keys: (f: HealthFinding) => (alone(f) ? [`${f.kind} ${f.slide}`, f.kind] : [`${f.kind} ${f.slide}`]),
+  };
+}
+
+/** What a finding is about, in a few words after its slide's ("slide 2's plan"): what an edit
+ * answered is said by them (editor dogfood 6). */
+const ABOUT: Record<HealthFinding["kind"], string> = {
+  title: "title", empty: "empty place", turn: "turn", arc: "plan", intensity: "intensity", tone: "tone",
+  drift: "beat", layout: "layout", claim: "claim", bigIdea: "big idea", story: "story", dense: "points",
+  notes: "notes", pacing: "length", link: "link", look: "change let go", source: "source", label: "headline",
+};
+
+/** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
+ * on a slide `after` still reads: what an edit answered. A slide taken away, or another deck
+ * opened, answers nothing. */
+export function answered(before: Health, after: Health): HealthFinding[] {
+  const was = places(before.findings);
+  const now = places(after.findings);
+  const found = new Map(after.findings.flatMap((f) => now.keys(f).map((k) => [k, 0] as const)));
+  const states = new Set(after.slides.map((s) => s.state));
+  return before.findings.filter((f) => states.has(f.state) && was.at(found, f) === undefined);
+}
+
+/** What an edit answered, as the status and the score's line say it: "Answers 2 of the Story's
+ * findings: slide 2's plan and intensity", each slide's in order, the talk's length its own. */
+export function answeredSaid(gone: HealthFinding[]): string {
+  const bySlide = new Map<number, string[]>();
+  let length = false;
+  for (const f of gone) {
+    if (f.kind === "pacing") length = true;
+    else {
+      const about = bySlide.get(f.slide) ?? [];
+      if (!about.includes(ABOUT[f.kind])) about.push(ABOUT[f.kind]);
+      bySlide.set(f.slide, about);
+    }
+  }
+  const and = (words: string[]) => (words.length < 3 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`);
+  const said = [...bySlide].sort(([a], [b]) => a - b).map(([n, about]) => `slide ${n}'s ${and(about)}`);
+  if (length) said.push("the talk's length");
+  return `Answers ${gone.length} of the Story's findings: ${said.join("; ")}`;
+}
+
 /** How long the panel waits after an edit before it reads the deck again, in ms: the Mac's
  * Story panel's pause (lift-up PERF-1). */
 const PAUSE = 700;
+
+/** How long what an edit answered stands beside the score, in ms. */
+const ANSWERED = 8000;
 
 /** The arc as the graph draws it, `width` by `height`: the arc's beats as bands under it, each
  * named where it has room; the curve; the intensity each slide declares and what its words read,
@@ -283,6 +370,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     if (state) void editor.show(state);
   });
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
+  // A slide a row's words name shows it (editor dogfood 6): the rows are drawn anew at each read,
+  // so their buttons are heard here.
+  into.querySelector<HTMLElement>("[data-findings]")!.addEventListener("click", (e) => {
+    const state = (e.target as Element).closest<HTMLElement>("[data-to-slide]")?.dataset.toSlide;
+    if (state) void editor.show(state);
+  });
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
   const list = into.querySelector<HTMLOListElement>("[data-findings]")!;
@@ -291,6 +384,12 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   stale.dataset.stale = "";
   stale.setAttribute("role", "status");
   score.before(stale);
+  /** What the last edit answered, beside the score for a moment (editor dogfood 6). */
+  const told = Object.assign(document.createElement("p"), { hidden: true });
+  told.dataset.answered = "";
+  told.setAttribute("role", "status");
+  score.after(told);
+  let telling: ReturnType<typeof setTimeout> | undefined;
   const listed = list.getAttribute("aria-label") ?? "";
   /** The score as last said, so the live region speaks only when it changes. */
   let scored = "";
@@ -308,6 +407,10 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   };
   /** What the worker last read. */
   let health: Health | undefined;
+  /** Where each open row stood when last drawn, by its findings' places (`places`): a read again
+   * keeps a row where it stood, so the row a person is working stays under them and a finding new
+   * to the Story comes after, an error before (editor dogfood 6). */
+  let stood = new Map<string, number>();
   /** The sources the deck was grounded in, as last read with its health. */
   let grounded: string[] = [];
   /** Readings asked for: the last answer wins. */
@@ -344,14 +447,28 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     try {
       const [got, sources] = await Promise.all([stage.health(editor.source()), editor.sources().catch(() => [])]);
       if (asked !== asking) return;
+      // What the edits since the last read answered, said once (editor dogfood 6).
+      const gone = health && !into.dataset.stale ? answered(health, got) : [];
       health = got;
       grounded = sources;
+      if (gone.length) {
+        const text = answeredSaid(gone);
+        editor.answered(text);
+        told.textContent = text;
+        told.hidden = false;
+        clearTimeout(telling);
+        telling = setTimeout(() => {
+          told.hidden = true;
+          told.textContent = "";
+        }, ANSWERED);
+      }
       asLastRead(false);
       draw();
     } catch (e) {
       if (asked !== asking) return;
       if (health) return asLastRead(true);
       health = undefined;
+      stood = new Map();
       score.textContent = "";
       measures.replaceChildren();
       arc.replaceChildren();
@@ -391,7 +508,15 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     const choosing = list.querySelector<HTMLElement>("[data-citing]:not([hidden])");
     const citing = choosing?.closest<HTMLElement>("li[data-slide]")?.dataset.slide;
     const picked = choosing?.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.source : undefined;
-    list.replaceChildren(...bySlide(open).map((run) => row(run, h)));
+    const place = places(h.findings);
+    const at = (run: HealthFinding[]) => Math.min(...run.map((f) => place.at(stood, f) ?? Infinity));
+    const runs = bySlide(open)
+      .map((run, i) => ({ run, i, at: at(run) }))
+      .map((r) => ({ ...r, at: r.at === Infinity && r.run.some((f) => f.severity === "error") ? -1 : r.at }))
+      .sort((a, b) => a.at - b.at || a.i - b.i)
+      .map((r) => r.run);
+    stood = new Map(runs.flatMap((run, i) => run.flatMap((f) => place.keys(f).map((k) => [k, i] as const))));
+    list.replaceChildren(...runs.map((run) => row(run, h)));
     if (more.length) {
       const li = document.createElement("li");
       li.dataset.more = "";
@@ -459,14 +584,14 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     for (const f of run) {
       const p = document.createElement("p");
       p.dataset.kind = f.kind;
-      p.textContent = sentence(f);
+      p.append(...slidesShown(sentence(f), h));
       li.append(p);
       if (f.ask) {
         const todo = document.createElement("p");
         todo.dataset.todo = f.kind;
         const label = document.createElement("span");
         label.textContent = "To do: ";
-        todo.append(label, spoken(f.ask, editor.words()));
+        todo.append(label, ...slidesShown(spoken(f.ask, editor.words()), h));
         li.append(todo);
       }
     }

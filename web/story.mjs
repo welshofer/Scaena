@@ -28,6 +28,11 @@
 //   “…”. Update it to “…”?"), with Update and Keep, and the offer stands whatever the status says
 //   after it, Escape's words and what lint finds; Update restates the claim and the offer goes; an
 //   undo of the typing takes the offer away; Keep lets it be and changes nothing (lift-up FUNC-2).
+// - On dogfood 9's keynote, every slide a row's words name is a button that shows it, the big idea's
+//   "slides 10–11" each; and a read again after slide 5's notes are deepened keeps the open rows
+//   where they stood, what is new after them (editor dogfood 6).
+// - What an edit answered is said: the plan set for its place answers slide 2's two findings,
+//   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
 //   place is asked by its Intensity; the Format tab offers its beat's Intensity and Tone, each said
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
@@ -513,10 +518,86 @@ try {
     const after = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].declared, bend.slide);
     const still = await page.evaluate((s) => window.scaena.story.health().findings.some((f) => f.kind === "arc" && f.state === s), bend.state);
     check(Math.abs(after - Number(to)) < 1e-9 && !still, `planned for its place (${after}), it bends no more`);
+    // What the edit answered is said (editor dogfood 6): the plan set for its place answers both of
+    // slide 2's findings, its plan and the intensity its words were asked for, after what the status
+    // said of the edit, and beside the score.
+    const answeredText = `Answers 2 of the Story's findings: slide ${bend.slide}'s plan and intensity`;
+    await page.waitForFunction((t) => document.querySelector("#story > p[data-answered]")?.textContent === t, answeredText, { timeout: 30000 }).catch(() => {});
+    const toldNow = await page.evaluate(() => ({
+      status: document.querySelector("#status").textContent,
+      beside: document.querySelector("#story > p[data-answered]")?.textContent,
+      shown: !document.querySelector("#story > p[data-answered]")?.hidden,
+    }));
+    check(
+      toldNow.status.startsWith(`Slide ${bend.slide}: Intensity Building`) && toldNow.status.includes(` · ${answeredText}`) && toldNow.beside === answeredText && toldNow.shown,
+      `what the edit answered is said, in the status and beside the score: ${JSON.stringify(toldNow)}`,
+    );
     await page.locator(".cm-content").focus();
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the plan back");
+
+    // Every slide a row's words name is a button that shows it (editor dogfood 6): the big idea's
+    // row, "The close, slides 10–11, never lands the big idea", reaches each of the two, not its own
+    // slide alone.
+    await tab(page, "story");
+    // Read again since the plan came back: its bend is found again.
+    await page.waitForFunction((st) => window.scaena.story.health()?.findings.some((f) => f.kind === "arc" && f.state === st), bend.state, { timeout: 60000 }).catch(() => {});
+    await page.click("#story [data-more] summary").catch(() => {});
+    const close = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "bigIdea"));
+    const named = [...(close?.says.match(/slides (\d+)–(\d+)/) ?? []).slice(1)].map(Number);
+    const linked = await page.evaluate(
+      (k) => [...document.querySelectorAll(`#story [data-findings] li[data-slide="${k}"] p[data-kind="bigIdea"] [data-to-slide]`)].map((b) => [b.textContent, b.dataset.toSlide]),
+      close?.slide,
+    );
+    const states = await page.evaluate(() => window.scaena.story.health().slides.map((s) => s.state));
+    check(
+      named.length === 2 && JSON.stringify(linked) === JSON.stringify(named.map((n) => [String(n), states[n - 1]])),
+      `the big idea's row names each of its slides by a button: ${JSON.stringify(linked)} of ${named}`,
+    );
+    const last = named[named.length - 1];
+    await page.click(`#story [data-findings] li[data-slide="${close.slide}"] p[data-kind="bigIdea"] [data-to-slide="${states[last - 1]}"]`);
+    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, states[last - 1], { timeout: 30000 }).catch(() => {});
+    check(await page.evaluate((st) => window.scaena.canvas.boxed() === st, states[last - 1]), `a press on slide ${last} shows it`);
+
+    // The row a person works stays where it stood (editor dogfood 6): slide 5's notes deepened with
+    // words that bring a finding new to the Story ("behind" read as grave), which triage would put
+    // first; the open rows read again keep their places, and what is new comes after them.
+    const rows = () =>
+      page.evaluate(() =>
+        [...document.querySelectorAll("#story [data-findings] > li[data-slide]")].map((li) => ({
+          slide: Number(li.dataset.slide),
+          kinds: [...li.querySelectorAll("p[data-kind]")].map((p) => p.dataset.kind),
+        })),
+      );
+    const stood = await rows();
+    const fifth = states[4];
+    await page.evaluate((st) => window.scaena.story.health() && document.querySelector(`#story [data-arc] [data-state="${st}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })), fifth);
+    await page.waitForFunction((st) => window.scaena.canvas.boxed() === st, fifth, { timeout: 30000 }).catch(() => {});
+    await tab(page, "inspector");
+    const notes = page.locator('textarea[data-prop="notes"]');
+    await notes.waitFor({ timeout: 30000 });
+    const told = await notes.inputValue();
+    const deepened = await page.evaluate(() => window.scaena.source());
+    const before = await page.evaluate(() => JSON.stringify(window.scaena.story.health()));
+    await notes.fill(`${told}\nI was behind a woman at the laundromat on Fifth who had never had a card; she left with two. The man behind her asked for one for his son.`);
+    await notes.blur();
+    await page.waitForFunction((w) => window.scaena.source() !== w, deepened, { timeout: 30000 }).catch(() => {});
+    await tab(page, "story");
+    await page.waitForFunction((b) => JSON.stringify(window.scaena.story.health()) !== b, before, { timeout: 60000 }).catch(() => {});
+    const now = await rows();
+    const kept = (r) => stood.some((s) => s.slide === r.slide && r.kinds.some((k) => s.kinds.includes(k)));
+    const firstNew = now.findIndex((r) => !kept(r));
+    check(firstNew !== -1, `the words told bring a row new to the Story: ${JSON.stringify(stood)} → ${JSON.stringify(now)}`);
+    const keptBefore = stood.filter((s) => now.some((r) => s.slide === r.slide && r.kinds.some((k) => s.kinds.includes(k))));
+    check(
+      now.slice(firstNew).every((r) => !kept(r)) && JSON.stringify(now.slice(0, firstNew).map((r) => r.slide)) === JSON.stringify(keptBefore.map((s) => s.slide)),
+      `read again, the rows keep their places, and what is new comes after: ${JSON.stringify(stood)} → ${JSON.stringify(now)}`,
+    );
+    await page.locator(".cm-content").focus();
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction((w) => window.scaena.source() === w, deepened, { timeout: 30000, polling: 50 }).catch(() => {});
+    check((await page.evaluate(() => window.scaena.source())) === deepened, "⌘Z takes the notes back");
     // A slide lint finds broken caps the score: the score says so, and what it would be, the slide
     // a button that shows it (W1's dogfood 5).
     const sound = await page.evaluate(() => window.scaena.source());
@@ -623,6 +704,40 @@ try {
     await page.keyboard.press("Control+z");
     await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000, polling: 50 }).catch(() => {});
     check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the citation back in one step");
+    await page.close();
+  })();
+
+  // B1's slide 4 builds its 97 words a step at a time: its Show opens the last step, where health
+  // counted them, which its finding names, not the first, which draws a headline alone; a turn,
+  // answered in the notes, opens the first (W2's editor dogfood).
+  await (async () => {
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/bench/b1.scaena`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "dense"), null, { timeout: 120000 }).catch(() => {});
+    const dense = await page.evaluate(() => window.scaena.story.health()?.findings.find((f) => f.kind === "dense"));
+    check(/shows \d+ words/.test(dense?.says ?? ""), `a slide shows more words than a room reads: ${dense?.says}`);
+    const steps = await page.evaluate(
+      (step) => {
+        const { slots, states } = window.scaena.last();
+        const slide = (state) => slots.find((s) => s.state === state)?.slide ?? state;
+        return slots.filter((s) => slide(s.state) === slide(step)).map((s) => states.findIndex(([id]) => id === s.state));
+      },
+      dense.state,
+    );
+    check(steps.length > 1, `it builds in steps: ${JSON.stringify(steps)}`);
+    await page.click("#story [data-more] summary").catch(() => {});
+    await page.click(`#story [data-findings] li[data-slide="${dense.slide}"] [data-show]`);
+    await page.waitForFunction((k) => window.scaena.shown() === k, steps.at(-1), { timeout: 30000 }).catch(() => {});
+    check((await page.evaluate(() => window.scaena.shown())) === steps.at(-1), `Show opens its last step, where the words are: ${await page.evaluate(() => window.scaena.shown())} of ${JSON.stringify(steps)}`);
+    // A turn is answered in the slide's notes, which its first step opens.
+    const turn = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "turn" && f.slide === 12));
+    const first = await page.evaluate((id) => window.scaena.last().states.findIndex(([s]) => s === id), turn?.state);
+    await page.click(`#story [data-findings] li[data-slide="12"] [data-show]`);
+    await page.waitForFunction((k) => window.scaena.shown() === k, first, { timeout: 30000 }).catch(() => {});
+    check(first > 0 && (await page.evaluate(() => window.scaena.shown())) === first, `a turn's Show opens its slide's first step, where its notes are written: ${await page.evaluate(() => window.scaena.shown())}, ${first}`);
     await page.close();
   })();
 } catch (e) {

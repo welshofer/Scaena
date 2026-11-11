@@ -1543,7 +1543,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     issues: (slide) => {
       const slots = (taken?.edited ?? last)?.slots ?? [];
       const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
-      return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === slide);
+      // Health names the step it read a finding at, any step of the slide (W2's editor dogfood).
+      return (last?.findings ?? []).filter((f) => f.state !== undefined && of(f.state) === of(slide));
     },
     findings: () => last?.findings ?? [],
     fix: (f) => fix(f),
@@ -1554,6 +1555,11 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       if (f.state !== undefined) await showState(f.state);
     },
     words: () => lexicon,
+    // After what the status says of the edit, while it says it of the source as it stands.
+    answered: (text) => {
+      say(told && toldOf === view.state.doc.toString() ? `${told} · ${text}` : text);
+      if (reported) status.textContent = `${told} — ${reported}`;
+    },
     check: (state) => {
       if (assisting) return say("Nothing asked: the assistant is at work on the deck");
       void writing.offer({ kind: "claim", state });

@@ -186,3 +186,72 @@ extension Health {
         return slides.indices.contains(slide - 1) ? slides[slide - 1].title : ""
     }
 }
+
+extension Health {
+    /// `text`, a Story row's words, with each slide it names ("slides 1, 5 and 11", "slide 4's",
+    /// "slides 10–11") linked to its first state as `scaena-state:STATE`, where health reads that
+    /// slide, as the browser's Story makes each a button (editor dogfood 6): the words as they were.
+    public func slidesShown(_ text: String) -> AttributedString {
+        var out = AttributedString()
+        var rest = text[...]
+        while let named = rest.firstMatch(of: #/\b([Ss]lides?) (\d+(?:(?:, and |, | and |–)\d+)*)/#) {
+            out += AttributedString(String(rest[..<named.range.lowerBound]))
+            out += AttributedString("\(named.output.1) ")
+            let list = named.output.2
+            var at = list.startIndex
+            for number in list.matches(of: #/\d+/#) {
+                out += AttributedString(String(list[at..<number.range.lowerBound]))
+                var piece = AttributedString(String(number.output))
+                if let n = Int(number.output), slides.indices.contains(n - 1),
+                    let url = URL(string: "scaena-state:\(slides[n - 1].state)")
+                {
+                    piece.link = url
+                }
+                out += piece
+                at = number.range.upperBound
+            }
+            out += AttributedString(String(list[at...]))
+            rest = rest[named.range.upperBound...]
+        }
+        out += AttributedString(String(rest))
+        return out
+    }
+}
+
+/// Where each of the Story's open rows stood when last drawn, so a read again keeps a row where it
+/// stood, the row a person is working staying under them, and what is new comes after, an error
+/// first (editor dogfood 6, as the browser's Story keeps them). A finding is told by its kind and
+/// slide, or, where the deck had and has one finding of its kind, by the kind alone, as pacing's,
+/// whose slide moves to the shortest beat as notes are deepened.
+public struct StoryPlaces: Sendable, Equatable {
+    private var stood: [String: Int] = [:]
+
+    public init() {}
+
+    /// `runs`, the open rows as triage gives them, each a slide's findings, in the order they stood
+    /// before where they did: kept where it stood, then what is new, an error first; and remember
+    /// it for the next read. `findings` is every finding the read gave.
+    public mutating func ordered(_ runs: [[Health.Finding]], of findings: [Health.Finding]) -> [[Health.Finding]] {
+        var kinds: [String: Int] = [:]
+        for f in findings { kinds[f.kind, default: 0] += 1 }
+        let alone = { (f: Health.Finding) in kinds[f.kind] == 1 }
+        let before = stood
+        let at = { (run: [Health.Finding]) -> Int in
+            let was = run.compactMap { f in before["\(f.kind) \(f.slide)"] ?? (alone(f) ? before[f.kind] : nil) }.min()
+            if let was { return was }
+            return run.contains { $0.severity == "error" } ? -1 : Int.max
+        }
+        let sorted = runs.enumerated()
+            .map { (run: $0.element, i: $0.offset, at: at($0.element)) }
+            .sorted { ($0.at, $0.i) < ($1.at, $1.i) }
+            .map { $0.run }
+        stood = [:]
+        for (i, run) in sorted.enumerated() {
+            for f in run {
+                stood["\(f.kind) \(f.slide)"] = i
+                if alone(f) { stood[f.kind] = i }
+            }
+        }
+        return sorted
+    }
+}
