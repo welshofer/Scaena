@@ -1740,12 +1740,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // information; it asks for a cut or a move, not a plan, so it names no field.
     let laid = |i: usize| slides.get(i).and_then(|s| s.states.iter().find_map(|&k| deck.states[k].layout.as_deref()));
     let mut close = read.len();
-    // A slide closes the talk by its layout, or by a headline that only thanks the room or opens
-    // the floor: "Questions every support lead asks us first" answers them in the talk.
-    let closes = |i: usize| {
-        laid(i).is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa" | "the-ask"))
-            || (closing.contains(&read[i].id) && read[i].title.split_whitespace().count() <= 3)
-    };
+    // The deck's closing run, as the calm close reads it, and an ask before it.
+    let closes = |i: usize| closing.contains(&read[i].id) || laid(i) == Some("the-ask");
     while close > 1 && closes(close - 1) {
         close -= 1;
     }
