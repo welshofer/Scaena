@@ -811,13 +811,15 @@ fn slot((lo, hi): (u32, Option<u32>)) -> String {
 }
 
 /// Two connectives a speaker opens a slide's notes with in `language`, which carry nothing across
-/// alone: German's "Also" and "Aber", French's "Donc" and "Mais", else English's "So" and "But"
-/// (health's English-only sweep, item 2).
+/// alone: German's "Also" and "Aber", French's "Donc" and "Mais", Spanish's "Entonces" and "Pero"
+/// (health read of a Spanish deck), else English's "So" and "But" (health's English-only sweep,
+/// item 2).
 fn connectives(language: Option<&str>) -> (&'static str, &'static str) {
     let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
     match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
         "de" | "deu" | "ger" | "german" | "deutsch" => ("Also", "Aber"),
         "fr" | "fra" | "fre" | "french" | "français" | "francais" => ("Donc", "Mais"),
+        "es" | "spa" | "spanish" | "español" | "espanol" => ("Entonces", "Pero"),
         _ => ("So", "But"),
     }
 }
@@ -4403,6 +4405,38 @@ mod tests {
         assert_eq!(health::coherence::keyword_overlap(&read[8], &read[9]), 0.0, "Vzestup's split reads them apart");
         let h = of(&deck);
         assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 10), "{:#?}", h.findings);
+    }
+
+    /// A Spanish deck's turn asks name Spanish connectives (health read of a Spanish deck: its four
+    /// turn asks said "So" and "But"), "Entonces" and "Pero", as a German deck's name German ones.
+    #[test]
+    fn a_spanish_turn_names_spanish_connectives() {
+        assert_eq!(connectives(Some("Spanish")), ("Entonces", "Pero"));
+        assert_eq!(connectives(Some("es-MX")), ("Entonces", "Pero"));
+        assert_eq!(connectives(Some("español")), ("Entonces", "Pero"));
+        let turned = |slides: &mut Vec<answer::Slide>| {
+            for (k, title) in ["Tres riesgos pesan sobre la red", "Calendario de obras 2027"].into_iter().enumerate() {
+                let s = &mut slides[7 + k];
+                s.slide_title = title.into();
+                s.key_bullets = vec![];
+                s.layout_suggestion = "Statement".into();
+                s.subtitle.clear();
+                s.speaker_notes = String::new();
+            }
+        };
+        let mut deck = dogfood("board-de", "", turned);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Spanish");
+        let h = of(&deck);
+        let ask = (h.findings.iter())
+            .find(|f| f.kind == Kind::Turn && f.slide == 9)
+            .map(|f| f.ask.clone())
+            .unwrap_or_else(|| panic!("slide 9 turns: {:#?}", h.findings));
+        assert!(
+            ask.ends_with(
+                "a connective alone (\u{201c}Entonces\u{201d}, \u{201c}Pero\u{201d}) carries nothing across."
+            ),
+            "{ask}"
+        );
     }
 
     /// A turn's ask names no German joining word to carry across in a German deck (R1's agent
