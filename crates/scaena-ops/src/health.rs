@@ -1075,12 +1075,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // Each with how the line beside the count says it.
     // The time given as the finding says it, as its ask says it, its bounds, and as the line
     // beside the count says it.
-    type Given = (String, String, (u32, Option<u32>), String);
+    // Bounds in minutes, and whether the talk's minutes are rounded before they are held to them,
+    // as the slides' whole-minute slot was.
+    type Given = (String, String, (f64, Option<f64>), String, bool);
     let given: Option<Given> = match (asked_minutes, asked) {
         (Some(m), _) => {
             let asks = counted(m as usize, "minute");
             let named = format!("the {asks} its brief asks");
-            Some((named.clone(), named, (m * 4 / 5, Some(m + m / 10)), format!("where its brief asks {asks}")))
+            let m = f64::from(m);
+            Some((
+                named.clone(),
+                named,
+                (m * 4.0 / 5.0, Some(m * 11.0 / 10.0)),
+                format!("where its brief asks {asks}"),
+                false,
+            ))
         }
         (None, Some((lo, hi))) => {
             let bounds = scaena_narrato::brief::minutes_for_slides(lo);
@@ -1088,8 +1097,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Some((
                 format!("{named} for {count} slides"),
                 named.clone(),
-                bounds,
+                (f64::from(bounds.0), bounds.1.map(f64::from)),
                 format!("where {count} slides is {named}"),
+                true,
             ))
         }
         (None, None) => None,
@@ -1097,7 +1107,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     if let Some((seconds, _)) = talk {
         let said = capitalized(&minutes(seconds));
         pacing.says = match &given {
-            Some((_, _, _, against)) => format!("{} {said} of talk, {against}.", pacing.says),
+            Some((_, _, _, against, _)) => format!("{} {said} of talk, {against}.", pacing.says),
             None => format!("{} {said} of talk.", pacing.says),
         };
     }
@@ -2035,8 +2045,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
-    if let (Some((seconds, beats)), Some((given, asked_for, (lo, hi), _))) = (&talk, &given) {
-        let said = (seconds / 60.0).round() as u32;
+    if let (Some((seconds, beats)), Some((given, asked_for, (lo, hi), _, rounded))) = (&talk, &given) {
+        let said = if *rounded { (seconds / 60.0).round() } else { seconds / 60.0 };
         let under = said < *lo;
         if under || hi.is_some_and(|hi| said > hi) {
             let mut by: Vec<Beaten> = beats.clone();
@@ -2547,6 +2557,28 @@ mod tests {
         // Within a fifth short of the minutes asked: nothing found.
         deck["meta"]["narrative"]["brief"]["minutes"] = json!(2);
         assert!(timing(&of(&deck)).is_empty());
+
+        // At each edge of a 15-minute brief, the talk's minutes as they run: 12.0 is not short and
+        // 11.9 is; 16.5 is not long and 16.6 is (the coordinator's bounds, ⅘ and 1.1×).
+        deck["meta"]["narrative"]["brief"]["minutes"] = json!(15);
+        let beats: Vec<String> = (deck["spine"]["sections"].as_array().unwrap().iter().enumerate())
+            .flat_map(|(i, s)| {
+                (0..s["beats"].as_array().unwrap().len()).map(move |j| format!("/spine/sections/{i}/beats/{j}"))
+            })
+            .collect();
+        let mut lasting = |total: f64| {
+            for beat in &beats {
+                deck.pointer_mut(beat).unwrap()["duration"] = json!(1.0);
+            }
+            deck.pointer_mut(beats.last().unwrap()).unwrap()["duration"] = json!(total - (beats.len() - 1) as f64);
+            timing(&of(&deck)).into_iter().map(|f| f.says).collect::<Vec<_>>()
+        };
+        assert!(lasting(12.0 * 60.0).is_empty(), "12.0 minutes is not short");
+        let short = lasting(11.9 * 60.0);
+        assert!(short.len() == 1 && short[0].contains("short of the 15 minutes its brief asks"), "{short:?}");
+        assert!(lasting(16.5 * 60.0).is_empty(), "16.5 minutes is not long");
+        let long = lasting(16.6 * 60.0);
+        assert!(long.len() == 1 && long[0].contains("past the 15 minutes its brief asks"), "{long:?}");
     }
 
     /// The talk's time beside the count (lift-up FUNC-1): its beats' durations, or their states'
