@@ -13089,13 +13089,26 @@ mod tests {
     /// in French).
     #[test]
     fn a_chart_that_names_its_workbook_binds_to_the_sheet_that_holds_it() {
-        let chart = |categories: &[&str], values: &[f64]| ChartData {
+        navette_bound(["navette.xlsx", "navette.xlsx"]);
+    }
+
+    /// A chart that names its sheet by the sheet's own name, as the workbook shows it, binds to
+    /// the sheet kept under the workbook's name and its own (agent dogfood 4: "Annuel" for
+    /// `velo-2025-annuel`).
+    #[test]
+    fn a_chart_that_names_its_sheet_by_its_own_name_binds_to_it() {
+        navette_bound(["Mensuel", "Quartiers"]);
+    }
+
+    /// The shuttle's deck made with its two charts naming their sources as `named` says, bound.
+    fn navette_bound(named: [&str; 2]) {
+        let chart = |categories: &[&str], values: &[f64], named: &str| ChartData {
             categories: categories.iter().map(|c| c.to_string()).collect(),
             series: vec![scaena_narrato::Series {
                 name: Some("Voyageurs".into()),
                 values: values.iter().map(|v| Some(*v)).collect(),
             }],
-            source_id: Some("navette.xlsx".into()),
+            source_id: Some(named.into()),
             ..ChartData::default()
         };
         let slide = |title: &str, kind: &str, chart: Option<ChartData>| Slide {
@@ -13114,12 +13127,12 @@ mod tests {
                 slide(
                     "La fr\u{e9}quentation a progress\u{e9} chaque mois",
                     "Line Chart",
-                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.])),
+                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.], named[0])),
                 ),
                 slide(
                     "Le quartier Nord porte la hausse",
                     "Bar Chart",
-                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.])),
+                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.], named[1])),
                 ),
                 slide("Prolonger la navette jusqu\u{2019}en juin 2027", "Closing", None),
             ],
@@ -13182,6 +13195,11 @@ mod tests {
         // A name no source starts with keeps none of them.
         assert!(binding::sources_named(&write.deck, "rapport.pdf").is_empty());
         assert!(binding::sources_named(&write.deck, "na").is_empty());
+        // A sheet by its own name is the one sheet kept so, in any case; a name two sheets end
+        // in, or none, is none of them.
+        assert_eq!(binding::sources_named(&write.deck, "Quartiers"), ["navette-quartiers"]);
+        assert_eq!(binding::sources_named(&write.deck, "mensuel"), ["navette-mensuel"]);
+        assert!(binding::sources_named(&write.deck, "Annuel").is_empty());
     }
 
     /// A deck in another language titles each section by the model's name for its beat, else its
