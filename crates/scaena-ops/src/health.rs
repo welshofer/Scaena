@@ -2145,8 +2145,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let listed: usize = pointed.iter().map(|&i| bullets(&read[i])).sum();
     let average = m.content_balance.avg_bullets_per_slide;
     if listed > 0 && average < FLOOR_POINTS {
+        // A slide that draws a chart, a picture, or a table shows its point (ADR-0032), and one
+        // that frames the talk, a divider or an agenda, makes none by design: neither is asked
+        // for points (R1's agent dogfood 2), though balance counts them as Vzestup's does.
         let mut thin: Vec<usize> = (pointed.iter().copied())
             .filter(|&i| i > 0 && !closing.contains(&read[i].id) && bullets(&read[i]) < FLOOR_POINTS as usize)
+            .filter(|&i| !read[i].drawn && !framing(i))
             .collect();
         scaena_core::sort::by_key(&mut thin, |&i| (bullets(&read[i]), i));
         thin.truncate(3);
@@ -3872,6 +3876,40 @@ mod tests {
             thin[0].says
         );
         assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
+    }
+
+    /// A slide that draws a chart, a picture, or a table shows its point, and a divider or an agenda
+    /// makes none by design, so `thin` names neither (R1's agent dogfood 2): pitch's chart slides
+    /// 4 and 11 and its divider, slide 7, and climate's divider, slide 3, were named. Balance's
+    /// figure counts them still.
+    #[test]
+    fn a_chart_or_a_divider_is_not_asked_for_points() {
+        for deck in [dogfood("pitch", "", |_| {}), dogfood("route9", "", |_| {}), climate()] {
+            let h = of(&deck);
+            let d = Deck::from_value(&deck).unwrap();
+            let sl = slides(&d);
+            let read = readings(&d, &sl).unwrap().0;
+            for f in h.findings.iter().filter(|f| f.kind == Kind::Thin) {
+                for k in f
+                    .says
+                    .split(" the fewest")
+                    .next()
+                    .unwrap()
+                    .split(|c: char| !c.is_ascii_digit())
+                    .filter_map(|n| n.parse::<usize>().ok())
+                {
+                    let layout = sl[k - 1].states.iter().find_map(|&j| d.states[j].layout.clone()).unwrap_or_default();
+                    assert!(
+                        !read[k - 1].drawn && !FRAMING.contains(&layout.as_str()),
+                        "slide {k} ({layout}): {}",
+                        f.says
+                    );
+                }
+            }
+        }
+        let pitch = of(&dogfood("pitch", "", |_| {}));
+        assert!(!pitch.findings.iter().any(|f| f.kind == Kind::Thin), "{:#?}", pitch.findings);
+        assert!(pitch.balance.says.starts_with("Slides make 1.8 points each"), "{}", pitch.balance.says);
     }
 
     /// A headline that counts what its slide lists is held to the count (the calibration against a
