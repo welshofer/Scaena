@@ -425,7 +425,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
+      # Chromium's system packages, the list Playwright's own dry run names, through
+      # scripts/apt-install.sh: it gives way to the next mirror, and keeps what it fetched by the
+      # runner's image and Playwright's version, as ffmpeg's are kept. `--with-deps` asked the
+      # runner's mirror alone, and that mirror's name not resolving for some minutes on 2026-11-11
+      # stopped #1078's and #1067's runs here, before any test. The browser itself comes from
+      # Playwright's own download, as before.
+      - run: npm install --no-save playwright@1.56.1
+      - id: chromium_deps
+        run: |
+          echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+          packages=$(npx playwright install-deps --dry-run chromium | sed -n 's/.*apt-get install -y --no-install-recommends \([^"]*\)".*/\1/p')
+          if [ -z "$packages" ]; then
+            echo "Playwright's dry run named no packages; its output may have changed" >&2
+            npx playwright install-deps --dry-run chromium >&2
+            exit 1
+          fi
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+      - id: chromium_kept
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/apt/chromium
+          key: apt-${{ github.job }}-chromium-playwright-1.56.1-${{ steps.chromium_deps.outputs.image }}
+      - run: SCAENA_APT_KEEP="$HOME/.cache/apt/chromium" scripts/apt-install.sh ${{ steps.chromium_deps.outputs.packages }}
+      - if: github.ref == 'refs/heads/main' && steps.chromium_kept.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/apt/chromium
+          key: apt-${{ github.job }}-chromium-playwright-1.56.1-${{ steps.chromium_deps.outputs.image }}
+      - run: npx playwright install chromium
       - run: cargo build -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --target wasm32-unknown-unknown --profile wasm --locked
       - run: wasm-bindgen --target web --out-dir crates/scaena-wasm/www/pkg target/wasm32-unknown-unknown/wasm/scaena_wasm.wasm
       - run: wasm-bindgen --target web --out-dir crates/scaena-subset/pkg target/wasm32-unknown-unknown/wasm/scaena_subset.wasm
