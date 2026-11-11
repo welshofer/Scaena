@@ -4446,6 +4446,15 @@ mod tests {
         assert_eq!(carried(&was, &next, joining(Some("fr-FR"))), carried(&was, &next, &FRENCH));
         assert_eq!(carried(&was, &next, joining(Some("français"))), carried(&was, &next, &FRENCH));
         assert!(carried(&was, &next, joining(None)).contains("\u{201c}ainsi\u{201d}"), "English's list keeps it");
+        // W1's dogfood 10, a French deck: its turn asks offered "sans", "pour", "plus", and
+        // "chaque" as the words to carry across.
+        let (was, next) =
+            (slide("Chaque pêcheur gagne plus sans payer pour le quai"), slide("Le calendrier des travaux"));
+        assert_eq!(
+            carried(&was, &next, joining(Some("French"))),
+            ", such as \u{201c}pêcheur\u{201d}, \u{201c}gagne\u{201d} or \u{201c}payer\u{201d}"
+        );
+        assert!(carried(&was, &next, joining(None)).contains("\u{201c}chaque\u{201d}"), "English's list keeps it");
 
         // On the board deck told in French, slide 9 turns from slide 8, which says little but its
         // joining words beside two that tell.
