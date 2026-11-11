@@ -541,15 +541,16 @@ impl Session {
                 Called::of(scaena_ops::read::spine(&b))
             }
             // The deck's story, as `scaena health` reads it (PLAN G.9): where this library
-            // carries generation. The browser's page reads it by the generator's module. Read
-            // beside what lint finds, as the CLI and the MCP server read it, so a slide lint
-            // finds broken comes first (lift-up 10-24b STAB-1).
-            #[cfg(feature = "generate")]
+            // carries it, as the C ABI does. The browser's page reads it by the generator's
+            // module, so the editor's leaves it out (SPEC §15). Read beside what lint finds, as
+            // the CLI and the MCP server read it, so a slide lint finds broken comes first
+            // (lift-up 10-24b STAB-1).
+            #[cfg(feature = "health")]
             "deck_health" => {
                 let _: DeckHealth = args(name, a)?;
                 Called::of(scaena_ops::health::health_in(self.deck(), &scaena_ops::lint::lint(&b)?.findings)?)
             }
-            #[cfg(not(feature = "generate"))]
+            #[cfg(not(feature = "health"))]
             "deck_health" => {
                 let _: DeckHealth = args(name, a)?;
                 Err(ops("deck_health: the page reads the deck's story, by the generator's module"))
@@ -854,7 +855,7 @@ mod tests {
     /// The story read beside lint (lift-up 10-24b STAB-1): a headline too long for its slot, an
     /// E100, puts its slide first in `deck_health`, as `scaena health` does, and the session and
     /// a laying taken from it hold that E100 for the editors' Story panels to read beside the deck.
-    #[cfg(feature = "generate")]
+    #[cfg(feature = "health")]
     #[test]
     fn deck_health_puts_the_slide_lint_finds_broken_first() {
         let mut s = dusk();
@@ -1104,7 +1105,7 @@ mod tests {
 
     /// The assistant reads the deck's story as the Story tab does (narrative FUNC-2): a
     /// health with its score, each slide, and what to look at, over the spine's beats.
-    #[cfg(feature = "generate")]
+    #[cfg(feature = "health")]
     #[test]
     fn health_reads_the_decks_story() {
         let mut s = dusk();
