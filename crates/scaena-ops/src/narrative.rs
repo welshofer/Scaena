@@ -3166,36 +3166,32 @@ fn deck_lang(brief: &Brief) -> Option<&'static str> {
 }
 
 /// The words a made deck says itself, not the model, in its language (`lang`, BCP 47): a
-/// source's label, and how a chart is described to a reader. English where the language is none
-/// Narrato writes in.
+/// source's label (a chart is described to a reader by `scaena_core::reading::described`).
+/// English where the language is none Narrato writes in.
 struct Own {
     /// "Source: " and its kin, with the punctuation the language sets after it.
     source: &'static str,
-    bar: &'static str,
-    line: &'static str,
-    highest: &'static str,
-    lowest: &'static str,
 }
 
 fn own(lang: &str) -> Own {
-    let (source, bar, line, highest, lowest) = match lang {
-        "es" => ("Fuente: ", "Gráfico de barras", "Gráfico de líneas", "máximo", "mínimo"),
-        "fr" => ("Source\u{a0}: ", "Diagramme en barres", "Graphique linéaire", "maximum", "minimum"),
-        "de" => ("Quelle: ", "Balkendiagramm", "Liniendiagramm", "Höchstwert", "Tiefstwert"),
-        "pt" => ("Fonte: ", "Gráfico de barras", "Gráfico de linhas", "máximo", "mínimo"),
-        "it" => ("Fonte: ", "Grafico a barre", "Grafico a linee", "massimo", "minimo"),
-        "nl" => ("Bron: ", "Staafdiagram", "Lijndiagram", "hoogste", "laagste"),
-        "cs" => ("Zdroj: ", "Sloupcový graf", "Spojnicový graf", "maximum", "minimum"),
-        "pl" => ("Źródło: ", "Wykres słupkowy", "Wykres liniowy", "maksimum", "minimum"),
-        "uk" => ("Джерело: ", "Стовпчикова діаграма", "Лінійний графік", "максимум", "мінімум"),
-        "ja" => ("出典：", "棒グラフ", "折れ線グラフ", "最高", "最低"),
-        "zh-Hans" => ("来源：", "柱状图", "折线图", "最高", "最低"),
-        "ko" => ("출처: ", "막대 그래프", "꺾은선 그래프", "최고", "최저"),
-        "ar" => ("المصدر: ", "مخطط شريطي", "مخطط خطي", "الأعلى", "الأدنى"),
-        "hi" => ("स्रोत: ", "बार चार्ट", "लाइन चार्ट", "उच्चतम", "न्यूनतम"),
-        _ => ("Source: ", "Bar chart", "Line chart", "highest", "lowest"),
+    let source = match lang {
+        "es" => "Fuente: ",
+        "fr" => "Source\u{a0}: ",
+        "de" => "Quelle: ",
+        "pt" => "Fonte: ",
+        "it" => "Fonte: ",
+        "nl" => "Bron: ",
+        "cs" => "Zdroj: ",
+        "pl" => "Źródło: ",
+        "uk" => "Джерело: ",
+        "ja" => "出典：",
+        "zh-Hans" => "来源：",
+        "ko" => "출처: ",
+        "ar" => "المصدر: ",
+        "hi" => "स्रोत: ",
+        _ => "Source: ",
     };
-    Own { source, bar, line, highest, lowest }
+    Own { source }
 }
 
 /// One of a slide's items: a bullet, and its label and detail where it reads "label: detail".
@@ -7255,7 +7251,9 @@ fn chart_node(
         _ => None,
     };
     let mut y = json!({ "field": "value", "type": "quantitative", "format": format!(",.{decimals}f") });
-    let alt = described(chart, kind, y_title.as_deref(), lang);
+    // No alt text: a reader hears it described from its data as it is when read, its kind, what
+    // it counts, and its values (`scaena_core::reading::described`, F6), so an edit of the data
+    // is heard as drawn.
     if let Some(t) = y_title {
         y["title"] = json!(t);
     }
@@ -7268,7 +7266,6 @@ fn chart_node(
         "data": format!("@{data}"),
         "x": { "field": "category", "type": if kind == "line" && years(chart) { "temporal" } else { "ordinal" } },
         "y": y,
-        "alt": alt,
         "semantic": "evidence",
         "at": at,
     });
@@ -7445,46 +7442,6 @@ fn word_at(text: &str, word: &str) -> Option<usize> {
         let after = text[at + word.len()..].chars().next();
         !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
     })
-}
-
-/// What a chart shows, said to a reader who does not see it (dogfood 2), in the deck's language:
-/// its kind and what it counts, or its series; then every value where there are a dozen or fewer,
-/// else each series' highest and lowest. Never its slide's headline, which a reader has just heard
-/// and which, as the figure's alt text, would hide the data.
-fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) -> String {
-    let words = own(lang);
-    let places = decimals(chart);
-    let value = |v: f64| at_places(v, places, chart.unit.as_deref(), lang);
-    let several = chart.series.len() > 1;
-    let names: Vec<&str> = chart.series.iter().filter_map(|s| s.name.as_deref()).collect();
-    let mut head = (if kind == "line" { words.line } else { words.bar }).to_string();
-    match (several, counts) {
-        (true, _) if !names.is_empty() => head = format!("{head}: {}", names.join(", ")),
-        (_, Some(counts)) => head = format!("{head}: {counts}"),
-        _ => {}
-    }
-    let few = chart.series.iter().map(|s| s.values.iter().flatten().count()).sum::<usize>() <= 12;
-    let series: Vec<String> = chart
-        .series
-        .iter()
-        .filter_map(|s| {
-            // A category the series has no value for goes unsaid.
-            let pairs: Vec<(&String, f64)> =
-                chart.categories.iter().zip(&s.values).filter_map(|(c, v)| Some((c, (*v)?))).collect();
-            let said = if few {
-                pairs.iter().map(|(c, v)| format!("{c} {}", value(*v))).collect::<Vec<_>>().join(", ")
-            } else {
-                let high = pairs.iter().max_by(|a, b| a.1.total_cmp(&b.1))?;
-                let low = pairs.iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
-                format!("{} {} {}, {} {} {}", words.highest, high.0, value(high.1), words.lowest, low.0, value(low.1))
-            };
-            Some(match s.name.as_deref() {
-                Some(name) if several => format!("{name}: {said}"),
-                _ => said,
-            })
-        })
-        .collect();
-    if series.is_empty() { head } else { format!("{head}. {}", series.join("; ")) }
 }
 
 /// The mark a line of years makes for the first year its headline, or else its takeaway, names
@@ -8485,8 +8442,6 @@ mod tests {
         assert_eq!(rows, json!([{ "category": "Q3 FY25", "value": 33.9 }, { "category": "Q1 FY26", "value": 40.1 }]));
         // Its latest figure is the last category's, and a reader hears no figure for the one missing.
         assert_eq!(latest(&chart, "en").as_deref(), Some("$40.1M"));
-        let said = described(&chart, "line", None, "en");
-        assert!(said.contains("Q3 FY25 $33.9M, Q1 FY26 $40.1M"), "{said}");
         let short = ChartData {
             series: vec![answer::Series { name: None, values: vec![Some(33.9), Some(35.0), None] }],
             ..chart
@@ -10950,44 +10905,34 @@ mod tests {
         // The running head, at the slide's foot, is read after what the slide says.
         assert_eq!(placed(&made.deck, 6, "kicker")["align"], json!({ "y": "end" }));
         assert_eq!(order.last().map(String::as_str), Some("kicker"), "{order:?}");
-        // A chart is described by its data: its kind and what it counts, then its values where
-        // they are few, else its highest and lowest; never by its slide's headline.
+        // A chart is described by its data as a reader reads it (F6): its kind and what it
+        // counts, then its values where they are few, else its highest and lowest; never by its
+        // slide's headline. It keeps no alt text of its own.
+        let heard = |chart: &Value| -> String {
+            let deck = scaena_core::Deck::from_json(&made.deck.to_string()).unwrap();
+            let props: scaena_core::document::Props = serde_json::from_value(chart.clone()).unwrap();
+            scaena_core::reading::described(&deck, &BTreeMap::new(), &props).unwrap()
+        };
         for n in [4, 5, 8, 16] {
             let chart = placed(&made.deck, n, "main");
-            let alt = chart["alt"].as_str().unwrap();
+            assert!(chart.get("alt").is_none(), "state {n}: {chart:#}");
+            let alt = heard(chart);
             let title = &climate().slides[n].slide_title;
             assert_ne!(alt, typeset_en(title), "state {n}");
             let kind = if chart["kind"] == "line" { "Line chart" } else { "Bar chart" };
             assert!(alt.starts_with(kind), "state {n}: {alt}");
         }
-        let energy = placed(&made.deck, 8, "main")["alt"].as_str().unwrap().to_string();
+        let energy = heard(placed(&made.deck, 8, "main"));
         let data = climate().slides[8].chart_data.clone().unwrap();
         assert!(
             data.categories.iter().all(|c| energy.contains(c.as_str())),
             "every value said where they are few: {energy}"
         );
-        let warming = placed(&made.deck, 4, "main")["alt"].as_str().unwrap().to_string();
+        let warming = heard(placed(&made.deck, 4, "main"));
         // What it counts is what its axis says: its subtitle (dogfood: charts).
         assert!(
             warming.starts_with("Line chart: Global temperature anomaly, \u{b0}C vs 1850\u{2013}1900. 1880 "),
             "{warming}"
-        );
-        // More than a dozen values: each series' highest and lowest.
-        let months = ChartData {
-            categories: (1..=13).map(|m| format!("M{m}")).collect(),
-            series: vec![
-                answer::Series { name: Some("North".into()), values: (1..=13).map(|v| Some(f64::from(v))).collect() },
-                answer::Series {
-                    name: Some("South".into()),
-                    values: (1..=13).map(|v| Some(f64::from(20 - v))).collect(),
-                },
-            ],
-            unit: None,
-            source_id: None,
-        };
-        assert_eq!(
-            described(&months, "bar", None, "en"),
-            "Bar chart: North, South. North: highest M13 13, lowest M1 1; South: highest M1 19, lowest M13 7"
         );
     }
 
@@ -11118,7 +11063,11 @@ mod tests {
         }
         let source = words(placed(&made.deck, 4, "source"));
         assert_eq!(source, "Fuente: NASA GISS");
-        assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
+        let deck = scaena_core::Deck::from_json(&made.deck.to_string()).unwrap();
+        let props: scaena_core::document::Props =
+            serde_json::from_value(placed(&made.deck, 4, "main").clone()).unwrap();
+        let heard = scaena_core::reading::described(&deck, &BTreeMap::new(), &props).unwrap();
+        assert!(heard.starts_with("Gráfico de líneas"), "{heard}");
         // A year's months and a 2×2's axes, in Spanish, never left empty.
         let mut talk2 = talk.clone();
         talk2.slides[9].key_bullets = vec!["One".into(), "Two".into()];
