@@ -128,6 +128,41 @@ private func carets(_ json: String) throws -> Carets {
     #expect(editor.session.laying() != nil, "compiled: the deck is taken to lint")
 }
 
+/// A quoted figure typed over (dogfood-5 item 13), told as the browser's editor tells it: one
+/// the words still say keeps its quote and is told nothing; one changed is told, by its slide,
+/// source, and column, until the burst of typing ends, with ⌘Z to bring it back.
+@MainActor
+@Test func aFigureTypedOverSaysWhatItQuotesNoMore() throws {
+    let editor = DeckEditor(session: try ScaenaSession(files: example("revenue")))
+    editor.shown = "revenue"
+    let quote: JSONValue = [
+        "data": "@q3", "row": ["quarter": "2026-Q3", "product": "Pro"], "column": "revenue", "format": "$.1f",
+    ]
+    let style: JSONValue = [
+        "op": "style_text", "node": "title", "state": "revenue", "from": 8, "to": 15, "look": ["quote": quote],
+    ]
+    try editor.typed([style])
+    #expect(editor.unquotedSaid == nil, "a look given unquotes nothing")
+
+    let typing = Typing(editor: editor)
+    typing.burst = .seconds(60)
+    #expect(typing.enter("title", in: "revenue", at: nil))
+    #expect(typing.carets?.text == "Revenue $19.4")
+    // The figure typed back with words around it: the words still say it.
+    #expect(typing.replace(NSRange(location: 8, length: 5), with: "about $19.4"))
+    #expect(editor.unquotedSaid == nil && typing.told?.hasPrefix("Editing") == true, "\(typing.told ?? "")")
+
+    // The figure changed: it quotes its data no more, and the status says so.
+    let said = "Slide 2: “$19.4” no longer quotes revenue in the data “Q3 Revenue” · ⌘Z brings it back"
+    #expect(typing.replace(NSRange(location: 14, length: 5), with: "$19.5"))
+    #expect(editor.unquotedSaid == said)
+    #expect(typing.told == said)
+    // The next key in the burst unquotes nothing more, and the status still says it.
+    #expect(typing.replace(NSRange(location: 19, length: 0), with: "!"))
+    #expect(editor.unquotedSaid == nil && typing.told == said)
+    #expect(typing.carets?.text == "Revenue about $19.5!")
+}
+
 #if os(macOS)  // the canvas's keys are AppKit's; the iPad's, `UITextInput`'s, are tested below
 /// Keys and an input method through the text input system (PLAN 3.9): each change a
 /// `replace_text` by the user, the burst of typing one step to undo, a composition typed in

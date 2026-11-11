@@ -866,12 +866,19 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
     Ok(StateChoices { state: state.into(), fields, said: None, furniture, plan, cites })
 }
 
-/// The first beat, in spine order, that tells `state`, by its section's index and its own.
+/// The first beat, in spine order, that tells `state`, by its section's index and its own: one that
+/// lists it, else one that lists any state of its slide, as a beat written by hand or by an agent
+/// may list a slide's first state alone while a finding names its last step (W2's editor dogfood).
 fn telling<'d>(deck: &'d Deck, state: &str) -> Option<(usize, usize, &'d crate::document::Beat)> {
-    let sections = deck.spine.iter().flat_map(|s| s.sections.iter().enumerate());
-    sections
-        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
-        .find(|(_, _, beat)| beat.states.iter().any(|id| id == state))
+    let beats = || {
+        (deck.spine.iter().flat_map(|s| s.sections.iter().enumerate()))
+            .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+    };
+    beats().find(|(_, _, beat)| beat.states.iter().any(|id| id == state)).or_else(|| {
+        let slide = deck.slides().into_iter().find(|k| k.iter().any(|&k| deck.states[k].id == state))?;
+        let ids: Vec<&str> = slide.iter().map(|&k| deck.states[k].id.as_str()).collect();
+        beats().find(|(_, _, beat)| beat.states.iter().any(|id| ids.contains(&id.as_str())))
+    })
 }
 
 /// What the first beat that tells `state` cites (W1's dogfood 5).

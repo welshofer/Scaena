@@ -80,6 +80,35 @@ import Testing
     #expect(health.triaged(open: 0).open.map(\.slide) == [5], "every error stands open")
 }
 
+/// What holds the score down is said beside it, as the browser's Story says it (W1's dogfood 5):
+/// the slides lint finds an error on, each with the state that shows it, the cap they set, and the
+/// score without it; nothing where nothing caps it.
+@Test func aCappedScoreSaysWhichSlidesHoldItDown() throws {
+    let measure = #"{"score": 90, "says": ""}"#
+    let read = { (n: Int) in
+        #"{"state": "s\#(n)", "part": null, "title": "", "curve": 0.5, "declared": null, "read": null, "tone": null, "toneRead": null, "standing": "ok"}"#
+    }
+    let health = { (capped: String) throws -> Health in
+        let json = """
+            {"score": 81, "arc": null, "pacing": \(measure), "balance": \(measure), "coherence": \(measure),
+             "fidelity": \(measure), "intensity": \(measure), "tone": \(measure),
+             "slides": [\((1...4).map(read).joined(separator: ","))], "findings": []\(capped)}
+            """
+        return try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+    }
+    let one = try health(#", "capped": {"slides": [2], "cap": 81, "score": 94}"#)
+    #expect(one.capped?.slides == [2] && one.capped?.cap == 81 && one.capped?.score == 94)
+    #expect(one.cappedSaid == "Capped at 81 while slide 2 has an error; 94 without.")
+    #expect(one.cappedParts.compactMap { $0.state } == ["s2"], "the slide a button that shows it")
+    let two = try health(#", "capped": {"slides": [1, 3], "cap": 62, "score": 90}"#)
+    #expect(two.cappedSaid == "Capped at 62 while slide 1 and slide 3 have an error; 90 without.")
+    let three = try health(#", "capped": {"slides": [1, 3, 9], "cap": 42, "score": 88}"#)
+    #expect(three.cappedSaid == "Capped at 42 while slide 1, slide 3 and slide 9 have an error; 88 without.")
+    #expect(three.cappedParts.compactMap { $0.state } == ["s1", "s3"], "a slide health does not read is said, no button")
+    let none = try health("")
+    #expect(none.capped == nil && none.cappedSaid == nil && none.cappedParts.isEmpty)
+}
+
 /// The Story is read again once every state is linted, where that lint finds otherwise than the
 /// findings the story shown was read beside (lift-up 20261110 deferred, as the browser's Story):
 /// a read before it keeps the state shown's findings, and the fixes and Show they offer; a lint
