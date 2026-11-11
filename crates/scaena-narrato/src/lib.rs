@@ -87,6 +87,39 @@ pub fn same_figures(was: &str, now: &str) -> bool {
     sorted(was) == sorted(now)
 }
 
+/// Why `now` does not write the figures `was` does, in a person's words (W1 dogfood 9): "it
+/// writes 3.4 where the slide wrote 3,400", "it drops 2,475, which the slide wrote", "it adds
+/// 40, which the slide did not write". Each figure as `was` or `now` writes it.
+pub fn unlike_figures(was: &str, now: &str) -> String {
+    let written = |text: &str| -> Vec<(String, f64)> {
+        text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+            .map(|w| w.trim_matches(['.', ',']))
+            .filter_map(|w| w.replace(',', "").parse().ok().map(|n| (w.to_string(), n)))
+            .collect()
+    };
+    let (mut lost, mut gained) = (written(was), written(now));
+    lost.retain(|(_, n)| match gained.iter().position(|(_, m)| m == n) {
+        Some(at) => {
+            gained.remove(at);
+            false
+        }
+        None => true,
+    });
+    let said = |figures: &[(String, f64)]| -> String {
+        let words: Vec<&str> = figures.iter().map(|(w, _)| w.as_str()).collect();
+        match words.as_slice() {
+            [rest @ .., last] if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            _ => words.concat(),
+        }
+    };
+    match (lost.is_empty(), gained.is_empty()) {
+        (false, false) => format!("it writes {} where the slide wrote {}", said(&gained), said(&lost)),
+        (false, true) => format!("it drops {}, which the slide wrote", said(&lost)),
+        (true, false) => format!("it adds {}, which the slide did not write", said(&gained)),
+        (true, true) => "it writes the slide's figures otherwise".to_string(),
+    }
+}
+
 /// Whether `status` answers for now, not for good: no answer (0), a timeout, a rate limit, or a
 /// server's failure, Anthropic's 529 and Cloudflare's edge among them.
 pub fn busy(status: u16) -> bool {

@@ -42,7 +42,6 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Found": {
-        "description": "An icon found: its name, its tags and categories, and the icon to insert in the weight asked,\nleft out where only names were asked for ([`Icons::names_only`]).",
         "type": "object",
         "properties": {
           "name": { "type": "string" },
@@ -53,18 +52,11 @@
         "required": ["name", "tags", "categories"]
       },
       "Icon": {
-        "description": "An icon to insert (PLAN 2.104): its name, its path data, and the view it is drawn on.",
         "type": "object",
         "properties": {
-          "name": { "description": "Its name in its set, in kebab case: `airplane-tilt`.", "type": "string" },
-          "path": { "description": "SVG path data.", "type": "string" },
-          "view": {
-            "description": "The box of the path's own coordinates it is drawn on, [x, y, w, h].",
-            "type": "array",
-            "items": { "type": "number" },
-            "minItems": 4,
-            "maxItems": 4
-          }
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "view": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
         },
         "required": ["name", "path", "view"]
       }

@@ -2175,14 +2175,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         let closes = (!run.is_empty()).then_some(run).or_else(|| last.map(|l| vec![l]));
         let lands = |of: &[usize]| -> Option<bool> {
-            let idea = telling_words(idea);
-            if idea.is_empty() {
+            let telling = telling_words(idea);
+            if telling.is_empty() {
                 return None;
             }
-            let said: Vec<String> = of.iter().map(|&i| format!("{} {}", read[i].title, read[i].body)).collect();
-            let said = content_words(&said.join(" "));
-            let told = idea.intersection(&said).count();
-            Some(told * LANDED.1 >= idea.len() * LANDED.0 || told >= LANDED_WORDS)
+            let texts: Vec<&str> = of.iter().flat_map(|&i| [read[i].title.as_str(), read[i].body.as_str()]).collect();
+            let said = content_words(&texts.join(" "));
+            // A close that says the idea's own words in its order quotes it, and the words any talk
+            // uses count where they are quoted ("where people already are"), never in passing.
+            let quoted = quoted_words(idea, &texts);
+            let told = telling.intersection(&said).count() + quoted.difference(&telling).count();
+            Some(told * LANDED.1 >= telling.len() * LANDED.0 || told >= LANDED_WORDS)
         };
         // The telling words are English's, as the lexicons are: a close in another language is
         // not read for the big idea, and says so, rather than passing or failing on words split
@@ -2640,14 +2643,24 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             says: "Dismiss it".into(),
             patch: vec![json!({ "op": "test", "path": path, "value": r }), json!({ "op": "remove", "path": path })],
         };
-        find(
-            &deck.states[slide.states[0]].id,
-            Severity::Info,
-            Kind::Look,
-            format!("Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"),
-            format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
-            Some(fix),
-        );
+        // One let go as it was read, for its figures or its claim, lint never judged (W1 dogfood 9).
+        let (says, ask) = match r.get("by").and_then(Value::as_str) {
+            None => (
+                format!(
+                    "Slide {k} was kept as made: the model asked for {what}, and lint found it worse for that. {why}"
+                ),
+                format!(
+                    "The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"
+                ),
+            ),
+            Some(_) => (
+                format!("Slide {k} was kept as made: the model asked for {what}, and {why}."),
+                format!(
+                    "The model asked slide {k} for {what}, which was let go: {why}. Tighten it so it still says that."
+                ),
+            ),
+        };
+        find(&deck.states[slide.states[0]].id, Severity::Info, Kind::Look, says, ask, Some(fix));
     }
     // A bend whose slide's warning asks the same edit is that warning's (W2's editor dogfood 6).
     // A run of bends names several slides' plans, and stays.
@@ -3130,6 +3143,36 @@ fn slide_list(at: &[usize]) -> String {
     }
 }
 
+/// The words of a run of [`QUOTED_RUN`] or more of `idea`'s words, in its order, that one of
+/// `texts` says, those of more than three letters: the idea quoted, where a word any talk uses
+/// says it as the telling ones do (the library keynote's "Put 4% of the budget where people
+/// already are", for a big idea that ends "when it goes where people already are").
+fn quoted_words(idea: &str, texts: &[&str]) -> std::collections::BTreeSet<String> {
+    let words = |text: &str| -> Vec<String> {
+        (text.to_lowercase().split(|c: char| !c.is_alphanumeric()))
+            .filter(|w| !w.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let idea = words(idea);
+    let mut quoted = std::collections::BTreeSet::new();
+    for said in texts.iter().map(|t| words(t)) {
+        for start in 0..said.len() {
+            for from in 0..idea.len() {
+                let run = said[start..].iter().zip(&idea[from..]).take_while(|(a, b)| a == b).count();
+                if run >= QUOTED_RUN {
+                    said[start..start + run].iter().for_each(|w| quoted.extend(content_words(w)));
+                }
+            }
+        }
+    }
+    quoted
+}
+
+/// The words of a big idea a close must say in a row, in the idea's order, to quote it: four, so
+/// that a phrase any sentence makes ("one of the") quotes nothing.
+const QUOTED_RUN: usize = 4;
+
 /// The share of the big idea's telling words a close must say to land it, as a fraction: half,
 /// or [`LANDED_WORDS`] of a long one's (W1's dogfood 3). Two of a long idea's words a close says
 /// in passing ("people", "already") are not it said.
@@ -3489,6 +3532,18 @@ mod tests {
         assert_eq!(found.iter().map(|f| f.slide).collect::<Vec<_>>(), [2, 3]);
         let fix = |f: &Finding| f.fix.clone().expect("a fix").patch;
         assert_eq!(found[0].fix.as_ref().unwrap().says, "Dismiss it");
+        // One let go for its figures as the look was read is no slide lint found worse (W1
+        // dogfood 9).
+        let mut figured = deck.clone();
+        figured.pointer_mut("/meta/narrative").unwrap()["refused"] = json!([{
+            "slide": 2, "what": "the title \u{201c}Sunday visits\u{201d}",
+            "why": "it drops 2,475, which the slide wrote", "by": "figures"
+        }]);
+        let said = &looks(&figured)[0].says;
+        assert_eq!(
+            said,
+            "Slide 2 was kept as made: the model asked for the title \u{201c}Sunday visits\u{201d}, and it drops 2,475, which the slide wrote."
+        );
         assert_eq!(
             fix(&found[1]),
             [
@@ -4399,6 +4454,24 @@ mod tests {
             singular(written("Twelve laundromats, the business, its bus")),
             written("twelve laundromat business its bus")
         );
+    }
+
+    /// A close that says the big idea's own words in its order lands it, the words any talk uses
+    /// among them (the library keynote's "Put 4% of the budget where people already are", under a
+    /// big idea that ends "when it goes where people already are"); the same words said in passing
+    /// land nothing (W1's dogfood 3), nor do the keynote's "twelve people".
+    #[test]
+    fn a_close_that_quotes_the_big_idea_lands_it() {
+        let idea = "The library reaches every reader when it goes where people already are";
+        let closed = |title: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = title.into()
+        };
+        let landed = |h: &Health| !h.findings.iter().any(|f| f.kind == Kind::BigIdea);
+        assert!(!landed(&of(&dogfood("keynote", idea, |_| {}))), "the keynote's close says only \"people\"");
+        assert!(landed(&of(&dogfood("keynote", idea, closed("Go where people already are")))));
+        assert!(!landed(&of(&dogfood("keynote", idea, closed("People already know us")))), "said in passing");
+        assert!(quoted_words(idea, &["Build where people already are"]).contains("already"));
+        assert!(quoted_words(idea, &["where people already"]).is_empty(), "three words in a row quote nothing");
     }
 
     /// A tone ask names the words the tone was read from (W1's dogfood 3): the keynote's eighth

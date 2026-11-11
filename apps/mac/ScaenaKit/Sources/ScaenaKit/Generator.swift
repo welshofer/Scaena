@@ -186,9 +186,18 @@ public enum GeneratingStep: Equatable, Sendable {
     case unnoted(String)
     /// A change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     case refused(slide: Int, what: String, why: String)
+    /// A chart that names a sheet the deck keeps and is not drawn from it, and why (W1 dogfood 9).
+    case unbound(slide: Int, source: String, why: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
+
+    /// `why` as a sentence of its own, its first letter a capital and a full stop at its end, as
+    /// the browser's dialog says a change let go (W1 dogfood 9).
+    static func sentence(_ why: String) -> String {
+        let out = why.prefix(1).uppercased() + why.dropFirst()
+        return out.isEmpty || [".", "!", "?"].contains(where: out.hasSuffix) ? out : out + "."
+    }
 
     /// How long a step has run, as the line it is on says it: "12 s", "1 min 20 s", "2 h 5 min"
     /// (lift-up 20261110 ATTR-1).
@@ -242,7 +251,9 @@ public enum GeneratingStep: Equatable, Sendable {
         case .noting(let slides): "Writing the \(slides) slides' notes for the talk…"
         case .noted(let slides): "\(slides) \(slides == 1 ? "slide's" : "slides'") notes written for the talk"
         case .unnoted(let why): "Notes not written for the talk: \(why)"
-        case .refused(let slide, let what, let why): "Slide \(slide) kept as made: the model asked for \(what). \(why)"
+        case .refused(let slide, let what, let why):
+            "Slide \(slide) kept as made: the model asked for \(what). \(Self.sentence(why))"
+        case .unbound(let slide, let source, let why): "Slide \(slide)'s chart keeps its own rows, not \(source)'s: \(why)"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
         case .unfitted(let why): "Not rewritten to fit: \(why)"
@@ -280,6 +291,16 @@ public struct Generated: Decodable, Sendable {
 
     /// Each change the model asked that lint found its slide worse for, let go (lift-up USE-4).
     public let refused: [Refused]?
+
+    /// Each chart that names a sheet and is not drawn from it, and why (W1 dogfood 9).
+    public let unbound: [Unbound]?
+
+    /// A chart left drawing its own rows: its slide's number, the source it names, and why.
+    public struct Unbound: Decodable, Sendable, Equatable {
+        public let slide: Int
+        public let source: String
+        public let why: String
+    }
 
     /// A change let go: its slide's number, what the model asked, and what lint found.
     public struct Refused: Decodable, Sendable, Equatable {
@@ -1412,6 +1433,9 @@ public final class Generator {
             fit = fitting.fit
         }
         let generated: Generated = try step("report")
+        // Each chart left drawing its own rows, said as the CLI and the browser say it (W1
+        // dogfood 9), so a data edit that leaves it as it was surprises no one.
+        for u in generated.unbound ?? [] { hear(.unbound(slide: u.slide, source: u.source, why: u.why)) }
         var error: UnsafeMutablePointer<CChar>?
         guard let session = scaena_generator_open(handle, &error) else { throw ScaenaError.taking(error) }
         return (ScaenaSession(handle: session), generated)

@@ -24,34 +24,20 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
@@ -71,50 +57,17 @@
     ],
     "type": "object",
     "properties": {
-      "theme": { "description": "The theme's path in the bundle.", "type": "string" },
-      "was": {
-        "description": "The theme the deck named before: a path, `(inline)`, or none.",
-        "type": ["string", "null"]
-      },
-      "applied": {
-        "description": "Whether the deck now names the theme: not under a dry run, nor when it was refused.",
-        "type": "boolean"
-      },
-      "mapped": {
-        "description": "Families set in the bundle's font of that family, the theme's own file not being in\nthe bundle: `family `key`: theirs → ours`.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "listed": {
-        "description": "The theme's families the deck's `fonts` now lists, as rendering needs them to be:\n`family `key`: file`. Each is a file the bundle holds that the deck did not list.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "added": {
-        "description": "What `validate` and `lint` find with the new theme that they did not before.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "removed": {
-        "description": "What they found before that they do not with it.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "errors": { "description": "The findings that are errors, with the new theme.", "type": "integer", "minimum": 0 },
-      "refused": {
-        "description": "Whether the theme was refused: it would have added a validation error (in `added`),\nand the swap was not forced. The deck keeps its theme.",
-        "type": "boolean"
-      },
-      "recolored": {
-        "description": "The contrast errors the theme brought that a color of its own fixes, each fixed, one for\neach text recolored (PLAN 2.82): a text that read in the deck's theme reads in this one,\nset in its color that reads where the text stands. What lint finds after is in `added`.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "refitted": {
-        "description": "The overflows and overlaps the theme brought (E100, E101) that lint's checked fix puts\nright, each fixed, one for each node: a text that fitted in the deck's theme and runs past\nits box in this one shrinks to fit it, as `lint --fix` would. What lint finds after, an\noverlap no fix reaches among it, is in `added`.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      }
+      "theme": { "type": "string" },
+      "was": { "type": ["string", "null"] },
+      "applied": { "type": "boolean" },
+      "mapped": { "type": "array", "items": { "type": "string" } },
+      "listed": { "type": "array", "items": { "type": "string" } },
+      "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "errors": { "type": "integer", "minimum": 0 },
+      "refused": { "type": "boolean" },
+      "recolored": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "refitted": { "type": "array", "items": { "$ref": "#/$defs/Finding" } }
     }
   }
 }

@@ -478,6 +478,10 @@ enum Cmd {
         /// Whole words only.
         #[arg(long)]
         words: bool,
+        /// Only these kinds of words, by commas: text, alt, notes, claim, chart, data; every
+        /// kind without it (`--kinds text` replaces a slide's words and leaves its claims).
+        #[arg(long, value_delimiter = ',', value_name = "KIND")]
+        kinds: Vec<String>,
         /// Replace every match with this, as `patch` applies a patch.
         #[arg(long, value_name = "TEXT")]
         replace: Option<String>,
@@ -912,8 +916,11 @@ fn run(cli: Cli) -> Result<ExitCode> {
             };
             history(&bundle, &ask, cli.json)
         }
-        Cmd::Find { bundle, text, case, words, replace, dry_run } => {
-            let query = scaena_core::patch::Query { find: text, case, words };
+        Cmd::Find { bundle, text, case, words, kinds, replace, dry_run } => {
+            let kinds = (kinds.iter())
+                .map(|k| serde_json::from_value(serde_json::json!(k)).map_err(|_| anyhow::anyhow!("`--kinds`: `{k}` is no kind of words; the kinds are text, alt, notes, claim, chart, and data")))
+                .collect::<Result<Vec<_>, _>>()?;
+            let query = scaena_core::patch::Query { find: text, case, words, kinds };
             find(&bundle, &query, replace.as_deref(), dry_run, cli.json)
         }
         Cmd::Theme { bundle, apply, edit, from_photo, dry_run, force, sheet, out } => {
