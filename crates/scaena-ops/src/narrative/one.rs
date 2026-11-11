@@ -40,6 +40,9 @@ pub struct Written {
     /// Its `layoutSuggestion`, where it could not be taken as asked, and why (agent dogfood).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<super::Fell>,
+    /// Its chart, where it names a data source and was not drawn from it, and why.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unbound: Vec<super::Unbound>,
 }
 
 /// `slide` built for the deck `doc`, in `theme`, as the deck's generator builds a slide: its
@@ -221,7 +224,41 @@ pub fn slide_into(
         sources: sources_of(doc),
         outline: None,
     };
-    let (made, built) = assemble(&narrative, theme, &pictures, &BTreeMap::new(), seed, index, total)?;
+    let (made, mut built) = assemble(&narrative, theme, &pictures, &BTreeMap::new(), seed, index, total)?;
+    // Its chart drawn from the deck's data source its slide names, where it holds the slide's
+    // categories and figures; else on its own rows, saying why (agent dogfood).
+    let mut unbound = Vec::new();
+    let mut retyped: Option<(String, String)> = None;
+    let chart = narrative.slides[0].chart_data.as_ref();
+    let named = chart.and_then(|c| c.source_id.as_deref()).map(str::trim).filter(|n| !n.is_empty());
+    if let (Some(chart), Some(named)) = (chart, named) {
+        let new_chart = (built.nodes.iter())
+            .find(|(id, n)| !nodes_before.contains_key(*id) && n["type"] == "chart")
+            .map(|(id, _)| id.clone());
+        let sourced = super::binding::source_named(&deck, named);
+        match (new_chart, sourced) {
+            (Some(node_id), Some(id)) => {
+                let mut node = built.nodes[&node_id].clone();
+                let own = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string);
+                match super::binding::bind(&mut node, chart, &deck, files, &id) {
+                    Ok(dated) => {
+                        retyped = dated.map(|column| (id.clone(), column));
+                        built.nodes.insert(node_id, node);
+                        if let Some(own) = own.filter(|own| *own != id) {
+                            built.data.remove(&own);
+                        }
+                    }
+                    Err(why) => unbound.push(super::Unbound { slide: index + 1, source: named.to_string(), why }),
+                }
+            }
+            (Some(_), None) if !deck.data.is_empty() => {
+                let ids: Vec<&str> = deck.data.keys().map(String::as_str).collect();
+                let why = format!("no data source of the deck is called that; it holds {}", ids.join(", "));
+                unbound.push(super::Unbound { slide: index + 1, source: named.to_string(), why });
+            }
+            _ => {}
+        }
+    }
     let layout = made.layouts.first().cloned().unwrap_or_default();
     // Said by the slide's number in the deck.
     let fell: Vec<super::Fell> = made.fell.iter().map(|f| super::Fell { slide: index + 1, ..f.clone() }).collect();
@@ -282,6 +319,12 @@ pub fn slide_into(
     }
     for (id, data) in new_data {
         patch.push(json!({ "op": "add", "path": format!("/data/{}", esc(id)), "value": data }));
+    }
+    // A source whose years the bound line runs on is typed so, as the chart's own rows were (G.18).
+    if let Some((id, column)) = &retyped {
+        let mut schema = doc["data"][id.as_str()].get("schema").cloned().unwrap_or_else(|| json!({}));
+        schema[column.as_str()] = json!("date");
+        patch.push(json!({ "op": "add", "path": format!("/data/{}/schema", esc(id)), "value": schema }));
     }
 
     // Its states among the deck's, each of the deck's showing what it showed: the slide after it,
@@ -404,7 +447,7 @@ pub fn slide_into(
     if let Some(old) = replaced {
         patch.push(json!({ "op": "remove_slide", "slide": old }));
     }
-    Ok(Written { patch, states, layout, beat: beat_id, what, fell })
+    Ok(Written { patch, states, layout, beat: beat_id, what, fell, unbound })
 }
 
 /// Each run's link in `value` (a deck's nodes, its overrides, or its states) to one of `from`
@@ -501,6 +544,10 @@ pub struct SlideWritten {
     /// the deck, what it asked, the layout it took, and why (agent dogfood).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fell: Vec<super::Fell>,
+    /// Its chart, where it names a data source of the deck's and was not drawn from it: the
+    /// slide, the source it named, and why it kept its own rows (agent dogfood).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unbound: Vec<super::Unbound>,
 }
 
 /// [`slide_write`] with nothing written: the slide built by [`slide_into`] in the bundle's theme,
@@ -538,6 +585,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
             layout: written.layout,
             beat: written.beat,
             fell: written.fell.clone(),
+            unbound: written.unbound.clone(),
             fixed: Vec::new(),
             left,
         };
@@ -590,6 +638,7 @@ pub fn slide_polishing(b: &Bundle, written: Written) -> Result<(SlideWritten, Op
         fixed,
         left,
         fell: written.fell,
+        unbound: written.unbound,
     };
     Ok((out, write))
 }
