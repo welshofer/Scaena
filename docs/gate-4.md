@@ -42,6 +42,7 @@ On the iPad it prints `gate 4, criterion 2: …`, and where the time went. As on
   - the machine is a virtual Mac.
 
   It holds the test to five seconds, so that a gross regression shows. The job runs the gate's own command too (`apps/ipad/gate.sh`, below), so that the command keeps working, and prints the simulator's readings.
+- **Release, weekly.** The gate's run on an iPad is built in release, and CI's pull requests build in debug. So the weekly run, and a manual one, also run `apps/ipad/gate.sh --release`, gate 4's tests built in release on the simulator, and build the app in release. What release alone breaks, what `#if DEBUG` holds or the optimizer, then shows before the run on an iPad does. Its readings are still a virtual Mac's, not the gate's.
 - **The simulator's reading**, from the first run of `gate.sh` on CI: B1 open to first frame in 26 ms, painted by the CPU painter.
 
   | | open → first frame | files and session | timeline | surface | first frame | a second surface |

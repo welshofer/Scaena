@@ -337,6 +337,17 @@ jobs:
       # its readings here, in debug and painted by the CPU painter, are not the gate's.
       - if: ${{ !cancelled() }}
         run: apps/ipad/gate.sh
+      # The weekly and the manual run only, as their minutes allow: gate 4's tests built in release
+      # on the simulator, as the gate's run on an iPad builds them, and the app built in release,
+      # so that what release alone breaks (what `#if DEBUG` holds, the optimizer) shows before
+      # that run does (lift-up 20261110).
+      - if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        run: |
+          apps/ipad/gate.sh --release
+          cd apps/ipad
+          xcodebuild build -quiet -project Scaena.xcodeproj -scheme ScaenaApp -configuration Release \
+            -destination "platform=iOS Simulator,arch=arm64,id=$(./simulator.sh)" \
+            -derivedDataPath ../../target/ipad/release
       # The app as someone opens it (PLAN 4.2), whether or not ScaenaKit's tests passed.
       - if: ${{ !cancelled() }}
         run: apps/ipad/app-test.sh

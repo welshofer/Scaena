@@ -7,16 +7,24 @@
 # them, built in debug, as CI's `ipad` job does to keep the command working: the simulator paints
 # with the CPU painter (PLAN 4.1), and its readings are not the gate's. Needs Xcode and XcodeGen; an
 # iPad needs a team that signs for it in `apps/ipad/Team.xcconfig` (`DEVELOPMENT_TEAM = <your
-# team's ID>`), Developer Mode on, and to be unlocked.
+# team's ID>`), Developer Mode on, and to be unlocked. `--release` builds them in release on the
+# simulator, as the gate's run on an iPad is built, so that what release alone breaks shows before
+# it: CI's weekly run does (lift-up 20261110).
 #
 #   apps/ipad/gate.sh [UDID]     (an iPad's, as `xcrun xctrace list devices` lists it)
+#   apps/ipad/gate.sh --release  (the simulator, in release)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 # What the engine's build phase said, where Xcode's log keeps none of it (apps/ipad/engine.sh).
 engine_log() { [ -f "$root/target/ipad/engine.log" ] && { echo "--- target/ipad/engine.log:" >&2; tail -n 60 "$root/target/ipad/engine.log" >&2; }; return 0; }
 # Words, not arrays: macOS's bash 3.2 calls an empty array unbound under `set -u`.
-if [ -n "${1:-}" ]; then
+if [ "${1:-}" = --release ]; then
+  "$here/engine.sh" sim release
+  destination="platform=iOS Simulator,arch=arm64,id=$("$here/simulator.sh")"
+  configuration=Release
+  signing=
+elif [ -n "${1:-}" ]; then
   "$here/engine.sh" device release
   destination="platform=iOS,id=$1"
   configuration=Release
