@@ -7460,6 +7460,11 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     if let Some((t, i)) = title.and_then(|t| headlined(&chart.categories, t).map(|i| (t, i))) {
         return lit(t, i);
     }
+    // Two the headline compares, the first its subject ("Une station au nord fait cinq fois moins
+    // de trajets qu'au centre" lights Nord, R1's French dogfood 4).
+    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories))) {
+        return Some(i);
+    }
     if let [one] = named.as_slice() {
         return lit(takeaway.unwrap_or_default(), *one);
     }
@@ -7516,6 +7521,55 @@ fn headlined(categories: &[String], headline: &str) -> Option<usize> {
         (Some(i), None) => Some(i),
         _ => None,
     }
+}
+
+/// The first of two of `categories` that `headline` compares, by its index: the subject of
+/// "X … than Y", "X … que Y", "X … als Y", or "X vs Y", where the word that compares stands between
+/// the two (R1's French dogfood 4). A "que" or an "als" compares only after a word that does
+/// ("cinq fois moins … qu'au centre", "mehr Fahrten als", "dreimal so viele … wie"), since each
+/// also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
+/// own (`ordered`, years or quarters), it names no subject, and "2024 vs 2025" is left to the
+/// rules that light the latest. None where the headline names other than two, or compares neither.
+fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) -> Option<usize> {
+    let words: Vec<String> =
+        (headline.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    // Where in the headline a category is first named, as `headlined` names one.
+    let at = |category: &str| -> Option<usize> {
+        let name: Vec<String> =
+            (category.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+        match name.as_slice() {
+            [] => None,
+            [one] if one.chars().count() >= 3 && one.chars().all(char::is_alphabetic) => {
+                words.iter().position(|w| w.starts_with(one.as_str()))
+            }
+            _ => words.windows(name.len()).position(|run| run == name.as_slice()),
+        }
+    };
+    let named: Vec<(usize, usize)> = (0..categories.len()).filter_map(|i| Some((at(&categories[i])?, i))).collect();
+    let [(a, first), (b, second)] = named.as_slice() else { return None };
+    let ((from, subject), to) = if a < b { ((*a, *first), *b) } else { ((*b, *second), *a) };
+    let between = &words[from + 1..to];
+    let plain = |w: &str| !ordered && matches!(w, "vs" | "versus");
+    let (joins, after): (&[&str], &[&str]) = match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
+        Some("fr") => (&["que", "qu"], &["plus", "moins", "fois", "autant", "mieux", "pire", "davantage"]),
+        Some("es") => (&["que"], &["m\u{e1}s", "menos", "veces", "mejor", "peor", "mayor", "menor"]),
+        Some("de") => (&["als", "wie"], &["mehr", "weniger", "mal", "doppelt", "halb", "so", "besser", "schlechter"]),
+        _ => (&["than"], &[]),
+    };
+    let compares = between.iter().enumerate().any(|(i, w)| {
+        plain(w)
+            || (joins.contains(&w.as_str())
+                && (after.is_empty() || between[..i].iter().any(|v| comparing(v, after, lang))))
+    });
+    compares.then_some(subject)
+}
+
+/// Whether `word` compares, in `lang`, as one of `after` does: as written, or in German a
+/// multiple ("dreimal") or a comparative ("länger", "höher") before "als".
+fn comparing(word: &str, after: &[&str], lang: &str) -> bool {
+    after.contains(&word)
+        || (lang.split('-').next().is_some_and(|l| l.eq_ignore_ascii_case("de"))
+            && (word.ends_with("mal") || (word.ends_with("er") && word.chars().count() > 4)))
 }
 
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
@@ -8458,6 +8512,52 @@ mod tests {
         let (layout, _) =
             made(&["64% have no car", "71% ride to work or school", "Most named stop: Eastgate Medical Center"]);
         assert_eq!(layout, "bullets");
+    }
+
+    /// A headline that compares two bars lights its subject, the first it names, never the larger
+    /// (R1's French dogfood 4: "Une station au nord fait cinq fois moins de trajets qu'au centre"
+    /// lit Centre). In English, French, German, and Spanish; two named with nothing comparing them
+    /// leave the bar to the figure rules, as before.
+    #[test]
+    fn a_headline_that_compares_two_bars_lights_its_subject() {
+        let stations = |names: [&str; 3]| ChartData {
+            categories: names.map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series { name: None, values: [1200., 6000., 2400.].map(Some).to_vec() }],
+            ..ChartData::default()
+        };
+        let fr = stations(["Nord", "Centre", "Sud"]);
+        let lit = |chart: &ChartData, title: &str, lang: &str| signal(chart, Some(title), None, lang);
+        assert_eq!(lit(&fr, "Une station au nord fait cinq fois moins de trajets qu\u{2019}au centre", "fr"), Some(0));
+        assert_eq!(lit(&fr, "Le centre fait plus de trajets que le sud", "fr"), Some(1));
+        let en = stations(["North", "Center", "South"]);
+        assert_eq!(lit(&en, "North makes five times fewer trips than Center", "en"), Some(0));
+        assert_eq!(lit(&en, "South vs Center: half the trips", "en-GB"), Some(2));
+        let de = stations(["Nord", "Zentrum", "S\u{fc}d"]);
+        assert_eq!(lit(&de, "Der Norden f\u{e4}hrt f\u{fc}nfmal weniger als das Zentrum", "de"), Some(0));
+        assert_eq!(lit(&de, "S\u{fc}d ist l\u{e4}nger unterwegs als Zentrum", "de-AT"), Some(2));
+        let es = stations(["Norte", "Centro", "Sur"]);
+        assert_eq!(lit(&es, "El norte hace cinco veces menos viajes que el centro", "es"), Some(0));
+        // A "que" or an "als" that joins clauses, with nothing comparing, compares nothing; nor do two
+        // named with no word between them that compares: the largest, as before.
+        assert_eq!(lit(&fr, "Le nord et le centre, que la ligne relie", "fr"), Some(1));
+        assert_eq!(lit(&de, "Als der Norden wuchs, wuchs auch das Zentrum", "de"), Some(1));
+        assert_eq!(lit(&en, "North and Center ran full", "en"), Some(1));
+        assert_eq!(compared(&fr.categories, "Nord, centre et sud", "fr", false), None, "three named");
+        // A bare "vs" between years or quarters names no subject: the latest is lit, as before. A word
+        // that compares does name one.
+        let revenue = ChartData {
+            categories: ["2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series { name: None, values: [3.1, 5.0, 7.0].map(Some).to_vec() }],
+            ..ChartData::default()
+        };
+        assert_eq!(lit(&revenue, "Revenue 2024 vs 2025: up 40%", "en"), Some(2));
+        assert_eq!(lit(&revenue, "2025 revenue higher than 2024", "en"), Some(2));
+        assert_eq!(lit(&revenue, "2024 revenue lower than 2025", "en"), Some(1));
+        let quarters = stations(["Q1", "Q2", "Q4"]);
+        // Quarters are ordered too: "vs" names neither, and the rules light the largest, Q2, as before.
+        assert!(ordered(&quarters.categories));
+        assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
+        assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
     }
 
     /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
