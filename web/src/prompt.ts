@@ -92,6 +92,10 @@ export function said(event: GeneratingEvent): string {
       return `Slide ${event.slide} kept as made: the model asked for ${event.what}. ${sentence(event.why)}`;
     case "unbound":
       return `Slide ${event.slide}'s chart keeps its own rows, not ${event.source}'s: ${event.why}`;
+    case "fell":
+      return `Slide ${event.slide} could not be set as \u201c${event.asked}\u201d asks: ${event.why}`;
+    case "unset":
+      return `Slide ${event.slide} shows its chart without \u201c${event.words}\u201d: its layout has no place for it`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
