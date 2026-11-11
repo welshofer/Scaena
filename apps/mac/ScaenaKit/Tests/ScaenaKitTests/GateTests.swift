@@ -26,6 +26,42 @@ import Testing
             + " display lists")
 }
 
+/// Same pixels, the first criterion of gates 3 and 4, by the CPU painter: each state of the torture
+/// deck at rest, painted by the CPU painter the engine built for where the test runs carries, is
+/// held to its golden raster (`tests/golden/torture/<state>.png`) by SPEC §13.5's metric, the one
+/// the web player's painters are held to the same goldens by (`scaena_paint::diff`, `just
+/// web-smoke`). The goldens were painted on x86 and Linux; the iPad's CPU painter runs on its own
+/// SIMD path, which may round otherwise, so the metric, not the bytes, is the bar, and how far each
+/// state is off is printed for the gate. On an iPad this is the CPU half of the criterion; vello on
+/// its GPU is the other (below).
+@Test func theTortureDeckPaintsTheGoldensPixelsByTheCPUPainter() throws {
+    let session = try ScaenaSession(directory: tortureDeck)
+    var (checked, passed, exact) = (0, 0, 0)
+    var worst: (state: String, held: ScaenaSession.Held)?
+    for line in try String(contentsOf: goldenDigests, encoding: .utf8).split(separator: "\n") {
+        let words = line.split(separator: " ").map(String.init)
+        // A frame into a cue (`@`) or in another format (`~`) is the engine's own tests'.
+        guard words.count == 2, !words[0].contains("@"), !words[0].contains("~") else { continue }
+        let state = words[0]
+        let golden = try Data(contentsOf: goldenRasters.appending(path: "\(state).png"))
+        let held = try session.held(state, to: golden)
+        #expect(held.passes, "\(state): \(held.said)")
+        print("gate \(gate), criterion 1, the CPU painter's pixels, \(state): \(held.said)")
+        checked += 1
+        passed += held.passes ? 1 : 0
+        exact += held.differing == 0 ? 1 : 0
+        // The furthest off by ΔE, the metric's measure, and by the largest channel step among equals.
+        if worst.map({ (held.maxDeltaE, held.maxChannel) > ($0.held.maxDeltaE, $0.held.maxChannel) }) ?? true {
+            worst = (state, held)
+        }
+    }
+    #expect(checked > 40, "\(checked) states checked")
+    let worstSaid = worst.map { "; the furthest off, \($0.state): \($0.held.said)" } ?? ""
+    print(
+        "gate \(gate), criterion 1: \(passed) of the torture deck's \(checked) states at rest painted by the CPU"
+            + " painter within SPEC §13.5 of the goldens' pixels, \(exact) of them exactly\(worstSaid)")
+}
+
 /// What a surface paints on Metal is what the CPU painter paints (the first criterion of gates 3
 /// and 4): B1's cover, on a layer no window shows, read back, and how far it is off the CPU
 /// painter's printed for the gate. vello paints it on every GPU but the iPad simulator's, which
