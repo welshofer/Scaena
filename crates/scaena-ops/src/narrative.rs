@@ -3678,6 +3678,23 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
     {
         begin -= 1;
     }
+    // A currency set before its figure keeps the letters of its country ("R$", "US$", "C$") and
+    // stands with its figure spaced too, as Brazil's and Europe's accounts write it: "R$ 2,1 mi",
+    // "\u{20ac} 12" (W1's dogfood 11), never "2,1".
+    let sign = |c: char| matches!(c, '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}');
+    let before = |at: usize| at == 0 || !chars[at - 1].is_alphanumeric();
+    if begin == start && begin >= 2 && spacing(chars[begin - 1]) && sign(chars[begin - 2]) {
+        begin -= 2;
+    }
+    if begin < start && chars[begin] == '$' {
+        let mut letters = begin;
+        while letters > 0 && begin - letters < 3 && chars[letters - 1].is_ascii_uppercase() {
+            letters -= 1;
+        }
+        if letters < begin && before(letters) {
+            begin = letters;
+        }
+    }
     let end = paired(chars, end).unwrap_or(end);
     let at = |from: usize, n: usize| -> String { chars[from.min(chars.len())..].iter().take(n).collect() };
     // A magnitude a language without spaces writes after its figure, and its currency after
@@ -3834,7 +3851,7 @@ fn spacing(c: char) -> bool {
 /// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million", and
 /// Spanish's, Italian's, and Portuguese's ("1.234,5 millones", "3,4 milioni", "1,2 milh\u{f5}es",
 /// "2 mil millones"; R2's Valdemar). The longest that stands whole is read.
-const SPACED_MAGNITUDES: [&str; 35] = [
+const SPACED_MAGNITUDES: [&str; 38] = [
     "Tsd.",
     "Tsd",
     "Mio.",
@@ -3870,6 +3887,9 @@ const SPACED_MAGNITUDES: [&str; 35] = [
     "milh\u{f5}es",
     "mil milh\u{f5}es",
     "bilh\u{f5}es",
+    "mi",
+    "bi",
+    "tri",
 ];
 
 /// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
@@ -8362,6 +8382,48 @@ mod tests {
         assert_eq!(figure("Inversi\u{f3}n de 2,3 M\u{20ac} en 2026").as_deref(), Some("2,3 M\u{20ac}"));
         // A word that only begins as one is none: "500 millonarios" counts people.
         assert_eq!(figure("500 millonarios en la ciudad").as_deref(), Some("500"));
+        // A currency set before its figure, spaced or not, keeps its country's letters, and
+        // Portuguese's short magnitudes stay with the figure (W1's dogfood 11: "R$ 2,1 mi" was
+        // drawn "2,1").
+        assert_eq!(figure("R$ 2,1 mi").as_deref(), Some("R$ 2,1 mi"));
+        assert_eq!(figure("A receita chegou a R$\u{a0}2,1\u{a0}mi em junho").as_deref(), Some("R$\u{a0}2,1\u{a0}mi"));
+        assert_eq!(figure("R$2,1 bi").as_deref(), Some("R$2,1 bi"));
+        assert_eq!(figure("Raised US$ 3 million").as_deref(), Some("US$ 3 million"));
+        assert_eq!(figure("Costs C$40 a seat").as_deref(), Some("C$40"));
+        assert_eq!(figure("Biglietto da \u{20ac} 12").as_deref(), Some("\u{20ac} 12"));
+        assert_eq!(figure("R$ 400 mil por loja").as_deref(), Some("R$ 400 mil"));
+        assert_eq!(figures_in("de R$ 1,2 mi para R$ 2,1 mi"), ["R$ 1,2 mi".to_string(), "R$ 2,1 mi".to_string()]);
+        assert!(numeric("R$ 2,1 mi"));
+        // A sign that ends a word, or letters a word runs on into, stay the word's.
+        assert_eq!(figure("costs $5").as_deref(), Some("$5"));
+        assert_eq!(figure("about 2 minutes").as_deref(), Some("2"));
+        assert_eq!(figure("5 bits").as_deref(), Some("5"));
+    }
+
+    /// A Portuguese big number keeps its currency and its magnitude (W1's dogfood 11: the hero of
+    /// "R$ 2,1 mi" / "de receita em junho" was drawn "2,1").
+    #[test]
+    fn a_real_big_number_keeps_its_currency_and_magnitude() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({
+            "executiveSummary": "Um semestre.",
+            "slides": [
+                { "slideTitle": "O semestre", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "A receita de junho chegou a R$ 2,1 mi", "layoutSuggestion": "Big Number",
+                    "keyBullets": ["R$ 2,1 mi", "de receita em junho, o melhor m\u{ea}s da cooperativa"] },
+                { "slideTitle": "Obrigado", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.brief.language = Some("Portuguese".into());
+        let made = deck_as(&n, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+        let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        let hero: Vec<&str> = said.iter().filter(|(s, _)| s == "number").map(|(_, w)| w.as_str()).collect();
+        assert_eq!(hero.len(), 1, "{said:#?}");
+        assert_eq!(hero[0].replace(['\u{a0}', '\u{202f}'], " "), "R$ 2,1 mi", "{said:#?}");
     }
 
     #[test]
