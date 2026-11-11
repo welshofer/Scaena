@@ -222,8 +222,9 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert_eq!(kept.len() as u64, wanted, "{files:#}");
     assert!(kept.iter().all(|p| p.ends_with(".jpg")), "a JPEG stays a JPEG: {kept:?}");
     // Its story, as the Mac's Story panel reads it (PLAN G.9): the arc it was written to, each slide
-    // read, coherence by words unscored, and each finding said in words; no fix rewrites the plan,
-    // and a moved slide's fix made by the user, as the panel makes one, and its finding gone.
+    // read, coherence by words unscored, and each finding said in words; no fix declares what the
+    // words read, and a moved slide's fix made by the user, as the panel makes one, and its finding
+    // gone.
     // The sources it was grounded in, by name, as the Story panel offers a figure no source backs
     // to cite them (W1's dogfood 5).
     let grounded = call(session, "grounded");
@@ -245,8 +246,9 @@ fn a_deck_is_made_from_a_prompt_as_swift_makes_one_its_pictures_with_it() {
     assert_eq!(moved["edited"], true, "{moved}");
     let health = call(session, "health");
     let findings = health["findings"].as_array().unwrap();
-    let fixable = findings.iter().find(|f| f["fix"].is_object()).expect("a finding with a fix");
-    assert_eq!(fixable["kind"], "drift", "{health:#}");
+    // A bend's fix writes the plan its words carry (R1's agent dogfood 2), so the drift's is found by
+    // its kind.
+    let fixable = findings.iter().find(|f| f["kind"] == "drift" && f["fix"].is_object()).expect("the drift's fix");
     let applied = tool(session, "deck_patch", json!({ "ops": fixable["fix"]["patch"] }));
     assert_eq!(applied["edited"], true, "{applied}");
     let after = call(session, "health");
