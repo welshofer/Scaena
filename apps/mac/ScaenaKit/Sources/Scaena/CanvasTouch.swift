@@ -223,86 +223,6 @@ struct CanvasMenu: UIViewRepresentable {
 
         override func paste(_ sender: Any?) { held?.clip(.paste) }
 
-        /// A hardware keyboard's ⌘Z, ⇧⌘Z, and Escape while the menu shows (lift-up 20261110), as
-        /// UIKit's own menus take them: the menu goes, the keyboard goes back to the canvas, and
-        /// Undo or Redo is made there as the menu bar makes it, held as it is while the assistant
-        /// is at work; Escape only closes. With the menu holding the keyboard, ⌘Z went nowhere, and
-        /// a UI test's ⌘Z waited its two minutes on a menu that stayed up.
-        override var keyCommands: [UIKeyCommand]? {
-            guard isFirstResponder else { return nil }
-            return Self.closing
-        }
-
-        private static let closing: [UIKeyCommand] = {
-            let keys: [(String, UIKeyModifierFlags)] = [
-                ("z", .command), ("z", [.command, .shift]), (UIKeyCommand.inputEscape, []),
-            ]
-            return keys.map { input, flags in
-                let command = UIKeyCommand(input: input, modifierFlags: flags, action: #selector(Host.closed(_:)))
-                command.wantsPriorityOverSystemBehavior = true
-                return command
-            }
-        }()
-
-        @objc private func closed(_ command: UIKeyCommand) {
-            menuLog.debug(
-                "menu's keys: command \(command.input ?? "", privacy: .public) flags \(command.modifierFlags.rawValue)")
-            let action: Selector? =
-                switch command.input {
-                case "z": command.modifierFlags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
-                default: nil
-                }
-            close(action)
-        }
-
-        /// The presses ⌘Z, ⇧⌘Z, and Escape stand for, where they reach the menu's view as presses
-        /// rather than as its key commands; each press it takes is its own to end.
-        private var taken: Set<UIPress> = []
-
-        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-            var rest = Set<UIPress>()
-            for press in presses {
-                guard let key = press.key else {
-                    rest.insert(press)
-                    continue
-                }
-                let flags = key.modifierFlags.intersection([.command, .shift, .alternate, .control])
-                menuLog.debug("menu's keys: press \(key.keyCode.rawValue) flags \(flags.rawValue)")
-                if key.keyCode == .keyboardZ, flags == .command || flags == [.command, .shift] {
-                    taken.insert(press)
-                    close(flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:")))
-                } else if key.keyCode == .keyboardEscape, flags.isEmpty {
-                    taken.insert(press)
-                    close(nil)
-                } else {
-                    rest.insert(press)
-                }
-            }
-            if !rest.isEmpty { super.pressesBegan(rest, with: event) }
-        }
-
-        override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-            let rest = presses.subtracting(taken)
-            taken.subtract(presses)
-            if !rest.isEmpty { super.pressesEnded(rest, with: event) }
-        }
-
-        override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-            let rest = presses.subtracting(taken)
-            taken.subtract(presses)
-            if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
-        }
-
-        /// The menu closed, the keyboard given back, and `action`, Undo or Redo, sent as the menu
-        /// bar sends it; none for Escape.
-        private func close(_ action: Selector?) {
-            held?.menus?.dismissMenu()
-            giveBack()
-            guard let action else { return }
-            // The menu bar's own Undo or Redo, sent up from what has the keyboard now.
-            UIApplication.shared.sendAction(action, to: nil, from: nil, for: nil)
-        }
-
         /// Takes the keyboard for the menu.
         func take() {
             guard !isFirstResponder, let window else { return }
@@ -348,8 +268,10 @@ struct CanvasMenu: UIViewRepresentable {
             animator: any UIEditMenuInteractionAnimating
         ) {
             menuLog.debug("will present")
-            // Who has the keyboard once the menu shows (lift-up 20261110): #985's run sent ⌘Z with
-            // the menu up and nothing logged its arrival, so the menu's own window may take it.
+            #if DEBUG
+            // Who has the keyboard once the menu shows (lift-up 20261110): #985 found the app's
+            // window key and the menu's view its first responder, yet a hardware ⌘Z reaching
+            // nothing of the app, its menu bar's Undo included, while the edit menu was up.
             Task { @MainActor [weak interaction] in
                 try? await Task.sleep(for: .milliseconds(400))
                 let window = interaction?.view?.window?.windowScene?.keyWindow
@@ -358,8 +280,10 @@ struct CanvasMenu: UIViewRepresentable {
                 menuLog.debug(
                     "menu shown: key window \(window.map { String(describing: type(of: $0)) } ?? "none", privacy: .public), first responder \(first ?? "none", privacy: .public), the menu's view \(mine ? "has" : "lacks", privacy: .public) the keys")
             }
+            #endif
         }
 
+        #if DEBUG
         @MainActor private static func firstResponder(in view: UIView) -> UIView? {
             if view.isFirstResponder { return view }
             for inside in view.subviews {
@@ -367,6 +291,7 @@ struct CanvasMenu: UIViewRepresentable {
             }
             return nil
         }
+        #endif
 
         func editMenuInteraction(
             _ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,

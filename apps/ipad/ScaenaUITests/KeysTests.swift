@@ -425,63 +425,6 @@ final class KeysTests: XCTestCase {
         throw Unseen(description: "⌘Z took back nothing: Undo still reads \(step): \(app.debugDescription)")
     }
 
-    /// ⌘Z with the long press's menu up closes the menu and undoes, as UIKit's own menus take a
-    /// hardware keyboard's keys (lift-up 20261110): the title copied by its menu's Duplicate, the menu asked of it again,
-    /// and ⌘Z takes the copy back with the menu gone. With the menu holding the keyboard, ⌘Z went
-    /// nowhere and ThemeTests waited out its two minutes.
-    @MainActor
-    func testUndoKeyClosesTheMenuAndUndoes() throws {
-        let app = launched()
-        try openB1(in: app)
-        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
-        let titles = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena'"))
-        let title = titles.firstMatch
-        guard title.waitForExistence(timeout: 10) else {
-            throw Unseen(description: "the cover reads no title: \(app.debugDescription)")
-        }
-        settle()
-        // The copy made by touch, as TouchTests makes it, so no hardware key comes before the long
-        // presses: in #985's runs every long press after Tab and ⌘D was lost to the simulator's
-        // gesture gate, three times running (01:21:21–47), and none before a key was (lift-up
-        // 20261110). The long press selects the title, and its menu's Duplicate copies it.
-        pressForMenu(title, in: app)
-        let duplicate = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Duplicate'")).firstMatch
-        guard paged(to: duplicate, in: app) else {
-            keep(app, as: "undo-key-no-duplicate")
-            throw Unseen(description: "a long press offered no Duplicate: \(app.debugDescription)")
-        }
-        duplicate.tap()
-        guard wait(5, { titles.count == 2 }) else {
-            keep(app, as: "undo-key-no-copy")
-            throw Unseen(description: "Duplicate made no copy: \(app.debugDescription)")
-        }
-        settle()
-        // The menu asked of the copy, which Duplicate selects: the original's middle stands under the
-        // copy's rotate handle, 36 points above the copy's top edge one span below, and a press
-        // there turns the copy rather than asking for a menu, as a handle takes a press over what
-        // lies under it (#985's three runs, every press "lost"; lift-up 20261110).
-        let selected = canvas.descendants(matching: .any).matching(NSPredicate(format: "label == 'Scaena' AND selected == true")).firstMatch
-        guard selected.waitForExistence(timeout: 5) else {
-            throw Unseen(description: "Duplicate selected no copy: \(app.debugDescription)")
-        }
-        pressForMenu(selected, in: app)
-        let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
-        guard wait(5, { copy.isHittable }) else {
-            keep(app, as: "undo-key-no-menu")
-            throw Unseen(description: "a long press offered no menu: \(app.debugDescription)")
-        }
-        keep(app, as: "undo-key-menu")
-        app.typeKey("z", modifierFlags: .command)
-        guard wait(10, { titles.count == 1 }) else {
-            keep(app, as: "undo-key-unheard")
-            throw Unseen(description: "⌘Z with the menu up took nothing back: \(app.debugDescription)")
-        }
-        XCTAssertTrue(wait(5) { !copy.isHittable }, "the menu stayed up after ⌘Z: \(app.debugDescription)")
-        keep(app, as: "undo-key-closed")
-        settle()
-    }
-
     /// Undo and Redo held while the assistant is at work on the deck (lift-up STAB-5), as the
     /// Mac's Edit menu holds them: on B1's cover with a hardware keyboard, the title nudged by
     /// eight arrows, the deck then held as the assistant holds it (`-assistantAtWorkAfter 8`), and ⌘Z and ⇧⌘Z
