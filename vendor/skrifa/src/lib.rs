@@ -14,6 +14,9 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![forbid(unsafe_code)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
+// Scaena: without the `hinting` feature the hinters are compiled out (`outline::hint`), and what
+// only they read is left unused, by design (vendor/skrifa/SCAENA.md).
+#![cfg_attr(not(feature = "hinting"), allow(dead_code, unused_imports, unused_variables))]
 
 #[cfg(not(any(feature = "libm", feature = "std")))]
 compile_error!("Either feature \"std\" or \"libm\" must be enabled for this crate.");

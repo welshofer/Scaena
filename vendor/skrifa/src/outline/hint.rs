@@ -328,6 +328,20 @@ impl HintingInstance {
         location: impl Into<LocationRef<'a>>,
         options: impl Into<HintingOptions>,
     ) -> Result<(), DrawError> {
+        // Scaena: without the `hinting` feature, which nothing in Scaena's lock asks for, no
+        // hinter is ever made, so the TrueType interpreter, the CFF hinter, and the autohinter
+        // are compiled out: Scaena draws every glyph unhinted (`hint(false)`), and a caller that
+        // asks for an instance gets `HintingCompiledOut` and draws unhinted as it would without
+        // one (vendor/skrifa/SCAENA.md, ADR-0004 finding 30).
+        #[cfg(not(feature = "hinting"))]
+        {
+            let _ = (outlines, size);
+            let _: LocationRef<'a> = location.into();
+            let _: HintingOptions = options.into();
+            return Err(DrawError::HintingCompiledOut);
+        }
+        #[cfg(feature = "hinting")]
+        {
         self.size = size;
         self.coords.clear();
         self.coords
@@ -397,6 +411,7 @@ impl HintingInstance {
             _ => {}
         }
         Ok(())
+        }
     }
 
     /// Returns true if hinting should actually be applied for this instance.
@@ -422,9 +437,11 @@ impl HintingInstance {
         let ppem = self.size.ppem();
         let coords = self.coords.as_slice();
         match (&self.kind, &glyph.kind) {
+            #[cfg(feature = "hinting")]
             (HinterKind::Auto(instance), _) => {
                 instance.draw(self.size, coords, glyph, path_style, pen)
             }
+            #[cfg(feature = "hinting")]
             (HinterKind::Glyf(instance), OutlineKind::Glyf(glyf, outline)) => {
                 if matches!(path_style, PathStyle::HarfBuzz) {
                     return Err(DrawError::HarfBuzzHintingUnsupported);
@@ -452,6 +469,7 @@ impl HintingInstance {
                     })
                 })
             }
+            #[cfg(feature = "hinting")]
             (HinterKind::Cff(subfonts), OutlineKind::Cff(cff, glyph_id, subfont_ix)) => {
                 let Some(subfont) = subfonts.get(*subfont_ix as usize) else {
                     return Err(DrawError::NoSources);
