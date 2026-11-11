@@ -1447,6 +1447,20 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
         "{node:#}"
     );
     assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bound) })).await["errors"], json!(0));
+    // Its beat cites the source it is bound to, not its own rows, which are gone (W1 dogfood 9 F5).
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(bound.join("deck.json")).unwrap()).unwrap();
+    let cited: Vec<String> = (deck["spine"]["sections"].as_array().unwrap().iter())
+        .flat_map(|s| s["beats"].as_array().unwrap().iter())
+        .flat_map(|b| b["evidence"].as_array().into_iter().flatten())
+        .filter_map(|e| e.as_str().filter(|e| e.starts_with('@')).map(str::to_string))
+        .collect();
+    assert!(cited.contains(&"@sunday-visits".to_string()), "{cited:?}");
+    for c in &cited {
+        assert!(
+            deck["data"].get(&c[1..]).is_some() || deck["nodes"].get(&c[1..]).is_some(),
+            "{c} names nothing: {cited:?}"
+        );
+    }
     // The Data tab's edit redraws it: January from 1,840 to 1,850, and the chart reads 1,850.
     let id = {
         let d: Value = serde_json::from_str(&std::fs::read_to_string(bound.join("deck.json")).unwrap()).unwrap();

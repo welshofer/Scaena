@@ -791,20 +791,39 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
                     doc["data"][&id]["schema"][&column] = json!("date");
                 }
                 doc["nodes"][&node_id] = node;
-                dropped.push(own);
+                dropped.push((own, id));
             }
             Err(why) => unbound.push(Unbound { slide: i + 1, source: named, why }),
         }
     }
-    // A chart's own rows, drawn by nothing now, go.
+    // A chart's own rows, drawn by nothing now, go, and a beat that cites them as its evidence
+    // cites the source they are bound to (W1 dogfood 9 F5), so no citation names what is gone.
     let text = doc["nodes"].to_string();
-    for own in dropped {
+    for (own, id) in dropped {
         if !text.contains(&format!("\"@{own}\"")) {
             doc["data"].as_object_mut().map(|d| d.remove(&own));
+            cite_again(&mut doc, &own, &id);
         }
     }
     write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
     Ok((write, unbound))
+}
+
+/// Each beat of `doc`'s spine that cites `@own` as its evidence cites `@id` in its place, once.
+fn cite_again(doc: &mut Value, own: &str, id: &str) {
+    let (was, now) = (format!("@{own}"), format!("@{id}"));
+    let sections = doc.pointer_mut("/spine/sections").and_then(Value::as_array_mut).into_iter().flatten();
+    for beat in sections.flat_map(|s| s["beats"].as_array_mut().into_iter().flatten()) {
+        let Some(evidence) = beat.get_mut("evidence").and_then(Value::as_array_mut) else { continue };
+        if !evidence.iter().any(|e| *e == was) {
+            continue;
+        }
+        let cited = evidence.iter().any(|e| *e == now);
+        evidence.retain(|e| *e != was || !cited);
+        for e in evidence.iter_mut().filter(|e| **e == was) {
+            *e = json!(now);
+        }
+    }
 }
 
 /// The chart a made chart's own rows (`source()`'s) draw: its categories in order, and a series
@@ -10135,6 +10154,24 @@ mod tests {
     /// Route 9 free for twelve months" as "A free Route 9", or names a topic where the title
     /// stated its point, "How we would know it worked" as "Measurement" (W1's dogfood 8). A title
     /// that keeps what its beat claims and states it is taken.
+    /// A beat that cites a chart's own rows cites the source they were bound to, once, where it
+    /// cites that source already (W1 dogfood 9 F5); a citation of anything else stays.
+    #[test]
+    fn a_beat_cites_the_source_its_chart_was_bound_to() {
+        let mut doc = json!({ "spine": { "sections": [{ "id": "s", "beats": [
+            { "id": "a", "evidence": ["@own", "source:visits.csv"] },
+            { "id": "b", "evidence": ["@own", "@visits"] },
+            { "id": "c", "evidence": ["@other"] },
+            { "id": "d" }
+        ] }] } });
+        cite_again(&mut doc, "own", "visits");
+        let cited: Vec<&Value> = (0..4).map(|b| &doc["spine"]["sections"][0]["beats"][b]["evidence"]).collect();
+        assert_eq!(*cited[0], json!(["@visits", "source:visits.csv"]));
+        assert_eq!(*cited[1], json!(["@visits"]));
+        assert_eq!(*cited[2], json!(["@other"]));
+        assert!(cited[3].is_null());
+    }
+
     #[test]
     fn a_look_that_turns_a_claim_into_a_topic_is_let_go() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
