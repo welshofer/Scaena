@@ -476,12 +476,24 @@ struct DeckView: View {
     }
     #endif
 
-    /// Play the slideshow from the slide shown.
+    /// Play the slideshow from the slide shown, as a click or a tap does; its menu, a long press on
+    /// the iPad or the arrow beside it on the Mac, offers the Play menu's commands, as a
+    /// presentation app's Play does: Play Slideshow, Rehearse Slideshow, and Remote…, so an iPad
+    /// with no keyboard reaches Remote… without the menu bar (lift-up 20261110). Their keys stay the
+    /// Play menu's, and this menu adds none.
     private var playing: some View {
-        Button(action: play) {
+        Menu {
+            Button("Play Slideshow", action: play)
+            Button("Rehearse Slideshow", action: rehearse)
+                .disabled(rehearsal != nil || !editor.valid)
+            Divider()
+            Button("Remote…") { remoting = true }
+        } label: {
             Label("Play", systemImage: "play.fill")
+        } primaryAction: {
+            play()
         }
-        .help("Play the slideshow from this slide (⌥⌘P)")
+        .help("Play the slideshow from this slide (⌥⌘P); hold for Rehearse and Remote…")
         .disabled(editor.slots.isEmpty)
     }
 
