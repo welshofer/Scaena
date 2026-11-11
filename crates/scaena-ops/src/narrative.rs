@@ -3661,6 +3661,7 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
     let suffix = ["%", "\u{2030}", "\u{d7}", "x", "M", "B", "K", "k", "T", "bn", "tn", "m", "pp", "pts"]
         .iter()
         .chain(&SIGNS)
+        .chain(&COMPOUNDS)
         .filter(|s| rest.starts_with(*s))
         .max_by_key(|s| s.len())
         .map_or(0, |s| s.chars().count());
@@ -3680,6 +3681,11 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
                 .max()
         };
         if let Some(n) = word(&["%", "\u{2030}"]) {
+            return chars[begin..from + n].iter().collect();
+        }
+        // A magnitude and its currency as one word, as German and French books write them:
+        // "240 TEUR", "240 k\u{20ac}", "1,2 M\u{20ac}", "3 Md\u{20ac}" (R2's Nordlicht).
+        if let Some(n) = word(&COMPOUNDS) {
             return chars[begin..from + n].iter().collect();
         }
         if let Some(n) = word(&SPACED_MAGNITUDES) {
@@ -3821,6 +3827,24 @@ const SPACED_MAGNITUDES: [&str; 22] = [
 
 /// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
 const SIGNS: [&str; 7] = ["\u{20ac}", "$", "\u{a3}", "\u{a5}", "\u{20b9}", "\u{20a9}", "\u{20bd}"];
+
+/// A magnitude and its currency written as one word after a figure, spaced or not: thousands,
+/// millions, and billions of euros, as German and French accounts set them ("240 TEUR",
+/// "240 k\u{20ac}", "1,2 M\u{20ac}", "3 Md\u{20ac}").
+const COMPOUNDS: [&str; 12] = [
+    "TEUR",
+    "TEuro",
+    "T\u{20ac}",
+    "kEUR",
+    "KEUR",
+    "k\u{20ac}",
+    "K\u{20ac}",
+    "MEUR",
+    "M\u{20ac}",
+    "Md\u{20ac}",
+    "Mrd\u{20ac}",
+    "Mds\u{20ac}",
+];
 
 /// The currencies written by their codes after a figure: "12 EUR".
 const CODES: [&str; 5] = ["EUR", "USD", "GBP", "CHF", "JPY"];
@@ -8295,6 +8319,17 @@ mod tests {
         // A language without spaces keeps its figure after its letters.
         assert_eq!(figure("\u{4e88}\u{7b97}\u{306f}3\u{5104}\u{5186}").as_deref(), Some("3\u{5104}\u{5186}"));
         assert_eq!(figures_in("from 1,210 ms to 140 ms at p99"), ["1,210".to_string(), "140".to_string()]);
+
+        // A magnitude and its currency written as one word stay with their figure, spaced or
+        // not, as German and French accounts write them (R2's Nordlicht: "240 TEUR").
+        assert_eq!(figures_in("Pilotkosten von 240 TEUR im ersten Jahr"), ["240 TEUR".to_string()]);
+        assert_eq!(figure("Einsparung: 1,2 MEUR pro Jahr").as_deref(), Some("1,2 MEUR"));
+        assert_eq!(figure("Budget de 240 k\u{20ac}").as_deref(), Some("240 k\u{20ac}"));
+        assert_eq!(figure("Budget de 240k\u{20ac}").as_deref(), Some("240k\u{20ac}"));
+        assert_eq!(figure("un march\u{e9} de 3 Md\u{20ac}").as_deref(), Some("3 Md\u{20ac}"));
+        assert_eq!(figure("Der Umsatz stieg auf 538 TEUR").as_deref(), Some("538 TEUR"));
+        // A word that only begins so is no unit of the figure.
+        assert_eq!(figures_in("240 TEURE Sachen"), ["240".to_string()]);
     }
 
     #[test]
