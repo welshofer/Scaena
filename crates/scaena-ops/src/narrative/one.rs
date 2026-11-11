@@ -241,13 +241,13 @@ pub fn slide_into(
         let new_chart = (built.nodes.iter())
             .find(|(id, n)| !nodes_before.contains_key(*id) && n["type"] == "chart")
             .map(|(id, _)| id.clone());
-        let sourced = super::binding::source_named(&deck, named);
-        match (new_chart, sourced) {
-            (Some(node_id), Some(id)) => {
+        let sourced = super::binding::sources_named(&deck, named);
+        match (new_chart, sourced.is_empty()) {
+            (Some(node_id), false) => {
                 let mut node = built.nodes[&node_id].clone();
                 let own = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string);
-                match super::binding::bind(&mut node, chart, &deck, files, &id) {
-                    Ok(dated) => {
+                match super::binding::bind_first(&mut node, chart, &deck, files, &sourced) {
+                    Ok((id, dated)) => {
                         retyped = dated.map(|column| (id.clone(), column));
                         built.nodes.insert(node_id, node);
                         if let Some(own) = own.filter(|own| *own != id) {
@@ -257,7 +257,7 @@ pub fn slide_into(
                     Err(why) => unbound.push(super::Unbound { slide: index + 1, source: named.to_string(), why }),
                 }
             }
-            (Some(_), None) if !deck.data.is_empty() => {
+            (Some(_), true) if !deck.data.is_empty() => {
                 let ids: Vec<&str> = deck.data.keys().map(String::as_str).collect();
                 let why = format!("no data source of the deck is called that; it holds {}", ids.join(", "));
                 unbound.push(super::Unbound { slide: index + 1, source: named.to_string(), why });
