@@ -182,6 +182,10 @@ pub enum Kind {
     /// beat cites none, its words name none, and no slide before it sourced the figure (W1's
     /// dogfood 4 and 5). The finding says the figure.
     Source,
+    /// The deck's slides that list points list fewer than balance's floor on average, and this
+    /// slide, among those that list fewest, holds the average down; the finding names them (R1's
+    /// MCP dogfood).
+    Thin,
     /// Its headline names a topic ("Q3 by product") where a content slide states its point: in a
     /// deck health reads in English, three to six words with no verb and no question
     /// (lift-up 10-25b FUNC-4). Information, or a warning where a line under it says the claim,
@@ -1805,6 +1809,46 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
     }
+    // Where the slides balance counts list fewer points than its floor on average, the content
+    // slides that list fewest, the three that hold it down, are named on the first of them, so
+    // balance's line has a slide to act on (R1's MCP dogfood). Balance and its floor are
+    // Vzestup's (ADR-0032); the finding moves no figure.
+    let pointed: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible() && !read[i].one_idea).collect();
+    let listed: usize = pointed.iter().map(|&i| bullets(&read[i])).sum();
+    let average = m.content_balance.avg_bullets_per_slide;
+    if listed > 0 && average < FLOOR_POINTS {
+        let mut thin: Vec<usize> = (pointed.iter().copied())
+            .filter(|&i| i > 0 && !closing.contains(&read[i].id) && bullets(&read[i]) < FLOOR_POINTS as usize)
+            .collect();
+        scaena_core::sort::by_key(&mut thin, |&i| (bullets(&read[i]), i));
+        thin.truncate(3);
+        scaena_core::sort::by_key(&mut thin, |&i| i);
+        if let Some(&first) = thin.first() {
+            let (named, many) = slides_named(&thin);
+            find(
+                &read[first].id,
+                Severity::Warning,
+                Kind::Thin,
+                {
+                    let mut said = format!(
+                        "{named} {} the fewest points: the slides that list points make {average} each, under the two that read as full.",
+                        if many { "list" } else { "lists" }
+                    );
+                    said[..1].make_ascii_uppercase();
+                    said
+                },
+                match many {
+                    true => format!(
+                        "Give {named} a point more each, what bears out each headline, or set them in a layout made for one point."
+                    ),
+                    false => format!(
+                        "Give {named} a point more, what bears out its headline, or set it in a layout made for one point."
+                    ),
+                },
+                None,
+            );
+        }
+    }
     let mut unnoted = Vec::new();
     let mut aloud = Vec::new();
     for (i, s) in read.iter().enumerate() {
@@ -3071,6 +3115,29 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// Where the slides balance counts list under two points on average, the content slides that
+    /// list fewest are named, so balance's line has a slide to act on (R1's MCP dogfood): fleet
+    /// with slide 4 thinned to one bar. A deck at the floor finds none.
+    #[test]
+    fn the_slides_holding_balance_down_are_named() {
+        let full = of(&dogfood("fleet", "", |_| {}));
+        assert!(!full.findings.iter().any(|f| f.kind == Kind::Thin), "{:#?}", full.findings);
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let h = of(&dogfood("fleet", "", thinned));
+        assert!(h.balance.says.starts_with("Slides make 1.8 points each"), "{}", h.balance.says);
+        let thin: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Thin).collect();
+        assert_eq!(thin.len(), 1, "{:#?}", h.findings);
+        assert_eq!(thin[0].severity, Severity::Warning);
+        assert!(thin[0].says.starts_with("Slide"), "{}", thin[0].says);
+        assert!(thin[0].says.contains('4'), "{}", thin[0].says);
+        assert!(
+            thin[0].says.ends_with("the slides that list points make 1.8 each, under the two that read as full."),
+            "{}",
+            thin[0].says
+        );
+        assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
     }
 
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood

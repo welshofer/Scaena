@@ -165,6 +165,11 @@
             "const": "source"
           },
           {
+            "description": "The deck's slides that list points list fewer than balance's floor on average, and this\nslide, among those that list fewest, holds the average down; the finding names them (R1's\nMCP dogfood).",
+            "type": "string",
+            "const": "thin"
+          },
+          {
             "description": "Its headline names a topic (\"Q3 by product\") where a content slide states its point: in a\ndeck health reads in English, three to six words with no verb and no question\n(lift-up 10-25b FUNC-4). Information, or a warning where a line under it says the claim,\nwhich belongs in the headline, a topic of a word or two as well (\"Some history\"; W1's\ndogfood 3).",
             "type": "string",
             "const": "label"

@@ -91,6 +91,7 @@ const MEASURE: Partial<Record<HealthFinding["kind"], keyof Health>> = {
   claim: "coherence",
   bigIdea: "coherence",
   pacing: "pacing",
+  thin: "balance",
 };
 
 /** Where a warning ranks among the warnings: one no measure speaks to first, as it names one
