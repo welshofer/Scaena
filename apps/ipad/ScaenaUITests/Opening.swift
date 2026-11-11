@@ -19,6 +19,8 @@ extension XCTestCase {
         // where the canvas and the keyboard stand as they move, so a wait that never settles names
         // what keeps the app from going idle (lift-up 20261110).
         app.launchArguments += ["-b1AsShipped", "YES", "-reportAnimations", "YES"] + arguments
+        // The hardware pass's keys come with no software keyboard (`CanvasKeys.inputView`).
+        if keyboardPass == "hardware" { app.launchArguments += ["-softwareKeyboard", "NO"] }
         app.launch()
         return app
     }
@@ -137,6 +139,23 @@ extension XCTestCase {
         guard element.exists, element.isHittable else { return done() }
         element.tap()
         return wait(seconds, done)
+    }
+
+    /// The keyboard the pass this test runs in has (`apps/ipad/app-test.sh`, lift-up 20261110):
+    /// `hardware`, the app launched with `-softwareKeyboard NO`, so no software keyboard comes up
+    /// while a text is typed in and the keys are XCTest's hardware keys alone; `software`, the
+    /// software keyboard up as on an iPad with no keyboard; nil where the test is run otherwise, as
+    /// from Xcode, with whichever keyboard the simulator has.
+    var keyboardPass: String? {
+        ProcessInfo.processInfo.environment["SCAENA_KEYBOARD"]
+    }
+
+    /// Whether the software keyboard is up: a keyboard taller than the bar of shortcuts iPadOS
+    /// leaves at the screen's foot while a hardware keyboard is connected.
+    @MainActor
+    func softwareKeyboardUp(in app: XCUIApplication) -> Bool {
+        let keyboard = app.keyboards.firstMatch
+        return keyboard.exists && keyboard.frame.height > 100
     }
 
     /// A moment for what was shown to be painted: the canvas paints at the display's next refresh.
