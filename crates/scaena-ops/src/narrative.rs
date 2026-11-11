@@ -1172,6 +1172,7 @@ pub fn generate_drawn(
 /// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
 /// script the theme's fonts do not draw is refused here: `scaena generate` fetches the
 /// script's font (PLAN G.22), which no server's tool does.
+#[allow(clippy::too_many_arguments)]
 pub fn from_slides(
     dir: &Path,
     theme: crate::create::ThemeSource,
