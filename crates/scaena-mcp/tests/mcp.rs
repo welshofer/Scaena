@@ -1502,6 +1502,54 @@ async fn a_chart_whose_slide_names_its_source_draws_from_it() {
     client.cancel().await.unwrap();
 }
 
+/// Route 9's slide 4 (W1 dogfood 8, re-walked on main after #1045): a bar chart of "Jan" to "Jun"
+/// whose headline names June, bound to `ridership.csv`'s dated months, lights June as the file
+/// reads it, `2025-06-01`, so the deck validates. On main it lit `Jun`, and lint found E103:
+/// "`at.x` `Jun` is no category of `month` in `@ridership`".
+#[tokio::test(flavor = "multi_thread")]
+async fn route_nines_bar_chart_of_months_lights_june_as_its_file_reads_it() {
+    let root = scratch("route-9");
+    let client = connect_in(&root).await;
+    std::fs::write(
+        root.join("ridership.csv"),
+        "month,boardings,fare_revenue\n2025-01,41200,48900\n2025-02,40100,47600\n2025-03,43800,52000\n2025-04,44900,53300\n2025-05,46200,54800\n2025-06,39800,47200\n",
+    )
+    .unwrap();
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let mut slide =
+        catalog["slides"].as_array().unwrap().iter().find(|s| s["layoutSuggestion"] == "Bar Chart").unwrap().clone();
+    slide["slideTitle"] = json!("Ridership dipped in June");
+    slide["keyBullets"] = json!(["Monthly boardings, Jan\u{2013}Jun 2025"]);
+    slide["sourceRef"] = json!("ridership.csv");
+    slide["chartData"] = json!({
+        "categories": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
+        "series": [{ "name": "Boardings", "values": [41200, 40100, 43800, 44900, 46200, 39800] }]
+    });
+    let mut slides: Vec<Value> = catalog["slides"].as_array().unwrap()[..5].to_vec();
+    slides[3] = slide;
+    let bundle = root.join("route-9-deck");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({
+            "bundle": path(&bundle),
+            "slides": { "executiveSummary": "Free fares on Route 9", "slides": slides },
+            "data": [{ "id": "ridership", "file": "ridership.csv" }]
+        }),
+    )
+    .await;
+    assert!(made.get("unbound").is_none(), "{made:#}");
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(bundle.join("deck.json")).unwrap()).unwrap();
+    let chart = d["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").unwrap();
+    assert_eq!(chart["data"], json!("@ridership"), "{chart:#}");
+    assert_eq!(chart["annotations"][0]["at"]["x"], json!("2025-06-01"), "{chart:#}");
+    assert_eq!(made["created"]["errors"], json!(0), "{made:#}");
+    assert_eq!(ok(&client, "deck_lint", json!({ "bundle": path(&bundle) })).await["errors"], json!(0));
+    client.cancel().await.unwrap();
+}
+
 /// R1's agent dogfood 2, a ferry deck from `ferry.csv` by MCP alone: each chart by year binds,
 /// the second and third too once the first has typed `year` as dates (B2), "On time" to
 /// `on_time_pct` with its unit's words aside, and a series named for no column says the file's
