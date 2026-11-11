@@ -411,6 +411,8 @@ try {
     const text = answer.content.find((c) => c.type === "text");
     const written = JSON.parse(text.text);
     written.slides.forEach((s, i) => (s.sourceRef = i === 1 ? `${press}/press.html` : "notes.md"));
+    // A bullet after the bar chart's takeaway, which its layout sets in no place (W1's dogfood 10).
+    written.slides[3].keyBullets.push("Fines tripled since 2022");
     text.text = JSON.stringify(written);
     return JSON.stringify(answer);
   })();
@@ -555,6 +557,12 @@ try {
   check(
     unnoted === "Notes not written for the talk: Slides 2–5's notes not written by the model, Narrato's drafts kept",
     `the progress says why the rest were not taken, and what they keep: ${unnoted}`,
+  );
+  // A bullet the chart's layout sets nowhere is said, as the CLI says it (W1's dogfood 10).
+  const unset = (await lines()).find((l) => l.startsWith("Slide 4 shows its chart without"));
+  check(
+    unset === "Slide 4 shows its chart without \u201cFines tripled since 2022\u201d: its layout has no place for it",
+    `the progress says the bullet the chart leaves off: ${unset}`,
   );
   const source = await page.evaluate(() => window.scaena.source());
   const states = (source.match(/^state /gm) ?? []).length;

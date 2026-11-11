@@ -1661,6 +1661,11 @@ export type GeneratingEvent =
   /** A chart that names a data source the deck keeps and is not drawn from it, and why (W1
    * dogfood 9). */
   | { kind: "unbound"; slide: number; source: string; why: string }
+  /** A slide whose layout, asked by name, could not be taken as asked, and why; and a bullet a
+   * chart's layout sets in no place, its words as written (W1's dogfood 10), as the CLI and
+   * `deck_generate` say them. */
+  | { kind: "fell"; slide: number; asked: string; layout: string; why: string }
+  | { kind: "unset"; slide: number; words: string; layout: string }
   | { kind: "fitting"; texts: number }
   | { kind: "fitted"; texts: number }
   | { kind: "unfitted"; why: string };
@@ -1699,6 +1704,10 @@ export interface Generated {
   refused?: { slide: number; what: string; why: string }[];
   /** Each chart that names a data source and is not drawn from it, and why (agent dogfood). */
   unbound?: { slide: number; source: string; why: string }[];
+  /** Each slide whose layout could not be taken as asked, and why (agent dogfood). */
+  fell?: { slide: number; asked: string; layout: string; why: string }[];
+  /** Each bullet a chart's layout sets in no place, its words as written (agent dogfood 2). */
+  unset?: { slide: number; words: string; layout: string }[];
   /** Each sheet given, kept as a data source, or why not. */
   data: { sheet: string; id?: string; rows?: number; why?: string }[];
   /** What each source gave the prompt, and whether it was cut short to fit. */
