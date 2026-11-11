@@ -194,7 +194,8 @@ pub enum Kind {
 /// is safe, a fix.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 pub struct Finding {
-    /// The slide's first state.
+    /// The step it was read at, which an editor shows: the slide's first state for a finding about
+    /// its notes or its plan, or that it does not stand, else its last, built whole.
     pub state: String,
     /// The slide's number, from 1.
     pub slide: usize,
@@ -771,6 +772,19 @@ const FRAMING: [&str; 10] = [
     "agenda-photo",
 ];
 
+/// The irregular pasts a headline states its point in that [`VERBS`] does not spell out, a short
+/// closed list (the calibration against a reader): "We rebuilt 52 miles, not 40" states a point,
+/// and read without its verb it was found a topic. Each is a past no noun shares.
+const PASTS: [&str; 19] = [
+    "caught", "fought", "lent", "outran", "overcame", "quit", "rebuilt", "redrew", "regrew", "rewrote", "shot", "shut",
+    "sped", "stole", "swept", "threw", "tore", "undercut", "upheld",
+];
+
+/// Whether `w` is one of [`VERBS`] or [`PASTS`].
+fn spelled(w: &str) -> bool {
+    VERBS.split_ascii_whitespace().any(|v| v == w) || PASTS.contains(&w)
+}
+
 /// The verbs a headline that states its point carries, each form spelled out, base, -s, past,
 /// and -ing, with the contractions that hold one (lift-up 10-25b FUNC-4), apart by spaces, as
 /// [`labels`] reads it. A word here that is also a noun ("plan", "report") keeps a headline
@@ -852,7 +866,7 @@ fn labels(headline: &str) -> bool {
     let listed = |i: usize| words[i.saturating_sub(2)..i].iter().any(|w| matches!(w.as_str(), "and" | "or"));
     let verb = |(i, w): (usize, &String)| {
         let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
-        (w.chars().count() >= 5 && w.ends_with("ed")) || (of(w) && !plural)
+        (w.chars().count() >= 5 && w.ends_with("ed")) || PASTS.contains(&w.as_str()) || (of(w) && !plural)
     };
     (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
@@ -883,7 +897,7 @@ fn verb(word: &str) -> bool {
     let w = word.replace('\u{2019}', "'");
     let w = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase();
     let contracted = ["n't", "'re", "'ve", "'ll", "'m", "'d", "'s"].iter().any(|c| w.ends_with(c));
-    contracted || (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w)
+    contracted || (w.chars().count() >= 5 && w.ends_with("ed")) || spelled(&w)
 }
 
 /// The line under a slide's headline that says its claim, where the headline names a topic
@@ -969,13 +983,32 @@ fn opening(notes: &str) -> &str {
     first
 }
 
+/// The words coherence reads a slide by, `scaena_narrato::health::coherence::keywords`, split at
+/// what is not a letter or a digit in any script rather than at what is not ASCII: the same words
+/// in English, and "kündigung", "größer" whole in German (W1's dogfood 7).
+fn written(text: &str) -> std::collections::BTreeSet<String> {
+    let lower = text.to_lowercase();
+    scaena_core::sort::set(
+        lower.split(|c: char| !c.is_alphanumeric()).filter(|w| w.chars().count() > 3).map(str::to_string),
+    )
+}
+
+/// Whether two neighbouring slides share no word as coherence reads them, each having some:
+/// where either says nothing past a short headline, the pair reads as following, as Vzestup's
+/// overlap gives it ½.
+fn apart(a: &SlideForHealth, b: &SlideForHealth) -> bool {
+    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
+    let (wa, wb) = (words(a), words(b));
+    !wa.is_empty() && !wb.is_empty() && wa.is_disjoint(&wb)
+}
+
 /// Whether `next`'s notes open by carrying `before` across (narrative dogfood H4): a word of
 /// `before`'s headline and body that `next`'s do not use, as coherence reads words, in the
 /// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over.
 fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| health::coherence::keywords(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| written(&format!("{} {}", s.title, s.body));
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
-    let opened = health::coherence::keywords(opening(&next.notes));
+    let opened = written(opening(&next.notes));
     carried.iter().any(|w| opened.contains(w))
 }
 
@@ -1193,9 +1226,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             .collect(),
         health::coherence::Method::Keyword => {
             let shown: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible()).collect();
-            (shown.windows(2).zip(&m.coherence.pair_similarities))
-                .filter(|(pair, sim)| pair[0] > 0 && **sim == 0.0)
-                .map(|(pair, _)| {
+            // Each pair by its own words, read in any script (W1's dogfood 7): Vzestup's split at
+            // anything not ASCII reads "Kündigung" as "ndigung" and loses "für" and "größer", so a
+            // German pair turned on words it never wrote. Coherence's figure stays Vzestup's.
+            (shown.windows(2))
+                .filter(|pair| pair[0] > 0 && apart(&read[pair[0]], &read[pair[1]]))
+                .map(|pair| {
                     let beat = |i: usize| read[i].narrative_meta.as_ref().and_then(|n| n.beat_index);
                     let edge = matches!((beat(pair[0]), beat(pair[1])), (Some(a), Some(b)) if a != b);
                     (read[pair[1]].id.clone(), edge)
@@ -2230,6 +2266,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
         f.figure = unsourced.iter().find(|(id, _)| *id == f.state).map(|(_, figure)| figure.clone());
     }
+    // Each finding names the step it was read at, which an editor shows (W2's editor dogfood): a
+    // slide's notes are read across its steps, the first's first, and its plan is its beat's, so a
+    // finding about either, or one that the slide does not stand, names its first step; one about
+    // what the slide shows names its last, where it is built whole and its words were read.
+    for f in &mut findings {
+        if !matches!(
+            f.kind,
+            Kind::Turn | Kind::Notes | Kind::Empty | Kind::Arc | Kind::Drift | Kind::Pacing | Kind::Layout
+        ) && let Some(&last) = slides.get(f.slide - 1).and_then(|s| s.states.last())
+        {
+            f.state = deck.states[last].id.clone();
+        }
+    }
     // A slide that does not stand first, then in the order the slides stand, and on each slide in
     // the order health found them.
     scaena_core::sort::by_key(&mut findings, |f| (f.kind != Kind::Layout, f.slide));
@@ -2594,6 +2643,21 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A finding names the step health read it at, which an editor shows (W2's editor dogfood):
+    /// B1's slide 4 builds its 97 words over three steps, the first a headline alone, so its
+    /// finding names the last; slide 12's turn is answered in its notes, which its first opens.
+    #[test]
+    fn a_finding_names_the_step_it_was_read_at() {
+        let text = std::fs::read_to_string(root().join("tests/bench/b1.scaena/deck.json")).unwrap();
+        let h = of(&serde_json::from_str(&text).unwrap());
+        let on = |kind: Kind, slide: usize| {
+            h.findings.iter().find(|f| f.kind == kind && f.slide == slide).map(|f| f.state.as_str())
+        };
+        assert_eq!(on(Kind::Dense, 4), Some("belief-2-line"), "{:#?}", h.findings);
+        assert_eq!(on(Kind::Turn, 12), Some("belief-10"));
+        assert_eq!(h.slides[3].state, "belief-2", "a slide is still shown by its first state");
     }
 
     /// A made deck that links an address neither its brief nor its sources name is warned of it,
@@ -3074,6 +3138,10 @@ mod tests {
         }
         // A gerund names a topic.
         assert!(labels("Pricing by region"));
+        // An irregular past states a point (the calibration against a reader): the grant's.
+        assert!(!labels("We rebuilt 52 miles, not 40"));
+        assert!(!labels("6,820 volunteer hours rebuilt it"));
+        assert!(!labels("Crews swept every trail by June"));
         // A verb's "-s" ending a list of things is a plural (W1's dogfood 6); a verb before it
         // still states a point.
         assert!(labels("Weekend hours and online holds"));
@@ -3318,6 +3386,56 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// A turn's pair is read by its words in any script (W1's dogfood 7): Vzestup's split at
+    /// anything not ASCII loses "Größe" and "Müll" whole, so two German slides that share them
+    /// read as sharing nothing and turned. Read whole, they share both; an English pair reads as
+    /// Vzestup reads it, and the bridge reads the notes alike.
+    #[test]
+    fn a_turn_reads_its_pair_in_any_script() {
+        let slide = |title: &str, body: &str, notes: &str| SlideForHealth {
+            title: title.into(),
+            body: body.into(),
+            notes: notes.into(),
+            ..SlideForHealth::default()
+        };
+        let a = slide("Die Größe des Mülls", "• Müll wächst jährlich", "");
+        let b = slide("Weniger Müll, gleiche Größe", "• Sammelstellen neu verteilt", "");
+        assert_eq!(health::coherence::keyword_overlap(&a, &b), 0.0, "Vzestup's split reads them apart");
+        assert!(!apart(&a, &b), "read whole, they share Größe and Müll");
+        // In English, the words are Vzestup's own.
+        for text in ["Revenue grew 12% in 2025, it's said", "The co-op's freezers failed — day two"] {
+            assert_eq!(written(text), health::coherence::keywords(text), "{text}");
+        }
+        // The bridge reads the notes' opening in any script.
+        let c = slide("Neue Standorte", "• Sammelstellen in jedem Viertel", "Mehr Müll heißt neue Wege.");
+        let before = slide("Die Größe des Mülls", "• Müll wächst jährlich", "");
+        assert!(bridges(&before, &c), "Müll carries the room across");
+
+        // On the German board deck, two slides of one beat that share only Größe and Müll: no turn.
+        let paired = |slides: &mut Vec<answer::Slide>| {
+            for (k, (title, bullets)) in [
+                ("Die Größe des Mülls", vec!["Müll wächst jährlich", "Sammeln kostet mehr"]),
+                ("Weniger Müll, gleiche Größe", vec!["Sammelstellen neu verteilt", "Touren gekürzt"]),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let s = &mut slides[8 + k];
+                s.slide_title = title.into();
+                s.key_bullets = bullets.into_iter().map(String::from).collect();
+                s.layout_suggestion = "Bullets".into();
+                s.subtitle.clear();
+                s.speaker_notes = "Weiter.".into();
+            }
+        };
+        let deck = dogfood("board-de", "", paired);
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        assert_eq!(health::coherence::keyword_overlap(&read[8], &read[9]), 0.0, "Vzestup's split reads them apart");
+        let h = of(&deck);
+        assert!(!h.findings.iter().any(|f| f.kind == Kind::Turn && f.slide == 10), "{:#?}", h.findings);
     }
 
     /// Balance's line says how many slides its average is over, where it counts fewer than the
