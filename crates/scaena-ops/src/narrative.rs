@@ -10271,6 +10271,41 @@ mod tests {
         assert_eq!(kept.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", kept.layouts);
     }
 
+    /// A slide asked for by its columns, "Three Column", is set side by side as its items run, not
+    /// fallen to a numbered list as a name Narrato's table did not know (R1's agent dogfood 5).
+    #[test]
+    fn a_slide_asked_by_its_columns_sets_them_side_by_side() {
+        let columns = |title: &str, layout: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": "", "layoutSuggestion": layout,
+              "keyBullets": bullets, "beatIndex": 1, "beatName": "Problem" })
+        };
+        let text = serde_json::json!({
+            "executiveSummary": "Proof is the product.",
+            "slides": [
+                { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                  "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                columns("Why green freight stalls", "Three Column", &["Verification: weeks per container",
+                  "Offsets: no one sees the ledger", "Shippers: they pay twice"]),
+                columns("Who the ledger serves", "Four Columns", &["Ports: they clear the cargo",
+                  "Carriers: they move it", "Shippers: they pay for it", "Auditors: they check it"]),
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                  "beatIndex": 2, "beatName": "Close" },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        assert_eq!(
+            (made.layouts[1].as_str(), made.layouts[2].as_str()),
+            ("three-columns", "quadrants"),
+            "{:?}",
+            made.layouts
+        );
+        assert!(made.fell.iter().all(|f| f.slide != 1 && f.slide != 2), "{:?}", made.fell);
+    }
+
     #[test]
     fn the_layouts_a_talk_names_that_the_library_has_are_reached() {
         // Dogfood pass 7: an architecture, a decision brief, a quiz, and a risk matrix the library
