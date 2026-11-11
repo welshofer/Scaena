@@ -73,10 +73,16 @@ struct PanelEdits {
     /// Show the state and type in the text that heads it, its words selected, so what is typed takes
     /// their place (editor dogfood 6).
     let headline: (_ state: String) -> Void
+    /// Show the state with the Format tab open and its field there, `intensity` or `notes`, in view
+    /// and in focus (editor dogfood 6).
+    var field: (_ state: String, _ field: String) -> Void = { _, _ in }
     /// Put a question to the assistant: its panel shown, the question in its box to send.
     let ask: (_ question: String) -> Void
     /// Say what an edit did, as the window says it for a moment.
     let say: (_ words: String) -> Void
+    /// Say what the edits before it answered of the Story's findings, after what the window says of
+    /// the edit itself, as the browser's status says it (editor dogfood 6).
+    var answered: (_ words: String) -> Void = { _ in }
 
     /// `edit` made beside the source, one step to undo named `name`: whether it was.
     @discardableResult
