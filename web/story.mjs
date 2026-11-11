@@ -94,6 +94,16 @@ try {
   await page.click("#story [data-more] summary");
   check(await first.isVisible(), "and opened, it shows them");
 
+  // Check the claim stands only on a row about what its slide claims: its claim not carried, a
+  // topic headline, the big idea, or a turn; never on a row about its words' count or its notes
+  // alone (W1's dogfood 7).
+  const claimed = new Set(["claim", "label", "bigIdea", "turn"]);
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll("#story [data-findings] li[data-slide]")].map((li) => ({ slide: Number(li.dataset.slide), kinds: [...li.querySelectorAll("p[data-kind]")].map((p) => p.dataset.kind), check: !!li.querySelector("[data-check]") })),
+  );
+  const wrong = rows.filter((r) => r.check !== r.kinds.some((k) => claimed.has(k)));
+  check(rows.some((r) => r.check) && rows.some((r) => !r.check) && !wrong.length, `Check the claim stands on the rows about a claim alone: ${JSON.stringify(wrong.map((r) => [r.slide, r.kinds]))} of ${rows.length}`);
+
   // Ask the assistant keeps a question already drafted in its box, the finding's put after it
   // (lift-up 20261110 deferred).
   await tab(page, "assistant");
