@@ -197,10 +197,15 @@ extension XCTestCase {
         XCTAssertTrue(asks.waitForExistence(timeout: 5), "the canvas shows no count of its long presses")
         let before = menuAsks(in: app)
         element.press(forDuration: 1.2)
-        guard !wait(3, { self.menuAsks(in: app) > before }) else { return }
-        XCTContext.runActivity(named: "The canvas took no long press: the press is made again") { _ in
-            keep(app, as: "menu-pressed-again")
-            element.press(forDuration: 1.2)
+        // The simulator's system gesture gate can time out on a press and hand the canvas none of
+        // it, twice running (#985's run, 23:49:27 and 23:49:41): a press the canvas never took is
+        // made again, up to two more times; one it took and did not answer is the test's to fail.
+        for again in 1...2 {
+            guard !wait(3, { self.menuAsks(in: app) > before }) else { return }
+            XCTContext.runActivity(named: "The canvas took no long press: the press is made again (\(again))") { _ in
+                keep(app, as: "menu-pressed-again-\(again)")
+                element.press(forDuration: 1.2)
+            }
         }
     }
 
