@@ -196,7 +196,10 @@ fn a_mirrored_deck_reads_in_its_own_order() {
                 let dl = fx.frame(&state);
                 let snaps = scaena_core::resolve_states(&fx.deck).unwrap();
                 let snap = snaps.iter().find(|s| s.state_id == state).unwrap();
-                scaena_core::reading::parts(&fx.deck, snap, &dl).into_iter().map(|p| p.node).collect::<Vec<_>>()
+                scaena_core::reading::parts(&fx.deck, &std::collections::BTreeMap::new(), snap, &dl)
+                    .into_iter()
+                    .map(|p| p.node)
+                    .collect::<Vec<_>>()
             };
             let (mirrored, laid) = (read(&mut rtl), read(&mut ltr));
             assert_eq!(mirrored, laid, "{name} {state}");
@@ -206,7 +209,7 @@ fn a_mirrored_deck_reads_in_its_own_order() {
         }
         // The cover reads its kicker, its title, then its subtitle.
         let dl = rtl.frame("cover");
-        let parts = scaena_core::reading::parts(&rtl.deck, &snapshots[0], &dl);
+        let parts = scaena_core::reading::parts(&rtl.deck, &std::collections::BTreeMap::new(), &snapshots[0], &dl);
         let ids: Vec<&str> = parts.iter().map(|p| p.node.as_str()).collect();
         assert_eq!(ids, ["cover-kicker", "cover-title", "cover-subtitle"], "{name}");
     }

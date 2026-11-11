@@ -196,6 +196,9 @@ pub struct Generated {
     /// Each data file given (`deck_generate`'s `data`), attached as `data_attach` attaches one.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attached: Vec<String>,
+    /// Each sheet a source given (`deck_generate`'s `sources`) holds, kept as a data source.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<Kept>,
     /// Each data file given whose cells the slides' figures quote, and how many (agent dogfood 3).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub quoted: Vec<Quoted>,
@@ -681,7 +684,7 @@ fn stem(s: &str) -> String {
 }
 
 /// A data source kept from a sheet, or why it was not.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct Kept {
     pub sheet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -821,7 +824,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         {
             one.name = Some(name.clone());
         }
-        let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+        let ids: Vec<String> =
+            binding::sources_named(deck, &named).into_iter().filter(|id| !owned.contains(id)).collect();
+        if ids.is_empty() {
             // A slide's own source that is no data source of the deck is a file of words.
             if cited {
                 continue;
@@ -833,9 +838,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
                 why: format!("no data source of the deck is called that; it holds {}", ids.join(", ")),
             });
             continue;
-        };
-        match binding::bind(&mut node, &chart, &typed, &write.files, &id) {
-            Ok(dated) => {
+        }
+        // The first source named that holds the slide's rows: a workbook's sheets in turn.
+        match binding::bind_first(&mut node, &chart, &typed, &write.files, &ids) {
+            Ok((id, dated)) => {
                 if let Some(column) = dated {
                     doc["data"][&id]["schema"][&column] = json!("date");
                     if let Some(decl) = typed.data.get_mut(&id) {
@@ -1193,6 +1199,7 @@ pub fn generate_drawn(
 /// its builds, and the `media.narrato` fields health reads, lint's fixes applied. A deck in a
 /// script the theme's fonts do not draw is refused here: `scaena generate` fetches the
 /// script's font (PLAN G.22), which no server's tool does.
+#[allow(clippy::too_many_arguments)]
 pub fn from_slides(
     dir: &Path,
     theme: crate::create::ThemeSource,
@@ -1201,6 +1208,7 @@ pub fn from_slides(
     arc: Option<&str>,
     outline: Option<&Outline>,
     data: &[(Attach, Vec<u8>)],
+    grounds: &[scaena_sources::Source],
 ) -> Result<Generated, OpsError> {
     crate::create::vacant(dir)?;
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
@@ -1242,8 +1250,9 @@ pub fn from_slides(
     generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
     // Each data file given is a source the deck is grounded in, by its file's name: a chart says
     // it as its source, and the beat of a slide whose `sourceRef` names it cites it (agent
-    // dogfood 3), as a file `--source` gave is.
-    if !data.is_empty() {
+    // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
+    // and its address where it has one; none of its text is packed, since no model reads it.
+    if !data.is_empty() || !grounds.is_empty() {
         let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
         let given = (data.iter())
             .map(|(req, bytes)| Provenance {
@@ -1253,6 +1262,13 @@ pub fn from_slides(
                 bytes: bytes.len(),
                 truncated: false,
             })
+            .chain(grounds.iter().map(|s| Provenance {
+                name: s.name.clone(),
+                kind: s.kind.name().to_string(),
+                url: scaena_sources::address(&s.name, s.kind),
+                bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
+                truncated: false,
+            }))
             .collect();
         generation.give_sources(given);
     }
@@ -1289,6 +1305,15 @@ pub fn from_slides(
                 }
             }
         }
+        // Each sheet a source gave kept as a data source, as `--source` keeps one, its figures
+        // quoted, before the charts that name one are drawn from it.
+        let write = if grounds.is_empty() {
+            write
+        } else {
+            let (write, kept) = keeping(write, &scaena_sources::tables(grounds))?;
+            made.kept = kept;
+            write
+        };
         let (mut write, unbound) = binding(write)?;
         made.unbound = unbound;
         // Each figure a slide writes that is one cell of a data file given quotes it, as a made
@@ -2510,6 +2535,7 @@ pub fn making(
         fell: made.fell,
         unset: made.unset,
         attached: Vec::new(),
+        kept: Vec::new(),
         quoted: Vec::new(),
         unbound: Vec::new(),
         fixed: Vec::new(),
@@ -3352,36 +3378,32 @@ fn deck_lang(brief: &Brief) -> Option<&'static str> {
 }
 
 /// The words a made deck says itself, not the model, in its language (`lang`, BCP 47): a
-/// source's label, and how a chart is described to a reader. English where the language is none
-/// Narrato writes in.
+/// source's label (a chart is described to a reader by `scaena_core::reading::described`).
+/// English where the language is none Narrato writes in.
 struct Own {
     /// "Source: " and its kin, with the punctuation the language sets after it.
     source: &'static str,
-    bar: &'static str,
-    line: &'static str,
-    highest: &'static str,
-    lowest: &'static str,
 }
 
 fn own(lang: &str) -> Own {
-    let (source, bar, line, highest, lowest) = match lang {
-        "es" => ("Fuente: ", "Gráfico de barras", "Gráfico de líneas", "máximo", "mínimo"),
-        "fr" => ("Source\u{a0}: ", "Diagramme en barres", "Graphique linéaire", "maximum", "minimum"),
-        "de" => ("Quelle: ", "Balkendiagramm", "Liniendiagramm", "Höchstwert", "Tiefstwert"),
-        "pt" => ("Fonte: ", "Gráfico de barras", "Gráfico de linhas", "máximo", "mínimo"),
-        "it" => ("Fonte: ", "Grafico a barre", "Grafico a linee", "massimo", "minimo"),
-        "nl" => ("Bron: ", "Staafdiagram", "Lijndiagram", "hoogste", "laagste"),
-        "cs" => ("Zdroj: ", "Sloupcový graf", "Spojnicový graf", "maximum", "minimum"),
-        "pl" => ("Źródło: ", "Wykres słupkowy", "Wykres liniowy", "maksimum", "minimum"),
-        "uk" => ("Джерело: ", "Стовпчикова діаграма", "Лінійний графік", "максимум", "мінімум"),
-        "ja" => ("出典：", "棒グラフ", "折れ線グラフ", "最高", "最低"),
-        "zh-Hans" => ("来源：", "柱状图", "折线图", "最高", "最低"),
-        "ko" => ("출처: ", "막대 그래프", "꺾은선 그래프", "최고", "최저"),
-        "ar" => ("المصدر: ", "مخطط شريطي", "مخطط خطي", "الأعلى", "الأدنى"),
-        "hi" => ("स्रोत: ", "बार चार्ट", "लाइन चार्ट", "उच्चतम", "न्यूनतम"),
-        _ => ("Source: ", "Bar chart", "Line chart", "highest", "lowest"),
+    let source = match lang {
+        "es" => "Fuente: ",
+        "fr" => "Source\u{a0}: ",
+        "de" => "Quelle: ",
+        "pt" => "Fonte: ",
+        "it" => "Fonte: ",
+        "nl" => "Bron: ",
+        "cs" => "Zdroj: ",
+        "pl" => "Źródło: ",
+        "uk" => "Джерело: ",
+        "ja" => "出典：",
+        "zh-Hans" => "来源：",
+        "ko" => "출처: ",
+        "ar" => "المصدر: ",
+        "hi" => "स्रोत: ",
+        _ => "Source: ",
     };
-    Own { source, bar, line, highest, lowest }
+    Own { source }
 }
 
 /// One of a slide's items: a bullet, and its label and detail where it reads "label: detail".
@@ -3637,16 +3659,31 @@ pub(crate) fn figures_in(text: &str) -> Vec<String> {
 }
 
 /// Where the number whose first digit is at `start` ends: its digits, the marks between them,
-/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end.
+/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end. A
+/// plain space groups them too, as French is typed ("1 240 000"), where every group before it is
+/// of digits alone, the first of one to three and the rest of three: never a year and a count
+/// ("2025 120"), nor a decimal and what follows it ("2,4 000"), nor a group a letter or a hyphen
+/// runs on from ("5 100-metre") (agent dogfood 4).
 fn digits(chars: &[char], start: usize) -> usize {
     let mut end = start;
     while end < chars.len() {
         let c = chars[end];
-        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}')
-            && end > start
-            && (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
+        let three = (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
             && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
-        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped) {
+        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}') && end > start && three;
+        // A group of three a letter or a hyphen runs on from is a figure of its own: "5 100-metre
+        // sprints" and "10 100m heats" are two, in English and French alike (agent dogfood 4).
+        let ends = chars.get(end + 4).is_none_or(|n| !(n.is_alphabetic() || *n == '-'));
+        let typed = c == ' ' && end > start && three && ends && !(start > 0 && chars[start - 1].is_alphanumeric()) && {
+            // The groups before this space: digits alone, split by plain spaces, the first of one
+            // to three and each after it of three.
+            let before: String = chars[start..end].iter().collect();
+            let groups: Vec<&str> = before.split(' ').collect();
+            (groups.iter().all(|g| !g.is_empty() && g.chars().all(|c| c.is_ascii_digit())))
+                && groups[0].len() <= 3
+                && groups[1..].iter().all(|g| g.len() == 3)
+        };
+        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped || typed) {
             break;
         }
         end += 1;
@@ -4803,19 +4840,21 @@ fn sentence(text: &str) -> String {
     }
 }
 
-/// [`sentence`], but in German (`lang` `de`), whose capitals are its grammar: a label or a
-/// lead-in its writer began in lower case ("der Eilbestellungen", "bis ein Fehlbestand auffällt")
-/// is kept as written (dogfood pass 10).
+/// [`sentence`], but in German (`lang` `de`), whose capitals are its grammar, and in Spanish,
+/// French, Italian, and Portuguese, which set the words after a figure on in lower case: a label
+/// or a lead-in its writer began in lower case ("der Eilbestellungen", "bis ein Fehlbestand
+/// auffällt", "millones de litros al año") is kept as written (dogfood pass 10, R2's Spanish read).
 fn sentence_as(text: &str, lang: &str) -> String {
-    match lang.split('-').next() {
-        Some("de") => text.to_string(),
+    match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
+        Some("de" | "es" | "fr" | "it" | "pt") => text.to_string(),
         _ => sentence(text),
     }
 }
 
 /// The words, in each language a deck may be written in, that join what follows a figure to it:
-/// "40%: of volume", "−30 % : de baisse des coûts" (dogfood pass 11). German keeps every case
-/// as written ([`sentence_as`]), so its list only says what it would be.
+/// "40%: of volume", "−30 % : de baisse des coûts" (dogfood pass 11). German, Spanish, French,
+/// Italian, and Portuguese keep every case as written ([`sentence_as`]), so their lists only say
+/// what they would be.
 fn joining(lang: &str) -> &'static [&'static str] {
     match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
         Some("en") | None => &["of", "in", "per", "for", "from", "to", "than"],
@@ -7213,6 +7252,9 @@ fn typeset(text: &str, lang: &str) -> String {
             {
                 out.push('\u{2013}')
             }
+            // A figure's thousands a plain space groups, as French is typed, stay on one line, set
+            // as the deck's locale sets them (agent dogfood 4).
+            ' ' if grouping(&chars, i) => out.push('\u{a0}'),
             // A figure and its unit, and a day and its month, stay on one line (DF7-2).
             ' ' if joined(&chars, i) => out.push('\u{a0}'),
             '%' | '\u{2030}'
@@ -7267,6 +7309,19 @@ fn dialed(chars: &[char], at: usize) -> bool {
         .is_some_and(|c| *c == '+');
     let round = chars[at - 1] == '0' && chars[end - 1] == '0' && chars[at + 1] != '0';
     ((before, after) == (3, 4) && !round) || (before, after) == (5, 4) || opened
+}
+
+/// Whether the space at `at` groups a figure's thousands, "1 240 000", as [`digits`] reads one.
+fn grouping(chars: &[char], at: usize) -> bool {
+    let Some(last) = at.checked_sub(1).filter(|b| chars[*b].is_ascii_digit()) else { return false };
+    let mut start = last;
+    while start > 0 && (chars[start - 1].is_ascii_digit() || chars[start - 1] == ' ') {
+        start -= 1;
+    }
+    while !chars[start].is_ascii_digit() {
+        start += 1;
+    }
+    digits(chars, start) > at
 }
 
 /// Whether the space at `at` joins a figure to its unit ("140 ms", "+18 %", "48,6 Mio. €"), or a
@@ -7436,6 +7491,11 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     if let Some((t, i)) = title.and_then(|t| headlined(&chart.categories, t).map(|i| (t, i))) {
         return lit(t, i);
     }
+    // Two the headline compares, the first its subject ("Une station au nord fait cinq fois moins
+    // de trajets qu'au centre" lights Nord, R1's French dogfood 4).
+    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories))) {
+        return Some(i);
+    }
     if let [one] = named.as_slice() {
         return lit(takeaway.unwrap_or_default(), *one);
     }
@@ -7494,6 +7554,55 @@ fn headlined(categories: &[String], headline: &str) -> Option<usize> {
     }
 }
 
+/// The first of two of `categories` that `headline` compares, by its index: the subject of
+/// "X … than Y", "X … que Y", "X … als Y", or "X vs Y", where the word that compares stands between
+/// the two (R1's French dogfood 4). A "que" or an "als" compares only after a word that does
+/// ("cinq fois moins … qu'au centre", "mehr Fahrten als", "dreimal so viele … wie"), since each
+/// also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
+/// own (`ordered`, years or quarters), it names no subject, and "2024 vs 2025" is left to the
+/// rules that light the latest. None where the headline names other than two, or compares neither.
+fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) -> Option<usize> {
+    let words: Vec<String> =
+        (headline.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    // Where in the headline a category is first named, as `headlined` names one.
+    let at = |category: &str| -> Option<usize> {
+        let name: Vec<String> =
+            (category.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+        match name.as_slice() {
+            [] => None,
+            [one] if one.chars().count() >= 3 && one.chars().all(char::is_alphabetic) => {
+                words.iter().position(|w| w.starts_with(one.as_str()))
+            }
+            _ => words.windows(name.len()).position(|run| run == name.as_slice()),
+        }
+    };
+    let named: Vec<(usize, usize)> = (0..categories.len()).filter_map(|i| Some((at(&categories[i])?, i))).collect();
+    let [(a, first), (b, second)] = named.as_slice() else { return None };
+    let ((from, subject), to) = if a < b { ((*a, *first), *b) } else { ((*b, *second), *a) };
+    let between = &words[from + 1..to];
+    let plain = |w: &str| !ordered && matches!(w, "vs" | "versus");
+    let (joins, after): (&[&str], &[&str]) = match lang.split('-').next().map(str::to_ascii_lowercase).as_deref() {
+        Some("fr") => (&["que", "qu"], &["plus", "moins", "fois", "autant", "mieux", "pire", "davantage"]),
+        Some("es") => (&["que"], &["m\u{e1}s", "menos", "veces", "mejor", "peor", "mayor", "menor"]),
+        Some("de") => (&["als", "wie"], &["mehr", "weniger", "mal", "doppelt", "halb", "so", "besser", "schlechter"]),
+        _ => (&["than"], &[]),
+    };
+    let compares = between.iter().enumerate().any(|(i, w)| {
+        plain(w)
+            || (joins.contains(&w.as_str())
+                && (after.is_empty() || between[..i].iter().any(|v| comparing(v, after, lang))))
+    });
+    compares.then_some(subject)
+}
+
+/// Whether `word` compares, in `lang`, as one of `after` does: as written, or in German a
+/// multiple ("dreimal") or a comparative ("länger", "höher") before "als".
+fn comparing(word: &str, after: &[&str], lang: &str) -> bool {
+    after.contains(&word)
+        || (lang.split('-').next().is_some_and(|l| l.eq_ignore_ascii_case("de"))
+            && (word.ends_with("mal") || (word.ends_with("er") && word.chars().count() > 4)))
+}
+
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
 fn chart_node(
     chart: &ChartData,
@@ -7524,7 +7633,9 @@ fn chart_node(
         _ => None,
     };
     let mut y = json!({ "field": "value", "type": "quantitative", "format": format!(",.{decimals}f") });
-    let alt = described(chart, kind, y_title.as_deref(), lang);
+    // No alt text: a reader hears it described from its data as it is when read, its kind, what
+    // it counts, and its values (`scaena_core::reading::described`, F6), so an edit of the data
+    // is heard as drawn.
     if let Some(t) = y_title {
         y["title"] = json!(t);
     }
@@ -7537,7 +7648,6 @@ fn chart_node(
         "data": format!("@{data}"),
         "x": { "field": "category", "type": if kind == "line" && years(chart) { "temporal" } else { "ordinal" } },
         "y": y,
-        "alt": alt,
         "semantic": "evidence",
         "at": at,
     });
@@ -7714,46 +7824,6 @@ fn word_at(text: &str, word: &str) -> Option<usize> {
         let after = text[at + word.len()..].chars().next();
         !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
     })
-}
-
-/// What a chart shows, said to a reader who does not see it (dogfood 2), in the deck's language:
-/// its kind and what it counts, or its series; then every value where there are a dozen or fewer,
-/// else each series' highest and lowest. Never its slide's headline, which a reader has just heard
-/// and which, as the figure's alt text, would hide the data.
-fn described(chart: &ChartData, kind: &str, counts: Option<&str>, lang: &str) -> String {
-    let words = own(lang);
-    let places = decimals(chart);
-    let value = |v: f64| at_places(v, places, chart.unit.as_deref(), lang);
-    let several = chart.series.len() > 1;
-    let names: Vec<&str> = chart.series.iter().filter_map(|s| s.name.as_deref()).collect();
-    let mut head = (if kind == "line" { words.line } else { words.bar }).to_string();
-    match (several, counts) {
-        (true, _) if !names.is_empty() => head = format!("{head}: {}", names.join(", ")),
-        (_, Some(counts)) => head = format!("{head}: {counts}"),
-        _ => {}
-    }
-    let few = chart.series.iter().map(|s| s.values.iter().flatten().count()).sum::<usize>() <= 12;
-    let series: Vec<String> = chart
-        .series
-        .iter()
-        .filter_map(|s| {
-            // A category the series has no value for goes unsaid.
-            let pairs: Vec<(&String, f64)> =
-                chart.categories.iter().zip(&s.values).filter_map(|(c, v)| Some((c, (*v)?))).collect();
-            let said = if few {
-                pairs.iter().map(|(c, v)| format!("{c} {}", value(*v))).collect::<Vec<_>>().join(", ")
-            } else {
-                let high = pairs.iter().max_by(|a, b| a.1.total_cmp(&b.1))?;
-                let low = pairs.iter().min_by(|a, b| a.1.total_cmp(&b.1))?;
-                format!("{} {} {}, {} {} {}", words.highest, high.0, value(high.1), words.lowest, low.0, value(low.1))
-            };
-            Some(match s.name.as_deref() {
-                Some(name) if several => format!("{name}: {said}"),
-                _ => said,
-            })
-        })
-        .collect();
-    if series.is_empty() { head } else { format!("{head}. {}", series.join("; ")) }
 }
 
 /// The mark a line of years makes for the first year its headline, or else its takeaway, names
@@ -8390,6 +8460,29 @@ mod tests {
         assert_eq!(figure("Der Umsatz stieg auf 538 TEUR").as_deref(), Some("538 TEUR"));
         // A word that only begins so is no unit of the figure.
         assert_eq!(figures_in("240 TEURE Sachen"), ["240".to_string()]);
+
+        // Thousands grouped by a plain space, as French is typed, are one figure (agent dogfood 4):
+        // "1 240 000", never "1". Never a year and a count, a decimal and what follows it, or a
+        // group that is not of three.
+        assert_eq!(figure("1 240 000 trajets en 2025").as_deref(), Some("1 240 000"));
+        assert_eq!(figure("310 000 \u{20ac} par an").as_deref(), Some("310 000 \u{20ac}"));
+        assert_eq!(figure("38 200 au centre").as_deref(), Some("38 200"));
+        assert_eq!(figures_in("en 2025 120 v\u{e9}los"), ["2025".to_string(), "120".to_string()]);
+        assert_eq!(figures_in("2,4 000 fois"), ["2,4".to_string(), "000".to_string()]);
+        assert_eq!(figures_in("3 1000 4"), ["3".to_string(), "1000".to_string(), "4".to_string()]);
+        assert_eq!(figure("1 in 7").as_deref(), Some("1 in 7"));
+        assert_eq!(figure("Les 3 200 v\u{e9}los du parc").as_deref(), Some("3 200"));
+        assert_eq!(figure("Q3 100 clients").as_deref(), Some("100"));
+        // A group a letter or a hyphen runs on from is a figure of its own, in English and French.
+        assert_eq!(figures_in("the first 5 100-metre sprints"), ["5".to_string(), "100".to_string()]);
+        assert_eq!(figures_in("30 150-seat aircraft"), ["30".to_string(), "150".to_string()]);
+        assert_eq!(figures_in("10 100m heats"), ["10".to_string(), "100m".to_string()]);
+        assert_eq!(figures_in("les 5 100-m\u{e8}tres"), ["5".to_string(), "100".to_string()]);
+        assert_eq!(figure("1 240,5 trajets").as_deref(), Some("1 240,5"));
+        assert_eq!(typeset("the first 5 100-metre sprints", "en"), "the first 5 100-metre sprints");
+        // The typesetter keeps such a figure on one line, its groups as French sets them.
+        assert_eq!(typeset("1 240 000 trajets", "fr"), "1\u{a0}240\u{a0}000 trajets");
+        assert_eq!(typeset("en 2025 120 v\u{e9}los", "fr"), "en 2025 120 v\u{e9}los");
         // Spanish's, Italian's, and Portuguese's magnitudes stay with their figure (R2's Valdemar).
         assert_eq!(figures_in("1.234,5 millones de litros al a\u{f1}o"), ["1.234,5 millones".to_string()]);
         assert_eq!(figure("Una inversi\u{f3}n de 2 mil millones").as_deref(), Some("2 mil millones"));
@@ -8473,6 +8566,52 @@ mod tests {
         let (layout, _) =
             made(&["64% have no car", "71% ride to work or school", "Most named stop: Eastgate Medical Center"]);
         assert_eq!(layout, "bullets");
+    }
+
+    /// A headline that compares two bars lights its subject, the first it names, never the larger
+    /// (R1's French dogfood 4: "Une station au nord fait cinq fois moins de trajets qu'au centre"
+    /// lit Centre). In English, French, German, and Spanish; two named with nothing comparing them
+    /// leave the bar to the figure rules, as before.
+    #[test]
+    fn a_headline_that_compares_two_bars_lights_its_subject() {
+        let stations = |names: [&str; 3]| ChartData {
+            categories: names.map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series { name: None, values: [1200., 6000., 2400.].map(Some).to_vec() }],
+            ..ChartData::default()
+        };
+        let fr = stations(["Nord", "Centre", "Sud"]);
+        let lit = |chart: &ChartData, title: &str, lang: &str| signal(chart, Some(title), None, lang);
+        assert_eq!(lit(&fr, "Une station au nord fait cinq fois moins de trajets qu\u{2019}au centre", "fr"), Some(0));
+        assert_eq!(lit(&fr, "Le centre fait plus de trajets que le sud", "fr"), Some(1));
+        let en = stations(["North", "Center", "South"]);
+        assert_eq!(lit(&en, "North makes five times fewer trips than Center", "en"), Some(0));
+        assert_eq!(lit(&en, "South vs Center: half the trips", "en-GB"), Some(2));
+        let de = stations(["Nord", "Zentrum", "S\u{fc}d"]);
+        assert_eq!(lit(&de, "Der Norden f\u{e4}hrt f\u{fc}nfmal weniger als das Zentrum", "de"), Some(0));
+        assert_eq!(lit(&de, "S\u{fc}d ist l\u{e4}nger unterwegs als Zentrum", "de-AT"), Some(2));
+        let es = stations(["Norte", "Centro", "Sur"]);
+        assert_eq!(lit(&es, "El norte hace cinco veces menos viajes que el centro", "es"), Some(0));
+        // A "que" or an "als" that joins clauses, with nothing comparing, compares nothing; nor do two
+        // named with no word between them that compares: the largest, as before.
+        assert_eq!(lit(&fr, "Le nord et le centre, que la ligne relie", "fr"), Some(1));
+        assert_eq!(lit(&de, "Als der Norden wuchs, wuchs auch das Zentrum", "de"), Some(1));
+        assert_eq!(lit(&en, "North and Center ran full", "en"), Some(1));
+        assert_eq!(compared(&fr.categories, "Nord, centre et sud", "fr", false), None, "three named");
+        // A bare "vs" between years or quarters names no subject: the latest is lit, as before. A word
+        // that compares does name one.
+        let revenue = ChartData {
+            categories: ["2023", "2024", "2025"].map(String::from).to_vec(),
+            series: vec![scaena_narrato::Series { name: None, values: [3.1, 5.0, 7.0].map(Some).to_vec() }],
+            ..ChartData::default()
+        };
+        assert_eq!(lit(&revenue, "Revenue 2024 vs 2025: up 40%", "en"), Some(2));
+        assert_eq!(lit(&revenue, "2025 revenue higher than 2024", "en"), Some(2));
+        assert_eq!(lit(&revenue, "2024 revenue lower than 2025", "en"), Some(1));
+        let quarters = stations(["Q1", "Q2", "Q4"]);
+        // Quarters are ordered too: "vs" names neither, and the rules light the largest, Q2, as before.
+        assert!(ordered(&quarters.categories));
+        assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
+        assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
     }
 
     /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
@@ -8812,8 +8951,6 @@ mod tests {
         assert_eq!(rows, json!([{ "category": "Q3 FY25", "value": 33.9 }, { "category": "Q1 FY26", "value": 40.1 }]));
         // Its latest figure is the last category's, and a reader hears no figure for the one missing.
         assert_eq!(latest(&chart, "en").as_deref(), Some("$40.1M"));
-        let said = described(&chart, "line", None, "en");
-        assert!(said.contains("Q3 FY25 $33.9M, Q1 FY26 $40.1M"), "{said}");
         let short = ChartData {
             series: vec![answer::Series { name: None, values: vec![Some(33.9), Some(35.0), None] }],
             ..chart
@@ -9028,6 +9165,10 @@ mod tests {
         has(&number, "claim", "without power after Storm Elsa, October 2023");
         let (_, number) = made("Big Number", &["12 hours", "median first reply time on a support ticket"]);
         has(&number, "number", "12 hours");
+        // A figure whose thousands a plain space groups, as French is typed, stays whole: "1"
+        // alone drew a figure its writer never wrote (agent dogfood 4).
+        let (_, number) = made("Big Number", &["1 240 000", "trips in 2025, 18% more than in 2024"]);
+        has(&number, "number", "1\u{a0}240\u{a0}000");
         // A funnel's stage keeps its figure beside its name.
         let (_, funnel) = made(
             "Funnel",
@@ -10252,8 +10393,30 @@ mod tests {
         assert!(german.iter().any(|(_, w)| w == "der Eilbestellungen wegen falscher Best\u{e4}nde"), "{german:#?}");
         let english = said_in("en");
         assert!(english.iter().any(|(_, w)| w == "Bis ein Fehlbestand auff\u{e4}llt"), "{english:#?}");
+        // So does Spanish, as R2's read found: a figure's meaning stays "millones de litros".
+        let gastos = serde_json::json!({ "slideTitle": "Lo que cuesta", "layoutSuggestion": "Scorecard",
+            "keyBullets": ["1.234,5 millones: litros perdidos al a\u{f1}o", "11 d\u{ed}as: hasta notar una falta",
+                "34 %: pedidos urgentes por error"] });
+        let spanish = made(gastos.clone(), "es").1;
+        assert!(spanish.iter().any(|(_, w)| w == "hasta notar una falta"), "{spanish:#?}");
+        assert!(spanish.iter().any(|(_, w)| w == "pedidos urgentes por error"), "{spanish:#?}");
+        let english = made(gastos, "en").1;
+        assert!(english.iter().any(|(_, w)| w == "Hasta notar una falta"), "{english:#?}");
         assert_eq!(sentence_as("der Eilbestellungen", "de-AT"), "der Eilbestellungen");
-        assert_eq!(sentence_as("cuts emissions 80%", "fr"), "Cuts emissions 80%");
+        assert_eq!(sentence_as("cuts emissions 80%", "en"), "Cuts emissions 80%");
+        assert_eq!(sentence_as("cuts emissions 80%", "nl"), "Cuts emissions 80%");
+        // Spanish, French, Italian, and Portuguese set the words after a figure on in lower case
+        // too, as German does (R2's Spanish read): "1.234,5: millones de litros", never "Millones".
+        for (text, lang) in [
+            ("millones de litros al a\u{f1}o", "es"),
+            ("millones de litros al a\u{f1}o", "es-MX"),
+            ("baisse des co\u{fb}ts", "fr"),
+            ("dans trois ans", "FR-ca"),
+            ("risparmio annuo", "it"),
+            ("economia por ano", "pt-BR"),
+        ] {
+            assert_eq!(sentence_as(text, lang), text, "{lang}");
+        }
         // Words that follow a figure and open on a word joining them to it keep the writer's lower
         // case, in each language; any other word begins a sentence (dogfood pass 11).
         for (text, lang) in [
@@ -10270,12 +10433,13 @@ mod tests {
             assert_eq!(continued(text, lang), text, "{lang}");
         }
         assert_eq!(continued("cuts emissions 80%", "en"), "Cuts emissions 80%");
-        assert_eq!(continued("baisse des co\u{fb}ts", "fr"), "Baisse des co\u{fb}ts");
+        assert_eq!(continued("baisse des co\u{fb}ts", "fr"), "baisse des co\u{fb}ts");
+        assert!(!joins("baisse des co\u{fb}ts", "fr"));
         // A joining word in another language is not one here: "do more" begins a sentence.
         assert_eq!(continued("do more with less", "en"), "Do more with less");
         assert_eq!(continued("des \u{e9}quipes", "en"), "Des \u{e9}quipes");
         // "d" alone, or a word that only begins as one does, is no elision: "dans", "offer".
-        assert_eq!(continued("dans trois ans", "fr"), "Dans trois ans");
+        assert!(!joins("dans trois ans", "fr"));
         assert_eq!(continued("offer ends", "en"), "Offer ends");
         // A set reads as one: its labels keep their lower case only where every one joins its
         // figure; one that begins a sentence leaves them all in their capitals.
@@ -11337,44 +11501,34 @@ mod tests {
         // The running head, at the slide's foot, is read after what the slide says.
         assert_eq!(placed(&made.deck, 6, "kicker")["align"], json!({ "y": "end" }));
         assert_eq!(order.last().map(String::as_str), Some("kicker"), "{order:?}");
-        // A chart is described by its data: its kind and what it counts, then its values where
-        // they are few, else its highest and lowest; never by its slide's headline.
+        // A chart is described by its data as a reader reads it (F6): its kind and what it
+        // counts, then its values where they are few, else its highest and lowest; never by its
+        // slide's headline. It keeps no alt text of its own.
+        let heard = |chart: &Value| -> String {
+            let deck = scaena_core::Deck::from_json(&made.deck.to_string()).unwrap();
+            let props: scaena_core::document::Props = serde_json::from_value(chart.clone()).unwrap();
+            scaena_core::reading::described(&deck, &BTreeMap::new(), &props).unwrap()
+        };
         for n in [4, 5, 8, 16] {
             let chart = placed(&made.deck, n, "main");
-            let alt = chart["alt"].as_str().unwrap();
+            assert!(chart.get("alt").is_none(), "state {n}: {chart:#}");
+            let alt = heard(chart);
             let title = &climate().slides[n].slide_title;
             assert_ne!(alt, typeset_en(title), "state {n}");
             let kind = if chart["kind"] == "line" { "Line chart" } else { "Bar chart" };
             assert!(alt.starts_with(kind), "state {n}: {alt}");
         }
-        let energy = placed(&made.deck, 8, "main")["alt"].as_str().unwrap().to_string();
+        let energy = heard(placed(&made.deck, 8, "main"));
         let data = climate().slides[8].chart_data.clone().unwrap();
         assert!(
             data.categories.iter().all(|c| energy.contains(c.as_str())),
             "every value said where they are few: {energy}"
         );
-        let warming = placed(&made.deck, 4, "main")["alt"].as_str().unwrap().to_string();
+        let warming = heard(placed(&made.deck, 4, "main"));
         // What it counts is what its axis says: its subtitle (dogfood: charts).
         assert!(
             warming.starts_with("Line chart: Global temperature anomaly, \u{b0}C vs 1850\u{2013}1900. 1880 "),
             "{warming}"
-        );
-        // More than a dozen values: each series' highest and lowest.
-        let months = ChartData {
-            categories: (1..=13).map(|m| format!("M{m}")).collect(),
-            series: vec![
-                answer::Series { name: Some("North".into()), values: (1..=13).map(|v| Some(f64::from(v))).collect() },
-                answer::Series {
-                    name: Some("South".into()),
-                    values: (1..=13).map(|v| Some(f64::from(20 - v))).collect(),
-                },
-            ],
-            unit: None,
-            source_id: None,
-        };
-        assert_eq!(
-            described(&months, "bar", None, "en"),
-            "Bar chart: North, South. North: highest M13 13, lowest M1 1; South: highest M1 19, lowest M13 7"
         );
     }
 
@@ -11505,7 +11659,11 @@ mod tests {
         }
         let source = words(placed(&made.deck, 4, "source"));
         assert_eq!(source, "Fuente: NASA GISS");
-        assert!(placed(&made.deck, 4, "main")["alt"].as_str().unwrap().starts_with("Gráfico de líneas"));
+        let deck = scaena_core::Deck::from_json(&made.deck.to_string()).unwrap();
+        let props: scaena_core::document::Props =
+            serde_json::from_value(placed(&made.deck, 4, "main").clone()).unwrap();
+        let heard = scaena_core::reading::described(&deck, &BTreeMap::new(), &props).unwrap();
+        assert!(heard.starts_with("Gráfico de líneas"), "{heard}");
         // A year's months and a 2×2's axes, in Spanish, never left empty.
         let mut talk2 = talk.clone();
         talk2.slides[9].key_bullets = vec!["One".into(), "Two".into()];
@@ -12862,6 +13020,106 @@ mod tests {
         assert_eq!(deck["data"]["q3"]["source"], "data/q3.csv");
         assert_eq!(deck["data"]["fleet-plan-by-port"]["schema"]["share"], "number");
         assert_eq!(write.files["data/q3.csv"], b"region,revenue\nGulf,4.1\nAtlantic,2.2\n");
+    }
+
+    /// A chart that names the workbook it was given binds to the sheet of it that holds its
+    /// slide's rows, each chart to its own (W1's dogfood 10: the council's shuttle, its months
+    /// in French).
+    #[test]
+    fn a_chart_that_names_its_workbook_binds_to_the_sheet_that_holds_it() {
+        let chart = |categories: &[&str], values: &[f64]| ChartData {
+            categories: categories.iter().map(|c| c.to_string()).collect(),
+            series: vec![scaena_narrato::Series {
+                name: Some("Voyageurs".into()),
+                values: values.iter().map(|v| Some(*v)).collect(),
+            }],
+            source_id: Some("navette.xlsx".into()),
+            ..ChartData::default()
+        };
+        let slide = |title: &str, kind: &str, chart: Option<ChartData>| Slide {
+            slide_title: title.into(),
+            layout_suggestion: kind.into(),
+            key_bullets: if chart.is_some() { vec!["Voyageurs, premier semestre 2026".into()] } else { vec![] },
+            source_ref: chart.as_ref().map(|_| "navette.xlsx".into()),
+            chart_data: chart,
+            ..Slide::default()
+        };
+        let months = ["janv.", "f\u{e9}vr.", "mars", "avr.", "mai", "juin"];
+        let mut n = narrative(
+            "La navette a gagn\u{e9} des voyageurs.",
+            vec![
+                slide("Prolonger la navette", "Title", None),
+                slide(
+                    "La fr\u{e9}quentation a progress\u{e9} chaque mois",
+                    "Line Chart",
+                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.])),
+                ),
+                slide(
+                    "Le quartier Nord porte la hausse",
+                    "Bar Chart",
+                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.])),
+                ),
+                slide("Prolonger la navette jusqu\u{2019}en juin 2027", "Closing", None),
+            ],
+        );
+        n.brief.language = Some("French".into());
+        let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let rows = |r: &[&[&str]]| r.iter().map(|r| r.iter().map(|c| c.to_string()).collect()).collect();
+        let sheet = |name: &str, r: &[&[&str]]| scaena_sources::Sheet { name: name.into(), rows: rows(r) };
+        let book = Source {
+            sheets: vec![
+                sheet(
+                    "Mensuel",
+                    &[
+                        &["mois", "voyageurs", "cout_keur"],
+                        &["janv.", "41200", "182"],
+                        &["f\u{e9}vr.", "42800", "181"],
+                        &["mars", "45100", "185"],
+                        &["avr.", "46900", "186"],
+                        &["mai", "47700", "188"],
+                        &["juin", "48600", "190"],
+                    ],
+                ),
+                sheet(
+                    "Quartiers",
+                    &[
+                        &["quartier", "voyageurs", "evolution_pct"],
+                        &["Nord", "14800", "31"],
+                        &["Gare", "11200", "22"],
+                        &["Sud", "5600", "4"],
+                    ],
+                ),
+            ],
+            ..source("navette.xlsx", Kind::Sheets, "## Sheet: Mensuel")
+        };
+        // A CSV of another file whose name begins alike, kept beside the workbook, holding the
+        // districts' rows too: the workbook's name never claims it.
+        let other = Source {
+            sheets: vec![sheet(
+                "navettes.csv",
+                &[&["quartier", "voyageurs"], &["Nord", "14800"], &["Gare", "11200"], &["Sud", "5600"]],
+            )],
+            ..source("navettes.csv", Kind::Csv, "quartier,voyageurs")
+        };
+        let (write, kept) = keeping(write.unwrap(), &scaena_sources::tables(&[other, book])).unwrap();
+        let ids: Vec<Option<&str>> = kept.iter().map(|k| k.id.as_deref()).collect();
+        assert_eq!(ids, [Some("navettes"), Some("navette-mensuel"), Some("navette-quartiers")]);
+        assert_eq!(
+            binding::sources_named(&write.deck, "navette.xlsx"),
+            ["navette-mensuel", "navette-quartiers"],
+            "not navettes"
+        );
+        let (write, unbound) = binding(write).unwrap();
+        assert!(unbound.is_empty(), "{unbound:#?}");
+        let deck = write.deck.to_value().unwrap();
+        let charts: Vec<(&str, &str)> = (deck["nodes"].as_object().unwrap().values())
+            .filter(|n| n["type"] == "chart")
+            .map(|n| (n["data"].as_str().unwrap(), n["y"]["field"].as_str().unwrap()))
+            .collect();
+        assert_eq!(charts, [("@navette-mensuel", "voyageurs"), ("@navette-quartiers", "voyageurs")]);
+        // A name no source starts with keeps none of them.
+        assert!(binding::sources_named(&write.deck, "rapport.pdf").is_empty());
+        assert!(binding::sources_named(&write.deck, "na").is_empty());
     }
 
     /// A deck in another language titles each section by the model's name for its beat, else its
