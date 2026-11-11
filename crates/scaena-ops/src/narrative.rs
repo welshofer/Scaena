@@ -706,7 +706,8 @@ pub fn keeping(mut write: Write, tables: &[Table]) -> Result<(Write, Vec<Kept>),
 }
 
 /// `deck`, a deck not yet written, and the data files written beside it, `files`, with each made
-/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`) drawn from the data source of that name the
+/// chart whose beat names the source its slide was written from (`media.narrato.chartSource`, else its slide's own,
+/// `chartSourceRef`, said nothing of where it names no data source, dogfood 9) drawn from the data source of that name the
 /// deck holds (agent dogfood): the chart's own rows dropped where nothing else reads them. Each
 /// chart that names a source and is not bound, and why, is in what comes back; one that names
 /// none is drawn from its own rows, as before, and not said. A deck with no data source but its
@@ -739,19 +740,22 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         let media = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
             .find(|b| b.states.iter().any(|s| s == state))
             .and_then(|b| serde_json::to_value(&b.media).ok())?;
-        let named = media.pointer("/narrato/chartSource").and_then(Value::as_str)?.to_string();
+        let (named, cited) = match media.pointer("/narrato/chartSource").and_then(Value::as_str) {
+            Some(named) => (named.to_string(), false),
+            None => (media.pointer("/narrato/chartSourceRef").and_then(Value::as_str)?.to_string(), true),
+        };
         let series: Vec<String> = (media.pointer("/narrato/chartSeries").and_then(Value::as_array).into_iter())
             .flatten()
             .map(|n| n.as_str().unwrap_or_default().to_string())
             .collect();
-        Some((named, series))
+        Some((named, series, cited))
     };
     let mut unbound = Vec::new();
     let mut dropped = Vec::new();
     for (i, states) in slides.iter().enumerate() {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
-        let Some((named, series)) = named_of(&state.id) else { continue };
+        let Some((named, series, cited)) = named_of(&state.id) else { continue };
         let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
             continue;
         };
@@ -769,6 +773,10 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             one.name = Some(name.clone());
         }
         let Some(id) = binding::source_named(deck, &named).filter(|id| !owned.contains(id)) else {
+            // A slide's own source that is no data source of the deck is a file of words.
+            if cited {
+                continue;
+            }
             let ids: Vec<&str> = deck.data.keys().filter(|id| !owned.contains(id)).map(String::as_str).collect();
             unbound.push(Unbound {
                 slide: i + 1,
@@ -3026,8 +3034,17 @@ fn media(slide: &Slide) -> Value {
     // is given (agent dogfood, [`binding`]).
     let named = slide.chart_data.as_ref().and_then(|c| c.source_id.as_deref()).map(str::trim);
     put("chartSource", named.filter(|v| !v.is_empty()).map(|v| json!(v)));
+    // Else the source its slide's facts come from, which Narrato asks of every slide and its
+    // chart's own only where known: it binds the chart where it names one of the deck's data
+    // sources, and is no source to be said unbound where it names a file of words (dogfood 9).
+    let cited = (slide.chart_data.as_ref())
+        .filter(|_| named.is_none_or(str::is_empty))
+        .and(slide.source_ref.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    put("chartSourceRef", cited.map(|v| json!(v)));
     // And its series' names, which pick the source's columns ([`binding`]).
-    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty())))
+    let series = (slide.chart_data.as_ref().filter(|_| named.is_some_and(|n| !n.is_empty()) || cited.is_some()))
         .map(|c| c.series.iter().map(|s| s.name.clone().unwrap_or_default()).collect::<Vec<_>>());
     put("chartSeries", series.map(|names| json!(names)));
     Value::Object(m)
