@@ -8335,6 +8335,13 @@ mod tests {
         assert_eq!(lit("Im Februar sank der Umsatz auf 398 TEUR", moved), json!("Februar"));
         // A headline that names none leaves the takeaway's month lit, as before.
         assert_eq!(lit("Der Umsatz schwankte im Frühjahr", moved), json!("März"));
+        // A headline that names two months names no one bar: #1034's order decides, the takeaway's
+        // month first, else the bar the headline's figure lands on.
+        assert_eq!(lit("Von Februar bis Juni stieg der Umsatz", moved), json!("März"));
+        assert_eq!(
+            lit("Von Februar bis Juni stieg der Umsatz auf 538 TEUR", "Zwei Großkunden kamen dazu"),
+            json!("Juni")
+        );
     }
 
     #[test]
