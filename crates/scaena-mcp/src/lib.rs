@@ -1005,8 +1005,9 @@ pub struct DeckGenerate {
     /// that could not be taken, or that had no place for every bullet and was set as a list,
     /// is in the result's `fell`, with why), `keyBullets` (a chart's layout sets the first, its
     /// takeaway, alone: each after it no place sets is in `unset`), `speakerNotes` (what the
-    /// presenter says, written to fill the talk: the result's `notes` gives the slot and each
-    /// slide's words), `beatIndex`
+    /// presenter says, written to fill the talk: the result's `notes` gives the slot, each
+    /// slide's words, and the `run`, the talk as health times it, a beat's estimate where its
+    /// notes run shorter), `beatIndex`
     /// and `beatName` (the arc's beat it belongs to), `expectedIntensity` (0–1),
     /// `expectedValence` (its tone, −1–1), and `visualDescription`; `chartData` where a chart is
     /// drawn. `scaena://examples/ferry.generate.json` is a whole call that lints clean.
