@@ -32,7 +32,8 @@
 //   "slides 10–11" each; and a read again after slide 5's notes are deepened keeps the open rows
 //   where they stood, what is new after them (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
-//   said after the edit in the status and beside the score (editor dogfood 6).
+//   said after the edit in the status and beside the score (editor dogfood 6); and on B1, slide
+//   4's words cut answer its finding read at the slide's last step.
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
 //   place is asked by its Intensity; the Format tab offers its beat's Intensity and Tone, each said
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
@@ -738,6 +739,20 @@ try {
     await page.click(`#story [data-findings] li[data-slide="12"] [data-show]`);
     await page.waitForFunction((k) => window.scaena.shown() === k, first, { timeout: 30000 }).catch(() => {});
     check(first > 0 && (await page.evaluate(() => window.scaena.shown())) === first, `a turn's Show opens its slide's first step, where its notes are written: ${await page.evaluate(() => window.scaena.shown())}, ${first}`);
+    // Its words cut to a line, the finding read at its last step goes, and the edit is said to
+    // answer it: a finding names the step it was read at, not its slide's first.
+    const source = await page.evaluate(() => window.scaena.source());
+    const cut = source.replace(/"An object that exists on slide 4[^"]*"/, '"An object on slide 4 and slide 5 is one object."');
+    check(cut !== source, "slide 4's words are found in the source");
+    await tab(page, "story");
+    const before = await page.evaluate(() => JSON.stringify(window.scaena.story.health()));
+    await page.evaluate((s) => window.scaena.type(s), cut);
+    await page.waitForFunction((b) => JSON.stringify(window.scaena.story.health()) !== b, before, { timeout: 60000 }).catch(() => {});
+    const still = await page.evaluate(() => window.scaena.story.health().findings.some((f) => f.kind === "dense" && f.slide === 4));
+    check(!still, "cut, slide 4 shows no more words than a room reads");
+    await page.waitForFunction(() => document.querySelector("#story [data-answered]")?.textContent, null, { timeout: 10000 }).catch(() => {});
+    const said = await page.evaluate(() => `${document.querySelector("#status").textContent} | ${document.querySelector("#story [data-answered]")?.textContent ?? ""}`);
+    check(said.includes("slide 4's points"), `and the edit is said to answer it, on its built slide: ${said}`);
     await page.close();
   })();
 } catch (e) {
