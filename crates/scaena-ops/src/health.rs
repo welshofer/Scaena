@@ -841,11 +841,18 @@ fn labels(headline: &str) -> bool {
         .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
         .filter(|w| !w.is_empty())
         .collect();
+    let of = |w: &str| VERBS.split_ascii_whitespace().any(|v| v == w);
     // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
     // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
-    let verb =
-        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
-    (3..=6).contains(&words.len()) && !words.iter().any(verb)
+    // A verb's "-s" within two words after "and" or "or" is a plural, the end of a list of
+    // things ("Weekend hours and online holds", W1's dogfood 6): a predicate there stands on a
+    // verb before it, which is found.
+    let listed = |i: usize| words[i.saturating_sub(2)..i].iter().any(|w| matches!(w.as_str(), "and" | "or"));
+    let verb = |(i, w): (usize, &String)| {
+        let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
+        (w.chars().count() >= 5 && w.ends_with("ed")) || (of(w) && !plural)
+    };
+    (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
 /// The shipped themes' layouts whose headline is a figure's, or names the figures under it.
@@ -1106,12 +1113,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("no slide balance counts makes a list of points: {named}. The rest make one point by design")
             }
         });
-    } else if balance.avg_bullets_per_slide < 2.0 {
-        short
-            .push(format!("slides make {} points each, where two to five read as full", balance.avg_bullets_per_slide));
-    }
-    if balance.avg_bullets_per_slide > 5.0 {
-        short.push(format!("slides make {} points each, more than a room takes in", balance.avg_bullets_per_slide));
+    } else {
+        // Over the slides it counts, which it says where it counts fewer than the deck shows: a
+        // cut of two points over five slides moves the average by 0.4, as W1's dogfood 7 found.
+        let shown = read.iter().filter(|s| s.eligible()).count();
+        let over = match pointed.len() < shown {
+            true => format!(", over {} of the {shown} slides, those made to list points", pointed.len()),
+            false => String::new(),
+        };
+        let average = balance.avg_bullets_per_slide;
+        if average < 2.0 {
+            short.push(format!("slides make {average} points each{over}, where two to five read as full"));
+        }
+        if average > 5.0 {
+            short.push(format!("slides make {average} points each{over}, more than a room takes in"));
+        }
     }
     if balance.avg_speaker_notes_length < 30.0 {
         short.push(format!("their notes run {} characters, too few to speak from", balance.avg_speaker_notes_length));
@@ -1436,7 +1452,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!(
                     "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
                 ),
-                format!("Open slide {k}'s notes with the line that carries the room from slide {before} into {part}."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
                 None,
             );
         } else {
@@ -1445,7 +1463,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Severity::Warning,
                 Kind::Turn,
                 format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-                format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
                 None,
             );
         }
@@ -2729,7 +2749,10 @@ mod tests {
         let k = turn.slide;
         assert_eq!(
             turn.ask,
-            format!("Open slide {k}'s notes with the line that carries the talk from slide {}.", k - 1)
+            format!(
+                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
+                b = k - 1
+            )
         );
         let d = Deck::from_value(&deck).unwrap();
         let read = readings(&d, &slides(&d)).unwrap().0;
@@ -2757,6 +2780,10 @@ mod tests {
         assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
         let h = noted(&mut deck, format!("Plainly onward. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
+        // A connective alone carries nothing over, as the ask says (W1's dogfood 5).
+        for connective in ["So, onward.", "But that's not all.", "That's why it matters."] {
+            assert!(found(&noted(&mut deck, connective.to_string())), "{connective}");
+        }
         if let Some(shared) = shared {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
             assert!(found(&h), "a word both slides use carries nothing over");
@@ -2899,6 +2926,12 @@ mod tests {
         }
         // A gerund names a topic.
         assert!(labels("Pricing by region"));
+        // A verb's "-s" ending a list of things is a plural (W1's dogfood 6); a verb before it
+        // still states a point.
+        assert!(labels("Weekend hours and online holds"));
+        assert!(labels("Late fees or holds"));
+        assert!(!labels("Weekend hours grow and holds"));
+        assert!(!labels("The library holds weekend hours"));
 
         let deck = climate();
         let h = of(&deck);
@@ -3160,6 +3193,28 @@ mod tests {
             thin[0].says
         );
         assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
+    }
+
+    /// Balance's line says how many slides its average is over, where it counts fewer than the
+    /// deck shows (W1's dogfood 7): two points cut over five slides move it 0.4, which over nine
+    /// would read as an error in the arithmetic. The figure is Vzestup's.
+    #[test]
+    fn balance_says_the_slides_its_average_is_over() {
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let h = of(&dogfood("fleet", "", thinned));
+        assert_eq!(
+            h.balance.says,
+            "Slides make 1.8 points each, over 4 of the 10 slides, those made to list points, where two to five read as full."
+        );
+        // A deck whose every slide balance counts says nothing of it.
+        let every = |slides: &mut Vec<answer::Slide>| {
+            for s in slides.iter_mut() {
+                s.layout_suggestion = "Bullets".into();
+                s.key_bullets.truncate(1);
+            }
+        };
+        let all = of(&dogfood("fleet", "", every));
+        assert!(!all.balance.says.contains(", over "), "{}", all.balance.says);
     }
 
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
@@ -3523,7 +3578,7 @@ mod tests {
         );
         assert_eq!(
             opened.ask,
-            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches, in a word of slide 3's: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
         );
         assert_eq!(fleet.coherence.score, None, "no figure moves");
         assert_eq!(
