@@ -14,10 +14,12 @@
 
 mod find;
 mod ops;
+mod shapes;
 
 pub use find::{A_VALUE, Found, Kind, Query, find, matches, replacing};
 pub use ops::{Written, written};
 pub use ops::{deleting, depths, held, nearest, nearest_in, states_kept};
+pub use shapes::{SHAPES, shape};
 
 use crate::document::{DataSource, Node, Props, State};
 use crate::model::values::{AnnotationAt, AnnotationKind, Duration, NonNegative, Range, Rect};
@@ -64,12 +66,15 @@ impl Op {
     /// to the node's defaults.
     pub fn from_value(v: Value) -> Result<Op, String> {
         let name = v.get("op").and_then(Value::as_str).ok_or_else(|| "an op needs a string `op`".to_string())?;
-        let op = if JSON_OPS.contains(&name) {
-            serde_json::from_value(v).map(Op::Json)
-        } else {
-            serde_json::from_value(v).map(|op| Op::Semantic(Box::new(op)))
-        };
-        op.map_err(|e| e.to_string())
+        if JSON_OPS.contains(&name) {
+            return serde_json::from_value(v).map(Op::Json).map_err(|e| e.to_string());
+        }
+        // An op that does not read says the shape it is written in (agent dogfood 2).
+        let name = name.to_string();
+        serde_json::from_value(v).map(|op| Op::Semantic(Box::new(op))).map_err(|e| match shape(&name) {
+            Some(shape) => format!("{e}; `{name}` is written {shape}"),
+            None => e.to_string(),
+        })
     }
 }
 
