@@ -33,8 +33,8 @@
 //   where they stood, what is new after them (editor dogfood 6).
 // - A to-do that names a field offers it, by the `field` health gives it: a turn's "Edit its notes"
 //   and the bend's "Set its Intensity" each show the slide and the field in the Format tab, in view
-//   and in focus; and a topic headline's "Edit its headline", on the fleet deck, types in the text
-//   that heads the slide, its words selected (editor dogfood 6).
+//   and in focus; and a topic headline's "Edit its headline", on the fleet deck with slide 4 titled
+//   by its topic, types in the text that heads the slide, its words selected (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
@@ -44,7 +44,7 @@
 //   score says so and what it would be, the slide a button that shows it (W1's dogfood 5).
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { launch, serve, tab } from "./serve.mjs";
 
 const server = await serve();
@@ -782,17 +782,21 @@ try {
   })();
 
   // A headline that names its topic offers its headline (editor dogfood 6): the fleet deck, made
-  // from its slides with no call, finds slide 6's "Routes in minutes, not hours" a topic; its row's
-  // "Edit its headline" shows the slide and types in the text that heads it, its words selected, so
-  // what is typed takes their place. Slide 6 is a big number's: its headline reads its figure, then
-  // the words of the text that heads it, which are what is typed in.
+  // from its slides with no call, slide 4 titled by its topic, "Existing routing approaches", which
+  // health finds a topic by the words the slide shows (#1041); its row's "Edit its headline" shows
+  // the slide and types in the text that heads it, its words selected, so what is typed takes their
+  // place.
   await (async () => {
     const bundle = "target/web-story/fleet";
     await rm(bundle, { recursive: true, force: true });
+    await mkdir("target/web-story", { recursive: true });
+    const slides = JSON.parse(await readFile("tests/fixtures/dogfood/fleet.slides.json", "utf8"));
+    (Array.isArray(slides) ? slides : slides.slides)[3].slideTitle = "Existing routing approaches";
+    await writeFile("target/web-story/fleet-topic.slides.json", JSON.stringify(slides));
     execFileSync(
       "cargo",
       ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", bundle, "Ridgefleet for Northline Freight's routing team",
-        "--slides", "tests/fixtures/dogfood/fleet.slides.json", "--no-look", "--pictures", "none", "--goal", "Persuade", "--length", "5-10 slides"],
+        "--slides", "target/web-story/fleet-topic.slides.json", "--no-look", "--pictures", "none", "--goal", "Persuade", "--length", "5-10 slides"],
       { stdio: "inherit" },
     );
     const page = await context.newPage();
