@@ -1349,11 +1349,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             false => String::new(),
         };
         let average = balance.avg_bullets_per_slide;
+        let points = points(average);
         if average < 2.0 {
-            short.push(format!("slides make {average} points each{over}, where two to five read as full"));
+            short.push(format!("slides make {average} {points} each{over}, where two to five read as full"));
         }
         if average > 5.0 {
-            short.push(format!("slides make {average} points each{over}, more than a room takes in"));
+            short.push(format!("slides make {average} {points} each{over}, more than a room takes in"));
         }
     }
     if balance.avg_speaker_notes_length < 30.0 {
@@ -3115,6 +3116,12 @@ fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Opti
     (!thin.is_empty()).then_some(thin)
 }
 
+/// The noun balance's average counts in, agreeing with the figure as it reads, as [`agree`] has a
+/// count agree: "1 point", else "1.8 points" (Nordlicht, R1's agent dogfood 3).
+fn points(average: f64) -> &'static str {
+    agree(if average.to_string() == "1" { 1 } else { 2 }, "point", "points")
+}
+
 /// Slides by place as a sentence names them: "slide 4", "slides 1 and 10", "slides 1, 4 and 10".
 fn slide_list(at: &[usize]) -> String {
     let named: Vec<String> = at.iter().map(|i| (i + 1).to_string()).collect();
@@ -4311,6 +4318,12 @@ mod tests {
         };
         let all = of(&dogfood("fleet", "", every));
         assert!(!all.balance.says.contains(", over "), "{}", all.balance.says);
+        // An average that reads as one is one point, as a reader says it (Nordlicht, R1's agent
+        // dogfood 3, read "Slides make 1 points each"); any other is points.
+        assert_eq!(points(1.0), "point");
+        for other in [0.0, 0.8, 1.5, 2.0, 5.5] {
+            assert_eq!(points(other), "points", "{other}");
+        }
     }
 
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
