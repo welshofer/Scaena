@@ -190,6 +190,21 @@ pub enum Kind {
     Label,
 }
 
+/// What a finding asks a person to edit, where it is one field of the slide an editor opens for
+/// it (W2's editor dogfood 6), so an editor need not read the ask's words for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Field {
+    /// The slide's headline.
+    Headline,
+    /// The notes the presenter reads for it.
+    Notes,
+    /// The intensity its beat plans it at (`media.narrato.intensity`, the finding's `path`).
+    Intensity,
+    /// The claim the settled outline holds for the part of the talk it opens.
+    Claim,
+}
+
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
 /// is safe, a fix.
 #[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
@@ -214,6 +229,11 @@ pub struct Finding {
     /// the person's (ADR-0032, item 4).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// The one field the finding asks to edit, where it asks for one: a slide's headline, its
+    /// notes, its intensity, or its part's claim; none where it asks for the slide's words at
+    /// large, or for a cut, a move, or a source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<Field>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -1345,6 +1365,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
 
     // What to look at, in the order health finds it.
     let mut findings = Vec::new();
+    // The findings whose field depends on what they ask, by state: an empty one-idea slide asked
+    // for its notes alone, an intensity gap whose plan is what strays, and a talk short of its
+    // slot, asked for its notes deepened.
+    let (mut notes_alone, mut plan_strays, mut notes_deepened): (Vec<String>, Vec<String>, Vec<String>) =
+        Default::default();
     let mut find = |id: &str, severity: Severity, kind: Kind, says: String, ask: String, fix: Option<Fix>| {
         if let Some(&i) = place.get(id) {
             findings.push(Finding {
@@ -1357,6 +1382,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 fix,
                 figure: None,
                 path: None,
+                field: None,
             });
         }
     };
@@ -1411,6 +1437,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
             // it lacks is the notes, never more on the slide.
             let (says, ask) = if s.one_idea {
+                notes_alone.push(s.id.clone());
                 (
                     format!("Slide {k} makes its one point in its headline, and has no notes."),
                     format!("Add notes to slide {k} that say what to tell the room."),
@@ -1616,7 +1643,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // In a person's words; the figures are for the assistant, which reads the deck's. Where
         // the plan bends from the arc, the words are to carry what the place calls for, not the
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
-        let ask = match bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta) {
+        let calls = bent.get(g.slide_id.as_str()).map(|delta| g.declared - delta);
+        if calls.is_some_and(|calls| (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD) {
+            plan_strays.push(g.slide_id.clone());
+        }
+        let ask = match calls {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
                 "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.",
                 level(calls)
@@ -2118,6 +2149,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     ),
                 )
             };
+            if under {
+                notes_deepened.push(read[at].id.clone());
+            }
             find(&read[at].id, Severity::Warning, Kind::Pacing, says, ask, None);
         }
     }
@@ -2173,6 +2207,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // Each `arc` finding says where its slide's plan is written, for an agent.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Arc) {
         f.path = at(&f.state, "intensity");
+    }
+    // Each finding that asks for one field says which (W2's editor dogfood 6).
+    for f in findings.iter_mut() {
+        let of = |ids: &[String]| ids.contains(&f.state);
+        f.field = match f.kind {
+            Kind::Title | Kind::Label => Some(Field::Headline),
+            Kind::Turn | Kind::Notes => Some(Field::Notes),
+            Kind::Empty if of(&notes_alone) => Some(Field::Notes),
+            Kind::Pacing if of(&notes_deepened) => Some(Field::Notes),
+            Kind::Arc => Some(Field::Intensity),
+            Kind::Intensity if of(&plan_strays) => Some(Field::Intensity),
+            Kind::Claim if f.severity == Severity::Warning => Some(Field::Claim),
+            _ => None,
+        };
     }
     // Each `source` finding says the figure it found no source for.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
@@ -3808,6 +3856,53 @@ mod tests {
         let h = of(&deck);
         assert_eq!(h.slides[2].sources, ["ipcc.pdf", "https://example.org/noaa"]);
         assert!(h.slides.iter().enumerate().all(|(i, s)| i == 2 || s.sources.is_empty()));
+    }
+
+    /// Each finding that asks for one field of its slide says which (W2's editor dogfood 6), as its
+    /// ask asks: a headline, notes, an intensity planned, or a part's claim; none where it asks for
+    /// the slide's words at large, a cut, a move, or a source. On the dogfood decks and the climate
+    /// talk, each kind keeps to its field, and every field is said somewhere.
+    #[test]
+    fn a_finding_names_the_field_it_asks_to_edit() {
+        let mut decks: Vec<Value> = ["appeal", "fleet", "grant", "keynote", "lecture", "pitch", "qbr", "training"]
+            .iter()
+            .map(|name| dogfood(name, "", |_| {}))
+            .collect();
+        decks.push(climate());
+        // A one-idea slide with nothing to say: its notes alone.
+        decks.push(dogfood("keynote", "", |slides| {
+            for s in slides.iter_mut() {
+                s.speaker_notes.clear();
+            }
+        }));
+        let mut seen: Vec<Field> = Vec::new();
+        for deck in &decks {
+            for f in of(deck).findings {
+                let want = match f.kind {
+                    Kind::Title | Kind::Label => Some(Field::Headline),
+                    Kind::Turn | Kind::Notes => Some(Field::Notes),
+                    Kind::Empty => f.ask.starts_with("Add notes").then_some(Field::Notes),
+                    Kind::Pacing => f.ask.starts_with("Deepen the notes").then_some(Field::Notes),
+                    Kind::Arc => Some(Field::Intensity),
+                    Kind::Intensity => f.ask.contains("set its Intensity").then_some(Field::Intensity),
+                    Kind::Claim => (f.severity == Severity::Warning).then_some(Field::Claim),
+                    _ => None,
+                };
+                assert_eq!(f.field, want, "{f:#?}");
+                if let Some(field) = f.field
+                    && !seen.contains(&field)
+                {
+                    seen.push(field);
+                }
+                if f.field == Some(Field::Intensity) {
+                    assert!(f.kind != Kind::Arc || f.path.is_some(), "an arc's plan is where its path says: {f:#?}");
+                }
+            }
+        }
+        for field in [Field::Headline, Field::Notes, Field::Intensity] {
+            assert!(seen.contains(&field), "{field:?} said nowhere: {seen:?}");
+        }
+        assert_eq!(serde_json::to_value(Field::Headline).unwrap(), json!("headline"));
     }
 
     #[test]
