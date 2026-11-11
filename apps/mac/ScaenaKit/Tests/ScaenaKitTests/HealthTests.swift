@@ -200,3 +200,57 @@ import Testing
     let state = try #require(try session.states().first)
     _ = try session.stateChoices(state: state).cites
 }
+
+/// A health read of `slides` slides, `s1` … `sN`, with `findings`, each `(slide, severity, kind)`.
+private func read(slides: Int, _ findings: [(Int, String, String)]) throws -> Health {
+    let measure = #"{"score": 90, "says": ""}"#
+    let slide = { (n: Int) in
+        #"{"state": "s\#(n)", "part": null, "title": "", "curve": 0.5, "declared": null, "read": null, "tone": null, "toneRead": null, "standing": "ok"}"#
+    }
+    let listed = findings.map { n, severity, kind in
+        #"{"state": "s\#(n)", "slide": \#(n), "severity": "\#(severity)", "kind": "\#(kind)", "says": "", "ask": ""}"#
+    }
+    let json = """
+        {"score": 90, "arc": null, "pacing": \(measure), "balance": \(measure), "coherence": \(measure),
+         "fidelity": \(measure), "intensity": \(measure), "tone": \(measure),
+         "slides": [\((1...slides).map(slide).joined(separator: ","))], "findings": [\(listed.joined(separator: ","))]}
+        """
+    return try JSONDecoder().decode(Health.self, from: Data(json.utf8))
+}
+
+/// Every slide a Story row's words name links to it, as the browser's Story makes each a button
+/// (editor dogfood 6): "slides 1, 5 and 11", "slide 4's", "slides 10–11", the words as they were,
+/// and a slide health does not read left as words.
+@Test func everySlideARowNamesLinksToIt() throws {
+    let health = try read(slides: 11, [])
+    let links = { (text: String) -> [String] in
+        let said = health.slidesShown(text)
+        #expect(String(said.characters) == text, "the words as they were")
+        return said.runs.compactMap { run in run.link.map { "\(String(said[run.range].characters)) \($0.absoluteString)" } }
+    }
+    #expect(links("Deepen the notes of slides 1, 5 and 11, the shortest beats.") == ["1 scaena-state:s1", "5 scaena-state:s5", "11 scaena-state:s11"])
+    #expect(links("Its shortest beat, slide 5's, runs 15 seconds; its longest, slide 10's.") == ["5 scaena-state:s5", "10 scaena-state:s10"])
+    #expect(links("The close, slides 10–11, never lands it.") == ["10 scaena-state:s10", "11 scaena-state:s11"])
+    #expect(links("Give slide 12 a point more.").isEmpty, "a slide health does not read stays words")
+    #expect(links("Reads flatter than it was written to be.").isEmpty)
+}
+
+/// The Story's open rows keep their places from one read to the next (editor dogfood 6): a row
+/// whose one finding of its kind moved slides stays where it stood, and what is new comes after,
+/// an error first, so no new row takes the place of the one a person is working.
+@Test func theStorysRowsKeepTheirPlacesAsItReadsAgain() throws {
+    var places = StoryPlaces()
+    let slides = { (runs: [[Health.Finding]]) in runs.map { run in run.map { "\($0.slide) \($0.kind)" }.joined(separator: ", ") } }
+    let first = try read(slides: 11, [(8, "warning", "tone"), (10, "warning", "intensity"), (5, "warning", "pacing"), (3, "warning", "turn")])
+    let shown = places.ordered(first.findings.map { [$0] }, of: first.findings)
+    #expect(slides(shown) == ["8 tone", "10 intensity", "5 pacing", "3 turn"], "a first read as triage gives it")
+    // Slide 5's notes deepened: pacing moves to slide 1, and a tone finding new to the Story comes
+    // to slide 5, which triage would put first.
+    let again = try read(slides: 11, [(5, "warning", "tone"), (8, "warning", "tone"), (10, "warning", "intensity"), (1, "warning", "pacing"), (3, "warning", "turn")])
+    let kept = places.ordered(again.findings.map { [$0] }, of: again.findings)
+    #expect(slides(kept) == ["8 tone", "10 intensity", "1 pacing", "3 turn", "5 tone"])
+    // A new error comes first, the rest where they stood.
+    let broken = try read(slides: 11, [(8, "warning", "tone"), (2, "error", "layout"), (10, "warning", "intensity"), (1, "warning", "pacing")])
+    let errorFirst = places.ordered(broken.findings.map { [$0] }, of: broken.findings)
+    #expect(slides(errorFirst) == ["2 layout", "8 tone", "10 intensity", "1 pacing"])
+}
