@@ -1871,7 +1871,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             strays.push(g.slide_id.clone());
         }
         // The words the reading was made of, as a tone ask names its own (R1's MCP dogfood).
-        let named = intensed(&health::intensity::heard(&read[i].text(), language).unwrap_or_default());
+        let heard = health::intensity::heard(&read[i].text(), language).unwrap_or_default();
+        let named = format!("{}{}", intensed(&heard), whereabouts(&heard, &heading[i], &read[i]));
         // In a person's words; the figures are for the assistant, which reads the deck's. Where
         // the plan bends from the arc, the words are to carry what the place calls for, not the
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
@@ -1911,7 +1912,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The words the reading was made of (W1's dogfood 3): a writer warming a slide moves
         // its tone only with words the lexicon reads, so the ask names them.
         let heard = health::valence::heard(&read[i].text(), language).unwrap_or_default();
-        let named = toned(&heard);
+        let named = format!("{}{}", toned(&heard), whereabouts(&heard, &heading[i], &read[i]));
         let (says, ask) = match g.gap > 0.0 {
             true => (
                 format!("Slide {k} reads graver than it was written to be."),
@@ -2759,23 +2760,7 @@ fn intensed(heard: &[(String, f64)]) -> String {
 /// `sides.1`, the side above first where `above_first`, each weightiest first, at most [`TONED`],
 /// and named once; nothing where no word was read.
 fn named(heard: &[(String, f64)], sides: (&str, &str), above_first: bool) -> String {
-    let side = |below: bool| -> Vec<String> {
-        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == below && *w != 0.0).collect();
-        // Weightiest first; the sort is stable, so a tie keeps the order the words stand in.
-        scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
-        let mut out: Vec<String> = Vec::new();
-        for (w, _) in words {
-            let quoted = match w.as_str() {
-                "!" => "its exclamation mark".to_string(),
-                "?" => "its question mark".to_string(),
-                _ => format!("\u{201c}{w}\u{201d}"),
-            };
-            if !out.contains(&quoted) && out.len() < TONED {
-                out.push(quoted);
-            }
-        }
-        out
-    };
+    let side = |below: bool| -> Vec<String> { picked(heard, below).iter().map(|w| quoted(w)).collect() };
     let list = |ws: &[String]| match ws {
         [] => String::new(),
         [one] => one.clone(),
@@ -2791,6 +2776,97 @@ fn named(heard: &[(String, f64)], sides: (&str, &str), above_first: bool) -> Str
         (false, true) => format!(" Health reads {} as {a}, and no word as {b}.", list(&first)),
         (true, false) => format!(" Health reads {} as {b}, and no word as {a}.", list(&second)),
         (false, false) => format!(" Health reads {} as {a}, and {} as {b}.", list(&first), list(&second)),
+    }
+}
+
+/// The words of `heard` a finding names on one side, those weighed below zero or above it: each
+/// once, the weightiest first, the sort stable so a tie keeps the order they stand in, at most
+/// [`TONED`].
+fn picked(heard: &[(String, f64)], below: bool) -> Vec<String> {
+    let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == below && *w != 0.0).collect();
+    scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
+    let mut out: Vec<String> = Vec::new();
+    for (w, _) in words {
+        if !out.contains(w) && out.len() < TONED {
+            out.push(w.clone());
+        }
+    }
+    out
+}
+
+/// A word a finding names, as a sentence says it: quoted, or a mark named as the mark it is.
+fn quoted(w: &str) -> String {
+    match w {
+        "!" => "its exclamation mark".to_string(),
+        "?" => "its question mark".to_string(),
+        _ => format!("\u{201c}{w}\u{201d}"),
+    }
+}
+
+/// Where the words a tone or an intensity finding names stand (W2's editor dogfood 6), as a
+/// sentence its ask ends with: in its headline as it shows, elsewhere on the slide, in its notes,
+/// or only in the claim its beat keeps for it, which the slide no longer says and the editors'
+/// Update sets to its words; nothing where no word is named. Its reading is the slide's title,
+/// body, and notes, and its title is the beat's claim where the beat keeps one, so a word may be
+/// read that the slide does not show.
+fn whereabouts(heard: &[(String, f64)], headline: &str, s: &SlideForHealth) -> String {
+    let tokens = |text: &str| -> String {
+        let lowered = text.to_lowercase();
+        let words: Vec<&str> = (lowered.split(|c: char| !matches!(c, 'a'..='z' | '0'..='9' | '%' | '$' | '&' | '-')))
+            .filter(|t| !t.is_empty() && *t != "-")
+            .collect();
+        format!(" {} ", words.join(" "))
+    };
+    let has = |text: &str, w: &str| match w {
+        "!" | "?" => text.contains(w),
+        _ => tokens(text).contains(&format!(" {w} ")),
+    };
+    let mut words = picked(heard, false);
+    words.extend(picked(heard, true));
+    let mut places: Vec<(&str, Vec<String>)> = Vec::new();
+    for w in &words {
+        let place = if has(headline, w) {
+            "in its headline"
+        } else if has(&s.body, w) {
+            "elsewhere on the slide"
+        } else if has(&s.notes, w) {
+            "in its notes"
+        } else {
+            "only in its story's claim, which the slide no longer says (Update it to the slide's words)"
+        };
+        match places.iter_mut().find(|(p, _)| *p == place) {
+            Some((_, ws)) => {
+                if !ws.contains(&quoted(w)) {
+                    ws.push(quoted(w));
+                }
+            }
+            None => places.push((place, vec![quoted(w)])),
+        }
+    }
+    // As the slide is read: its headline, the rest of it, its notes, and the claim behind it.
+    let rank = |p: &str| match p {
+        "in its headline" => 0,
+        "elsewhere on the slide" => 1,
+        "in its notes" => 2,
+        _ => 3,
+    };
+    scaena_core::sort::by_key(&mut places, |(p, _)| rank(p));
+    let said: Vec<String> = (places.iter())
+        .map(|(place, ws)| {
+            let is = if ws.len() > 1 { "are" } else { "is" };
+            let list = match ws.as_slice() {
+                [one] => one.clone(),
+                [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+                [] => String::new(),
+            };
+            format!("{list} {is} {place}")
+        })
+        .collect();
+    match said.is_empty() {
+        true => String::new(),
+        false => {
+            format!(" {}.", capitalized(&said.join("; ")))
+        }
     }
 }
 
@@ -4833,13 +4909,47 @@ mod tests {
         // It names the words its reading was made of (R1's MCP dogfood), as a tone ask does.
         let d = Deck::from_value(&deck).unwrap();
         let read = readings(&d, &slides(&d)).unwrap().0;
+        // The heading the slide shows, as health reads it (SPEC §3.12).
+        let snaps = resolve_states(&d).unwrap();
+        let shown = scaena_core::reading::headline(&d, &snaps[*slides(&d)[i].states.last().unwrap()]);
+        let headline = shown.unwrap_or_else(|| read[i].title.clone());
         let heard = health::intensity::heard(&read[i].text(), None).unwrap_or_default();
         let named = intensed(&heard);
         assert!(!named.is_empty(), "words that read an intensity: {heard:?}");
-        assert!(finding.ask.ends_with(&named), "{}", finding.ask);
+        // And where they stand, after them (W2's editor dogfood 6).
+        let placed = whereabouts(&heard, &headline, &read[i]);
+        assert!(!placed.is_empty());
+        assert!(finding.ask.ends_with(&format!("{named}{placed}")), "{}", finding.ask);
         // The plan is the arc's: the words are to carry it, so no fix declares what they read
         // in its place.
         assert_eq!(finding.fix, None);
+    }
+
+    /// A tone or intensity ask says where the words it names stand (W2's editor dogfood 6): its
+    /// reading is the slide's title, body, and notes, and its title is the beat's claim, so a word
+    /// left only in the claim after the headline was retyped, or only in the notes, is said to be
+    /// there, the claim's with its Update.
+    #[test]
+    fn a_reading_says_where_its_words_stand() {
+        let slide = SlideForHealth {
+            title: "Deliveries missed and nobody knew".into(),
+            body: "\u{2022} Late trucks every week".into(),
+            notes: "We were behind on every route.".into(),
+            ..SlideForHealth::default()
+        };
+        let heard = vec![
+            ("missed".to_string(), -1.0),
+            ("late".to_string(), -0.8),
+            ("behind".to_string(), -0.6),
+            ("knew".to_string(), 0.2),
+        ];
+        assert_eq!(
+            whereabouts(&heard, "Deliveries and nobody knew", &slide),
+            " \u{201c}knew\u{201d} is in its headline; \u{201c}late\u{201d} is elsewhere on the slide; \u{201c}behind\u{201d} is in its notes; \u{201c}missed\u{201d} is only in its story's claim, which the slide no longer says (Update it to the slide's words)."
+        );
+        assert_eq!(whereabouts(&[], "Anything", &slide), "");
+        let marked = vec![("?".to_string(), 1.0)];
+        assert_eq!(whereabouts(&marked, "Ready?", &slide), " Its question mark is in its headline.");
     }
 
     /// An intensity ask names its words as a tone ask does, heated first, a mark as the mark it
