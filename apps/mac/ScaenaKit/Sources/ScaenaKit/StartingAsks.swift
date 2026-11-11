@@ -15,7 +15,8 @@ public struct StartingAsk: Equatable, Identifiable, Sendable {
 
     /// The asks for a deck whose health is `health`, where it was read: the talk made stronger,
     /// health read first; its weakest beat tightened, where health names its beats and finds
-    /// something in one; and every slide held to its claim.
+    /// something in one; its figures compared, where health offers it; and every slide held to its
+    /// claim.
     public static func offered(by health: Health?) -> [StartingAsk] {
         var offered = [
             StartingAsk(
@@ -29,6 +30,11 @@ public struct StartingAsk: Equatable, Identifiable, Sendable {
                     label: "Tighten “\(beat)”",
                     question: "Tighten the slides of the “\(beat)” beat: each should say its claim "
                         + "in fewer words, and lose nothing it needs."))
+        }
+        // The deck's figures compared by the model, where its slides state three or more: health's
+        // own words, which the browser offers too.
+        if let compare = health?.compare {
+            offered.append(StartingAsk(label: compare.label, question: compare.question))
         }
         offered.append(
             StartingAsk(

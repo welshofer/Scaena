@@ -505,11 +505,15 @@ try {
     await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
     await tab(page, "story");
     await page.waitForFunction(() => window.scaena.story.health(), null, { timeout: 120000 });
-    const bend = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "arc" && f.says.includes("planned hotter")));
-    check(!!bend && bend.ask.includes("by its Intensity"), `a slide planned hotter than its place, asked by its Intensity: ${bend?.ask}`);
+    // Its words already read as its place calls for, so the bend is folded into the words'
+    // warning, which asks for the plan once (W2's editor dogfood 6).
+    const bend = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "intensity" && f.says.includes("planned hotter")));
+    check(!!bend && bend.slide === 2 && /its Intensity/.test(bend.ask), `slide 2 planned hotter than its place, asked by its Intensity: ${bend?.ask}`);
+    const beside = await page.evaluate((s) => window.scaena.story.health().findings.filter((f) => f.kind === "arc" && f.state === s).length, bend?.state);
+    check(beside === 0, `and no bend's row beside it: ${beside}`);
     // Its row says the plan, and the place's call, by the ladder's words, never a figure.
     const todo = await page.evaluate((a) => window.scaena.story.spoken(a), bend.ask);
-    check(todo.includes("planned at Peak") && /\((Calm|Steady|Building|Intense|Peak)\)/.test(todo) && !/\d\.\d\d/.test(todo), `its to-do says the plan by its word: ${todo}`);
+    check(todo.includes("plan (Peak)") && /\((Calm|Steady|Building|Intense|Peak)\)/.test(todo) && !/\d\.\d\d/.test(todo), `its to-do says the plan by its word: ${todo}`);
     const place = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].curve, bend.slide);
     await page.click("#story [data-more] summary").catch(() => {});
     // Its to-do names the slide's Intensity, and the row offers it (editor dogfood 6): a press shows
@@ -549,15 +553,15 @@ try {
     check(said.startsWith(`Slide ${bend.slide}: Intensity Building`) && said.includes("⌘Z"), `let go, one patch, said: ${said}`);
     await tab(page, "story");
     await page
-      .waitForFunction((s) => !window.scaena.story.health()?.findings.some((f) => f.kind === "arc" && f.state === s), bend.state, { timeout: 60000 })
+      .waitForFunction((b) => !window.scaena.story.health()?.findings.some((f) => f.kind === "intensity" && f.state === b && f.says.includes("planned hotter")), bend.state, { timeout: 60000 })
       .catch(() => {});
     const after = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].declared, bend.slide);
-    const still = await page.evaluate((s) => window.scaena.story.health().findings.some((f) => f.kind === "arc" && f.state === s), bend.state);
+    const still = await page.evaluate((b) => window.scaena.story.health().findings.some((f) => f.state === b && (f.kind === "arc" || (f.kind === "intensity" && f.says.includes("planned hotter")))), bend.state);
     check(Math.abs(after - Number(to)) < 1e-9 && !still, `planned for its place (${after}), it bends no more`);
-    // What the edit answered is said (editor dogfood 6): the plan set for its place answers both of
-    // slide 2's findings, its plan and the intensity its words were asked for, after what the status
-    // said of the edit, and beside the score.
-    const answeredText = `Answers 2 of the Story's findings: slide ${bend.slide}'s plan and intensity`;
+    // What the edit answered is said (editor dogfood 6): the plan set for its place answers slide 2's
+    // one finding, the intensity warning its bend folds into (W2's editor dogfood 6, item B), after
+    // what the status said of the edit, and beside the score.
+    const answeredText = `Answers 1 of the Story's findings: slide ${bend.slide}'s intensity`;
     await page.waitForFunction((t) => document.querySelector("#story > p[data-answered]")?.textContent === t, answeredText, { timeout: 30000 }).catch(() => {});
     const toldNow = await page.evaluate(() => ({
       status: document.querySelector("#status").textContent,
@@ -578,7 +582,7 @@ try {
     // slide alone.
     await tab(page, "story");
     // Read again since the plan came back: its bend is found again.
-    await page.waitForFunction((st) => window.scaena.story.health()?.findings.some((f) => f.kind === "arc" && f.state === st), bend.state, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction((b) => window.scaena.story.health()?.findings.some((f) => f.kind === "intensity" && f.state === b && f.says.includes("planned hotter")), bend.state, { timeout: 60000 }).catch(() => {});
     await page.click("#story [data-more] summary").catch(() => {});
     const close = await page.evaluate(() => window.scaena.story.health().findings.find((f) => f.kind === "bigIdea"));
     const named = [...(close?.says.match(/slides (\d+)–(\d+)/) ?? []).slice(1)].map(Number);

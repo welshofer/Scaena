@@ -2,6 +2,7 @@
 // ADR-0023).
 #if os(iOS)
 import GameController
+import ObjectiveC
 import Observation
 import SwiftUI
 import UIKit
@@ -1314,6 +1315,8 @@ enum AnimationReport {
     /// Each layer of each window of the app's scenes that holds an animation, said once a report.
     private static func say() {
         var said: [String] = []
+        // At most forty a window, so the app's own window crowds out none of the keyboard's.
+        var saidIn: [ObjectIdentifier: Int] = [:]
         // Each view that animates, once: where it stands in its window, and what of the app's
         // holds it, so a report names the chrome that keeps the app from settling (lift-up
         // 20261110): the nearest view above it with an accessibility identifier or label, and the
@@ -1322,7 +1325,8 @@ enum AnimationReport {
         var seen = Set<ObjectIdentifier>()
         func walk(_ layer: CALayer, _ window: UIWindow, _ name: String) {
             let keys = layer.animationKeys() ?? []
-            for key in keys where said.count < 40 {
+            for key in keys where saidIn[ObjectIdentifier(window), default: 0] < 40 {
+                saidIn[ObjectIdentifier(window), default: 0] += 1
                 let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
                 said.append("\(name): \(type(of: layer)) of \(owner), \(key)")
             }
@@ -1333,10 +1337,7 @@ enum AnimationReport {
             }
             for sub in layer.sublayers ?? [] { walk(sub, window, name) }
         }
-        for scene in UIApplication.shared.connectedScenes {
-            guard let scene = scene as? UIWindowScene else { continue }
-            for window in scene.windows { walk(window.layer, window, String(describing: type(of: window))) }
-        }
+        for window in allWindows() { walk(window.layer, window, String(describing: type(of: window))) }
         animationsLog.debug("\(said.count) animating: \(said.joined(separator: "; "), privacy: .public)")
         if !placed.isEmpty {
             animationsLog.debug("animating views: \(placed.joined(separator: "; "), privacy: .public)")
@@ -1346,6 +1347,21 @@ enum AnimationReport {
     /// What of the app holds `view`: the nearest view above it that a person or a test names (its
     /// accessibility identifier, else its label), and the nearest whose class is the app's or
     /// SwiftUI's rather than UIKit's or Core Animation's.
+    /// Every visible window of the app, UIKit's own among them: the keyboard's and the text
+    /// effects' windows, which no scene lists (lift-up 20261110). #1010's run caught a stall with
+    /// the scenes' windows animating as in the runs that pass, the key waiting while the software
+    /// keyboard was up; what its windows animate is what this adds. Where UIKit has no such call,
+    /// the scenes' windows alone.
+    static func allWindows() -> [UIWindow] {
+        let selector = NSSelectorFromString("allWindowsIncludingInternalWindows:onlyVisibleWindows:")
+        if let method = class_getClassMethod(UIWindow.self, selector) {
+            typealias All = @convention(c) (AnyClass, Selector, Bool, Bool) -> NSArray?
+            let all = unsafeBitCast(method_getImplementation(method), to: All.self)
+            if let windows = all(UIWindow.self, selector, true, true) as? [UIWindow] { return windows }
+        }
+        return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+    }
+
     /// Each glass view of the app's windows laid out with no width or no height, as UIKit's Liquid
     /// Glass draws a toolbar's and a segmented control's chrome: its class, where it stands in its
     /// window, and what of the app holds it (lift-up 20261110). #990's report found such views
