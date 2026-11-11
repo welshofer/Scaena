@@ -116,16 +116,18 @@ final class ThemeTests: XCTestCase {
             }
             XCTAssertEqual(size.value as? String, "37")
             keep(app, as: "size-typed")
-            // Each ⌘Z and ⌘⇧Z waited on by what it shows, and sent once more where the app did not
-            // hear it, never sent blind (`pressed`). The canvas has taken the keys back from the
+            // Each ⌘Z and ⌘⇧Z waited on by what it shows, and sent again where it took no effect,
+            // never sent blind (`chord`). The canvas has taken the keys back from the
             // field: the app settles at once, nothing on screen animating on with nothing changing,
             // so the first waits for no quiescence timeout, some two minutes (lift-up 20261110).
             settle(3)
             let began = Date()
-            let undone = pressed("z", .command, in: app, until: { says(32).exists })
+            let undone = (try? chord("z", .command, named: "⌘Z, the size taken back", in: app, seconds: 10) {
+                says(32).exists
+            }) != nil
             let waited = Date().timeIntervalSince(began)
             print("⌘Z after a field gave the keys back waited \(String(format: "%.1f", waited)) s")
-            // Two tries of ten seconds each where a key is dropped, and never the two minutes.
+            // Three tries of ten seconds each where a key is dropped, and never the two minutes.
             XCTAssertLessThan(
                 waited, 45, "the canvas holding the keys, the app did not settle: ⌘Z took \(Int(waited)) s")
             guard undone else {
@@ -140,10 +142,10 @@ final class ThemeTests: XCTestCase {
             }
             XCTAssertTrue(wait(5) { size.value as? String == "32" }, "the field shows \(size.value ?? "nothing"), not 32")
             keep(app, as: "size-undone")
-            XCTAssertTrue(
-                pressed("z", [.command, .shift], in: app, until: { says(37).exists }), "⌘⇧Z did not make the size again")
-            XCTAssertTrue(
-                pressed("z", .command, in: app, until: { says(32).exists }), "⌘Z did not take the size back again")
+            try chord("z", [.command, .shift], named: "⌘⇧Z, the size made again", in: app, seconds: 10) {
+                says(37).exists
+            }
+            try chord("z", .command, named: "⌘Z, the size taken back again", in: app, seconds: 10) { says(32).exists }
         }
 
         try XCTContext.runActivity(named: "A stepper's tap is one step to undo") { _ in
@@ -155,7 +157,7 @@ final class ThemeTests: XCTestCase {
             more.tap()
             XCTAssertTrue(says(33).waitForExistence(timeout: 10), "the stepper's tap did not set 33 pt")
             keep(app, as: "size-stepped")
-            XCTAssertTrue(pressed("z", .command, in: app, until: { says(32).exists }), "⌘Z did not take the step back")
+            try chord("z", .command, named: "⌘Z, the step taken back", in: app, seconds: 10) { says(32).exists }
         }
 
         try XCTContext.runActivity(named: "Code's keywords named a color are one step to undo") { _ in
@@ -177,7 +179,7 @@ final class ThemeTests: XCTestCase {
                 throw Unseen(description: "the keywords have no color to pick: \(app.debugDescription)")
             }
             // Each tap waited on by what it opens, and tapped once more where it was lost
-            // (`tapped`), as each ⌘Z is pressed.
+            // (`tapped`), as each ⌘Z is pressed (`chord`).
             let muted = app.buttons.matching(NSPredicate(format: "label == 'Muted Text'")).firstMatch
             guard tapped(pick, until: { muted.exists }) else {
                 keep(app, as: "no-code-menu")
@@ -187,9 +189,9 @@ final class ThemeTests: XCTestCase {
                 tapped(muted) { "\(pick.label) \(pick.value as? String ?? "")".contains("Muted Text") },
                 "the keywords are not Muted Text: \(pick.debugDescription)")
             keep(app, as: "theme-code-named")
-            XCTAssertTrue(
-                pressed("z", .command, in: app) { "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent") },
-                "⌘Z did not take the keywords' color back: \(pick.debugDescription)")
+            try chord("z", .command, named: "⌘Z, the keywords' color taken back", in: app, seconds: 10) {
+                "\(pick.label) \(pick.value as? String ?? "")".contains("From the Accent")
+            }
         }
 
         // The inspector as the other tests find it.

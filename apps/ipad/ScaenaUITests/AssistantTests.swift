@@ -28,7 +28,9 @@ final class AssistantTests: XCTestCase {
             if toggle.waitForExistence(timeout: 5), toggle.isHittable {
                 toggle.tap()
             } else {
-                app.typeKey("a", modifierFlags: [.command, .option])
+                _ = try? chord("a", [.command, .option], named: "⌥⌘A, the assistant", in: app, seconds: 10) {
+                    panel.exists
+                }
             }
             if !panel.waitForExistence(timeout: 10), attempt == 1 {
                 keep(app, as: "assistant-unopened")
