@@ -208,6 +208,12 @@ pub struct Finding {
     /// The figure a `source` finding found no source for, as the slide writes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub figure: Option<String>,
+    /// Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to
+    /// its beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the
+    /// editors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is
+    /// the person's (ADR-0032, item 4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -837,11 +843,18 @@ fn labels(headline: &str) -> bool {
         .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
         .filter(|w| !w.is_empty())
         .collect();
+    let of = |w: &str| VERBS.split_ascii_whitespace().any(|v| v == w);
     // A word of five letters or more in "-ed" is a verb's past or participle, as a point is stated
     // in ("Margins expanded"); "-ing" is not, a gerund naming many a topic ("Pricing by region").
-    let verb =
-        |w: &String| (w.chars().count() >= 5 && w.ends_with("ed")) || VERBS.split_ascii_whitespace().any(|v| v == w);
-    (3..=6).contains(&words.len()) && !words.iter().any(verb)
+    // A verb's "-s" within two words after "and" or "or" is a plural, the end of a list of
+    // things ("Weekend hours and online holds", W1's dogfood 6): a predicate there stands on a
+    // verb before it, which is found.
+    let listed = |i: usize| words[i.saturating_sub(2)..i].iter().any(|w| matches!(w.as_str(), "and" | "or"));
+    let verb = |(i, w): (usize, &String)| {
+        let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
+        (w.chars().count() >= 5 && w.ends_with("ed")) || (of(w) && !plural)
+    };
+    (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
 /// The shipped themes' layouts whose headline is a figure's, or names the figures under it.
@@ -1102,12 +1115,21 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("no slide balance counts makes a list of points: {named}. The rest make one point by design")
             }
         });
-    } else if balance.avg_bullets_per_slide < 2.0 {
-        short
-            .push(format!("slides make {} points each, where two to five read as full", balance.avg_bullets_per_slide));
-    }
-    if balance.avg_bullets_per_slide > 5.0 {
-        short.push(format!("slides make {} points each, more than a room takes in", balance.avg_bullets_per_slide));
+    } else {
+        // Over the slides it counts, which it says where it counts fewer than the deck shows: a
+        // cut of two points over five slides moves the average by 0.4, as W1's dogfood 7 found.
+        let shown = read.iter().filter(|s| s.eligible()).count();
+        let over = match pointed.len() < shown {
+            true => format!(", over {} of the {shown} slides, those made to list points", pointed.len()),
+            false => String::new(),
+        };
+        let average = balance.avg_bullets_per_slide;
+        if average < 2.0 {
+            short.push(format!("slides make {average} points each{over}, where two to five read as full"));
+        }
+        if average > 5.0 {
+            short.push(format!("slides make {average} points each{over}, more than a room takes in"));
+        }
     }
     if balance.avg_speaker_notes_length < 30.0 {
         short.push(format!("their notes run {} characters, too few to speak from", balance.avg_speaker_notes_length));
@@ -1334,6 +1356,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ask,
                 fix,
                 figure: None,
+                path: None,
             });
         }
     };
@@ -1432,7 +1455,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!(
                     "Slide {k} opens {part} with nothing from slide {before}: say the line that carries the room across."
                 ),
-                format!("Open slide {k}'s notes with the line that carries the room from slide {before} into {part}."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the room from slide {before} into {part}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
                 None,
             );
         } else {
@@ -1441,7 +1466,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Severity::Warning,
                 Kind::Turn,
                 format!("Slide {k} shares little with slide {before}: the turn between them may lose the room."),
-                format!("Open slide {k}'s notes with the line that carries the talk from slide {before}."),
+                format!(
+                    "Open slide {k}'s notes with the line that carries the talk from slide {before}, in a word of slide {before}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
+                ),
                 None,
             );
         }
@@ -1534,6 +1561,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[first].id, Severity::Info, Kind::Arc, says, ask, None);
     }
+    // The beat a slide was written for, by the settled outline's name, else the arc's.
+    let named_beat = |id: &str| -> Option<String> {
+        let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
+        beats.get(k).map(|b| b.trim().to_string()).filter(|b| !b.is_empty())
+    };
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
         let k = i + 1;
@@ -1554,7 +1586,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 (
                     format!("Slide {k} was planned {hotter} than its place in the talk."),
                     format!(
-                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity, or move it {moved}."
+                        "Slide {k} is planned at {at}, {than} its place in the story calls for ({calls}): plan it {way} by its Intensity{}, or move it {moved}.",
+                        named_beat(&d.slide_id).map(|name| format!(", in its beat, {name}")).unwrap_or_default()
                     ),
                 )
             }
@@ -1898,13 +1931,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // deck written by hand has no notes on any, and a row for each would bury the rest.
     // The slides whose notes say what the slide shows, as one finding at the first of them: the
     // room reads it there, and a presenter who reads it aloud again tells them nothing (W1's
-    // dogfood 4).
+    // dogfood 4). A warning, so it opens in the Story: a reader finds it the clearest tell of a
+    // weak deck (the calibration against a reader, docs/examples/health-calibration.md).
     if let Some(&first) = aloud.first() {
         let (named, many) = slides_named(&aloud);
         let each = if many { "each" } else { "it" };
         find(
             &read[first].id,
-            Severity::Info,
+            Severity::Warning,
             Kind::Notes,
             format!("The notes for {named} read the slide aloud: nearly every word of them is on {each}."),
             format!(
@@ -2135,6 +2169,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             format!("The model asked slide {k} for {what}. Make that change without what lint found it caused: {why}"),
             Some(fix),
         );
+    }
+    // Each `arc` finding says where its slide's plan is written, for an agent.
+    for f in findings.iter_mut().filter(|f| f.kind == Kind::Arc) {
+        f.path = at(&f.state, "intensity");
     }
     // Each `source` finding says the figure it found no source for.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
@@ -2685,7 +2723,10 @@ mod tests {
         let k = turn.slide;
         assert_eq!(
             turn.ask,
-            format!("Open slide {k}'s notes with the line that carries the talk from slide {}.", k - 1)
+            format!(
+                "Open slide {k}'s notes with the line that carries the talk from slide {b}, in a word of slide {b}'s: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across.",
+                b = k - 1
+            )
         );
         let d = Deck::from_value(&deck).unwrap();
         let read = readings(&d, &slides(&d)).unwrap().0;
@@ -2713,6 +2754,10 @@ mod tests {
         assert_eq!(opening("\n  - Up 2.1x!\nMore"), "- Up 2.1x!");
         let h = noted(&mut deck, format!("Plainly onward. Later, {carried}."));
         assert!(found(&h), "a word past the notes' opening carries nothing over");
+        // A connective alone carries nothing over, as the ask says (W1's dogfood 5).
+        for connective in ["So, onward.", "But that's not all.", "That's why it matters."] {
+            assert!(found(&noted(&mut deck, connective.to_string())), "{connective}");
+        }
         if let Some(shared) = shared {
             let h = noted(&mut deck, format!("{shared} again, and onward."));
             assert!(found(&h), "a word both slides use carries nothing over");
@@ -2855,6 +2900,12 @@ mod tests {
         }
         // A gerund names a topic.
         assert!(labels("Pricing by region"));
+        // A verb's "-s" ending a list of things is a plural (W1's dogfood 6); a verb before it
+        // still states a point.
+        assert!(labels("Weekend hours and online holds"));
+        assert!(labels("Late fees or holds"));
+        assert!(!labels("Weekend hours grow and holds"));
+        assert!(!labels("The library holds weekend hours"));
 
         let deck = climate();
         let h = of(&deck);
@@ -3095,6 +3146,28 @@ mod tests {
         deck
     }
 
+    /// Balance's line says how many slides its average is over, where it counts fewer than the
+    /// deck shows (W1's dogfood 7): two points cut over five slides move it 0.4, which over nine
+    /// would read as an error in the arithmetic. The figure is Vzestup's.
+    #[test]
+    fn balance_says_the_slides_its_average_is_over() {
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let h = of(&dogfood("fleet", "", thinned));
+        assert_eq!(
+            h.balance.says,
+            "Slides make 1.8 points each, over 4 of the 10 slides, those made to list points, where two to five read as full."
+        );
+        // A deck whose every slide balance counts says nothing of it.
+        let every = |slides: &mut Vec<answer::Slide>| {
+            for s in slides.iter_mut() {
+                s.layout_suggestion = "Bullets".into();
+                s.key_bullets.truncate(1);
+            }
+        };
+        let all = of(&dogfood("fleet", "", every));
+        assert!(!all.balance.says.contains(", over "), "{}", all.balance.says);
+    }
+
     /// A dense slide's ask names what cutting costs where balance would pay for it (W1's dogfood
     /// 4): on the fleet pitch, the slides balance counts list 2 points on average, at its floor, so
     /// cutting slide 9's six bars to five lowers the score. The ask says so, and names slide 4 to
@@ -3277,7 +3350,8 @@ mod tests {
         let found = aloud(&fleet);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].slide, 2);
-        assert_eq!(found[0].severity, Severity::Info);
+        // A warning, so it opens in the Story, never folded among the infos.
+        assert_eq!(found[0].severity, Severity::Warning);
         assert_eq!(
             found[0].says,
             "The notes for slides 2, 3, 4, 5, 6, 7, 8, 9 and 10 read the slide aloud: nearly every word of them is on each."
@@ -3456,7 +3530,7 @@ mod tests {
         );
         assert_eq!(
             opened.ask,
-            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches."
+            "Open slide 4's notes with the line that carries the room from slide 3 into Existing Approaches, in a word of slide 3's: a connective alone (\u{201c}So\u{201d}, \u{201c}But\u{201d}) carries nothing across."
         );
         assert_eq!(fleet.coherence.score, None, "no figure moves");
         assert_eq!(
@@ -3921,8 +3995,14 @@ mod tests {
         let theme: Theme = serde_json::from_str(&dusk).unwrap();
         let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
         assert_eq!(offered.intensity, Some(plan));
+        // An agent over MCP is told where the plan is written, and the beat by its name (R1's
+        // MCP dogfood): the inspector's place for it, and still no patch.
+        let path = bend.path.clone().expect("where its plan is written");
+        assert_eq!(path, format!("{}/intensity", offered.at));
+        assert!(bend.fix.is_none());
+        assert!(bend.ask.contains("by its Intensity, in its beat, "), "{}", bend.ask);
         let place = h.slides.iter().find(|s| s.state == state).unwrap().curve;
-        let op = json!({ "op": "add", "path": format!("{}/intensity", offered.at), "value": place });
+        let op = json!({ "op": "add", "path": path, "value": place });
         let mut replanned = deck.clone();
         scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
         let after = of(&replanned);

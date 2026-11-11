@@ -91,6 +91,10 @@
           "figure": {
             "description": "The figure a `source` finding found no source for, as the slide writes it.",
             "type": ["string", "null"]
+          },
+          "path": {
+            "description": "Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to\nits beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the\neditors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is\nthe person's (ADR-0032, item 4).",
+            "type": ["string", "null"]
           }
         },
         "required": ["state", "slide", "severity", "kind", "says", "ask"]
