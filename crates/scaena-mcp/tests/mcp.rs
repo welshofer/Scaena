@@ -1236,7 +1236,7 @@ async fn deck_generate_takes_the_talks_minutes() {
         deck["meta"]["narrative"]["brief"].clone()
     };
     let ten = root.join("ten");
-    ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
+    let made_ten = ok(&client, "deck_generate", json!({ "bundle": path(&ten), "slides": six, "minutes": 10 })).await;
     let b = brief(&ten);
     assert_eq!((b["minutes"].clone(), b["length"].clone()), (json!(10), json!("5-10 slides")), "{b:#}");
     // A length given wins, the minutes kept beside it.
@@ -1250,8 +1250,20 @@ async fn deck_generate_takes_the_talks_minutes() {
     assert_eq!(brief(&both)["minutes"], json!(10));
     // A brief with none keeps none.
     let none = root.join("none");
-    ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
+    let made_none = ok(&client, "deck_generate", json!({ "bundle": path(&none), "slides": six })).await;
     assert!(brief(&none).get("minutes").is_none());
+    // The notes are budgeted to fill the minutes asked, else the middle of the length's slot
+    // (agent dogfood 3): ten minutes, against the 7.5 that "5-10 slides" gives. Each slide's
+    // words, and how long the talk runs as health times it, are said with them.
+    let words = |made: &Value| -> u64 {
+        made["notes"]["budgets"].as_array().unwrap().iter().map(|b| b["words"].as_u64().unwrap()).sum()
+    };
+    assert_eq!(made_ten["notes"]["slot"], json!(10.0), "{made_ten:#}");
+    assert_eq!(made_none["notes"]["slot"], json!(7.5), "{made_none:#}");
+    assert_eq!(made_ten["notes"]["budgets"].as_array().unwrap().len(), 6);
+    assert_eq!(made_ten["notes"]["budgets"][0]["slide"], json!(1));
+    assert!(words(&made_ten) > words(&made_none), "{} against {}", words(&made_ten), words(&made_none));
+    assert!(made_ten["notes"]["run"].as_f64().is_some_and(|r| r > 0.0), "{made_ten:#}");
     client.cancel().await.unwrap();
 }
 
@@ -1274,6 +1286,8 @@ async fn slide_write_reports_its_patch_as_deck_patch_does() {
     assert_eq!(w["summary"]["slides_added"], json!([first]), "{w:#}");
     assert_eq!((w["applied"].clone(), w["errors"].clone()), (json!(true), json!(0)));
     assert!(w.to_string().len() < 4000, "{} bytes", w.to_string().len());
+    // What the notes are to fill, the slide written among them (agent dogfood 3).
+    assert_eq!(w["notes"]["budgets"].as_array().map(Vec::len), Some(6), "{w:#}");
     // With `verbose`, the patch too, as deck_patch gives it.
     let v =
         ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": slide, "dry_run": true, "verbose": true }))

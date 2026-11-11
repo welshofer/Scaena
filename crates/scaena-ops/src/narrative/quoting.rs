@@ -33,8 +33,13 @@ struct Cell<'t> {
 }
 
 /// Words of a column's name that say its unit, not what it measures: they name nothing.
-pub(super) const UNITS: &[&str] =
-    &["pct", "percent", "usd", "musd", "kusd", "busd", "eur", "gbp", "k", "m", "mm", "bn", "num"];
+/// German and French accounts' among them: thousands, millions, and billions of euros (`teur`,
+/// `tsd`, `mio`, `mrd`, `keur`, `meur`), and a percent (`prozent`, `pourcent`), so "Umsatz" names
+/// `umsatz_teur` (R1's agent dogfood 3).
+pub(super) const UNITS: &[&str] = &[
+    "pct", "percent", "usd", "musd", "kusd", "busd", "eur", "gbp", "k", "m", "mm", "bn", "num", "teur", "teuro", "tsd",
+    "mio", "mrd", "keur", "meur", "euro", "chf", "prozent", "pourcent",
+];
 
 /// A figure found in a text: where it stands (bytes), what it says, and how it is written.
 #[derive(Debug, Clone, PartialEq)]
@@ -215,8 +220,9 @@ fn names(cell: &Cell, context: &str) -> bool {
 /// currency or with a compact suffix, and one of a currency no percent.
 fn fits(cell: &Cell, f: &Figure) -> bool {
     let has = |units: &[&str]| cell.words.iter().any(|w| units.contains(&w.as_str()));
-    let percents = has(&["pct", "percent", "rate"]);
-    let money = has(&["usd", "musd", "kusd", "busd", "eur", "gbp", "dollar"]);
+    let percents = has(&["pct", "percent", "rate", "prozent", "pourcent"]);
+    let money =
+        has(&["usd", "musd", "kusd", "busd", "eur", "gbp", "dollar", "teur", "teuro", "keur", "meur", "euro", "chf"]);
     !(percents && (f.currency || f.tier.is_some()) || money && f.percent)
 }
 

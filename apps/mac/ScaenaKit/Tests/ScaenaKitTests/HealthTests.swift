@@ -273,3 +273,19 @@ private func read(slides: Int, _ findings: [(Int, String, String)]) throws -> He
     let errorFirst = places.ordered(broken.findings.map { [$0] }, of: broken.findings)
     #expect(slides(errorFirst) == ["2 layout", "8 tone", "10 intensity", "1 pacing"])
 }
+
+/// A finding that asks for a slide's headline says so by its field, and each slot names the text
+/// that heads it, which the Story panel's Edit Its Headline types in (editor dogfood 6), as the
+/// browser's Story row does.
+@Test func aHeadlineFindingNamesTheTextToTypeIn() throws {
+    let session = try ScaenaSession(files: example("trails"))
+    let slots = try session.timeline()
+    #expect(slots.first { $0.state == "cover" }?.headlineNode == "cover-title")
+    #expect(slots.first { $0.state == "agenda" }?.headlineNode == "agenda-title")
+    let finding = try JSONDecoder().decode(Health.Finding.self, from: Data(
+        #"{"state": "cover", "slide": 1, "severity": "info", "kind": "label", "says": "", "ask": "", "field": "headline"}"#.utf8))
+    #expect(finding.field == "headline")
+    let none = try JSONDecoder().decode(Health.Finding.self, from: Data(
+        #"{"state": "cover", "slide": 1, "severity": "info", "kind": "look", "says": "", "ask": ""}"#.utf8))
+    #expect(none.field == nil)
+}
