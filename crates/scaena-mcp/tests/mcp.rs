@@ -1234,3 +1234,127 @@ async fn deck_generate_takes_the_talks_minutes() {
     assert!(brief(&none).get("minutes").is_none());
     client.cancel().await.unwrap();
 }
+
+/// A slide written into a beat that keeps notes of its own, or in place of a slide whose beat
+/// does, keeps its own notes on its first state, which a presenter reads, and a PDF with notes
+/// prints, before the beat's (agent dogfood): none the agent wrote is dropped.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slide_written_into_a_beat_keeps_its_own_notes() {
+    let root = scratch("own-notes");
+    let client = connect_in(&root).await;
+    let slides: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let dir = root.join("deck");
+    let read = |dir: &Path| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap()
+    };
+    let five = json!({ "executiveSummary": "Tidewater", "slides": slides["slides"].as_array().unwrap()[..5] });
+    ok(&client, "deck_generate", json!({ "bundle": path(&dir), "slides": five, "theme": "ember" })).await;
+    let spine = |dir: &Path| read(dir)["spine"].clone();
+    let first_beat = spine(&dir)["sections"][0]["beats"][0].clone();
+    assert!(first_beat["notes"].as_str().is_some_and(|n| !n.is_empty()), "{first_beat:#}");
+    let reads = |exported: &Value, state: &str| -> String {
+        (exported["states"].as_array().unwrap().iter())
+            .find(|s| s["id"] == state)
+            .and_then(|s| s["notes"].as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    // Into the first beat, which keeps its claim and its notes.
+    let mut quote = slides["slides"][1].clone();
+    quote["speakerNotes"] = json!("Dana has run the Ridge crew for eleven years.");
+    let beat = first_beat["id"].as_str().unwrap();
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": quote, "beat": beat })).await;
+    let into = w["slide"][0].as_str().unwrap().to_string();
+    // In place of the third slide, whose beat keeps its notes.
+    let third = read(&dir)["spine"]["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["beats"].as_array().unwrap().clone())
+        .nth(2)
+        .unwrap();
+    let old = third["states"][0].as_str().unwrap().to_string();
+    let mut again = slides["slides"][2].clone();
+    again["speakerNotes"] = json!("Close them and the crowding moves everywhere else.");
+    let w = ok(&client, "slide_write", json!({ "bundle": path(&dir), "slide": again, "replace": old })).await;
+    let replaced = w["slide"][0].as_str().unwrap().to_string();
+    let exported = ok(&client, "deck_export", json!({ "bundle": path(&dir), "format": "spine" })).await;
+    let exported = exported.get("spine").cloned().unwrap_or(exported);
+    assert_eq!(reads(&exported, &into), "Dana has run the Ridge crew for eleven years.", "{exported:#}");
+    assert_eq!(reads(&exported, &replaced), "Close them and the crowding moves everywhere else.");
+    // The beats keep theirs, which their other slides read.
+    let after = spine(&dir);
+    assert_eq!(after["sections"][0]["beats"][0]["notes"], first_beat["notes"]);
+    // And the PDF with notes is made with them.
+    let pdf = ok(
+        &client,
+        "deck_export",
+        json!({ "bundle": path(&dir), "format": "pdf", "notes": true, "out": path(&dir.join("notes.pdf")) }),
+    )
+    .await;
+    assert!(pdf["pages"].as_array().is_some_and(|p| p.len() == 6), "{pdf:#}");
+    client.cancel().await.unwrap();
+}
+
+/// Every layout `deck_generate`'s description names is one it takes, `Chart` drawn by its
+/// `chartData`, and a name no layout is called is in the result's `fell`, with why, never dropped
+/// in silence (agent dogfood).
+#[tokio::test(flavor = "multi_thread")]
+async fn every_layout_the_description_names_is_taken() {
+    let root = scratch("layouts-named");
+    let client = connect_in(&root).await;
+    let catalog: Value =
+        serde_json::from_str(&std::fs::read_to_string("../scaena-narrato/tests/answers/catalog.json").unwrap())
+            .unwrap();
+    let by = |name: &str| -> Value {
+        catalog["slides"].as_array().unwrap().iter().find(|s| s["layoutSuggestion"] == name).unwrap().clone()
+    };
+    let tools = client.list_all_tools().await.unwrap();
+    let generate = tools.iter().find(|t| t.name == "deck_generate").unwrap();
+    let schema = serde_json::to_value(&generate.input_schema).unwrap();
+    let said = schema["properties"]["slides"]["description"].as_str().unwrap();
+    let listed = said.split("`layoutSuggestion` (").nth(1).unwrap().split(", …").next().unwrap();
+    let names: Vec<&str> = listed.split(',').map(|n| n.trim().trim_matches('`')).collect();
+    assert!(names.contains(&"Chart") && names.len() >= 8, "{names:?}");
+    // A slide for each, its content one the catalog writes for a layout of its kind.
+    let slides: Vec<Value> = names
+        .iter()
+        .map(|name| {
+            let mut slide = match *name {
+                "Chart" => by("Line Chart"),
+                "Two Column" => by("Two-Column"),
+                other => by(other),
+            };
+            slide["layoutSuggestion"] = json!(name);
+            slide
+        })
+        .collect();
+    let deck = json!({ "executiveSummary": "Tidewater", "slides": slides });
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&root.join("named")), "slides": deck, "theme": "ember", "length": "5-10 slides" }),
+    )
+    .await;
+    assert!(made.get("fell").is_none(), "{:#}", made["fell"]);
+    let chart = names.iter().position(|n| *n == "Chart").unwrap();
+    assert_eq!(made["layouts"][chart], "line-chart", "{:#}", made["layouts"]);
+    // A name no layout is called is said, with the layout it took and why.
+    let mut odd = deck.clone();
+    odd["slides"][1]["layoutSuggestion"] = json!("Section Divider");
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&root.join("odd")), "slides": odd, "theme": "ember", "length": "5-10 slides" }),
+    )
+    .await;
+    let fell = made["fell"].as_array().unwrap();
+    assert_eq!(
+        (fell.len(), fell[0]["slide"].clone(), fell[0]["asked"].clone()),
+        (1, json!(2), json!("Section Divider"))
+    );
+    assert!(fell[0]["why"].as_str().unwrap().contains("no layout is called that"), "{fell:#?}");
+    client.cancel().await.unwrap();
+}

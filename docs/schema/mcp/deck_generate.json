@@ -44,7 +44,7 @@
         "type": "string"
       },
       "slides": {
-        "description": "The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with\n`slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,\n`Chart`, `Two Column`, `Quote`, `Section Divider`, `Closing`, …), `keyBullets`,\n`speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),\n`expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;\n`chartData` where a chart is drawn.",
+        "description": "The slides, as Narrato writes them: `executiveSummary`, and `slides`, each with\n`slideTitle`, `subtitle`, `layoutSuggestion` (`Title`, `Bullet List`, `Big Number`,\n`Chart`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Section Header`, `Closing`, …;\n`Chart` is drawn as its `chartData` reads, a line along years, else bars, and each name\nthat could not be taken is in the result's `fell`, with why), `keyBullets`,\n`speakerNotes`, `beatIndex` and `beatName` (the arc's beat it belongs to),\n`expectedIntensity` (0–1), `expectedValence` (its tone, −1–1), and `visualDescription`;\n`chartData` where a chart is drawn.",
         "type": "object",
         "additionalProperties": true
       },
@@ -176,9 +176,20 @@
         },
         "required": ["code", "severity", "message"]
       },
-      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Fell": {
+        "description": "A slide whose `layoutSuggestion` could not be taken as asked (agent dogfood): the slide, by\nits number from 1, what it asked, the layout it took, and why, so an agent can ask again.",
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer", "minimum": 0 },
+          "asked": { "type": "string" },
+          "layout": { "type": "string" },
+          "why": { "type": "string" }
+        },
+        "required": ["slide", "asked", "layout", "why"]
+      }
     },
-    "required": ["created", "arc", "layouts", "fixed"],
+    "required": ["created", "arc", "layouts", "fell", "fixed"],
     "type": "object",
     "properties": {
       "created": { "$ref": "#/$defs/Created" },
@@ -188,6 +199,11 @@
         "type": ["string", "null"]
       },
       "layouts": { "description": "Each slide's layout, in order.", "type": "array", "items": { "type": "string" } },
+      "fell": {
+        "description": "Each slide whose `layoutSuggestion` could not be taken as asked: the slide, by its number\nfrom 1, what it asked, the layout it took, and why.",
+        "type": "array",
+        "items": { "$ref": "#/$defs/Fell" }
+      },
       "fixed": {
         "description": "The findings whose fixes were applied, each checked by laying its state out again.",
         "type": "array",

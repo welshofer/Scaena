@@ -309,16 +309,32 @@ pub fn requote(stale: &[Stale]) -> Vec<JsonOp> {
 }
 
 /// `text` with each place `was` stands as a word in it written `now`, or `None` where it stands
-/// nowhere. A word is not inside another, nor a number inside a longer one (`4.2` in `14.25`);
-/// a unit may follow a number (`$4.2M`).
+/// nowhere (see [`places`]).
 pub fn replaced(text: &str, was: &str, now: &str) -> Option<String> {
+    let at = places(text, was);
+    (!at.is_empty()).then(|| {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = 0;
+        for at in at {
+            out.push_str(&text[rest..at]);
+            out.push_str(now);
+            rest = at + was.len();
+        }
+        out.push_str(&text[rest..]);
+        out
+    })
+}
+
+/// Where `was` stands as a word in `text`, by byte, each after the last. A word is not inside
+/// another, nor a number inside a longer one (`4.2` in `14.25`); a unit may follow a number
+/// (`$4.2M`).
+pub fn places(text: &str, was: &str) -> Vec<usize> {
     if was.is_empty() {
-        return None;
+        return Vec::new();
     }
     let word = |c: char| c.is_alphanumeric();
-    let mut out = String::with_capacity(text.len());
+    let mut out = Vec::new();
     let mut rest = 0;
-    let mut found = false;
     for (at, _) in text.match_indices(was) {
         if at < rest {
             continue;
@@ -338,15 +354,10 @@ pub fn replaced(text: &str, was: &str, now: &str) -> Option<String> {
         if joined_before || joined_after {
             continue;
         }
-        out.push_str(&text[rest..at]);
-        out.push_str(now);
+        out.push(at);
         rest = at + was.len();
-        found = true;
     }
-    found.then(|| {
-        out.push_str(&text[rest..]);
-        out
-    })
+    out
 }
 
 #[cfg(test)]
