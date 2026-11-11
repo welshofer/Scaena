@@ -32,6 +32,8 @@
 //   "slides 1, 5 and 11" each; and a read again after slide 5's notes are deepened keeps the open
 //   rows where they stood, the pacing row's though it moves to another slide, what is new after
 //   them (editor dogfood 6).
+// - A to-do that names a field of the Format tab offers it: the bend's "Set its Intensity" shows the
+//   slide and its Intensity, in view and in focus (editor dogfood 6).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6).
 // - A made deck's plan (dogfood 9's keynote, made with no call): a slide planned hotter than its
@@ -481,8 +483,21 @@ try {
     check(todo.includes("planned at Peak") && /\((Calm|Steady|Building|Intense|Peak)\)/.test(todo) && !/\d\.\d\d/.test(todo), `its to-do says the plan by its word: ${todo}`);
     const place = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].curve, bend.slide);
     await page.click("#story [data-more] summary").catch(() => {});
-    await page.click(`#story [data-findings] li[data-slide="${bend.slide}"] [data-show]`);
-    await page.waitForTimeout(1000);
+    // Its to-do names the slide's Intensity, and the row offers it (editor dogfood 6): a press shows
+    // the slide and the Format tab, the Intensity scrolled to and in focus.
+    const setIt = page.locator(`#story [data-findings] li[data-slide="${bend.slide}"] button[data-field="intensity"]`);
+    check((await setIt.count()) === 1 && (await setIt.textContent()) === "Set its Intensity", `the row offers its Intensity: ${await setIt.count()}`);
+    await setIt.click().catch((e) => failures.push(`no Intensity to press: ${e.message}`));
+    await page.waitForFunction(() => document.activeElement?.id === "look-plan-intensity", null, { timeout: 30000 }).catch(() => {});
+    const opened = await page.evaluate(() => {
+      const el = document.querySelector("#look-plan-intensity");
+      const r = el?.getBoundingClientRect();
+      return { focus: document.activeElement?.id, format: document.querySelector("#tab-inspector")?.getAttribute("aria-selected"), inView: !!r && r.top >= 0 && r.bottom <= innerHeight, shown: window.scaena.canvas.boxed() };
+    });
+    check(
+      opened.focus === "look-plan-intensity" && opened.format === "true" && opened.inView && opened.shown === bend.state,
+      `a press shows the slide and its Intensity, in view and in focus: ${JSON.stringify(opened)}`,
+    );
     await tab(page, "inspector");
     const slider = page.locator("#look-plan-intensity");
     await slider.waitFor({ timeout: 30000 });

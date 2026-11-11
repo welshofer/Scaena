@@ -27,6 +27,8 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
+  /** Show `state` and the Format tab's `field` for it, scrolled to and in focus (editor dogfood 6). */
+  field(state: string, field: Field): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
   make(ops: unknown[], done: string): Promise<void>;
   /** Put `question` to the assistant: its tab shown, the question in its box. */
@@ -58,6 +60,25 @@ export interface StoryEditor {
   answered(text: string): void;
   /** The words the editor shows for the state shown, the plan's ladders among them. */
   words(): Ladders | undefined;
+}
+
+/** A field of the Format tab a finding's to-do names: the slide's plan, its Intensity and Tone,
+ * and its presenter's notes (editor dogfood 6). */
+export type Field = "intensity" | "tone" | "notes";
+
+/** What the button that opens each field says. */
+const FIELD: Record<Field, string> = { intensity: "Set its Intensity", tone: "Set its Tone", notes: "Edit its notes" };
+
+/** The field a finding's to-do names, by the field health gives it, else by where its `path`
+ * says its plan is written (an `arc` finding's beat's intensity): none where it names none of
+ * the Format tab's. Never read from the ask's words. */
+export function fieldOf(f: HealthFinding): Field | undefined {
+  const named = (f as { field?: string }).field;
+  if (named === "intensity" || named === "tone" || named === "notes") return named;
+  const path = (f as { path?: string }).path;
+  if (path?.endsWith("/intensity")) return "intensity";
+  if (path?.endsWith("/valence")) return "tone";
+  return undefined;
 }
 
 /** How many of lint's fixes a broken slide's row offers, the worst first. */
@@ -608,6 +629,16 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
           editor.say(`Not fixed: ${said(e)}`);
         }
       });
+      actions.append(button);
+    }
+    // A to-do that names a field of the Format tab offers it, the field in focus (editor dogfood 6).
+    const fields = [...new Set(run.map(fieldOf).filter((f): f is Field => f !== undefined))];
+    for (const field of fields) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.field = field;
+      button.textContent = FIELD[field];
+      button.addEventListener("click", () => void editor.field(state, field));
       actions.append(button);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
