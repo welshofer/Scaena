@@ -412,6 +412,9 @@ final class TouchTests: XCTestCase {
             XCTAssertLessThanOrEqual(
                 typing.frame.maxY, keyboard.frame.minY + 1,
                 "the line typed in stands under the keyboard: \(typing.frame) over \(keyboard.frame)")
+        } else if keyboardPass == "software" {
+            // The pass this test runs in has the software keyboard: without it the test proves nothing.
+            throw Unseen(description: "typing in the subtitle brought no software keyboard: \(app.debugDescription)")
         } else {
             // A hardware keyboard: the software one never comes, and nothing is lifted.
             XCTContext.runActivity(named: "No software keyboard came: nothing to clear") { _ in }
