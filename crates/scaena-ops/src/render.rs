@@ -95,6 +95,10 @@ pub fn render(path: &Path, req: &Request) -> Result<Rendered, OpsError> {
         }
     };
     let b = crate::open(path)?;
+    // A state the deck lacks is said with the one meant, before a font is read (agent dogfood 4).
+    if !b.deck.states.iter().any(|s| s.id == req.state) {
+        return Err(OpsError::unknown_state(&b.deck, &req.state));
+    }
     let theme = crate::theme(&b)?;
     let files = b.read_fonts()?;
     let data = data_files(&b)?;
