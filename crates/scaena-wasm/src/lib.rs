@@ -2026,6 +2026,13 @@ impl Making {
         serde_json::to_string(&relooked).map_err(js)
     }
 
+    /// `refused`, JSON as the generator's `held` gives it: the changes let go before the deck is
+    /// made again, which the report says (W1's dogfood 8).
+    pub fn refuse(&mut self, refused: &str) -> Result<(), JsError> {
+        self.0.refuse(serde_json::from_str(refused).map_err(js)?);
+        Ok(())
+    }
+
     /// The look failed, or what it asked was not kept: why, which the report says.
     pub fn unlooked(&mut self, why: String) {
         self.0.unlooked(why);

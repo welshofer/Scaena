@@ -552,6 +552,19 @@ impl Generation {
         Ok(serde_json::to_string(&changes).expect("changes are JSON"))
     }
 
+    /// `changes`, as `lookAnswer` gives them, less each title the look lets go before the deck is
+    /// made again, as it lets them go natively (W1's dogfood 8, `scaena_ops::narrative::held`): one
+    /// that drops a word of the claim its beat settled, or names a topic where the slide stated
+    /// its point. `layouts` is each slide's, JSON as the report gives them. JSON `{ changes,
+    /// refused }`, the refusals for `Making.refuse` to keep and say.
+    pub fn held(&self, changes: &str, layouts: &str) -> Result<String, JsError> {
+        let narrative = self.inner.narrative().ok_or_else(|| error("the narrative is not written yet"))?;
+        let changes: Vec<scaena_narrato::look::Change> = serde_json::from_str(changes).map_err(error)?;
+        let layouts: Vec<String> = serde_json::from_str(layouts).map_err(error)?;
+        let (changes, refused) = scaena_ops::narrative::held(narrative, &layouts, changes);
+        Ok(json!({ "changes": changes, "refused": refused }).to_string())
+    }
+
     /// The deck `deck` builds, built again with `changes` (as `lookAnswer` gives them, PLAN
     /// G.13): their words in the narrative, each slide in the layout one asks for. What
     /// `Making.relook` takes.
@@ -857,6 +870,60 @@ mod tests {
         let answer = json!({ "content": [{ "type": "text", "text": r#"{"texts": [{"id": "a-title", "text": "Emissions keep climbing"}]}"# }] });
         let rewrites = g.fit_answer(200, "OK", &answer.to_string(), longs).unwrap();
         assert_eq!(rewrites, r#"[["a-title","Emissions keep climbing"]]"#);
+    }
+
+    /// The browser's look lets go a title that drops a word of the claim its beat settled, as the
+    /// native look does (W1's dogfood 8): `held` refuses it, what else the answer asks standing,
+    /// and the editor's module keeps the refusal and says it in the report.
+    #[test]
+    fn the_browsers_look_lets_go_a_title_that_drops_its_claim() {
+        let sources = Sources::new();
+        let mut g = Generation::new(BRIEF, ASKING, &sources).unwrap();
+        g.answer(200, "OK", &answer("anthropic-arc"), None).unwrap();
+        let claims = [
+            "Shipping emits three percent of global carbon",
+            "Fines and lost contracts are compounding",
+            "Carriers cannot cut emissions alone",
+            "Our ledger prices carbon per lane",
+            "Emissions per lane fell 41 percent in pilots",
+            "Join the twelve million dollar round",
+        ];
+        let beats: Vec<Value> = claims
+            .iter()
+            .enumerate()
+            .map(|(i, c)| json!({ "name": format!("Beat {}", i + 1), "claim": c, "slides": 1 }))
+            .collect();
+        g.settle(&json!({ "bigIdea": "Carbon-negative cargo is ready to scale", "beats": beats }).to_string()).unwrap();
+        g.answer(200, "OK", &answer("anthropic-slides"), None).unwrap();
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let built: Value = serde_json::from_str(&g.deck(&dusk, "{}").unwrap()).unwrap();
+        let layouts = built["layouts"].to_string();
+        let changes = json!([
+            { "slide": 4, "title": "Emissions per lane in pilots", "why": "Shorter." },
+            { "slide": 3, "title": "Fines and lost contracts are compounding", "why": "Tighter." }
+        ]);
+        let held: Value = serde_json::from_str(&g.held(&changes.to_string(), &layouts).unwrap()).unwrap();
+        assert_eq!(
+            held["changes"].as_array().map(|c| c.iter().map(|c| c["slide"].clone()).collect::<Vec<_>>()),
+            Some(vec![json!(3)]),
+            "{held:#}"
+        );
+        assert_eq!(held["refused"][0]["slide"], 4, "{held:#}");
+        assert_eq!(held["refused"][0]["what"], "the title \u{201c}Emissions per lane in pilots\u{201d}");
+        assert!(held["refused"][0]["why"].as_str().unwrap().contains("\u{201c}fell\u{201d}"), "{held:#}");
+        // The editor's module keeps it, as `Making.refuse` does.
+        let made: scaena_ops::narrative::Made = serde_json::from_value(built).unwrap();
+        let font = |file: &str| -> Result<Vec<u8>, scaena_ops::OpsError> {
+            Ok(std::fs::read(root().join("docs/examples").join(file))?)
+        };
+        let (mut generated, write) =
+            scaena_ops::narrative::making(made, "Problem\u{2013}Solution", Path::new("dusk.theme.json"), dusk, &font)
+                .unwrap();
+        let mut write = write.unwrap();
+        let refused: Vec<scaena_ops::narrative::Refused> = serde_json::from_value(held["refused"].clone()).unwrap();
+        scaena_ops::narrative::refuse(&mut generated, &mut write, refused);
+        assert_eq!(generated.refused.len(), 1);
+        assert_eq!(write.deck.meta.as_ref().unwrap().extra["narrative"]["refused"][0]["slide"], 4);
     }
 
     #[test]

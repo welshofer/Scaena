@@ -1699,7 +1699,9 @@ impl Scaena {
         blank slide. Its set of texts held to one size and lint's fixes \
         taken, as a made deck's are; what no fix mends is in `left`, a text past its place first. One patch, \
         refused as `deck_patch` refuses one, reported as `deck_patch` reports one (`summary`, and the JSON Patch only \
-        with `verbose`), with the slide's states, layout, and beat.")]
+        with `verbose`), with the slide's states, layout, and beat: a beat whose claim the slide it takes the \
+        place of said, and its new headline does not, is in `restated`, with the `fix` that sets the claim to \
+        that headline.")]
     async fn slide_write(
         &self,
         Parameters(a): Parameters<SlideWrite>,
