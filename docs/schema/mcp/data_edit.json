@@ -63,42 +63,21 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Sheet": {
-        "description": "A source as an editor shows it: its columns, each one's type, and each row's cells as\nwritten. Edits name a row by its place here, from 0, and a column by its name.",
         "type": "object",
         "properties": {
           "columns": { "type": "array", "items": { "$ref": "#/$defs/SheetColumn" } },
-          "rows": {
-            "description": "Each row's cells, in the columns' order: a value as the source writes it, text without its\nquotes, and nothing as empty.",
-            "type": "array",
-            "items": { "type": "array", "items": { "type": "string" } }
-          },
-          "problems": {
-            "description": "Each cell its column does not read, and why: what a chart that reads the source refuses\n(E103), until an edit sets the cell to what it reads.",
-            "type": "array",
-            "items": { "$ref": "#/$defs/CellProblem" }
-          }
+          "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
+          "problems": { "type": "array", "items": { "$ref": "#/$defs/CellProblem" } }
         },
         "required": ["columns", "rows"]
       },
       "SheetColumn": {
-        "description": "A column of a sheet.",
         "type": "object",
-        "properties": {
-          "name": { "type": "string" },
-          "type": {
-            "description": "How the source's `schema` types it (`string` where it says nothing): what a value set in\nit must read as.",
-            "$ref": "#/$defs/ColumnType"
-          }
-        },
+        "properties": { "name": { "type": "string" }, "type": { "$ref": "#/$defs/ColumnType" } },
         "required": ["name", "type"]
       },
-      "ColumnType": {
-        "description": "What a column holds, from the source's `schema` (`string` when it says nothing).",
-        "type": "string",
-        "enum": ["number", "string", "boolean", "date"]
-      },
+      "ColumnType": { "type": "string", "enum": ["number", "string", "boolean", "date"] },
       "CellProblem": {
-        "description": "A cell of a sheet that its column's type does not read.",
         "type": "object",
         "properties": {
           "row": { "type": "integer", "minimum": 0 },
@@ -108,34 +87,20 @@
         "required": ["row", "column", "why"]
       },
       "Finding": {
-        "description": "One lint finding, shaped for agents: a code, a JSON pointer, and (when safe) a fix.",
         "type": "object",
         "properties": {
           "code": { "type": "string" },
           "severity": { "$ref": "#/$defs/Severity" },
           "message": { "type": "string" },
-          "file": {
-            "description": "The bundle file `path` points into, when it is not `deck.json` (a theme file).",
-            "type": ["string", "null"]
-          },
-          "path": { "description": "JSON pointer into `deck.json`, or into `file`.", "type": ["string", "null"] },
+          "file": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "node": { "type": ["string", "null"] },
-          "format": {
-            "description": "The format the deck was laid out in (`\"9:16\"`), when it is not the deck's own.",
-            "type": ["string", "null"]
-          },
+          "format": { "type": ["string", "null"] },
           "measure": true,
           "hint": { "type": ["string", "null"] },
-          "fix": {
-            "description": "A JSON Patch (RFC 6902) that resolves the finding. Only safe, non-content fixes.",
-            "type": ["array", "null"],
-            "items": true
-          },
-          "refresh": {
-            "description": "The data source to fetch again, where what resolves the finding is a fetch, which no patch\nmakes (W428, ADR-0030): the source's name, without its `@`.",
-            "type": ["string", "null"]
-          }
+          "fix": { "type": ["array", "null"], "items": true },
+          "refresh": { "type": ["string", "null"] }
         },
         "required": ["code", "severity", "message"]
       },
@@ -144,39 +109,15 @@
     "required": ["edited", "source", "sheet", "added", "removed", "errors", "refused"],
     "type": "object",
     "properties": {
-      "edited": {
-        "description": "Whether it was written: not under a dry run, with no edits, nor when refused.",
-        "type": "boolean"
-      },
+      "edited": { "type": "boolean" },
       "source": { "type": "string" },
-      "file": {
-        "description": "The file it is, which an edit writes; none for rows written inline, which are the deck's.",
-        "type": ["string", "null"]
-      },
-      "sheet": {
-        "description": "The source as it reads after the edits, or as it is where there are none or they are\nrefused: its columns, their types, its rows as written, and the cells a column does not\nread.",
-        "$ref": "#/$defs/Sheet"
-      },
-      "added": {
-        "description": "What `validate` and `lint` find after the edits that they did not before.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "removed": {
-        "description": "What they found before that they do not after.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "errors": { "description": "The findings that are errors, after.", "type": "integer", "minimum": 0 },
-      "refused": {
-        "description": "Refused: the edits would have added a validation finding (in `added`).",
-        "type": "boolean"
-      },
-      "quoted": {
-        "description": "The texts whose quoted figures the edits set again, by node id, each once (ADR-0019):\nwritten in the deck in the same change, with each claim that held the old figure.",
-        "type": "array",
-        "items": { "type": "string" }
-      }
+      "file": { "type": ["string", "null"] },
+      "sheet": { "$ref": "#/$defs/Sheet" },
+      "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "errors": { "type": "integer", "minimum": 0 },
+      "refused": { "type": "boolean" },
+      "quoted": { "type": "array", "items": { "type": "string" } }
     }
   }
 }

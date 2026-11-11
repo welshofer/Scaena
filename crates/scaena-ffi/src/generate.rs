@@ -164,6 +164,9 @@ pub struct Generating {
     fit_tried: usize,
     /// Each slide's speaker notes, while they are asked for (lift-up 10-25 ATTR-2).
     notes: Notes,
+    /// Whether the deck made has kept its sheets and drawn its charts from them, which the
+    /// report does first, so it says each chart left unbound (W1 dogfood 9), and `open` once.
+    bound: bool,
 }
 
 /// A [`Generating`] goes from one thread to another between steps (lift-up narrative PERF-3): the
@@ -621,6 +624,7 @@ impl Generating {
                 let fallback = w.generation.fallback().map(str::to_string);
                 let arc = narrative.arc.clone();
                 let mut making = Making::new(built, &arc, fallback, shipped.file, &theme, &fonts).map_err(said)?;
+                self.bound = false;
                 if !placed.is_empty() || !unmade.is_empty() {
                     making.painted(placed.len(), unmade);
                 }
@@ -867,6 +871,7 @@ impl Generating {
                 }
             }
             "report" => {
+                self.bind()?;
                 let (making, _) = self.making.as_ref().ok_or_else(|| said("report: no deck is made"))?;
                 let mut out = making.report();
                 out["sources"] = json!(self.generation.as_ref().map(|w| &w.given));
@@ -879,9 +884,8 @@ impl Generating {
     /// The bundle made, each sheet given kept as a data source, opened as a session: none where
     /// the deck would not validate, the report then saying why.
     pub fn open(&mut self) -> Result<Session, Failure> {
+        self.bind()?;
         let (making, _) = self.making.as_mut().ok_or_else(|| said("open: no deck is made"))?;
-        making.keep(&scaena_sources::tables(&self.sources)).map_err(said)?;
-        making.bind().map_err(said)?;
         let files = making.files().map_err(said)?.ok_or_else(|| {
             let report = making.report();
             let errors: Vec<String> = (report["created"]["findings"].as_array().into_iter().flatten())
@@ -891,6 +895,19 @@ impl Generating {
             said(format!("the deck made would not validate: {}", errors.join("; ")))
         })?;
         Session::open(files).map_err(said)
+    }
+
+    /// The deck made, each sheet given kept as a data source and each chart that names one drawn
+    /// from it, once: what the report says, each chart left unbound among it (W1 dogfood 9).
+    fn bind(&mut self) -> Result<(), Failure> {
+        if self.bound {
+            return Ok(());
+        }
+        let (making, _) = self.making.as_mut().ok_or_else(|| said("no deck is made"))?;
+        making.keep(&scaena_sources::tables(&self.sources)).map_err(said)?;
+        making.bind().map_err(said)?;
+        self.bound = true;
+        Ok(())
     }
 
     /// `making` kept, and with `key`, the request that asks for its texts that still run past

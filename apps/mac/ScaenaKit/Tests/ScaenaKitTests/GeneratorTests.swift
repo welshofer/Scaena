@@ -678,6 +678,22 @@ private actor Once {
     #expect(GeneratingStep.lookedAt(round: 2, of: 3).words == "The model has looked at round 2 of 3")
 }
 
+/// A chart left drawing its own rows, and what the look let go for a figure, are said in the
+/// window's lines as the browser's dialog and the CLI say them (W1 dogfood 9); the report's
+/// `unbound` decodes.
+@Test func aChartLeftUnboundAndAFigureLetGoAreSaid() throws {
+    #expect(
+        GeneratingStep.unbound(slide: 3, source: "visits", why: "its 9999 is not the file's").words
+            == "Slide 3's chart keeps its own rows, not visits's: its 9999 is not the file's")
+    #expect(
+        GeneratingStep.refused(slide: 2, what: "the title “Sunday visits”", why: "it drops 2,475, which the slide wrote").words
+            == "Slide 2 kept as made: the model asked for the title “Sunday visits”. It drops 2,475, which the slide wrote.")
+    #expect(GeneratingStep.sentence("Its text runs past its place.") == "Its text runs past its place.")
+    let json = #"{"created":{"created":true,"errors":0},"arc":"Problem-Solution","layouts":["title"],"unbound":[{"slide":3,"source":"visits","why":"w"}]}"#
+    let report = try JSONDecoder().decode(Generated.self, from: Data(json.utf8))
+    #expect(report.unbound == [Generated.Unbound(slide: 3, source: "visits", why: "w")])
+}
+
 /// A deck made, or not, is said by a notification while the person is in another app, its title
 /// naming the topic short enough to read (lift-up 20261110 ATTR-4).
 @Test func aDeckMadeOrNotIsSaidByItsTopic() {

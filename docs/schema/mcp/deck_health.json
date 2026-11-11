@@ -17,223 +17,98 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
       "Measure": {
-        "description": "One measure: 0–100, and what it says.",
         "type": "object",
-        "properties": {
-          "score": {
-            "description": "None where it is not scored: coherence read by words alone, which reads low on any deck,\nas Vzestup shows no number for it.",
-            "type": ["integer", "null"],
-            "minimum": 0
-          },
-          "says": { "type": "string" }
-        },
+        "properties": { "score": { "type": ["integer", "null"], "minimum": 0 }, "says": { "type": "string" } },
         "required": ["says"]
       },
       "Read": {
-        "description": "A slide as health reads it.",
         "type": "object",
         "properties": {
-          "state": { "description": "Its first state: where an editor goes to show it.", "type": "string" },
-          "beat": { "description": "The beat that tells it, where one does.", "type": ["string", "null"] },
-          "part": {
-            "description": "The beat of the arc it was written for, by its place in [`Health::beats`], where it names\none the arc has: the band the graph draws it in (lift-up ATTR-4).",
-            "type": ["integer", "null"],
-            "minimum": 0
-          },
-          "title": { "description": "Its headline.", "type": "string" },
-          "curve": {
-            "description": "Where the curve of the arc it was written to stands at its place, 0–1.",
-            "type": "number"
-          },
-          "declared": { "description": "The intensity it declares, 0–1.", "type": ["number", "null"] },
-          "read": {
-            "description": "The intensity its words read, 0–1; none where they are too few, or not English.",
-            "type": ["number", "null"]
-          },
-          "tone": { "description": "The tone it declares, −1 grave to +1 hopeful.", "type": ["number", "null"] },
-          "toneRead": { "description": "The tone its words read.", "type": ["number", "null"] },
-          "after": {
-            "description": "How like the slide before it its words are, 0–1; none for the first.",
-            "type": ["number", "null"]
-          },
+          "state": { "type": "string" },
+          "beat": { "type": ["string", "null"] },
+          "part": { "type": ["integer", "null"], "minimum": 0 },
+          "title": { "type": "string" },
+          "curve": { "type": "number" },
+          "declared": { "type": ["number", "null"] },
+          "read": { "type": ["number", "null"] },
+          "tone": { "type": ["number", "null"] },
+          "toneRead": { "type": ["number", "null"] },
+          "after": { "type": ["number", "null"] },
           "standing": { "$ref": "#/$defs/Standing" },
-          "sources": {
-            "description": "The sources its beat cites of those the deck was grounded in, by name (narrative FUNC-3).",
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "sources": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["state", "title", "curve", "standing", "sources"]
       },
       "Standing": {
-        "description": "How a slide stands in its arc.",
         "oneOf": [
           { "type": "string", "enum": ["ok"] },
-          { "description": "Its intensity strays from the curve at its place.", "type": "string", "const": "bends" },
-          {
-            "description": "It stands in another beat than the one it was written for.",
-            "type": "string",
-            "const": "drifted"
-          }
+          { "type": "string", "const": "bends" },
+          { "type": "string", "const": "drifted" }
         ]
       },
       "Finding": {
-        "description": "Something to look at on one slide: what it says, what to ask the assistant, and, where one\nis safe, a fix.",
         "type": "object",
         "properties": {
-          "state": {
-            "description": "The step it was read at, which an editor shows: the slide's first state for a finding about\nits notes or its plan, or that it does not stand, else its last, built whole.",
-            "type": "string"
-          },
-          "slide": { "description": "The slide's number, from 1.", "type": "integer", "minimum": 0 },
+          "state": { "type": "string" },
+          "slide": { "type": "integer", "minimum": 0 },
           "severity": { "$ref": "#/$defs/Severity" },
           "kind": { "$ref": "#/$defs/Kind" },
           "says": { "type": "string" },
-          "ask": { "description": "The question an editor puts to the assistant for it.", "type": "string" },
+          "ask": { "type": "string" },
           "fix": { "anyOf": [{ "$ref": "#/$defs/Fix" }, { "type": "null" }] },
-          "figure": {
-            "description": "The figure a `source` finding found no source for, as the slide writes it.",
-            "type": ["string", "null"]
-          },
-          "path": {
-            "description": "Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to\nits beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the\neditors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is\nthe person's (ADR-0032, item 4).",
-            "type": ["string", "null"]
-          },
-          "field": {
-            "description": "The one field the finding asks to edit, where it asks for one: a slide's headline, its\nnotes, its intensity, or its part's claim; none where it asks for the slide's words at\nlarge, or for a cut, a move, or a source.",
-            "anyOf": [{ "$ref": "#/$defs/Field" }, { "type": "null" }]
-          }
+          "figure": { "type": ["string", "null"] },
+          "path": { "type": ["string", "null"] },
+          "field": { "anyOf": [{ "$ref": "#/$defs/Field" }, { "type": "null" }] }
         },
         "required": ["state", "slide", "severity", "kind", "says", "ask"]
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
       "Kind": {
-        "description": "What a finding is about.",
         "oneOf": [
-          { "description": "The slide has no headline.", "type": "string", "const": "title" },
-          { "description": "It says nothing past its headline, and has no notes.", "type": "string", "const": "empty" },
-          { "description": "Its words share little with the slide's before it.", "type": "string", "const": "turn" },
-          { "description": "Its intensity strays from the curve at its place.", "type": "string", "const": "arc" },
-          {
-            "description": "Its words read far from the intensity it declares.",
-            "type": "string",
-            "const": "intensity"
-          },
-          { "description": "Its words read in another tone than it declares.", "type": "string", "const": "tone" },
-          {
-            "description": "It stands in another beat than the one it was written for.",
-            "type": "string",
-            "const": "drift"
-          },
-          {
-            "description": "A state of it has an error lint finds: it does not stand as it is to be read.",
-            "type": "string",
-            "const": "layout"
-          },
-          {
-            "description": "The beat of the settled outline it opens says nothing of the claim the person settled for\nit (`meta.narrative.outline`).",
-            "type": "string",
-            "const": "claim"
-          },
-          {
-            "description": "The closing it opens never lands the big idea the outline settled.",
-            "type": "string",
-            "const": "bigIdea"
-          },
-          {
-            "description": "A break in its story the narrative lint finds: no claim shown, evidence with no claim,\nmore than one claim, or the claim of the slide before it again (W420, W421, W424, W425).",
-            "type": "string",
-            "const": "story"
-          },
-          {
-            "description": "It makes more points, or shows more words, than a room takes in.",
-            "type": "string",
-            "const": "dense"
-          },
-          {
-            "description": "It shows something, and gives the speaker nothing to say about it.",
-            "type": "string",
-            "const": "notes"
-          },
-          {
-            "description": "The deck runs past the range of slides its brief asked for; this slide turns least from\nthe one before, and is the first to cut. Or its beats' time runs short of, or past, the\nslot its brief's slides are given; this slide's beat runs shortest, or longest.",
-            "type": "string",
-            "const": "pacing"
-          },
-          {
-            "description": "A made deck links an address whose host neither its brief nor its sources name: where it\nsends the room was the model's word alone (lift-up 20261025 SEC-4).",
-            "type": "string",
-            "const": "link"
-          },
-          {
-            "description": "A change the model asked once it saw the slide drawn was not kept, lint having found the\nslide worse for it (`meta.narrative.refused`, lift-up USE-4).",
-            "type": "string",
-            "const": "look"
-          },
-          {
-            "description": "A deck made from sources writes a figure on this slide that it names no source for: its\nbeat cites none, its words name none, and no slide before it sourced the figure (W1's\ndogfood 4 and 5). The finding says the figure.",
-            "type": "string",
-            "const": "source"
-          },
-          {
-            "description": "The deck's slides that list points list fewer than balance's floor on average, and this\nslide, among those that list fewest, holds the average down; the finding names them (R1's\nMCP dogfood).",
-            "type": "string",
-            "const": "thin"
-          },
-          {
-            "description": "Its headline names a topic (\"Q3 by product\") where a content slide states its point: in a\ndeck health reads in English, three to six words with no verb and no question\n(lift-up 10-25b FUNC-4). Information, or a warning where a line under it says the claim,\nwhich belongs in the headline, a topic of a word or two as well (\"Some history\"; W1's\ndogfood 3).",
-            "type": "string",
-            "const": "label"
-          }
+          { "type": "string", "const": "title" },
+          { "type": "string", "const": "empty" },
+          { "type": "string", "const": "turn" },
+          { "type": "string", "const": "arc" },
+          { "type": "string", "const": "intensity" },
+          { "type": "string", "const": "tone" },
+          { "type": "string", "const": "drift" },
+          { "type": "string", "const": "layout" },
+          { "type": "string", "const": "claim" },
+          { "type": "string", "const": "bigIdea" },
+          { "type": "string", "const": "story" },
+          { "type": "string", "const": "dense" },
+          { "type": "string", "const": "notes" },
+          { "type": "string", "const": "pacing" },
+          { "type": "string", "const": "link" },
+          { "type": "string", "const": "look" },
+          { "type": "string", "const": "source" },
+          { "type": "string", "const": "thin" },
+          { "type": "string", "const": "label" }
         ]
       },
       "Fix": {
-        "description": "A fix: what it does, in a few words, and the patch that does it.",
         "type": "object",
         "properties": { "says": { "type": "string" }, "patch": { "type": "array", "items": true } },
         "required": ["says", "patch"]
       },
       "Field": {
-        "description": "What a finding asks a person to edit, where it is one field of the slide an editor opens for\nit (W2's editor dogfood 6), so an editor need not read the ask's words for it.",
         "oneOf": [
-          { "description": "The slide's headline.", "type": "string", "const": "headline" },
-          { "description": "The notes the presenter reads for it.", "type": "string", "const": "notes" },
-          {
-            "description": "The intensity its beat plans it at (`media.narrato.intensity`, the finding's `path`).",
-            "type": "string",
-            "const": "intensity"
-          },
-          {
-            "description": "The claim the settled outline holds for the part of the talk it opens.",
-            "type": "string",
-            "const": "claim"
-          }
+          { "type": "string", "const": "headline" },
+          { "type": "string", "const": "notes" },
+          { "type": "string", "const": "intensity" },
+          { "type": "string", "const": "claim" }
         ]
       },
       "Capped": {
-        "description": "The score held down by the slides that do not stand.",
         "type": "object",
         "properties": {
-          "slides": {
-            "description": "The slides lint finds an error on, by number from 1.",
-            "type": "array",
-            "items": { "type": "integer", "minimum": 0 }
-          },
-          "cap": {
-            "description": "The cap they set: the clean slides' share, less ten for each.",
-            "type": "integer",
-            "minimum": 0
-          },
-          "score": {
-            "description": "The score the deck would have had without the cap, over it.",
-            "type": "integer",
-            "minimum": 0
-          }
+          "slides": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "cap": { "type": "integer", "minimum": 0 },
+          "score": { "type": "integer", "minimum": 0 }
         },
         "required": ["slides", "cap", "score"]
       },
       "Ask": {
-        "description": "An ask the assistant is offered to begin with: what its button says, and the question.",
         "type": "object",
         "properties": { "label": { "type": "string" }, "question": { "type": "string" } },
         "required": ["label", "question"]
@@ -253,56 +128,20 @@
     ],
     "type": "object",
     "properties": {
-      "score": {
-        "description": "0–100, as Vzestup weighs it: pacing, balance, and arc fidelity. Coherence stays out of\nit, since the slides' words are compared, not their meanings.",
-        "type": "integer",
-        "minimum": 0
-      },
-      "arc": {
-        "description": "The arc the deck was written to (`meta.narrative.arc`), where it names one.",
-        "type": ["string", "null"]
-      },
-      "beats": {
-        "description": "The deck's beats, by name, in order: its settled outline's where it has one, else its\narc's; none for an arc the catalog does not name and no outline.",
-        "type": "array",
-        "items": { "type": "string" }
-      },
-      "pacing": { "description": "The slides against the count its brief asked for.", "$ref": "#/$defs/Measure" },
-      "balance": {
-        "description": "The points each slide makes, and what its notes give the speaker.",
-        "$ref": "#/$defs/Measure"
-      },
-      "coherence": {
-        "description": "How each slide follows from the one before: by their words, a guide only.",
-        "$ref": "#/$defs/Measure"
-      },
-      "fidelity": {
-        "description": "How closely the intensity the slides declare follows a talk's curve.",
-        "$ref": "#/$defs/Measure"
-      },
-      "intensity": {
-        "description": "How closely their words carry the intensity they declare.",
-        "$ref": "#/$defs/Measure"
-      },
-      "tone": { "description": "How closely their words carry the tone they declare.", "$ref": "#/$defs/Measure" },
-      "slides": { "description": "Each slide, in order.", "type": "array", "items": { "$ref": "#/$defs/Read" } },
-      "findings": {
-        "description": "What to look at, slide by slide.",
-        "type": "array",
-        "items": { "$ref": "#/$defs/Finding" }
-      },
-      "bigIdea": {
-        "description": "The big idea the deck's settled outline names (`meta.narrative.outline`): the one sentence\nthe audience should remember, which the editors show above the curve.",
-        "type": ["string", "null"]
-      },
-      "capped": {
-        "description": "Where slides lint finds an error on cap the score (ADR-0032 item 1): those slides, the cap,\nand the score the deck would have had, so the editors can say why it fell (W1's dogfood 5).\nNone where nothing caps it.",
-        "anyOf": [{ "$ref": "#/$defs/Capped" }, { "type": "null" }]
-      },
-      "compare": {
-        "description": "Where the deck's slides state three or more figures, the ask an empty conversation offers\nto have the assistant find two that seem the same measure with different values: words\ncannot tell a measure said twice from a goal, a step, or a before and after, and a model\nreading the deck can (`docs/examples/health-calibration.md`, change 5). One ask, so the\nbrowser and the Mac say the same.",
-        "anyOf": [{ "$ref": "#/$defs/Ask" }, { "type": "null" }]
-      }
+      "score": { "type": "integer", "minimum": 0 },
+      "arc": { "type": ["string", "null"] },
+      "beats": { "type": "array", "items": { "type": "string" } },
+      "pacing": { "$ref": "#/$defs/Measure" },
+      "balance": { "$ref": "#/$defs/Measure" },
+      "coherence": { "$ref": "#/$defs/Measure" },
+      "fidelity": { "$ref": "#/$defs/Measure" },
+      "intensity": { "$ref": "#/$defs/Measure" },
+      "tone": { "$ref": "#/$defs/Measure" },
+      "slides": { "type": "array", "items": { "$ref": "#/$defs/Read" } },
+      "findings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
+      "bigIdea": { "type": ["string", "null"] },
+      "capped": { "anyOf": [{ "$ref": "#/$defs/Capped" }, { "type": "null" }] },
+      "compare": { "anyOf": [{ "$ref": "#/$defs/Ask" }, { "type": "null" }] }
     }
   }
 }
