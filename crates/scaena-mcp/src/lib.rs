@@ -926,8 +926,9 @@ pub struct SlideWrite {
     /// `layoutSuggestion`, `keyBullets`, `speakerNotes`, and `chartData`, `icons`, `beatName`,
     /// `purpose`, `intent`, `expectedIntensity`, and `expectedValence` where it has them. A
     /// `chartData.sourceId` that names one of the deck's data sources (`data_attach`), by its id
-    /// or its file's name, draws the chart from it where the file holds the slide's categories and
-    /// figures; else the chart keeps its own rows, and `unbound` says why.
+    /// or its file's name, else a `sourceRef` that does, draws the chart from it where the file
+    /// holds the slide's categories and figures; else the chart keeps its own rows, and `unbound`
+    /// says why.
     pub slide: Map<String, Value>,
     /// The slide goes after the slide that holds this state.
     #[serde(default)]
@@ -1019,9 +1020,10 @@ pub struct DeckGenerate {
     #[serde(default = "yes")]
     pub history: bool,
     /// Data files to attach, as `data_attach` attaches them, each as a source by its `id`: a
-    /// slide whose `chartData.sourceId` names one, by its id or its file's name, draws its chart
-    /// from it where the file holds the slide's categories and figures, and the result's
-    /// `unbound` says why of each that does not.
+    /// slide whose `chartData.sourceId` names one, by its id or its file's name, else whose
+    /// `sourceRef` does, draws its chart from it where the file holds the slide's categories
+    /// (a date column's months by their names too, "Jan" or "January 2026") and figures, and the
+    /// result's `unbound` says why of each that does not.
     #[serde(default)]
     pub data: Vec<scaena_ops::create::Attach>,
 }

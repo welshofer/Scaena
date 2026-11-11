@@ -371,9 +371,14 @@ fn said(props: &Value) -> String {
 }
 
 /// The card a node is in on its slide: its id less the part it plays (`first-title` and `first`
-/// are one card's figure and label).
+/// are one card's figure and label). A slide's hero figure and what it means are one card too: a
+/// Big Number's `number` and its `claim` and `under`, and a line's `callout` and its `note`, the
+/// takeaway (W1's dogfood 9).
 fn card(id: &str) -> &str {
-    const PARTS: &[&str] = &["-title", "-figure", "-label", "-value", "-number", "-caption", "-name"];
+    const PARTS: &[&str] = &[
+        "-title", "-figure", "-label", "-value", "-number", "-caption", "-name", "-claim", "-under", "-callout",
+        "-note",
+    ];
     PARTS.iter().find_map(|p| id.strip_suffix(p)).unwrap_or(id)
 }
 
@@ -563,6 +568,23 @@ Q3 FY26,48.2,2.7,1.1,0.2,4.9,1.1,114,78.4,61,70,1.9,2.8
             (apart[0].1["column"].as_str(), apart[0].1["row"]["quarter"].as_str()),
             (Some("ebitda_marge_pct"), Some("Q3"))
         );
+    }
+
+    /// A slide's hero figure, alone in its text, reads what it means beside it: a Big Number's
+    /// figure its claim, and a line's callout its takeaway (W1's dogfood 9).
+    #[test]
+    fn a_hero_figure_quotes_its_cell_by_what_it_means() {
+        let csv = "month,sunday_visits,weekday_visits\nMay,2210,1980\nJun,2475,2050\n";
+        let q = quotes(&[("s-number", "2,475"), ("s-claim", "Sunday visits in June, our busiest month")], csv, None);
+        assert_eq!(q.len(), 1, "{q:?}");
+        assert_eq!(q[0].0, "2,475");
+        assert_eq!((q[0].1["column"].as_str(), q[0].1["row"]["month"].as_str()), (Some("sunday_visits"), Some("Jun")));
+        let q = quotes(&[("s-callout", "2,475"), ("s-note", "Sunday visits peaked in June")], csv, None);
+        assert_eq!((q.len(), q[0].1["column"].as_str()), (1, Some("sunday_visits")), "{q:?}");
+        // A meaning that names another column quotes nothing.
+        assert!(quotes(&[("s-number", "2,475"), ("s-claim", "Our busiest month yet")], csv, None).is_empty());
+        // Nor does a hero beside another slide's words.
+        assert!(quotes(&[("s-number", "2,475"), ("t-claim", "Sunday visits in June")], csv, None).is_empty());
     }
 
     fn one(words: &str) -> Vec<(String, Value)> {

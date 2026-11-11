@@ -1548,6 +1548,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   const story = storyPanel(stage, $("#story"), {
     source: () => view.state.doc.toString(),
     headline: (slide) => (taken?.edited ?? last)?.slots?.find((s) => s.state === slide)?.headline,
+    states: () => ((taken?.edited ?? last)?.slots ?? []).map((s) => s.state),
     issues: (slide) => {
       const slots = (taken?.edited ?? last)?.slots ?? [];
       const of = (state: string) => slots.find((s) => s.state === state)?.slide ?? state;
