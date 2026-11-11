@@ -3308,8 +3308,8 @@ mod tests {
                     *s = to.to_string();
                     true
                 }
-                Value::Array(a) => a.iter_mut().fold(false, |done, v| retype(v, from, to) || done),
-                Value::Object(o) => o.values_mut().fold(false, |done, v| retype(v, from, to) || done),
+                Value::Array(a) => a.iter_mut().any(|v| retype(v, from, to)),
+                Value::Object(o) => o.values_mut().any(|v| retype(v, from, to)),
                 _ => false,
             }
         }
