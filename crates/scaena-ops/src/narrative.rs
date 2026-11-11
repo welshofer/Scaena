@@ -660,11 +660,21 @@ fn cited(sources: &[Provenance], named: &str) -> Option<String> {
 }
 
 /// The source a slide names, of those the deck was grounded in: matched as written, then with
-/// case and spaces set aside, then as the source's address.
+/// case and spaces set aside, then as the source's address, which a repository given as
+/// `github:OWNER/REPO` is named by too, its case and a closing slash aside (agent dogfood 5).
 fn source_named<'a>(sources: &'a [Provenance], named: &str) -> Option<&'a Provenance> {
+    let address = |a: &str| -> String {
+        let a = a.trim();
+        let a = match a.strip_prefix("github:") {
+            Some(repo) => format!("https://github.com/{repo}"),
+            None => a.to_string(),
+        };
+        a.trim_end_matches('/').to_lowercase()
+    };
     (sources.iter().find(|s| s.name == named))
         .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
         .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref().is_some_and(|u| address(u) == address(named))))
 }
 
 /// `s` with its runs of spaces one and its letters small, to match a name as a person means it.
@@ -12967,10 +12977,20 @@ mod tests {
     fn each_beat_cites_the_source_its_slide_names() {
         let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
         let page = source("https://example.org/report", Kind::Html, "Ports electrify by 2030.");
-        let g = grounding(&[notes, page], Provider::Anthropic).unwrap();
+        // A repository given as `github:OWNER/REPO`, kept by its name and its address.
+        let repo = source("GitHub: tidewater/ports (Rust)", Kind::GitHub, "# Ports");
+        let g = grounding(&[notes, page, repo], Provider::Anthropic).unwrap();
         let (summary, mut slides) = catalog();
-        slides.truncate(5);
-        let refs = [None, Some("notes.md"), Some("  Notes.MD "), Some("https://example.org/report"), Some("q3.pdf")];
+        slides.truncate(7);
+        let refs = [
+            None,
+            Some("notes.md"),
+            Some("  Notes.MD "),
+            Some("https://example.org/report"),
+            Some("q3.pdf"),
+            Some("github:tidewater/ports"),
+            Some("https://github.com/Tidewater/ports/"),
+        ];
         for (slide, named) in slides.iter_mut().zip(refs) {
             slide.source_ref = named.map(str::to_string);
         }
@@ -12985,6 +13005,8 @@ mod tests {
                 { "name": "notes.md", "kind": "markdown", "bytes": g.given[0].bytes, "truncated": false },
                 { "name": "https://example.org/report", "kind": "web page", "url": "https://example.org/report",
                   "bytes": g.given[1].bytes, "truncated": false },
+                { "name": "GitHub: tidewater/ports (Rust)", "kind": "github repository",
+                  "url": "https://github.com/tidewater/ports", "bytes": g.given[2].bytes, "truncated": false },
             ])
         );
         let beats: Vec<&Value> = (deck["spine"]["sections"].as_array().unwrap().iter())
@@ -13001,6 +13023,9 @@ mod tests {
         assert_eq!(cites(2), ["source:notes.md"], "named loosely");
         assert_eq!(cites(3), ["https://example.org/report"], "a page by its address");
         assert_eq!(cites(4), Vec::<&str>::new(), "a source the deck was not grounded in");
+        // A repository named as it was given, `github:OWNER/REPO`, or by its address in any case.
+        assert_eq!(cites(5), ["https://github.com/tidewater/ports"], "a repository as it was given");
+        assert_eq!(cites(6), ["https://github.com/tidewater/ports"], "its address, case and slash aside");
         assert!(!made.created.findings.iter().any(|f| f.code == "W423"), "{:?}", made.created.findings);
         // A deck grounded in nothing says nothing of sources.
         let (summary, slides) = catalog();
