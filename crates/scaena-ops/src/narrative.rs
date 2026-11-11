@@ -6789,6 +6789,11 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
         [one] => return Some(*one),
         _ => {}
     }
+    // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
+    // dipped in June"), ahead of any figure (W1's dogfood 8).
+    if let Some(i) = title.and_then(|t| headlined(&chart.categories, t)) {
+        return Some(i);
+    }
     // The figure a sentence lands on: its last that is one bar's value alone, never a figure of a
     // category's own name ("Q3", "FY25").
     let places = decimals(chart);
@@ -6816,6 +6821,32 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
         return chart.categories.len().checked_sub(1);
     }
     (values.iter().enumerate()).filter_map(|(i, v)| Some((i, (*v)?))).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+}
+
+/// The one of `categories` `headline` names, by its index: its words as a run of the headline's,
+/// case-folded and whole, or a category of one word of three letters or more that a headline word
+/// begins with, as "Jun" stands for "June" (W1's dogfood 8). None where none is named, or more
+/// than one.
+fn headlined(categories: &[String], headline: &str) -> Option<usize> {
+    let words = |text: &str| -> Vec<String> {
+        (text.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect()
+    };
+    let said = words(headline);
+    let named = |category: &str| {
+        let name = words(category);
+        match name.as_slice() {
+            [] => false,
+            [one] if one.chars().count() >= 3 && one.chars().all(char::is_alphabetic) => {
+                said.iter().any(|w| w.starts_with(one.as_str()))
+            }
+            _ => said.windows(name.len()).any(|run| run == name.as_slice()),
+        }
+    };
+    let mut at = (0..categories.len()).filter(|i| named(&categories[*i]));
+    match (at.next(), at.next()) {
+        (Some(i), None) => Some(i),
+        _ => None,
+    }
 }
 
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
@@ -7726,6 +7757,42 @@ mod tests {
         let apart = ["+18\u{a0}%: EBITDA im Jahr"];
         assert!(faithful_of(&apart, &[text("figure", "+18\u{a0}%"), text("body", "EBITDA im Jahr")]));
         assert!(!faithful_of(&apart, &[text("figure", "+18"), text("body", "EBITDA im Jahr")]));
+    }
+
+    /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
+    /// lights Jun, not May, the highest (W1's dogfood 8). A headline that names none, or more than
+    /// one, leaves the bar to the figure rules.
+    #[test]
+    fn the_bar_a_headline_names_is_lit() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let bars = |title: &str| {
+            let slide = Slide {
+                slide_title: title.into(),
+                layout_suggestion: "Bar Chart".into(),
+                key_bullets: vec!["Monthly boardings, Jan\u{2013}Jun 2025".into()],
+                chart_data: Some(ChartData {
+                    categories: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map(String::from).to_vec(),
+                    series: vec![scaena_narrato::Series {
+                        name: Some("Boardings".into()),
+                        values: [41200., 40100., 43800., 44900., 46200., 39800.].map(Some).to_vec(),
+                    }],
+                    ..ChartData::default()
+                }),
+                ..Slide::default()
+            };
+            let made = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+            let chart =
+                made.deck["nodes"].as_object().unwrap().values().find(|n| n["type"] == "chart").cloned().unwrap();
+            chart["annotations"][0]["at"]["x"].clone()
+        };
+        assert_eq!(bars("Ridership dipped in June"), json!("Jun"));
+        assert_eq!(bars("RIDERSHIP FELL IN FEBRUARY"), json!("Feb"));
+        // Named by none, the largest; by two, the figure rules decide.
+        assert_eq!(bars("Ridership by month"), json!("May"));
+        assert_eq!(bars("From March to June, ridership dipped to 39,800"), json!("Jun"));
+        assert_eq!(headlined(&["Jun".into(), "June".into()], "Ridership dipped in June"), None, "both name it");
+        assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q4 beat plan"), Some(1));
+        assert_eq!(headlined(&["Q3".into(), "Q4".into()], "Q45 beat plan"), None, "a figure is whole");
     }
 
     #[test]
