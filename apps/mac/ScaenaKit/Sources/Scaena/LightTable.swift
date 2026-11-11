@@ -76,7 +76,7 @@ struct LightTable: View {
                                     .disabled(!editor.valid || editor.assisting)
                                 }
                             }
-                            .onTapGesture(count: 2) { show(slide.states.first ?? slide.id) }
+                            .onTapGesture(count: 2) { show(slide.last) }
                             .onTapGesture { click(slide.id, in: slides) }
                             .draggable(slide.id)
                             .dropDestination(for: String.self) { dropped, _ in drop(dropped, on: slide.id, in: slides) }
@@ -119,7 +119,7 @@ struct LightTable: View {
         }
         .onKeyPress(.return) {
             guard let slide = slides.first(where: { picked.contains($0.id) }) else { return .ignored }
-            show(slide.states.first ?? slide.id)
+            show(slide.last)
             return .handled
         }
         .onAppear { focused = true }
@@ -197,7 +197,7 @@ struct LightTable: View {
                 make(Restaging.removeSlides([slide.id]), after.map { [$0] } ?? [])
             }
         }
-        Button("Show on the Canvas") { show(slide.states.first ?? slide.id) }
+        Button("Show on the Canvas") { show(slide.last) }
     }
 
     /// The slides selected, in the deck's order.

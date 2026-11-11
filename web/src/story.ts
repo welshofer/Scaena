@@ -27,6 +27,8 @@ export interface StoryEditor {
   source(): string;
   /** Show `state`. */
   show(state: string): Promise<void>;
+  /** Show the slide `state` is a state of, entered at its last step, built whole. */
+  enter(state: string): Promise<void>;
   /** Show `state` and the Format tab's `field` for it, scrolled to and in focus (editor dogfood 6). */
   field(state: string, field: Field): Promise<void>;
   /** Make `ops` by the user, one change to undo; `done` is what to say once it is made. */
@@ -115,6 +117,7 @@ const MEASURE: Partial<Record<HealthFinding["kind"], keyof Health>> = {
   claim: "coherence",
   bigIdea: "coherence",
   pacing: "pacing",
+  thin: "balance",
 };
 
 /** Where a warning ranks among the warnings: one no measure speaks to first, as it names one
@@ -146,6 +149,7 @@ const KIND: Partial<Record<HealthFinding["kind"], string>> = {
   look: "change let go",
   source: "unsourced figure",
   label: "topic headline",
+  thin: "thin slide",
 };
 
 /** What the folded findings come to, by kind, the most first: "12 more: 7 tone, 5 arc". */
@@ -262,6 +266,7 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
   title: "title", empty: "empty place", turn: "turn", arc: "plan", intensity: "intensity", tone: "tone",
   drift: "beat", layout: "layout", claim: "claim", bigIdea: "big idea", story: "story", dense: "points",
   notes: "notes", pacing: "length", link: "link", look: "change let go", source: "source", label: "headline",
+  thin: "content",
 };
 
 /** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
@@ -385,14 +390,14 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   // so its buttons are heard here.
   score.addEventListener("click", (e) => {
     const state = (e.target as Element).closest<HTMLElement>("[data-capped-slide]")?.dataset.cappedSlide;
-    if (state) void editor.show(state);
+    if (state) void editor.enter(state);
   });
   const measures = into.querySelector<HTMLElement>("[data-measures]")!;
   // A slide a row's words name shows it (editor dogfood 6): the rows are drawn anew at each read,
   // so their buttons are heard here.
   into.querySelector<HTMLElement>("[data-findings]")!.addEventListener("click", (e) => {
     const state = (e.target as Element).closest<HTMLElement>("[data-to-slide]")?.dataset.toSlide;
-    if (state) void editor.show(state);
+    if (state) void editor.enter(state);
   });
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
@@ -516,7 +521,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     idea.innerHTML = h.bigIdea ? `<span>The big idea</span>\u201c${html(h.bigIdea)}\u201d` : "";
     arc.innerHTML = arcGraph(h);
     for (const g of arc.querySelectorAll<SVGGElement>("[data-state]")) {
-      g.addEventListener("click", () => void editor.show(g.dataset.state!));
+      g.addEventListener("click", () => void editor.enter(g.dataset.state!));
     }
     // What to do first, open; the rest folded under one "N more", open again as it was left.
     const { open, more } = triage(h);

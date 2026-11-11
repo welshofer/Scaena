@@ -73,6 +73,15 @@ public struct Health: Decodable, Sendable {
     /// The big idea the settled outline names, the one sentence the audience should remember,
     /// where it names one (lift-up 10-24b FUNC-1).
     public let bigIdea: String?
+    /// An ask health offers an empty conversation: what its button says, and the question.
+    public struct Ask: Decodable, Equatable, Sendable {
+        public let label: String
+        public let question: String
+    }
+    /// Where the deck's slides state three or more figures, the ask that has the assistant find
+    /// two that seem the same measure with different values, changing nothing until the person
+    /// says which is right (`docs/examples/health-calibration.md`, change 5).
+    public let compare: Ask?
     /// Where slides lint finds an error on cap the score (ADR-0032 item 1, W1's dogfood 5): those
     /// slides by number from 1, the cap they set, and the score the deck would have had without it.
     /// None where nothing caps it.
@@ -123,6 +132,7 @@ extension Health {
             case "arc", "drift": fidelity
             case "turn", "claim", "bigIdea": coherence
             case "pacing": pacing
+            case "thin": balance
             default: nil
             }
         guard let measure else { return -1 }
@@ -151,6 +161,7 @@ extension Health {
         case "source": "unsourced figure"
         case "label": "topic headline"
         case "look": "change let go"
+        case "thin": "thin slide"
         default: kind
         }
     }

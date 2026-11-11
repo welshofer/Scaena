@@ -64,6 +64,32 @@ pub struct Health {
     /// None where nothing caps it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capped: Option<Capped>,
+    /// Where the deck's slides state three or more figures, the ask an empty conversation offers
+    /// to have the assistant find two that seem the same measure with different values: words
+    /// cannot tell a measure said twice from a goal, a step, or a before and after, and a model
+    /// reading the deck can (`docs/examples/health-calibration.md`, change 5). One ask, so the
+    /// browser and the Mac say the same.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compare: Option<Ask>,
+}
+
+/// An ask the assistant is offered to begin with: what its button says, and the question.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Ask {
+    pub label: String,
+    pub question: String,
+}
+
+/// The figures that ask the assistant whether any disagree: three distinct ones at least.
+const COMPARED: usize = 3;
+
+/// The ask that has the assistant compare the deck's figures, quoting each it finds at odds and
+/// changing nothing until the person says which is right.
+fn comparing() -> Ask {
+    Ask {
+        label: "Check the figures agree".into(),
+        question: "Do any of this deck's figures disagree? Read every figure the slides state, each with its slide. Name any two that seem to be the same measure with different values: quote both, and say which slide each is on. Change nothing until I say which is right.".into(),
+    }
 }
 
 /// The score held down by the slides that do not stand.
@@ -182,6 +208,10 @@ pub enum Kind {
     /// beat cites none, its words name none, and no slide before it sourced the figure (W1's
     /// dogfood 4 and 5). The finding says the figure.
     Source,
+    /// The deck's slides that list points list fewer than balance's floor on average, and this
+    /// slide, among those that list fewest, holds the average down; the finding names them (R1's
+    /// MCP dogfood).
+    Thin,
     /// Its headline names a topic ("Q3 by product") where a content slide states its point: in a
     /// deck health reads in English, three to six words with no verb and no question
     /// (lift-up 10-25b FUNC-4). Information, or a warning where a line under it says the claim,
@@ -791,7 +821,7 @@ fn language_named(language: &str) -> Option<String> {
 }
 
 /// The layouts that frame a talk rather than make one of its points: covers, dividers, and agendas.
-const FRAMING: [&str; 10] = [
+pub(crate) const FRAMING: [&str; 10] = [
     "title",
     "photo-title",
     "title-center",
@@ -881,6 +911,13 @@ const VERBS: &str = "\
 /// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
 /// so such a label is missed rather than a point found wanting.
 fn labels(headline: &str) -> bool {
+    names_topic(headline, 3)
+}
+
+/// Whether `headline`, of `fewest` words to six, names a topic rather than stating a point, as
+/// [`labels`] reads one: a word or two ("Measurement") counts where the look rewrites a title
+/// that stated its point (W1's dogfood 8).
+pub(crate) fn names_topic(headline: &str, fewest: usize) -> bool {
     let headline = headline.trim();
     if headline.ends_with('?') {
         return false;
@@ -900,7 +937,7 @@ fn labels(headline: &str) -> bool {
         let plural = w.len() > 3 && w.ends_with('s') && of(&w[..w.len() - 1]) && listed(i);
         (w.chars().count() >= 5 && w.ends_with("ed")) || PASTS.contains(&w.as_str()) || (of(w) && !plural)
     };
-    (3..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
+    (fewest..=6).contains(&words.len()) && !words.iter().enumerate().any(verb)
 }
 
 /// The shipped themes' layouts that show a measure: a figure's, or a chart's (the calibration
@@ -952,12 +989,12 @@ fn verb(word: &str) -> bool {
 /// with no verb, no figure, and no question ("Some history"); and under it a sentence of five
 /// words or more with a verb, not a question, a voice quoted, or a card's parts health joins with
 /// a dash. A figure's slide, and one whose headline names what it holds by design, has none.
-fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth) -> Option<String> {
+fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth, title: &str) -> Option<String> {
     let layout = slide.states.iter().find_map(|&k| deck.states[k].layout.as_deref()).unwrap_or_default();
     if FIGURES.contains(&layout) || NAMED.contains(&layout) || layout.contains("quote") || layout.starts_with("team") {
         return None;
     }
-    let title = s.title.trim();
+    let title = title.trim();
     let words: Vec<&str> = title.split_whitespace().collect();
     let short = (1..=2).contains(&words.len())
         && !title.contains('?')
@@ -975,11 +1012,15 @@ fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth) -> Option<String> {
             && !quoted
             && words.iter().any(|w| verb(w))
     };
-    (s.body.lines()).map(|l| l.trim().trim_start_matches('\u{2022}').trim()).find(|l| claims(l)).map(str::to_string)
+    // Where the beat keeps a claim, the heading shown is in the body; it is not under itself.
+    (s.body.lines())
+        .map(|l| l.trim().trim_start_matches('\u{2022}').trim())
+        .find(|l| *l != title && claims(l))
+        .map(str::to_string)
 }
 
 /// The layouts a talk closes in (ADR-0032 item 6).
-const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
+pub(crate) const CLOSING: [&str; 4] = ["closing", "call-to-action", "takeaways", "poster"];
 
 /// Headlines that thank the room or open the floor, in the languages a made deck is written in:
 /// the first words of a closing slide that a layout of any kind may hold.
@@ -1110,6 +1151,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let (read, most) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
+    // What heads each slide as the reader hears it (SPEC §3.12): its heading's words, a figure's
+    // before its meaning, else its claim where no text heads it. A slide's `title` is its beat's
+    // claim where the beat keeps one, which the headline shown may no longer say, so a check of
+    // the headline's words reads this.
+    let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
+    // A big number's slide is headed by its figure before its meaning, the figure its point, so
+    // it names no topic however few its words.
+    let (heading, led): (Vec<String>, Vec<bool>) = (read.iter().enumerate())
+        .map(|(i, s)| {
+            let last = slides.get(i).and_then(|sl| sl.states.last()).map(|&l| &snaps[l]);
+            let shown = last.and_then(|snap| scaena_core::reading::headline(deck, snap));
+            let plain = last.and_then(|snap| {
+                (snap.nodes.iter())
+                    .filter(|(id, _)| deck.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text))
+                    .find(|(_, p)| {
+                        p.get("semantic").and_then(Value::as_str) == Some("claim")
+                            || matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
+                    })
+                    .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
+            });
+            let led = shown.is_some() && shown != plain;
+            (shown.unwrap_or_else(|| s.title.trim().to_string()), led)
+        })
+        .unzip();
     // The language the deck is written in, its brief's, else its own: the lexicons read English
     // alone, and German's "die" and "will" are English words too, so a deck in another language
     // is not read for intensity or tone, whatever script it is in (dogfood DF7-4).
@@ -1531,11 +1596,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("Give slide {k} a headline that states its point in a sentence."),
                 None,
             );
-        } else if let Some(line) = (english && i > 0 && !framing(i)).then(|| buried(deck, &slides[i], s)).flatten() {
+        } else if let Some(line) =
+            (english && i > 0 && !framing(i)).then(|| buried(deck, &slides[i], s, &heading[i])).flatten()
+        {
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
             // a made slide's beat claim is its headline, so "Some history" passes as one, its
             // claim in a bullet. The line is the headline to say, never written for the writer.
-            let title = s.title.trim();
+            let title = heading[i].trim();
             find(
                 &s.id,
                 Severity::Warning,
@@ -1548,7 +1615,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ),
                 None,
             );
-        } else if english && i > 0 && !framing(i) && labels(&s.title) {
+        } else if english && i > 0 && !framing(i) && !led[i] && labels(&heading[i]) {
             // A content slide whose headline names its topic: offered its point, never rewritten.
             find(
                 &s.id,
@@ -1556,7 +1623,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Kind::Label,
                 format!(
                     "Slide {k}'s headline names its topic, \u{201C}{}\u{201D}, where it could state its point.",
-                    s.title.trim()
+                    heading[i].trim()
                 ),
                 format!("Restate slide {k}'s headline as the point it makes: what should the room believe after it?"),
                 None,
@@ -1735,13 +1802,58 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[first].id, Severity::Info, Kind::Arc, says, ask, None);
     }
+    // A long tail (the calibration against a reader): three slides or more, and a fifth of the
+    // deck or more, between the last slide planned within 0.1 of the talk's peak and its close
+    // (the deck's last run of closing slides, an ask among them), with no divider among them to
+    // open a new part. The thresholds were set on the calibration's thirteen decks, so it is
+    // information; it asks for a cut or a move, not a plan, so it names no field.
+    let laid = |i: usize| slides.get(i).and_then(|s| s.states.iter().find_map(|&k| deck.states[k].layout.as_deref()));
+    let mut close = read.len();
+    // The deck's closing run, as the calm close reads it, and an ask before it.
+    let closes = |i: usize| closing.contains(&read[i].id) || laid(i) == Some("the-ask");
+    while close > 1 && closes(close - 1) {
+        close -= 1;
+    }
+    let top = (1..close).filter_map(planned_at).fold(None, |most: Option<f64>, v| Some(most.map_or(v, |m| m.max(v))));
+    if let Some(top) = top {
+        let peak = (1..close).filter(|&i| planned_at(i).is_some_and(|v| v >= top - 0.1 - 1e-9)).max();
+        if let Some(peak) = peak {
+            let tail = peak + 1..close;
+            let divided = tail.clone().any(|i| laid(i).is_some_and(|l| l.starts_with("section")));
+            if tail.len() >= 3 && tail.len() * 5 >= read.len() && !divided {
+                let (first, last) = (tail.start + 1, tail.end);
+                let ending = if close < read.len() {
+                    format!("its close at slide {}", close + 1)
+                } else {
+                    "its end".to_string()
+                };
+                find(
+                    &read[tail.start].id,
+                    Severity::Info,
+                    Kind::Arc,
+                    format!(
+                        "Slides {first}\u{2013}{last} come after the talk's peak at slide {} and before {ending}: the talk may run down there.",
+                        peak + 1
+                    ),
+                    format!(
+                        "Cut slides {first}\u{2013}{last}, fold what they must say into the close, or move them before slide {}, so the talk ends near its peak.",
+                        peak + 1
+                    ),
+                    None,
+                );
+            }
+        }
+    }
     // The beat a slide was written for, by the settled outline's name, else the arc's.
     let named_beat = |id: &str| -> Option<String> {
         let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
         beats.get(k).map(|b| headed(b).to_string()).filter(|b| !b.is_empty())
     };
+    // The slides whose own bend is a finding of its own, apart from a run of them.
+    let mut alone: Vec<String> = Vec::new();
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
         let Some(&i) = place.get(d.slide_id.as_str()) else { continue };
+        alone.push(d.slide_id.clone());
         let k = i + 1;
         let planned = read[i].narrative_meta.as_ref().and_then(|n| n.expected_intensity).filter(|v| v.is_finite());
         let (hotter, way, moved) = match d.delta > 0.0 {
@@ -1779,16 +1891,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // 6): "Thank you / Questions?" is three words, its "you" and its question mark weighing a
     // third each, so it reads at Peak. The deck's last run of closing slides is not asked to
     // move its words to its plan; intensity's figure is Vzestup's.
+    // A slide whose words already carry what its place calls for, its plan straying, is asked
+    // for its plan once (W2's editor dogfood 6): the bend that asks the same edit folds into its
+    // warning, which says the plan as the bend did and where it is written.
+    let mut strays: Vec<String> = Vec::new();
     for g in heard_intensity.iter().filter(|g| !closing.contains(&g.slide_id)) {
         let Some(&i) = place.get(g.slide_id.as_str()) else { continue };
         let k = i + 1;
         let (declared, detected) = (level(g.declared), level(g.detected));
-        let says = match g.gap > 0.0 {
-            true => format!("Slide {k} reads flatter than it was written to be."),
-            false => format!("Slide {k} reads hotter than it was written to be."),
+        let delta = bent.get(g.slide_id.as_str()).copied();
+        let stray = delta.filter(|delta| (g.detected - (g.declared - delta)).abs() <= INTENSITY_GAP_THRESHOLD);
+        let says = match (stray, g.gap > 0.0) {
+            (Some(delta), _) => format!(
+                "Slide {k} was planned {} than its place in the talk, where its words already stand.",
+                if delta > 0.0 { "hotter" } else { "cooler" }
+            ),
+            (None, true) => format!("Slide {k} reads flatter than it was written to be."),
+            (None, false) => format!("Slide {k} reads hotter than it was written to be."),
         };
+        if stray.is_some() {
+            strays.push(g.slide_id.clone());
+        }
         // The words the reading was made of, as a tone ask names its own (R1's MCP dogfood).
-        let named = intensed(&health::intensity::heard(&read[i].text(), language).unwrap_or_default());
+        let heard = health::intensity::heard(&read[i].text(), language).unwrap_or_default();
+        let named = format!("{}{}", intensed(&heard), whereabouts(&heard, &heading[i], &read[i]));
         // In a person's words; the figures are for the assistant, which reads the deck's. Where
         // the plan bends from the arc, the words are to carry what the place calls for, not the
         // plan, and words that already do leave the plan to change (ADR-0032, item 4).
@@ -1798,8 +1924,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         let ask = match calls {
             Some(calls) if (g.detected - calls).abs() <= INTENSITY_GAP_THRESHOLD => format!(
-                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place, not the words.{named}",
-                level(calls)
+                "Slide {k}'s words read {detected}, as its place in the story calls for ({}): it is its plan ({declared}) that strays, so set its Intensity for its place{}, not the words, or move it {}.{named}",
+                level(calls),
+                named_beat(&g.slide_id).map(|name| format!(", in its beat, {name}")).unwrap_or_default(),
+                if g.declared > calls { "nearer the climax" } else { "away from the climax" }
             ),
             Some(calls) if g.detected < calls => format!(
                 "Make slide {k}'s words carry the intensity its place in the story calls for ({}): sharper verbs, a figure that lands.{named}",
@@ -1826,7 +1954,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The words the reading was made of (W1's dogfood 3): a writer warming a slide moves
         // its tone only with words the lexicon reads, so the ask names them.
         let heard = health::valence::heard(&read[i].text(), language).unwrap_or_default();
-        let named = toned(&heard);
+        let named = format!("{}{}", toned(&heard), whereabouts(&heard, &heading[i], &read[i]));
         let (says, ask) = match g.gap > 0.0 {
             true => (
                 format!("Slide {k} reads graver than it was written to be."),
@@ -2052,6 +2180,47 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         };
         find(&read[i].id, Severity::Warning, Kind::Story, format!("Slide {k}: {said}"), ask, None);
     }
+    // Where the slides balance counts list fewer points than its floor on average, the content
+    // slides that list fewest, the three that hold it down, are named on the first of them, so
+    // balance's line has a slide to act on (R1's MCP dogfood). Balance and its floor are
+    // Vzestup's (ADR-0032); the finding moves no figure.
+    let pointed: Vec<usize> = (0..read.len()).filter(|&i| read[i].eligible() && !read[i].one_idea).collect();
+    let listed: usize = pointed.iter().map(|&i| bullets(&read[i])).sum();
+    let average = m.content_balance.avg_bullets_per_slide;
+    if listed > 0 && average < FLOOR_POINTS {
+        let mut thin: Vec<usize> = (pointed.iter().copied())
+            .filter(|&i| i > 0 && !closing.contains(&read[i].id) && bullets(&read[i]) < FLOOR_POINTS as usize)
+            .collect();
+        scaena_core::sort::by_key(&mut thin, |&i| (bullets(&read[i]), i));
+        thin.truncate(3);
+        scaena_core::sort::by_key(&mut thin, |&i| i);
+        if let Some(&first) = thin.first() {
+            let (named, many) = slides_named(&thin);
+            find(
+                &read[first].id,
+                Severity::Warning,
+                Kind::Thin,
+                {
+                    let mut said = format!(
+                        "{named} {} the fewest points: the slides that list points make {average} each, under the two that read as full.",
+                        if many { "list" } else { "lists" }
+                    );
+                    said[..1].make_ascii_uppercase();
+                    said
+                },
+                match many {
+                    true => format!(
+                        "Give {named} a point more each, what bears out each headline, or set them in a layout made for one point."
+                    ),
+                    false => format!(
+                        "Give {named} a point more, what bears out its headline, or set it in a layout made for one point."
+                    ),
+                },
+                None,
+            );
+        }
+    }
+
     // A headline that counts what its slide lists ("Three traps that make reviews useless") is
     // held to the count, in an English deck (the calibration against a reader): a slide that
     // promises three and lists two loses the room on the third. No patch: which is right, the
@@ -2401,8 +2570,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Some(fix),
         );
     }
-    // Each `arc` finding says where its slide's plan is written, for an agent.
-    for f in findings.iter_mut().filter(|f| f.kind == Kind::Arc) {
+    // A bend whose slide's warning asks the same edit is that warning's (W2's editor dogfood 6).
+    // A run of bends names several slides' plans, and stays.
+    // A long tail asks a cut or a move, not a plan: it is neither folded nor given a path.
+    let tail = |f: &Finding| f.kind == Kind::Arc && f.says.contains("after the talk's peak");
+    let once = |f: &Finding| f.kind == Kind::Arc && !tail(f) && strays.contains(&f.state) && alone.contains(&f.state);
+    findings.retain(|f| !once(f));
+    // Each `arc` finding, and each warning that asks a slide's plan in its place, says where the
+    // slide's plan is written, for an agent.
+    for f in findings
+        .iter_mut()
+        .filter(|f| (f.kind == Kind::Arc && !tail(f)) || (f.kind == Kind::Intensity && strays.contains(&f.state)))
+    {
         f.path = at(&f.state, "intensity");
     }
     // Each finding that asks for one field says which (W2's editor dogfood 6).
@@ -2413,6 +2592,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Turn | Kind::Notes => Some(Field::Notes),
             Kind::Empty if of(&notes_alone) => Some(Field::Notes),
             Kind::Pacing if of(&notes_deepened) => Some(Field::Notes),
+            Kind::Arc if f.says.contains("after the talk's peak") => None,
             Kind::Arc => Some(Field::Intensity),
             Kind::Intensity if of(&plan_strays) => Some(Field::Intensity),
             Kind::Claim if f.severity == Severity::Warning => Some(Field::Claim),
@@ -2452,6 +2632,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     });
     let score = cap.map_or(score, |c| score.min(c));
 
+    // The figures the slides state, each value and unit once.
+    let mut stated: Vec<(String, String)> = Vec::new();
+    for r in &read {
+        for f in figures(&format!("{}\n{}", r.title, r.body)) {
+            if !stated.contains(&(f.value.clone(), f.unit.clone())) {
+                stated.push((f.value, f.unit));
+            }
+        }
+    }
+    let compare = (stated.len() >= COMPARED).then(comparing);
     Ok(Health {
         score,
         arc: arc_name,
@@ -2466,6 +2656,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         findings,
         big_idea,
         capped,
+        compare,
     })
 }
 
@@ -2615,23 +2806,7 @@ fn intensed(heard: &[(String, f64)]) -> String {
 /// `sides.1`, the side above first where `above_first`, each weightiest first, at most [`TONED`],
 /// and named once; nothing where no word was read.
 fn named(heard: &[(String, f64)], sides: (&str, &str), above_first: bool) -> String {
-    let side = |below: bool| -> Vec<String> {
-        let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == below && *w != 0.0).collect();
-        // Weightiest first; the sort is stable, so a tie keeps the order the words stand in.
-        scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
-        let mut out: Vec<String> = Vec::new();
-        for (w, _) in words {
-            let quoted = match w.as_str() {
-                "!" => "its exclamation mark".to_string(),
-                "?" => "its question mark".to_string(),
-                _ => format!("\u{201c}{w}\u{201d}"),
-            };
-            if !out.contains(&quoted) && out.len() < TONED {
-                out.push(quoted);
-            }
-        }
-        out
-    };
+    let side = |below: bool| -> Vec<String> { picked(heard, below).iter().map(|w| quoted(w)).collect() };
     let list = |ws: &[String]| match ws {
         [] => String::new(),
         [one] => one.clone(),
@@ -2647,6 +2822,97 @@ fn named(heard: &[(String, f64)], sides: (&str, &str), above_first: bool) -> Str
         (false, true) => format!(" Health reads {} as {a}, and no word as {b}.", list(&first)),
         (true, false) => format!(" Health reads {} as {b}, and no word as {a}.", list(&second)),
         (false, false) => format!(" Health reads {} as {a}, and {} as {b}.", list(&first), list(&second)),
+    }
+}
+
+/// The words of `heard` a finding names on one side, those weighed below zero or above it: each
+/// once, the weightiest first, the sort stable so a tie keeps the order they stand in, at most
+/// [`TONED`].
+fn picked(heard: &[(String, f64)], below: bool) -> Vec<String> {
+    let mut words: Vec<&(String, f64)> = heard.iter().filter(|(_, w)| (*w < 0.0) == below && *w != 0.0).collect();
+    scaena_core::sort::by(&mut words, |a, b| b.1.abs().total_cmp(&a.1.abs()));
+    let mut out: Vec<String> = Vec::new();
+    for (w, _) in words {
+        if !out.contains(w) && out.len() < TONED {
+            out.push(w.clone());
+        }
+    }
+    out
+}
+
+/// A word a finding names, as a sentence says it: quoted, or a mark named as the mark it is.
+fn quoted(w: &str) -> String {
+    match w {
+        "!" => "its exclamation mark".to_string(),
+        "?" => "its question mark".to_string(),
+        _ => format!("\u{201c}{w}\u{201d}"),
+    }
+}
+
+/// Where the words a tone or an intensity finding names stand (W2's editor dogfood 6), as a
+/// sentence its ask ends with: in its headline as it shows, elsewhere on the slide, in its notes,
+/// or only in the claim its beat keeps for it, which the slide no longer says and the editors'
+/// Update sets to its words; nothing where no word is named. Its reading is the slide's title,
+/// body, and notes, and its title is the beat's claim where the beat keeps one, so a word may be
+/// read that the slide does not show.
+fn whereabouts(heard: &[(String, f64)], headline: &str, s: &SlideForHealth) -> String {
+    let tokens = |text: &str| -> String {
+        let lowered = text.to_lowercase();
+        let words: Vec<&str> = (lowered.split(|c: char| !matches!(c, 'a'..='z' | '0'..='9' | '%' | '$' | '&' | '-')))
+            .filter(|t| !t.is_empty() && *t != "-")
+            .collect();
+        format!(" {} ", words.join(" "))
+    };
+    let has = |text: &str, w: &str| match w {
+        "!" | "?" => text.contains(w),
+        _ => tokens(text).contains(&format!(" {w} ")),
+    };
+    let mut words = picked(heard, false);
+    words.extend(picked(heard, true));
+    let mut places: Vec<(&str, Vec<String>)> = Vec::new();
+    for w in &words {
+        let place = if has(headline, w) {
+            "in its headline"
+        } else if has(&s.body, w) {
+            "elsewhere on the slide"
+        } else if has(&s.notes, w) {
+            "in its notes"
+        } else {
+            "only in its story's claim, which the slide no longer says (Update it to the slide's words)"
+        };
+        match places.iter_mut().find(|(p, _)| *p == place) {
+            Some((_, ws)) => {
+                if !ws.contains(&quoted(w)) {
+                    ws.push(quoted(w));
+                }
+            }
+            None => places.push((place, vec![quoted(w)])),
+        }
+    }
+    // As the slide is read: its headline, the rest of it, its notes, and the claim behind it.
+    let rank = |p: &str| match p {
+        "in its headline" => 0,
+        "elsewhere on the slide" => 1,
+        "in its notes" => 2,
+        _ => 3,
+    };
+    scaena_core::sort::by_key(&mut places, |(p, _)| rank(p));
+    let said: Vec<String> = (places.iter())
+        .map(|(place, ws)| {
+            let is = if ws.len() > 1 { "are" } else { "is" };
+            let list = match ws.as_slice() {
+                [one] => one.clone(),
+                [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+                [] => String::new(),
+            };
+            format!("{list} {is} {place}")
+        })
+        .collect();
+    match said.is_empty() {
+        true => String::new(),
+        false => {
+            format!(" {}.", capitalized(&said.join("; ")))
+        }
     }
 }
 
@@ -2852,6 +3118,31 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A deck whose slides state three or more figures offers the ask that compares them, as a model
+    /// reads them (`docs/examples/health-calibration.md`, change 5): keynote's 31 outage hours a
+    /// year against 286 to 2 is a reader's to weigh. A deck that states fewer offers none.
+    #[test]
+    fn a_deck_of_figures_offers_to_compare_them() {
+        let h = of(&dogfood("keynote", "", |_| {}));
+        let ask = h.compare.expect("keynote states its outage hours, its cost, and more");
+        assert_eq!(ask, comparing());
+        assert!(ask.question.contains("Change nothing until I say which is right"), "{}", ask.question);
+        let plain = |slides: &mut Vec<answer::Slide>| {
+            let words = |t: &str| t.chars().filter(|c| !c.is_ascii_digit()).collect::<String>();
+            for s in slides.iter_mut() {
+                s.slide_title = words(&s.slide_title);
+                s.subtitle = words(&s.subtitle);
+                s.key_bullets = s.key_bullets.iter().map(|b| words(b)).collect();
+                s.chart_data = None;
+            }
+        };
+        assert_eq!(
+            of(&dogfood("keynote", "", plain)).compare,
+            None,
+            "a deck that states no figures is asked nothing of them"
+        );
     }
 
     /// A finding names the step health read it at, which an editor shows (W2's editor dogfood):
@@ -3339,6 +3630,42 @@ mod tests {
         }
     }
 
+    /// A headline is judged by the words the slide shows (W2's editor dogfood, Edit its headline):
+    /// fleet's slide 6 keeps its beat's claim, "Routes in minutes, not hours", while its headline
+    /// shows "0.8 hours of planning a day by week five", a figure before its meaning, so it names
+    /// no topic. A headline typed over a claim that states a point is read as it now shows. No
+    /// figure moves.
+    #[test]
+    fn a_headline_is_judged_by_the_words_the_slide_shows() {
+        let label = |h: &Health, k: usize| h.findings.iter().find(|f| f.kind == Kind::Label && f.slide == k).cloned();
+        let fleet = dogfood("fleet", "", |_| {});
+        let before = of(&fleet);
+        assert!(label(&before, 6).is_none(), "{:#?}", label(&before, 6));
+        // Grant's slide 8: its claim states a point, and its headline, typed over, names a topic.
+        let mut deck = dogfood("grant", "", |_| {});
+        fn retype(v: &mut Value, from: &str, to: &str) -> bool {
+            match v {
+                Value::String(s) if s == from => {
+                    *s = to.to_string();
+                    true
+                }
+                Value::Array(a) => a.iter_mut().any(|v| retype(v, from, to)),
+                Value::Object(o) => o.values_mut().any(|v| retype(v, from, to)),
+                _ => false,
+            }
+        }
+        let was = of(&deck);
+        assert!(label(&was, 8).is_none(), "{:#?}", label(&was, 8));
+        assert!(
+            retype(&mut deck["nodes"], "Food and travel ran 11% over plan", "Pricing by region"),
+            "the headline's text"
+        );
+        let typed = of(&deck);
+        let f = label(&typed, 8).expect("the headline shown names its topic");
+        assert!(f.says.contains("\u{201C}Pricing by region\u{201D}"), "{}", f.says);
+        assert_eq!(typed.score, was.score, "no figure moves");
+    }
+
     /// A content slide's headline that names its topic is offered its point (lift-up 10-25b
     /// FUNC-4): an info finding with no fix, in an English deck, never on the cover, a divider,
     /// or the close, and never on a question. The cases measured on the dogfood decks and the
@@ -3407,11 +3734,16 @@ mod tests {
             ],
             "{base:#?}"
         );
+        // A content slide headed by its own words: one a figure leads is headed by the figure.
+        let d = Deck::from_value(&deck).unwrap();
+        let snaps = resolve_states(&d).unwrap();
+        let shown = |i: usize| scaena_core::reading::headline(&d, &snaps[*slides(&d)[i].states.last().unwrap()]);
         let content = (1..h.slides.len() - 1)
             .find(|&i| {
                 layout(&h.slides[i].state)
                     .is_none_or(|l| !FRAMING.contains(&l.as_str()) && !CLOSING.contains(&l.as_str()))
                     && !base.iter().any(|f| f.slide == i + 1)
+                    && shown(i).as_deref() == Some(h.slides[i].title.as_str())
             })
             .expect("a content slide");
         let retitled = |deck: &Value, i: usize, to: &str| -> Value {
@@ -3639,6 +3971,29 @@ mod tests {
         let beats: Vec<Value> = names.iter().map(|n| json!({ "name": n, "claim": "", "slides": 1 })).collect();
         deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": big_idea, "beats": beats });
         deck
+    }
+
+    /// Where the slides balance counts list under two points on average, the content slides that
+    /// list fewest are named, so balance's line has a slide to act on (R1's MCP dogfood): fleet
+    /// with slide 4 thinned to one bar. A deck at the floor finds none.
+    #[test]
+    fn the_slides_holding_balance_down_are_named() {
+        let full = of(&dogfood("fleet", "", |_| {}));
+        assert!(!full.findings.iter().any(|f| f.kind == Kind::Thin), "{:#?}", full.findings);
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let h = of(&dogfood("fleet", "", thinned));
+        assert!(h.balance.says.starts_with("Slides make 1.8 points each"), "{}", h.balance.says);
+        let thin: Vec<&Finding> = h.findings.iter().filter(|f| f.kind == Kind::Thin).collect();
+        assert_eq!(thin.len(), 1, "{:#?}", h.findings);
+        assert_eq!(thin[0].severity, Severity::Warning);
+        assert!(thin[0].says.starts_with("Slide"), "{}", thin[0].says);
+        assert!(thin[0].says.contains('4'), "{}", thin[0].says);
+        assert!(
+            thin[0].says.ends_with("the slides that list points make 1.8 each, under the two that read as full."),
+            "{}",
+            thin[0].says
+        );
+        assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
     }
 
     /// A headline that counts what its slide lists is held to the count (the calibration against a
@@ -4558,7 +4913,7 @@ mod tests {
                     Kind::Turn | Kind::Notes => Some(Field::Notes),
                     Kind::Empty => f.ask.starts_with("Add notes").then_some(Field::Notes),
                     Kind::Pacing => f.ask.starts_with("Deepen the notes").then_some(Field::Notes),
-                    Kind::Arc => Some(Field::Intensity),
+                    Kind::Arc => (!f.says.contains("after the talk's peak")).then_some(Field::Intensity),
                     Kind::Intensity => f.ask.contains("set its Intensity").then_some(Field::Intensity),
                     Kind::Claim => (f.severity == Severity::Warning).then_some(Field::Claim),
                     _ => None,
@@ -4578,6 +4933,64 @@ mod tests {
             assert!(seen.contains(&field), "{field:?} said nowhere: {seen:?}");
         }
         assert_eq!(serde_json::to_value(Field::Headline).unwrap(), json!("headline"));
+    }
+
+    /// A long tail (the calibration against a reader): slides that run on after the talk's peak
+    /// and before its close are information on the first of them, each slide named, asking for a
+    /// cut or a move and naming no field. A divider among them opens a new part of the talk, so
+    /// climate's Response, after its peak, is no tail.
+    #[test]
+    fn a_talk_that_runs_on_after_its_peak_is_asked_to_end_near_it() {
+        let tail = |deck: &Value| {
+            of(deck)
+                .findings
+                .into_iter()
+                .filter(|f| f.kind == Kind::Arc && f.says.contains("after the talk's peak"))
+                .collect::<Vec<_>>()
+        };
+        let launch = tail(&dogfood("launch", "", |_| {}));
+        assert_eq!(launch.len(), 1, "{launch:#?}");
+        let f = &launch[0];
+        assert_eq!(f.severity, Severity::Info);
+        assert_eq!(f.slide, 11);
+        assert!(
+            f.says.starts_with(
+                "Slides 11\u{2013}13 come after the talk's peak at slide 10 and before its close at slide 14"
+            ),
+            "{}",
+            f.says
+        );
+        assert!(
+            f.ask.starts_with(
+                "Cut slides 11\u{2013}13, fold what they must say into the close, or move them before slide 10"
+            ),
+            "{}",
+            f.ask
+        );
+        assert_eq!((f.field, f.path.as_ref()), (None, None), "{f:#?}");
+        // The ask before the thanks is the close's.
+        let appeal = tail(&dogfood("appeal", "", |_| {}));
+        assert_eq!(appeal.len(), 1, "{appeal:#?}");
+        assert!(
+            appeal[0].says.starts_with(
+                "Slides 7\u{2013}9 come after the talk's peak at slide 6 and before its close at slide 10"
+            ),
+            "{}",
+            appeal[0].says
+        );
+        // Climate runs seven slides on after its peak, but a divider opens them as a new part.
+        assert!(tail(&climate()).is_empty());
+        // So do the decks a reader finds no tail in.
+        for name in ["keynote", "pitch", "qbr", "lecture", "grant", "training", "deepdive", "fleet", "board-de"] {
+            assert!(tail(&dogfood(name, "", |_| {})).is_empty(), "{name}");
+        }
+        // Planned to build to its close, launch has no tail.
+        let built = tail(&dogfood("launch", "", |slides| {
+            for s in slides.iter_mut().skip(10).take(3) {
+                s.expected_intensity = Some(0.85);
+            }
+        }));
+        assert!(built.is_empty(), "{built:#?}");
     }
 
     #[test]
@@ -4600,13 +5013,47 @@ mod tests {
         // It names the words its reading was made of (R1's MCP dogfood), as a tone ask does.
         let d = Deck::from_value(&deck).unwrap();
         let read = readings(&d, &slides(&d)).unwrap().0;
+        // The heading the slide shows, as health reads it (SPEC §3.12).
+        let snaps = resolve_states(&d).unwrap();
+        let shown = scaena_core::reading::headline(&d, &snaps[*slides(&d)[i].states.last().unwrap()]);
+        let headline = shown.unwrap_or_else(|| read[i].title.clone());
         let heard = health::intensity::heard(&read[i].text(), None).unwrap_or_default();
         let named = intensed(&heard);
         assert!(!named.is_empty(), "words that read an intensity: {heard:?}");
-        assert!(finding.ask.ends_with(&named), "{}", finding.ask);
+        // And where they stand, after them (W2's editor dogfood 6).
+        let placed = whereabouts(&heard, &headline, &read[i]);
+        assert!(!placed.is_empty());
+        assert!(finding.ask.ends_with(&format!("{named}{placed}")), "{}", finding.ask);
         // The plan is the arc's: the words are to carry it, so no fix declares what they read
         // in its place.
         assert_eq!(finding.fix, None);
+    }
+
+    /// A tone or intensity ask says where the words it names stand (W2's editor dogfood 6): its
+    /// reading is the slide's title, body, and notes, and its title is the beat's claim, so a word
+    /// left only in the claim after the headline was retyped, or only in the notes, is said to be
+    /// there, the claim's with its Update.
+    #[test]
+    fn a_reading_says_where_its_words_stand() {
+        let slide = SlideForHealth {
+            title: "Deliveries missed and nobody knew".into(),
+            body: "\u{2022} Late trucks every week".into(),
+            notes: "We were behind on every route.".into(),
+            ..SlideForHealth::default()
+        };
+        let heard = vec![
+            ("missed".to_string(), -1.0),
+            ("late".to_string(), -0.8),
+            ("behind".to_string(), -0.6),
+            ("knew".to_string(), 0.2),
+        ];
+        assert_eq!(
+            whereabouts(&heard, "Deliveries and nobody knew", &slide),
+            " \u{201c}knew\u{201d} is in its headline; \u{201c}late\u{201d} is elsewhere on the slide; \u{201c}behind\u{201d} is in its notes; \u{201c}missed\u{201d} is only in its story's claim, which the slide no longer says (Update it to the slide's words)."
+        );
+        assert_eq!(whereabouts(&[], "Anything", &slide), "");
+        let marked = vec![("?".to_string(), 1.0)];
+        assert_eq!(whereabouts(&marked, "Ready?", &slide), " Its question mark is in its headline.");
     }
 
     /// An intensity ask names its words as a tone ask does, heated first, a mark as the mark it
@@ -4783,7 +5230,10 @@ mod tests {
         // A slide whose plan keeps to the arc is held to its plan, as before.
         for f in before.findings.iter().filter(|f| f.kind == Kind::Intensity) {
             let bends = before.findings.iter().any(|b| b.kind == Kind::Arc && b.state == f.state);
-            assert!(bends || f.ask.contains("intensity it declares"), "{}", f.ask);
+            // A plan that strays, its words as its place calls for, is the warning's alone, its bend
+            // folded into it (W2's editor dogfood 6).
+            let folded = f.ask.contains("it is its plan");
+            assert!(bends || folded || f.ask.contains("intensity it declares"), "{}", f.ask);
         }
         // Only what the findings say changed: every figure is as before but the plan's.
         assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
@@ -4809,6 +5259,47 @@ mod tests {
         scaena_core::patch::apply(&mut replanned, &[op]).unwrap();
         let after = of(&replanned);
         assert!(!after.findings.iter().any(|f| f.state == state && f.kind == Kind::Arc), "{:#?}", after.findings);
+    }
+
+    /// A slide whose words already carry what its place calls for, planned far from it, is asked
+    /// for its plan once (W2's editor dogfood 6): the bend that asks the same edit folds into the
+    /// warning, which says the plan as the bend did, where it is written, its beat, and the move
+    /// the bend offered. No figure moves.
+    #[test]
+    fn a_plan_that_strays_is_asked_for_once() {
+        let climate = climate();
+        let before = of(&climate);
+        // A slide whose words read about what its place calls for, planned at the far end.
+        let (deck, h, state) = (before.slides.iter().enumerate().skip(1))
+            .filter(|(_, s)| s.read.is_some_and(|r| (r - s.curve).abs() < 0.1))
+            .find_map(|(_, s)| {
+                let mut deck = climate.clone();
+                planned(&mut deck, &s.state, if s.curve < 0.5 { 1.0 } else { 0.0 });
+                let h = of(&deck);
+                let strays = h
+                    .findings
+                    .iter()
+                    .any(|f| f.state == s.state && f.kind == Kind::Intensity && f.ask.contains("it is its plan"));
+                strays.then(|| (deck, h, s.state.clone()))
+            })
+            .expect("a slide whose words read as its place calls for, its plan straying");
+        let on: Vec<&Finding> = h.findings.iter().filter(|f| f.state == state).collect();
+        assert!(!on.iter().any(|f| f.kind == Kind::Arc), "one row for one edit: {on:#?}");
+        let gap = on.iter().find(|f| f.kind == Kind::Intensity).unwrap();
+        assert!(
+            gap.says.contains("was planned ") && gap.says.ends_with("where its words already stand."),
+            "{}",
+            gap.says
+        );
+        assert!(gap.ask.contains("set its Intensity for its place, in its beat, "), "{}", gap.ask);
+        assert!(gap.ask.contains(", or move it "), "{}", gap.ask);
+        let d = Deck::from_value(&deck).unwrap();
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        let offered = scaena_core::choices::state_choices(&d, &theme, &state).unwrap().plan.expect("its plan, offered");
+        assert_eq!(gap.path.as_deref(), Some(format!("{}/intensity", offered.at).as_str()));
+        assert_eq!((h.fidelity.score, h.intensity.score), (h.fidelity.score, h.intensity.score));
+        assert_eq!((h.pacing.clone(), h.balance.clone()), (before.pacing, before.balance));
     }
 
     /// A slide lint finds an error on stands ahead of every other finding, said as lint says it,

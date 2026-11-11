@@ -6,7 +6,8 @@
 // - A click selects a slide; Shift+click selects every slide from the one last clicked to it; ⌘-click
 //   (Ctrl) adds one to the selection, or takes it away. The arrow keys move among the slides, a row
 //   at a time with ↑ and ↓, and Home and End; Space adds the slide focused, or takes it away.
-// - Enter, or a double click, shows the slide's first state in the canvas, and the preview back.
+// - Enter, or a double click, shows the slide in the canvas at its last step, built whole as its tile
+//   draws it (lift-up 20261110), and the preview back.
 // - The slides selected, dragged among the others, go before or after the slide under the pointer,
 //   by which half of it the pointer is over; Alt with ← or → moves them a place. ⌘D (Ctrl+D)
 //   copies them, each just after itself, and Delete (or Backspace) takes them out. Each is one
@@ -264,12 +265,13 @@ export function slides(stage: Stage, into: HTMLElement, button: HTMLButtonElemen
     choose([id], id);
   }
 
-  /** Show slide `id` in the canvas: its first state, and the preview back. */
+  /** Show slide `id` in the canvas: its last step, built whole as its tile draws it, and the
+   * preview back (lift-up 20261110). */
   function showSlide(id: string) {
     const slide = all.find((s) => s.id === id);
     if (!slide) return;
     toggle(false);
-    editor.show(all.slice(0, all.indexOf(slide)).reduce((n, s) => n + s.states.length, 0));
+    editor.show(all.slice(0, all.indexOf(slide)).reduce((n, s) => n + s.states.length, 0) + slide.states.length - 1);
   }
 
   /** Close it, as a presentation app's light table closes (editor dogfood 2): onto the slide

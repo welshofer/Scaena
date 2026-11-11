@@ -11,7 +11,7 @@
 // - ⌘D copies `revenue`, its step too, just after itself, the copy selected; each copy reads as
 //   what it copies.
 // - Delete takes `revenue` out, its step too; `close` reads as it read.
-// - Enter shows a slide's first state in the canvas, and the preview back; Escape closes it, and
+// - Enter shows a slide in the canvas at its last step, built whole, and the preview back; Escape closes it, and
 //   what it said of itself in the status goes with it. Closed by Escape or the Slides button, it
 //   shows the slide selected in it (editor dogfood 2).
 // - The slider at its foot makes the slides larger, fewer to a row, each painted larger; in a
@@ -157,13 +157,23 @@ try {
   });
   check(found.length === 0, `axe finds nothing in the light table: ${found.join("; ")}`);
 
-  // Enter shows the slide in the canvas, its first state, and the preview back.
+  // Enter shows the slide in the canvas at its last step, built whole as its tile draws it, and the
+  // preview back (lift-up 20261110): `revenue`'s is `mix`.
+  const shownId = () => page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0]);
+  await tile("revenue").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()]?.[0] === "mix", null, { timeout: 30000 }).catch(() => {});
+  check((await shownId()) === "mix", `Enter shows a slide at its last step: ${await shownId()}`);
+  await page.click("#slides-open");
+  await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
+  await page.evaluate(() => window.scaena.slides.settled());
+  // A slide of one state shows it.
   await tile("close").focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => document.querySelector("#preview") && getComputedStyle(document.querySelector("#preview")).display !== "none", null, { timeout: 10000 }).catch(() => {});
   check(!(await page.locator("#preview").isHidden()), "Enter puts the preview back");
   await page.waitForFunction(() => window.scaena.last().states[window.scaena.shown()]?.[0] === "close", null, { timeout: 30000 }).catch(() => {});
-  check((await page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0])) === "close", "and shows the slide's first state");
+  check((await page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0])) === "close", "and a slide of one state, that state");
 
   // Escape closes it.
   await page.click("#slides-open");
@@ -195,19 +205,20 @@ try {
   // dogfood 2): by Escape, and by the Slides button; with nothing else selected, the slide shown
   // stays.
   const shownFirst = () => page.evaluate(() => window.scaena.last().states[window.scaena.shown()]?.[0]);
-  for (const [to, how] of [["intro", "Escape"], ["revenue", "the Slides button"]]) {
+  // Each at its last step: `revenue`'s is `mix` (lift-up 20261110).
+  for (const [to, how, at] of [["intro", "Escape", "intro"], ["revenue", "the Slides button", "mix"]]) {
     await page.click("#slides-open");
     await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
     await tile(to).click();
     if (how === "Escape") await page.keyboard.press("Escape");
     else await page.click("#slides-open");
-    await page.waitForFunction((s) => window.scaena.last().states[window.scaena.shown()]?.[0] === s, to, { timeout: 30000 }).catch(() => {});
-    check((await page.locator("#slides").isHidden()) && (await shownFirst()) === to, `closed by ${how}, it shows the slide selected in it: ${await shownFirst()}`);
+    await page.waitForFunction((s) => window.scaena.last().states[window.scaena.shown()]?.[0] === s, at, { timeout: 30000 }).catch(() => {});
+    check((await page.locator("#slides").isHidden()) && (await shownFirst()) === at, `closed by ${how}, it shows the slide selected in it: ${await shownFirst()}`);
   }
   await page.click("#slides-open");
   await page.waitForFunction(() => !document.querySelector("#slides").hidden, null, { timeout: 10000 });
   await page.keyboard.press("Escape");
-  check((await shownFirst()) === "revenue", `with the slide shown selected, closing leaves it shown: ${await shownFirst()}`);
+  check((await shownFirst()) === "mix", `with the slide shown selected, closing leaves it shown: ${await shownFirst()}`);
   check((await source()) === original, "and the deck is as it was");
 
   // In that window the inspector gives way to the slide, and the palette hides it, or the

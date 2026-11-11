@@ -128,6 +128,14 @@ public final class DeckEditor {
         return slots[at + by].state
     }
 
+    /// The state slide `state` is a state of is entered at (lift-up 20261110, editor dogfood 6): its
+    /// last step, built whole, as a presentation app shows a slide whole and as the browser enters
+    /// one; a step its tile down the side shows stays that step. A state the deck has not, itself.
+    public func entered(_ state: String) -> String {
+        guard let slide = slots.first(where: { $0.state == state })?.slide else { return state }
+        return slots.last { $0.slide == slide }?.state ?? state
+    }
+
     /// The source the deck was made from last: what an undo of the next edit makes it again.
     @ObservationIgnored private var made = ""
     /// Bumped by each source compiled: a lint of every state begun before it is of another deck.
