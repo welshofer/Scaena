@@ -1057,6 +1057,9 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
         if let Some(why) = &made.unfitted {
             println!("  not rewritten to fit: {why}");
         }
+        if let Some(why) = &made.overlong {
+            println!("  not rewritten to fit: {why}");
+        }
         for c in &made.looked {
             let layout = c.layout.as_deref().map(|l| format!(" as {l}")).unwrap_or_default();
             let words =

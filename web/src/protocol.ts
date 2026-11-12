@@ -996,6 +996,8 @@ export interface HealthFinding {
   figure?: string;
   /** The one field of the slide the finding asks to edit, where it asks for one, so an editor opens it without reading the ask. */
   field?: "headline" | "notes" | "intensity" | "claim";
+  /** The slide, by its first state, a `story` finding's slide says again, which it may be folded into (R1's #1161). */
+  into?: string;
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
@@ -1374,7 +1376,7 @@ export type ToWorker =
   | { type: "addingState"; id: number; source: string; state: string; what: "step" | "slide" }
   /** The patch that folds `state`'s slide into the slide before it, on the deck the editor's
    * `source` compiles to (editor dogfood 6). */
-  | { type: "folding"; id: number; source: string; state: string }
+  | { type: "folding"; id: number; source: string; state: string; into?: string }
   /** The slides a person may start after `state`'s slide, on the deck the editor's `source`
    * compiles to (PLAN 3.30): one in each of the theme's layouts, then a blank one, each painted at
    * rest `height` pixels high in `format`. */
@@ -1721,6 +1723,9 @@ export interface Generated {
   fixed: Finding[];
   fitted?: string[];
   unfitted?: string;
+  /** Each settled claim kept in the person's words though longer than its place takes, by its
+   * slide (W1 dogfood 13): the fit never rewrites one. */
+  overlong?: string;
   /** How many pictures were made for its slides, and why each other asked for was not. */
   pictures?: number;
   unpictured?: string[];

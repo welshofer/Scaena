@@ -305,6 +305,9 @@ public struct Generated: Decodable, Sendable {
     public let layouts: [String]
     public let fitted: [String]?
     public let unfitted: String?
+    /// Each settled claim kept in the person's words though longer than its place takes, by its
+    /// slide (W1 dogfood 13): the fit never rewrites one.
+    public let overlong: String?
     /// How many pictures were made for its slides, and why each other asked for was not.
     public let pictures: Int?
     public let unpictured: [String]?
@@ -1492,6 +1495,8 @@ public final class Generator {
         // lost unseen.
         for f in generated.fell ?? [] { hear(.fell(slide: f.slide, asked: f.asked, why: f.why)) }
         for u in generated.unset ?? [] { hear(.unset(slide: u.slide, words: u.words)) }
+        // A settled claim kept long, for the person to shorten, never rewritten (W1 dogfood 13).
+        if let why = generated.overlong { hear(.unfitted(why)) }
         var error: UnsafeMutablePointer<CChar>?
         guard let session = scaena_generator_open(handle, &error) else { throw ScaenaError.taking(error) }
         return (ScaenaSession(handle: session), generated)

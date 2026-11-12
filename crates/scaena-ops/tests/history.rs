@@ -256,6 +256,20 @@ fn a_history_from_a_newer_scaena_is_left_as_it_is() {
     assert_eq!(aside.count(), 0, "nothing set aside");
 }
 
+/// A patch that cuts two slides is said as two slides deleted, its message counting the run of
+/// one op (agent dogfood 7: three slides cut were "A slide deleted").
+#[test]
+fn a_run_of_one_op_is_counted_in_the_history() {
+    let dir = scratch("counted");
+    keeping_history(&dir);
+    let b = scaena_ops::open(&dir).unwrap();
+    let ops = json!([{ "op": "remove_slide", "slide": "revenue" }, { "op": "remove_slide", "slide": "close" }]);
+    assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    assert_eq!(changes(&dir).last().unwrap().1, "patch: remove_slide \u{d7}2");
+    let said = scaena_ops::history::history(&scaena_ops::open(&dir).unwrap(), &Default::default()).unwrap();
+    assert_eq!(said.versions.unwrap().pop().unwrap().said, "2 slides deleted");
+}
+
 /// One slide is taken back alone (agent dogfood 7): a slide cut, then the close's notes edited,
 /// is put back as the version before the cut held it, its steps, the objects it alone showed,
 /// and its beat in its part of the talk, after the slide it followed, and the edit made since
