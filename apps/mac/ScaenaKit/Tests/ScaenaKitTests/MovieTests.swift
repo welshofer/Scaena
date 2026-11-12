@@ -155,12 +155,17 @@ import Testing
     #expect(Int(size.width) == 640 && abs(Int(size.height) - asked.height) <= 2, "\(size), \(asked)")
     let rate = try await track.load(.nominalFrameRate)
     #expect(abs(rate - 24) < 0.5, "it plays at \(rate) frames a second")
+    // Every frame written, decoded as the first test reads them, a buffer that holds no picture
+    // not counted.
     let reader = try AVAssetReader(asset: asset)
-    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+    let output = AVAssetReaderTrackOutput(
+        track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
     reader.add(output)
     #expect(reader.startReading())
     var frames = 0
-    while output.copyNextSampleBuffer() != nil { frames += 1 }
+    while let sample = output.copyNextSampleBuffer() {
+        if CMSampleBufferGetNumSamples(sample) > 0, CMSampleBufferGetImageBuffer(sample) != nil { frames += 1 }
+    }
     #expect(frames == 24)
 
     // A rate the sheet does not offer, and a width a movie may not be: each an error that says why.
