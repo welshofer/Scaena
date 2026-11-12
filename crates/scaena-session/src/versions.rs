@@ -6,7 +6,7 @@
 use crate::assistant::Caller;
 use crate::{Error, Session};
 use scaena_core::Deck;
-use scaena_ops::history::{Restored, StateChange, StateChanges, Version, compare, differing, restored};
+use scaena_ops::history::{Restored, StateChange, StateChanges, Version, compare, differing, restored, slide_restored};
 use scaena_ops::inspect::Change;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -144,16 +144,23 @@ impl Session {
 
     /// Make version `held`, `version` as listed, the deck again, with its data files, as `scaena
     /// history --restore` does, by `by`: refused as a patch is where the deck would not validate
-    /// in the bundle as it is. Each data file it writes, before and after, for the editor's undo;
-    /// the change is kept for the next save to record. The editor shows the deck's new source.
+    /// in the bundle as it is. With `slide`, a state of the version, only the slide that holds it
+    /// is put back, with the data it reads, as `--restore --slide` puts it back (dogfood 16). Each
+    /// data file it writes, before and after, for the editor's undo; the change is kept for the
+    /// next save to record. The editor shows the deck's new source.
     pub fn restore_version(
         &mut self,
         held: &Held,
         version: Version,
+        slide: Option<&str>,
         by: Caller,
     ) -> Result<(Restored, Vec<Rewritten>), Error> {
-        let (said, write) = restored(&self.bundle(), version, deck(held)?, bytes(&held.files))
-            .map_err(|e| Error::Ops(e.to_string()))?;
+        let (bundle, was, files) = (self.bundle(), deck(held)?, bytes(&held.files));
+        let (said, write) = match slide {
+            Some(slide) => slide_restored(&bundle, version, &was, &files, slide),
+            None => restored(&bundle, version, was, files),
+        }
+        .map_err(|e| Error::Ops(e.to_string()))?;
         let Some(w) = write else { return Ok((said, Vec::new())) };
         let rewritten = self.rewritten(&w.files);
         // A file taken out since that the version reads comes back, to stay.
@@ -267,7 +274,7 @@ mod tests {
         assert_eq!(looked["texts"]["intro"]["subtitle"], serde_json::json!([words, words]));
 
         let user = Caller { author: "user", at: None };
-        let (restored, files) = s.restore_version(&then, version(1), user).unwrap();
+        let (restored, files) = s.restore_version(&then, version(1), None, user).unwrap();
         assert!(restored.applied && !restored.refused, "{restored:?}");
         assert_eq!(
             files,
@@ -290,9 +297,33 @@ mod tests {
         let mut deck: serde_json::Value = serde_json::from_str(&gone.deck).unwrap();
         deck["nodes"]["photo"] = serde_json::json!({ "type": "image", "src": "assets/gone.png" });
         gone.deck = deck.to_string();
-        let (refused, files) = s.restore_version(&gone, version(2), user).unwrap();
+        let (refused, files) = s.restore_version(&gone, version(2), None, user).unwrap();
         assert!(refused.refused && !refused.applied && files.is_empty(), "{refused:?}");
         assert!(refused.added.iter().any(|f| f.code == "E102"));
         assert_eq!(s.deck.nodes["title"].props["text"], "Revenue, as it was");
+    }
+
+    /// One slide of a version put back (dogfood 16), as `--restore --slide` puts it back: what
+    /// only it shows comes back as the version had it, what other slides show too stays as it
+    /// is, and the data it reads comes back with its file; the change names the slide.
+    #[test]
+    fn one_slide_of_a_version_is_put_back() {
+        let mut s = Session::open(revenue()).unwrap();
+        let now = String::from_utf8(s.file(CSV).unwrap().to_vec()).unwrap();
+        let mut then = held(&s, "Revenue, as it was", &now.replacen("18.2", "11.1", 1));
+        let mut deck: serde_json::Value = serde_json::from_str(&then.deck).unwrap();
+        deck["nodes"]["note"]["text"] = "Revenue in $M, as it was.".into();
+        then.deck = deck.to_string();
+
+        let user = Caller { author: "user", at: None };
+        let (restored, _) = s.restore_version(&then, version(1), Some("revenue"), user).unwrap();
+        assert!(restored.applied && !restored.refused, "{restored:?}");
+        assert!(restored.slide.as_deref().is_some_and(|said| said.starts_with("Slide ")), "{restored:?}");
+        assert_eq!(s.deck.nodes["note"].props["text"], "Revenue in $M, as it was.", "the slide's own text comes back");
+        assert_eq!(s.deck.nodes["title"].props["text"], "Q3 Review", "what other slides show stays as it is");
+
+        // A state the version does not have is refused by its name.
+        let e = s.restore_version(&then, version(1), Some("nowhere"), user).unwrap_err();
+        assert!(e.to_string().contains("no state `nowhere`"), "{e}");
     }
 }

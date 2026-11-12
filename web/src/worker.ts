@@ -931,7 +931,7 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
           // Restoring a version is a way back from a source that does not compile.
         }
         const held = await version(data.version.id);
-        const done = JSON.parse(player.restoreVersion(held, JSON.stringify(data.version), "user", new Date().toISOString())) as {
+        const done = JSON.parse(player.restoreVersion(held, JSON.stringify(data.version), "user", new Date().toISOString(), data.slide)) as {
           restored: Restored;
           files: Rewritten[];
         };
