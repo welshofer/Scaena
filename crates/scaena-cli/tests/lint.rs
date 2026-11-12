@@ -741,3 +741,20 @@ fn lint_takes_its_date_from_now_then_source_date_epoch() {
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(v["error"]["message"].as_str().unwrap().contains("is not an instant or a day"), "{v:#}");
 }
+
+/// Lint on a deck in Japanese says nothing on stderr: parley's word segmenter sends Han and kana to
+/// icu's complex path, where no Chinese or Japanese model is compiled in, and icu_provider's debug
+/// builds said so for every text laid out, 131 lines for W2's Midori (ADR-0004 finding 32). The
+/// workspace's dev profile builds icu_provider without debug assertions, as every release is built.
+#[test]
+fn lint_in_japanese_says_nothing_on_stderr() {
+    let dir = fixture("japanese", "W200", "clean");
+    let deck = std::fs::read_to_string(dir.join("deck.json")).unwrap();
+    let deck =
+        deck.replace("Some words then a last line of two words", "駅北の分館で、増え続ける利用者に席を用意します");
+    std::fs::write(dir.join("deck.json"), deck).unwrap();
+    let out = scaena(&["lint", dir.to_str().unwrap()]);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(!said.contains("ICU4X"), "{said}");
+    assert!(said.trim().is_empty(), "lint said on stderr: {said}");
+}
