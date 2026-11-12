@@ -1526,7 +1526,7 @@ Three families. **Mechanical** rules say "this cannot be shown" (1xx). **Design*
 | W420 | warn | a beat whose states show no claim (a node whose `semantic` is `claim` or `takeaway`). A beat whose states show only signposts (`navigation`, `decoration`, `source`) is not judged |
 | W421 | warn | a slide whose last state shows evidence and no claim |
 | W422 | warn | at a slide's last state, evidence text set larger than its claim, by role size or `style.size`; a stat's numeral (role `numeral`) does not count |
-| W423 | warn | a beat citing a data source or an asset that none of its states shows (a chart or table reading the source, an image of the asset, or for a source any node marked `evidence`). URLs, and the sources a deck was grounded in (`source:NAME`, §3.11), are cited and not checked |
+| W423 | warn | a beat citing a data source or an asset that none of its states shows (a chart or table reading the source, an image of the asset, or for a source any node marked `evidence` or a text that quotes one of its cells, §3.5). URLs, and the sources a deck was grounded in (`source:NAME`, §3.11), are cited and not checked |
 | W424 | warn | more than one `claim` on screen at once |
 | W425 | warn | two consecutive beats with the same claim, ignoring case, spacing, and the closing stop |
 | W426 | warn | a beat that comes after another in the spine while its states play before that one's: the PDF reads a deck in spine order and the video in state order, so the two would tell the story in different orders (§3.11). A beat stands where its first state plays; one with no states the deck has is not judged |
