@@ -6181,7 +6181,7 @@ mod tests {
         let h = of(&grounded_dogfood("board-de", "", board(), said));
         let source = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == 8).expect("slide 8's figure");
         let says = source.says.replace(['\u{a0}', '\u{202f}'], " ");
-        assert!(says.starts_with("Slide 8 writes 40 %, and names no source"), "{says}");
+        assert!(says == "Slide 8 writes 40 %, and does not cite the deck's source, bericht.pdf, for it.", "{says}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
