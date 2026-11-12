@@ -1461,7 +1461,7 @@ struct DeckView: View {
         }
         let export = Exporting.export(kind, of: editor)
         let id = UUID()
-        making = MakingExport(id: id, said: Exporting.making(kind))
+        making = MakingExport(id: id, said: Exporting.making(kind, in: editor.format))
         makingTask = Task {
             defer {
                 if making?.id == id {
