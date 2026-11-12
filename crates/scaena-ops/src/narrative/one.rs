@@ -798,6 +798,7 @@ impl SlideWritten {
             errors: p.errors,
             states: p.states.clone(),
             restated: p.restated.clone(),
+            folded: None,
         });
         self
     }

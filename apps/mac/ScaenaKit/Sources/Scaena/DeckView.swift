@@ -105,6 +105,9 @@ struct DeckView: View {
     @State private var looking: URL?
     /// An export being made away from the window, and the work making it (lift-up PERF-3).
     @State private var making: MakingExport?
+    /// An export the window asks about before it is made, and what makes it once asked (editor
+    /// dogfood 2, lift-up 20261025 SEC-3).
+    @State private var askingExport: (ask: Exporting.Ask, go: () -> Void)?
     @State private var makingTask: Task<Void, Never>?
     /// An export to save where the user says, its type, and the name offered.
     @State private var saving: ExportedFile?
@@ -178,7 +181,7 @@ struct DeckView: View {
         #endif
         // While the themes are offered, the window waits on them as it waited on a sheet: its
         // toolbar, its canvas and panes, and the menus' deck commands take nothing (lift-up ATTR-5).
-        closing(presented(watched(undoing(window.disabled(choosingTheme)))))
+        closing(presented(watched(undoing(asking(window.disabled(choosingTheme))))))
             .focusedSceneValue(\.deck, choosingTheme ? nil : actions)
             .focusedSceneValue(\.canvasActions, choosingTheme ? nil : canvasActions)
             .focusedSceneValue(\.panes, panes)
@@ -723,6 +726,7 @@ struct DeckView: View {
             made.saveNotes = { save(.notes) }
             made.saveImages = { scale in save(slides(scaled: scale)) }
             made.saveHTML = { save(.html) }
+            made.saveHTMLNotes = { save(.htmlNotes) }
             made.saveMovie = { save(.movie()) }
             made.sounds = sounds
             made.saveMovieWith = { sound in save(.movie(sound: sound)) }
@@ -894,6 +898,27 @@ struct DeckView: View {
     /// made on the person's key, and no edit made to a deck no one will save, past it. On the Mac,
     /// the window's own close (its close button, File › Close, ⌘W) asks first while the assistant
     /// works, as New from a Prompt's does while a deck is made, and closes once it has stopped.
+    /// The ask before an export that has one (`Exporting.ask`): its button makes it, and Cancel
+    /// makes nothing.
+    private func asking(_ view: some View) -> some View {
+        view.confirmationDialog(
+            askingExport?.ask.title ?? "",
+            isPresented: Binding(get: { askingExport != nil }, set: { if !$0 { askingExport = nil } }),
+            titleVisibility: .visible
+        ) {
+            if let asked = askingExport {
+                Button(asked.ask.go) {
+                    askingExport = nil
+                    asked.go()
+                }
+                .accessibilityIdentifier("export-ask-go")
+            }
+            Button("Cancel", role: .cancel) { askingExport = nil }
+        } message: {
+            Text(askingExport?.ask.said ?? "")
+        }
+    }
+
     private func closing(_ view: some View) -> some View {
         view
             .onDisappear { assistant?.stop() }
@@ -1387,6 +1412,15 @@ struct DeckView: View {
 
     /// Write `kind` and share it, or show it in Quick Look.
     private func export(_ kind: Exporting.Kind, sharing: Bool) {
+        if let ask = Exporting.ask(kind, of: editor), askingExport == nil {
+            askingExport = (ask, { exportNow(kind, sharing: sharing) })
+            return
+        }
+        exportNow(kind, sharing: sharing)
+    }
+
+    /// Write `kind` and share it, or show it in Quick Look, nothing asked.
+    private func exportNow(_ kind: Exporting.Kind, sharing: Bool) {
         let name = Exporting.name(kind, of: editor)
         make(kind) { data in
             let url = try Exporting.file(data, named: name)
@@ -1396,6 +1430,15 @@ struct DeckView: View {
 
     /// Offer `kind` to save where the user says.
     private func save(_ kind: Exporting.Kind) {
+        if let ask = Exporting.ask(kind, of: editor), askingExport == nil {
+            askingExport = (ask, { saveNow(kind) })
+            return
+        }
+        saveNow(kind)
+    }
+
+    /// Offer `kind` to save where the user says, nothing asked.
+    private func saveNow(_ kind: Exporting.Kind) {
         let name = Exporting.name(kind, of: editor)
         make(kind) { data in
             savingType = kind.type

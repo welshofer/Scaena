@@ -1,0 +1,37 @@
+{
+  "arc": "Problem–Solution",
+  "reasoning": "Ein Problem und seine Lösung.",
+  "bigIdea": "Die Biotonne rechnet sich in drei Jahren und hält ein Drittel unseres Mülls von der Deponie fern.",
+  "beats": [
+    {
+      "name": "Problem: Define core challenge and stakes",
+      "claim": "Speisereste sind ein Drittel unseres Restmülls, und jede Tonne wird teurer.",
+      "slides": 2
+    },
+    {
+      "name": "Impact: Quantify cost of inaction",
+      "claim": "Die Deponie schließt 2034, und jedes Jahr des Wartens erhöht die Rechnung.",
+      "slides": 2
+    },
+    {
+      "name": "Proof: Case studies, data, demos",
+      "claim": "Im Pilotprojekt mit 4.200 Haushalten sank der Speiserest im Restmüll um 58 %.",
+      "slides": 2
+    },
+    {
+      "name": "Solution: Introduce your answer",
+      "claim": "Die Biotonne holt Speisereste auf den Touren ab, die wir ohnehin fahren.",
+      "slides": 2
+    },
+    {
+      "name": "Einwände",
+      "claim": "Gerüche und Ungeziefer bekommt man mit Deckel und wöchentlicher Abholung in den Griff.",
+      "slides": 2
+    },
+    {
+      "name": "Call to Action: Next steps",
+      "claim": "Bewilligen Sie 2,4 Mio. € für die Tonnen im Haushalt 2026.",
+      "slides": 3
+    }
+  ]
+}

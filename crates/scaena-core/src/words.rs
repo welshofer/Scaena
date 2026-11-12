@@ -549,6 +549,7 @@ const OPS: &[(&str, &str)] = &[
     ("duplicate_slide", "a slide copied"),
     ("move_slide", "a slide moved"),
     ("remove_slide", "a slide deleted"),
+    ("fold_slide", "a slide folded into the one before"),
     ("retheme", "the theme changed"),
 ];
 
@@ -589,7 +590,8 @@ pub fn change(message: &str) -> String {
         return format!("The data “{}” changed", source(name.split(':').next().unwrap_or(name), None));
     }
     if m.starts_with("history --restore ") {
-        return "A version restored".into();
+        // One slide taken back from a version, the rest as it is (agent dogfood 7).
+        return if m.contains(" --slide ") { "A slide restored" } else { "A version restored" }.into();
     }
     if let Some(path) = m.strip_prefix("theme --apply ") {
         let name = file(path);

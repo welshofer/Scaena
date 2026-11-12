@@ -4,17 +4,18 @@ import Foundation
 /// presenter's notes under each slide as `--notes` writes it; a state at rest as a PNG this many
 /// pixels wide; or every slide once its steps have played as PNGs in one zip, each named by its
 /// number after `name`; or the deck as one HTML file that plays offline, named `name`, as
-/// `--format html` writes it (lift-up 20261031 FUNC-3); or the deck as a movie, H.264 in an
-/// MPEG-4 file at the canvas's size and 30 frames a second, titled `title`, a chapter for each beat
-/// as it plays, its first `seconds` alone where given, with the bundle's sound file at `sound`
-/// under it as AAC, as the browser's Export… and the CLI's `--audio` make one (lift-up 20261031
-/// FUNC-2).
+/// `--format html` writes it (lift-up 20261031 FUNC-3), its speaker notes, each beat's evidence,
+/// and Narrato's hints left out unless `notes` asks for them, as the browser's (lift-up 20261025
+/// SEC-3); or the deck as a movie, H.264 in an MPEG-4 file at the canvas's size and 30 frames a
+/// second, titled `title`, a chapter for each beat as it plays, its first `seconds` alone where
+/// given, with the bundle's sound file at `sound` under it as AAC, as the browser's Export… and the
+/// CLI's `--audio` make one (lift-up 20261031 FUNC-2).
 public enum Export: Sendable, Equatable {
     case pdf
     case notes
     case png(state: String, width: Int)
     case slides(width: Int, name: String)
-    case html(name: String)
+    case html(name: String, notes: Bool = false)
     case movie(title: String, seconds: Double? = nil, sound: String? = nil)
 }
 
@@ -39,7 +40,7 @@ extension ScaenaSession.Snapshot {
                 case .notes: return try session.pdf(notes: true)
                 case .png(let state, let width): return try session.png(state, width: width)
                 case .slides(let width, let name): return try session.slides(width: width, name: name)
-                case .html(let name): return try session.html(name: name)
+                case .html(let name, let notes): return try session.html(name: name, notes: notes)
                 case .movie(let title, let seconds, let sound):
                     let heard = try sound.map { (data: try session.file($0), name: $0) }
                     let url = FileManager.default.temporaryDirectory.appending(path: "Scaena-\(UUID().uuidString).mp4")

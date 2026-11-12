@@ -318,6 +318,7 @@ fn every_lint_code_is_said_in_a_sentence() {
 fn a_change_of_the_history_is_said_as_a_person_says_it() {
     assert_eq!(words::change("patch: add_node, place, place"), "An object added, an object moved");
     assert_eq!(words::change("patch: a_new_op"), "An edit");
+    assert_eq!(words::change("history --restore 0@12 --slide revenue"), "A slide restored");
     assert_eq!(words::change(""), "A change");
     assert_eq!(words::change("history begins"), "The history begins");
     // A data source by its name in words, never the id the deck writes it with (PLAN 3.18).

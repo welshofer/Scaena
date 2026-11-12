@@ -47,6 +47,8 @@ struct WindowPanes {
     /// the files it may take, and what saves it with one.
     var sounds: [String] = []
     var saveMovieWith: ((String) -> Void)? = nil
+    /// Save the deck as one HTML file with the speaker notes, asked first (lift-up 20261025 SEC-3).
+    var saveHTMLNotes: (() -> Void)? = nil
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -66,8 +68,8 @@ extension FocusedValues {
 /// the issues, and the source, each off until asked for; the assistant (⌥⌘A) and the inspector's
 /// tabs; then Play Slideshow (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play
 /// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10). In the File
-/// menu, Export To, as a presentation app's: PDF…, PDF with Notes…, HTML…, Movie…, and Images, every
-/// slide as PNGs at the canvas's size or twice it (lift-up USE-5, 20261031 FUNC-2, FUNC-3).
+/// menu, Export To, as a presentation app's: PDF…, PDF with Notes…, HTML…, HTML with Notes…, Movie…,
+/// and Images, every slide as PNGs at the canvas's size or twice it (lift-up USE-5, 20261031 FUNC-2, FUNC-3).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
     @Environment(\.openWindow) private var openWindow
@@ -87,6 +89,10 @@ struct WindowCommands: Commands {
                         ScaenaSession.carriesPlayer
                             ? "The deck as one web page that plays with no network"
                             : "This Scaena was built without the web player a single HTML file carries")
+                // The same with the speaker notes, which anyone who opens it can read: asked first.
+                Button("HTML with Notes…") { panes?.saveHTMLNotes?() }
+                    .disabled(panes?.saveHTMLNotes == nil || !ScaenaSession.carriesPlayer)
+                    .help("The deck as one web page with your notes, which anyone who opens it can read")
                 // The deck as it plays, each slide's builds then its pause, as a movie.
                 Button("Movie…") { panes?.saveMovie?() }
                     .disabled(panes?.saveMovie == nil)

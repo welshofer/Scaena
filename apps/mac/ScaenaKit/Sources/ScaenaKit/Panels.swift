@@ -403,6 +403,14 @@ extension ScaenaSession {
             "themeEdit", ["ops": .array(ops), "dryRun": .bool(dryRun), "at": .string(date.formatted(.iso8601))])
     }
 
+    /// Draw frames at rest in the theme the deck names as `ops`, RFC 6902 operations on it, would
+    /// edit it, with nothing made, validated, or linted: a color held in its picker, before it is
+    /// chosen (lift-up ATTR-5). None draws the theme as it is; so does any edit of the deck.
+    public func themePreviewing(_ ops: [JSONValue]?) throws {
+        let patch: JSONValue = ops.map { JSONValue.array($0) } ?? .null
+        let _: JSONValue = try call("themePreviewing", ["ops": patch])
+    }
+
     /// The theme given the colors of `photo`, an image the bundle holds (PLAN 2.94).
     public func themeEdit(photo: String, at date: Date = Date()) throws -> ThemeEdited {
         try call("themeEdit", ["photo": .string(photo), "at": .string(date.formatted(.iso8601))])

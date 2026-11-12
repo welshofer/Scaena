@@ -907,7 +907,8 @@ pub struct DeckRender {
     pub size: Option<String>,
     #[serde(default)]
     pub painter: scaena_ops::render::Painter,
-    /// Also write the PNG here: under the server's working directory or the bundle's folder.
+    /// Also write the PNG here: under the server's working directory or the bundle's folder,
+    /// making the folder it goes in where there is none.
     #[serde(default)]
     pub out: Option<String>,
 }
@@ -1412,7 +1413,9 @@ impl Scaena {
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and \
-        duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
+        duplicate_slide move, take away, and copy a slide with its steps and its beat; fold_slide, alone in its \
+        patch, folds a slide into the one before it as the editors' Fold does, `folded` saying what goes where \
+        (dry-run it first); set_state sets a state's \
         layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); \
         place puts a node where it goes; choose sets a property where its value \
         lives; replace_text changes words, keeping their runs; brief sets the deck's brief, which health paces \
@@ -1551,6 +1554,12 @@ impl Scaena {
         let frame = blocking(move || {
             let frame = scaena_ops::render::render(Path::new(&a.bundle), &req)?;
             if let Some(out) = &out {
+                // The folder it goes in made where there is none, as an export makes its own
+                // (agent dogfood 7: `out: "r/vs.png"` failed where `deck_export`'s would not).
+                if let Some(dir) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(dir)
+                        .map_err(|e| OpsError::new(format!("making {}: {e}", dir.display())))?;
+                }
                 std::fs::write(out, &frame.png)
                     .map_err(|e| OpsError::new(format!("writing {}: {e}", out.display())))?;
             }
@@ -1800,7 +1809,9 @@ impl Scaena {
         changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they \
         were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
         (`dry_run` writes nothing). A version is named by its number, its id, or how far back from the latest it is: \
-        `restore: \"-1\"`, the version before the latest, undoes the last change. With `last`, only the last that \
+        `restore: \"-1\"`, the version before the latest, undoes the last change. With `restore` and `slide`, a \
+        state, only the slide that holds it is put back as that version held it, its steps, the objects it alone \
+        shows, its data, and its beat, and every edit made since stays. With `last`, only the last that \
         many versions are listed.")]
     async fn deck_history(
         &self,
