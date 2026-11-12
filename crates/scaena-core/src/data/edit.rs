@@ -40,6 +40,10 @@ pub enum RowEdit {
     },
     /// Row `row` taken away.
     Remove { row: usize },
+    /// Column `column` named `to`: its header in the file, or its key in each row written inline,
+    /// and, in the same edit, the source's `schema` and `parse` for it and every chart's, table's,
+    /// quote's, and transform's reading of it (`data::rename`, R1's dogfood 10).
+    Rename { column: String, to: String },
 }
 
 /// A value as typed: text, or a JSON number or boolean taken as its text; null as nothing.
@@ -301,6 +305,35 @@ pub fn edit(deck: &Deck, files: &dyn SourceFiles, name: &str, edit: &RowEdit) ->
         reader.read(column, kind, Value::String(value.to_string())).map_err(|e| format!("`@{name}`: {e}"))?;
         Ok(kind)
     };
+    if let RowEdit::Rename { column, to } = edit {
+        let columns = raw.columns.join(", ");
+        if !raw.columns.contains(column) {
+            return Err(format!("`@{name}` has no column `{column}`: its columns are {columns}"));
+        }
+        if to.trim().is_empty() || to.trim() != to {
+            return Err(format!("a column's name is words with no space at either end, not `{to}`"));
+        }
+        if to.contains('`') || to.contains(['\n', '\r']) {
+            return Err(format!("a column's name holds no backtick or line break, as an expression names it: `{to}`"));
+        }
+        if raw.columns.contains(to) {
+            return Err(format!("`@{name}` has a column `{to}` already: its columns are {columns}"));
+        }
+        return match &deck.data[name].source {
+            Value::String(path) => {
+                let bytes = files.bytes(path).ok_or_else(|| format!("`{path}` was not handed over"))?;
+                let text = std::str::from_utf8(&bytes).map_err(|_| format!("`{path}` is not UTF-8"))?;
+                let renamed = if path.ends_with(".csv") {
+                    csv_renamed(text, column, to)?
+                } else {
+                    json_renamed(text, column, to)?
+                };
+                Ok(Edited::File { path: path.clone(), bytes: renamed.into_bytes() })
+            }
+            // Rows written inline are the deck's, which `data::rename` renames with the rest.
+            _ => Ok(Edited::Inline(Vec::new())),
+        };
+    }
     let rows = raw.rows.len();
     let count = if rows == 1 { "1 row".to_string() } else { format!("{rows} rows") };
     match edit {
@@ -321,7 +354,7 @@ pub fn edit(deck: &Deck, files: &dyn SourceFiles, name: &str, edit: &RowEdit) ->
             }
             typed
         }
-        RowEdit::Remove { .. } => Vec::new(),
+        RowEdit::Remove { .. } | RowEdit::Rename { .. } => Vec::new(),
     };
     match &deck.data[name].source {
         Value::String(path) => {
@@ -454,6 +487,7 @@ fn csv(text: &str, columns: &[String], edit: &RowEdit, values: &[Setting]) -> Re
     let index = |column: &str| columns.iter().position(|c| c == column).expect("checked against the columns");
     let mut out = String::with_capacity(text.len() + 64);
     match edit {
+        RowEdit::Rename { .. } => return Err("a column is renamed apart from its rows".into()),
         RowEdit::Set { row, .. } => {
             let (column, value, kind) = values.first().ok_or("no value to set")?;
             let record = *rows.get(*row).ok_or(UNREAD)?;
@@ -685,12 +719,46 @@ fn key_len(text: &str, at: usize) -> usize {
     skip_value(text, at).map_or(0, |end| end - at)
 }
 
+/// The CSV file `text` with its header's `from` named `to`, every other byte as it was: the
+/// field quoted as it was, or where it has to be.
+fn csv_renamed(text: &str, from: &str, to: &str) -> Result<String, String> {
+    let (all, _) = records(text);
+    let header = all.iter().find(|r| !r.blank).ok_or("no header row")?;
+    let decoded = |range: &Range<usize>| {
+        let field = text[range.clone()].trim_matches(|c| c == ' ' || c == '\t');
+        match field.strip_prefix('"').and_then(|f| f.strip_suffix('"')) {
+            Some(inner) => inner.replace("\"\"", "\""),
+            None => field.to_string(),
+        }
+    };
+    let field = header.fields.iter().find(|f| decoded(f).trim() == from).ok_or(UNREAD)?;
+    let quoted = text[field.clone()].trim_start().starts_with('"');
+    Ok(format!("{}{}{}", &text[..field.start], csv_field(to, ColumnType::String, quoted), &text[field.end..]))
+}
+
+/// The JSON file `text` with each row's key `from` named `to`, every other byte as it was.
+fn json_renamed(text: &str, from: &str, to: &str) -> Result<String, String> {
+    let array = array(text)?;
+    let key = Value::String(to.to_string()).to_string();
+    let mut spans: Vec<Range<usize>> = (array.elements.iter())
+        .flat_map(|e| e.members.iter().filter(|m| m.key == from))
+        .map(|m| m.key_start..m.key_start + key_len(text, m.key_start))
+        .collect();
+    spans.reverse();
+    let mut out = text.to_string();
+    for span in spans {
+        out.replace_range(span, &key);
+    }
+    Ok(out)
+}
+
 /// The JSON file `text` with `edit` made.
 fn json_file(text: &str, columns: &[String], edit: &RowEdit, values: &[Setting]) -> Result<String, String> {
     let array = array(text)?;
     let elements = &array.elements;
     let splice = |range: Range<usize>, with: &str| format!("{}{with}{}", &text[..range.start], &text[range.end..]);
     Ok(match edit {
+        RowEdit::Rename { .. } => return Err("a column is renamed apart from its rows".into()),
         RowEdit::Set { row, .. } => {
             let (column, value, kind) = values.first().ok_or("no value to set")?;
             let element = elements.get(*row).ok_or(UNREAD)?;
@@ -780,6 +848,7 @@ fn inline(
         serde_json::from_str(&json_value(value, kind)).expect("a JSON value")
     };
     Ok(match edit {
+        RowEdit::Rename { .. } => return Err("a column is renamed apart from its rows".into()),
         RowEdit::Set { row, .. } => {
             let (column, value, kind) = values.first().ok_or("no value to set")?;
             let held = deck.data[name].source["inline"][*row].get(column).is_some();
