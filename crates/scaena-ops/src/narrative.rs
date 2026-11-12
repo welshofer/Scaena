@@ -1438,12 +1438,24 @@ fn speak(
     };
     let mut written = Vec::new();
     let mut dropped = Vec::new();
+    let mut cut = Vec::new();
     let mut unanswered: Option<String> = None;
+    // The figures the deck's sources hold, and its data files', which the notes may say though
+    // no slide writes them (W1's dogfood 17).
+    let mut held = generation.held();
+    for (path, bytes) in &write.files {
+        if path.starts_with("data/")
+            && let Ok(text) = std::str::from_utf8(bytes)
+        {
+            held.add(text);
+        }
+    }
     match (noting, key) {
-        (Noting::Answered(text), _) => match scaena_narrato::notes::read_all(text, &spoken) {
+        (Noting::Answered(text), _) => match scaena_narrato::notes::read_held(text, &spoken, &held) {
             Ok(read) => {
                 written = read.notes;
                 dropped = read.dropped;
+                cut = read.cut;
             }
             Err(why) => unanswered = Some(why),
         },
@@ -1458,10 +1470,12 @@ fn speak(
             let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
             let replies = asked_again(&requests, transport, say);
             for ((round, _), reply) in asked.into_iter().zip(replies) {
-                match generation.notes_answer(reply.status, &reply.status_text, &reply.body, &spoken[round.clone()]) {
+                let round_spoken = &spoken[round.clone()];
+                match generation.notes_answer_held(reply.status, &reply.status_text, &reply.body, round_spoken, &held) {
                     Ok(read) => {
                         written.extend(read.notes);
                         dropped.extend(read.dropped);
+                        cut.extend(read.cut);
                     }
                     Err(why) => {
                         let (first, last) = (spoken[round.start].slide, spoken[round.end - 1].slide);
@@ -1483,7 +1497,7 @@ fn speak(
     }
     // Each slide whose notes were not taken, and why, after the rounds not answered (W1's
     // dogfood 6).
-    let why = scaena_narrato::notes::said(&dropped, &spoken);
+    let why = scaena_narrato::notes::said(&dropped, &cut, &spoken);
     made.unnoted = match (unanswered, why) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
         (a, b) => a.or(b),
@@ -9466,9 +9480,10 @@ mod tests {
     fn a_made_decks_notes_are_written_for_its_talk() {
         let slides = std::fs::read_to_string(root().join("tests/fixtures/dogfood/keynote.slides.json")).unwrap();
         let answered = std::fs::read_to_string(root().join("tests/fixtures/dogfood/keynote.notes.json")).unwrap();
-        let make = |noting: Noting| {
+        let make_from = |noting: Noting, sources: Option<&str>| {
             let mut brief = Brief::new("Keynote: how a Maine fishing town built its own microgrid");
             brief.length = "11-15 slides".into();
+            brief.source_content = sources.map(String::from);
             let settings = Settings { provider: Provider::Anthropic, model: String::new(), base: None, browser: false };
             let mut g = Generation::new(brief, settings).unwrap();
             g.choose_arc(Some("Hero's Journey"));
@@ -9490,6 +9505,7 @@ mod tests {
             .unwrap();
             (made, write.unwrap().deck)
         };
+        let make = |noting: Noting| make_from(noting, None);
         let beats = |deck: &Deck| -> Vec<(String, f64)> {
             let spine = deck.spine.as_ref().unwrap();
             (spine.sections.iter().flat_map(|s| &s.beats))
@@ -9523,19 +9539,24 @@ mod tests {
         // Notes only: every slide draws as it did.
         let (was, now) = (drafted.to_value().unwrap(), spoken.to_value().unwrap());
         assert_eq!((&was["nodes"], &was["states"]), (&now["nodes"], &now["states"]));
-        // The spoken words would be the slides' own figures: notes that write one no slide does are
-        // not taken.
+        // The spoken words would be the slides' own figures: a sentence that writes one no slide
+        // does is cut, and the notes are kept without it (W1's dogfood 17).
         let invented = answered.replacen("1,900", "2,400", 1);
-        let (made, _) = make(Noting::Answered(&invented));
-        assert_eq!(made.noted.len(), 12, "{:?}", made.noted);
-        // And say so, by its slide, and what it keeps (W1's dogfood 6).
-        let left = (1..=13).find(|k| !made.noted.contains(k)).unwrap();
+        let (made, cut) = make(Noting::Answered(&invented));
+        assert_eq!(made.noted, (1..=13).collect::<Vec<_>>());
+        let opening = &beats(&cut)[0].0;
+        assert!(!opening.contains("2,400") && opening.starts_with("Good morning. It has a harbor"), "{opening}");
+        // And say so, by its slide, and the sentence cut (W1's dogfood 6).
         assert_eq!(
             made.unnoted.as_deref(),
             Some(
-                format!("Slide {left}'s notes with a figure the slide does not write, Narrato's drafts kept").as_str()
+                "Slide 1's notes kept without a sentence with a figure the slide does not write: \u{201c}I want to tell you about a fishing town of 2,400 people on the coast of Maine\u{2026}\u{201d}"
             )
         );
+        // A figure the deck's sources write is written: the notes are kept whole.
+        let (made, sourced) = make_from(Noting::Answered(&invented), Some("Port Alder, Maine: population 2,400."));
+        assert_eq!((made.noted.len(), made.unnoted), (13, None));
+        assert!(beats(&sourced)[0].0.contains("2,400 people"));
     }
 
     #[test]

@@ -759,7 +759,8 @@ impl Generation {
 
     /// The notes the response to [`Generation::notes_request`] gives, each a slide of `spoken`'s
     /// and its words, and each slide of `spoken` whose notes were not taken, with why
-    /// ([`notes::read_all`], W1's dogfood 6).
+    /// ([`notes::read_all`], W1's dogfood 6), each figure the brief's sources hold counted as
+    /// written ([`Generation::held`], W1's dogfood 17).
     pub fn notes_answer(
         &self,
         status: u16,
@@ -767,11 +768,30 @@ impl Generation {
         body: &str,
         spoken: &[notes::Spoken],
     ) -> Result<notes::Read, NarratoError> {
+        self.notes_answer_held(status, status_text, body, spoken, &self.held())
+    }
+
+    /// [`Generation::notes_answer`], each figure `held` holds counted as written: the sources'
+    /// and the data files' the deck is made with.
+    pub fn notes_answer_held(
+        &self,
+        status: u16,
+        status_text: &str,
+        body: &str,
+        spoken: &[notes::Spoken],
+        held: &notes::Held,
+    ) -> Result<notes::Read, NarratoError> {
         if status == 0 {
             return Err(NarratoError::Provider(format!("the request did not complete: {status_text}")));
         }
         let read = self.settings.provider.read_answer(status, status_text, body).map_err(NarratoError::Provider)?;
-        notes::read_all(&read.text, spoken).map_err(NarratoError::Answer)
+        notes::read_held(&read.text, spoken, held).map_err(NarratoError::Answer)
+    }
+
+    /// The figures the brief's sources hold, as packed for the prompt, which notes may say
+    /// though no slide writes them (W1's dogfood 17).
+    pub fn held(&self) -> notes::Held {
+        notes::Held::of(self.brief.source_content.as_deref().unwrap_or_default())
     }
 
     /// The changes the response to [`Generation::look_request`] asks for, each one `slides`
