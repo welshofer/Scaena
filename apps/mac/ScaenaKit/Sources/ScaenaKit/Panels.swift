@@ -159,7 +159,6 @@ public struct ThemeEdited: Decodable, Sendable {
         refusals = found
         why = messages(found)
         files = try fields.decodeIfPresent([Rewritten].self, forKey: .files) ?? []
-        slide = try restored.decodeIfPresent(String.self, forKey: .slide)
     }
 }
 
