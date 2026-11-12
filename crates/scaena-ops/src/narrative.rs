@@ -14277,15 +14277,19 @@ mod tests {
         for slot in ["-number", "-callout"] {
             let (_, words, quote) = hero(slot);
             assert_eq!(words, "2,475", "{slot}");
-            // June's row, by its index: the months are dates, which name no row.
+            // June's row, by its month: a column of dates that tells the rows apart names them,
+            // so a month added before June leaves the quote on it (R1's agent dogfood 10).
             assert_eq!(
                 (quote["column"].as_str(), &quote["row"]),
-                (Some("sunday_visits"), &json!(5)),
+                (Some("sunday_visits"), &json!({ "month": "2026-06-01" })),
                 "{slot}: {quote}"
             );
         }
         // January's figure in the meaning, quoted before, still is.
-        assert!(quotes.iter().any(|(_, w, q)| w == "1,840" && q["row"] == 0), "{quotes:#?}");
+        assert!(
+            quotes.iter().any(|(_, w, q)| w == "1,840" && q["row"] == json!({ "month": "2026-01-01" })),
+            "{quotes:#?}"
+        );
         // The PDF's figures are in no cell: none quoted.
         assert!(!quotes.iter().any(|(_, w, _)| ["38%", "$3,400", "3,400", "20%"].contains(&w.as_str())), "{quotes:#?}");
         assert!(kept[0].quoted.unwrap() >= 3, "{kept:?}");
