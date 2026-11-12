@@ -647,6 +647,23 @@ fn document(
     Ok((bytes, pages))
 }
 
+/// The notes a page of the PDF prints for the slide whose `state` it draws, at its last: the
+/// state's own, else those of the nearest step of its slide before it that has its own, as a
+/// presenter reads them on through the slide's builds, else its beat's (agent dogfood 8: a slide
+/// written with its notes on its first state printed its beat's under its page).
+fn slide_notes(deck: &Deck, state: &str) -> Option<scaena_core::notes::Notes> {
+    let k = deck.states.iter().position(|s| s.id == state)?;
+    let slides = deck.slides();
+    let own = (slides.iter().find(|slide| slide.contains(&k)).into_iter().flatten())
+        .filter(|&&i| i <= k)
+        .rev()
+        .find_map(|&i| deck.states[i].notes.as_deref().filter(|n| !n.trim().is_empty()).map(|_| i));
+    match own {
+        Some(i) => scaena_core::notes::of(deck, &deck.states[i].id),
+        None => scaena_core::notes::of(deck, state),
+    }
+}
+
 /// The deck's PDF laid out, and the state each page draws (PLAN 2.54): its pages at rest, as
 /// [`pdf_pages`] orders them, and the bytes of the fonts and images they name. Drawn here, it is
 /// `export --format pdf`; in the browser, the editor's module lays it out and the PDF's own
@@ -676,7 +693,7 @@ pub fn pdf_laid_out(
     let mut pages = Vec::with_capacity(lists.len());
     for (state, list) in lists {
         let lists = if notes {
-            let said = scaena_core::notes::of(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
+            let said = slide_notes(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
             engine.notes_pages(&b.deck, &theme, &list, said.as_deref().unwrap_or(""))?
         } else {
             vec![list]
@@ -1054,7 +1071,7 @@ fn export_video(
 
 #[cfg(test)]
 mod tests {
-    use super::{Reel, Request, pdf_pages, unnoted, write};
+    use super::{Reel, Request, pdf_pages, slide_notes, unnoted, write};
     use scaena_core::timeline::Timeline;
     use serde_json::{Value, json};
 
@@ -1087,6 +1104,30 @@ mod tests {
         assert_eq!(left["states"][0].get("notes"), None);
         // Dropped unless they are asked for (Jay's call, 2026-10-25).
         assert!(!Request::default().notes, "a single file leaves the notes out unless asked");
+    }
+
+    /// A slide's page in a PDF with notes, drawn at its last step, prints the notes its first
+    /// step keeps, as a presenter reads them on through its builds, not its beat's (agent
+    /// dogfood 8); a step's own win, and a slide with none prints its beat's.
+    #[test]
+    fn a_slides_page_prints_the_notes_its_steps_keep_before_its_beats() {
+        let deck: scaena_core::Deck = serde_json::from_value(json!({
+            "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": {},
+            "states": [
+                { "id": "a", "notes": "The slide's own." }, { "id": "a-2", "slide": "a" }, { "id": "a-3", "slide": "a" },
+                { "id": "b" }, { "id": "b-2", "slide": "b", "notes": "The step's own." },
+                { "id": "c" }
+            ],
+            "spine": { "sections": [{ "id": "s", "title": "S", "beats": [
+                { "id": "x", "claim": "X.", "states": ["a", "a-2", "a-3"], "notes": "The beat's." },
+                { "id": "y", "claim": "Y.", "states": ["b", "b-2", "c"], "notes": "Y's beat." }
+            ] }] }
+        }))
+        .unwrap();
+        let said = |state: &str| slide_notes(&deck, state).map(|n| n.text);
+        assert_eq!(said("a-3").as_deref(), Some("The slide's own."));
+        assert_eq!(said("b-2").as_deref(), Some("The step's own."));
+        assert_eq!(said("c").as_deref(), Some("Y's beat."));
     }
 
     /// A file an export writes goes in its folder made where it is not yet, as the spine's and

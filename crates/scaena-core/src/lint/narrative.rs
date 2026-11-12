@@ -382,10 +382,12 @@ impl Rule for W429BeatWithNoStates {
                     format!("beat `{}` is not told yet: its claim \"{}\" is on no slide", beat.id, beat.claim),
                 )
                 .at(at)
-                .hint(
-                    "Start a slide for it (`state_start` with its claim), or list the states that tell it; \
-                     a beat left by a cut slide may go.",
-                )
+                .hint(format!(
+                    "Write its slide (`slide_write` with `beat: \"{}\"`), or start one (`state_start` with its \
+                     claim, which tells it in this beat); or list the states that tell it; a beat left by a cut \
+                     slide may go.",
+                    beat.id
+                ))
             })
             .collect()
     }
