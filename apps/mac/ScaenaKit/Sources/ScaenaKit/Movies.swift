@@ -296,37 +296,38 @@ final class Chapters: Feeding {
         }
     }
 
-    /// QuickTime text's sample description, as a chapter track's is written: black on nothing.
+    /// QuickTime text's sample description, as a chapter track's is written, from its bytes as
+    /// the QuickTime file format lays them out: its size and kind, a reference to its data, then
+    /// no flags, left justification, a white ground, an empty box, the system font, plain, black
+    /// letters, and no font name.
     private static func format() throws -> CMFormatDescription {
-        let black: [String: Any] = [
-            kCMTextFormatDescriptionColor_Red as String: 0, kCMTextFormatDescriptionColor_Green as String: 0,
-            kCMTextFormatDescriptionColor_Blue as String: 0, kCMTextFormatDescriptionColor_Alpha as String: 255,
-        ]
-        let none: [String: Any] = [
-            kCMTextFormatDescriptionRect_Top as String: 0, kCMTextFormatDescriptionRect_Left as String: 0,
-            kCMTextFormatDescriptionRect_Bottom as String: 0, kCMTextFormatDescriptionRect_Right as String: 0,
-        ]
-        let style: [String: Any] = [
-            kCMTextFormatDescriptionStyle_StartChar as String: 0,
-            kCMTextFormatDescriptionStyle_Font as String: 1,
-            kCMTextFormatDescriptionStyle_FontFace as String: 0,
-            kCMTextFormatDescriptionStyle_ForegroundColor as String: black,
-            kCMTextFormatDescriptionStyle_FontSize as String: 12,
-        ]
-        let extensions: [String: Any] = [
-            kCMTextFormatDescriptionExtension_DisplayFlags as String: 0,
-            kCMTextFormatDescriptionExtension_BackgroundColor as String: black,
-            kCMTextFormatDescriptionExtension_DefaultTextBox as String: none,
-            kCMTextFormatDescriptionExtension_DefaultStyle as String: style,
-            kCMTextFormatDescriptionExtension_HorizontalJustification as String: 0,
-            kCMTextFormatDescriptionExtension_VerticalJustification as String: 0,
-            kCMTextFormatDescriptionExtension_FontTable as String: [NSNumber(value: 1): "Sans-Serif"] as NSDictionary,
-        ]
+        var bytes: [UInt8] = []
+        func put(_ value: UInt32, _ width: Int) {
+            for shift in stride(from: (width - 1) * 8, through: 0, by: -8) { bytes.append(UInt8((value >> UInt32(shift)) & 0xFF)) }
+        }
+        put(60, 4)  // its size
+        bytes += Array("text".utf8)
+        put(0, 4); put(0, 2)  // reserved
+        put(1, 2)  // the data reference
+        put(0, 4)  // display flags
+        put(0, 4)  // justification: left
+        put(0xFFFF, 2); put(0xFFFF, 2); put(0xFFFF, 2)  // the ground
+        put(0, 2); put(0, 2); put(0, 2); put(0, 2)  // the default box
+        put(0, 4); put(0, 4)  // reserved
+        put(0, 2)  // the font: the system's
+        put(0, 2)  // its face: plain
+        put(0, 1); put(0, 2)  // reserved
+        put(0, 2); put(0, 2); put(0, 2)  // the letters: black
+        put(0, 1)  // no font name
         var made: CMFormatDescription?
-        let status = CMFormatDescriptionCreate(
-            allocator: kCFAllocatorDefault, mediaType: kCMMediaType_Text, mediaSubType: kCMTextFormatType_QTText,
-            extensions: extensions as CFDictionary, formatDescriptionOut: &made)
-        guard status == noErr, let made else { throw ScaenaError(message: "the movie's chapters could not be described") }
+        let status = bytes.withUnsafeBufferPointer { raw in
+            CMTextFormatDescriptionCreateFromBigEndianTextDescriptionData(
+                allocator: kCFAllocatorDefault, bigEndianTextDescriptionData: raw.baseAddress!, size: raw.count,
+                flavor: nil, mediaType: kCMMediaType_Text, formatDescriptionOut: &made)
+        }
+        guard status == noErr, let made else {
+            throw ScaenaError(message: "the movie's chapters could not be described (\(status))")
+        }
         return made
     }
 
