@@ -36,12 +36,13 @@ struct WindowPanes {
     var addSlideAbout: (() -> Void)? = nil
     /// File › Export To (lift-up USE-5): the deck saved as a PDF, with or without the presenter's
     /// notes, every slide as PNGs in one zip at the canvas's size or twice it, as the toolbar's
-    /// Share saves them, and the deck as one HTML file (lift-up 20261031 FUNC-3); none with no
-    /// slides.
+    /// Share saves them, the deck as one HTML file (lift-up 20261031 FUNC-3), and the deck as a
+    /// movie (lift-up 20261031 FUNC-2); none with no slides.
     var savePDF: (() -> Void)? = nil
     var saveNotes: (() -> Void)? = nil
     var saveImages: ((Int) -> Void)? = nil
     var saveHTML: (() -> Void)? = nil
+    var saveMovie: (() -> Void)? = nil
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -61,8 +62,8 @@ extension FocusedValues {
 /// the issues, and the source, each off until asked for; the assistant (⌥⌘A) and the inspector's
 /// tabs; then Play Slideshow (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play
 /// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10). In the File
-/// menu, Export To, as a presentation app's: PDF…, PDF with Notes…, HTML…, and Images, every slide
-/// as PNGs at the canvas's size or twice it (lift-up USE-5, 20261031 FUNC-3).
+/// menu, Export To, as a presentation app's: PDF…, PDF with Notes…, HTML…, Movie…, and Images, every
+/// slide as PNGs at the canvas's size or twice it (lift-up USE-5, 20261031 FUNC-2, FUNC-3).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
     @Environment(\.openWindow) private var openWindow
@@ -82,6 +83,10 @@ struct WindowCommands: Commands {
                         ScaenaSession.carriesPlayer
                             ? "The deck as one web page that plays with no network"
                             : "This Scaena was built without the web player a single HTML file carries")
+                // The deck as it plays, each slide's builds then its pause, as a movie.
+                Button("Movie…") { panes?.saveMovie?() }
+                    .disabled(panes?.saveMovie == nil)
+                    .help("The deck as it plays, as an MPEG-4 movie")
                 Menu("Images") {
                     Button("Actual Size…") { panes?.saveImages?(1) }
                     Button("Double Size…") { panes?.saveImages?(2) }
