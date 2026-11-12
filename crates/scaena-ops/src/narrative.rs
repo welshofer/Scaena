@@ -7003,7 +7003,16 @@ fn linked(text: &str, bare: bool) -> Option<Vec<Value>> {
         let end = (word.char_indices().rev())
             .find(|(_, c)| c.is_alphanumeric() || *c == '/')
             .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
-        let Some(href) = href(&word[start..end], bare) else {
+        // An address that ends a word with no space before it, after a label in a script that
+        // sets none ("お問い合わせ：library@midori.jp") or a colon ("Contacto:agua@valdemar.es"): the
+        // address characters that end it (W2's health read).
+        let tail = (word[..end].char_indices().rev())
+            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || "._%+-@/".contains(c)))
+            .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
+        let found = href(&word[start..end], bare).map(|h| (start, h));
+        let Some((start, href)) =
+            found.or_else(|| (tail > start).then(|| href(&word[tail..end], bare)).flatten().map(|h| (tail, h)))
+        else {
             plain.push_str(piece);
             continue;
         };
@@ -12183,6 +12192,20 @@ mod tests {
         {
             assert_eq!(linked(plain, true), None, "{plain}");
         }
+        // An address after a label with no space before it: a full-width colon, as Japanese writes
+        // one, or a colon (W2's health read).
+        assert_eq!(
+            linked("採決：12月10日\nお問い合わせ：library@midori.jp", true),
+            Some(vec![
+                json!({ "text": "採決：12月10日\nお問い合わせ：" }),
+                json!({ "text": "library@midori.jp", "link": { "href": "mailto:library@midori.jp" } }),
+            ])
+        );
+        assert_eq!(
+            linked("Contacto:agua@valdemar.es", true).unwrap()[1],
+            json!({ "text": "agua@valdemar.es", "link": { "href": "mailto:agua@valdemar.es" } })
+        );
+        assert_eq!(linked("お問い合わせ：図書館まで", true), None);
         // A heading's bare domain names a firm; an address with `www.` or a scheme links anywhere.
         assert_eq!(linked("Booking.com books more nights", false), None);
         assert_eq!(linked("Sign up at relay.app", false), None);
