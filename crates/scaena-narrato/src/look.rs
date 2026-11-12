@@ -258,21 +258,25 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
         }
         let said = |key: &str| asked.get(key).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
         let mut figured = Vec::new();
-        let mut words = |key: &str, field: &str, was: &str, most: usize| {
+        let mut words = |key: &str, field: &str, was: &str, most: usize, also: &str| {
             let now = said(key);
             if now.is_empty() || now == was || now.chars().count() > most {
                 return None;
             }
-            if !crate::same_figures(was, &now) {
+            if !crate::same_figures(was, &now) && !crate::figures_from(was, &now, also) {
                 let what = format!("the {field} \u{201c}{now}\u{201d}");
-                figured.push(Figured { what, why: crate::unlike_figures(was, &now), by: None });
+                figured.push(Figured { what, why: crate::unlike_figures_from(was, &now, also), by: None });
                 return None;
             }
             Some(now)
         };
-        let title = words("title", "title", &s.title, title_longest(&s.title, s.room));
+        // A title may state a figure the slide's own words write, so a topic becomes the claim its
+        // figures make (W1 dogfood 13): never one the slide does not write, nor one the title loses.
+        let shown =
+            std::iter::once(s.subtitle.as_str()).chain(s.bullets.iter().map(String::as_str)).collect::<Vec<_>>();
+        let title = words("title", "title", &s.title, title_longest(&s.title, s.room), &shown.join("\n"));
         let subtitle =
-            words("subtitle", "subtitle", &s.subtitle, longest(&s.subtitle)).filter(|_| !s.subtitle.is_empty());
+            words("subtitle", "subtitle", &s.subtitle, longest(&s.subtitle), "").filter(|_| !s.subtitle.is_empty());
         let asked_layout = said("layout");
         let layout = Some(asked_layout.clone()).filter(|l| s.options.iter().any(|o| &o.id == l));
         // A layout the slide was not offered is let go, and said (W1 dogfood 12): a numbered list
@@ -564,6 +568,29 @@ mod tests {
         assert_eq!(crate::unlike_figures("Up 4%", "Up 4% in 2026"), "it adds 2026, which the slide did not write");
         // Words that keep every figure say nothing.
         assert!(read(&answer("Sundays drew 2,475 visits in June", ""), &s).unwrap()[0].figured.is_empty());
+    }
+
+    /// A topic rewritten as the claim its figures make may state a figure the slide's own words
+    /// write, never one they do not (W1 dogfood 13).
+    #[test]
+    fn a_title_may_state_a_figure_its_slide_writes() {
+        let mut s = seen();
+        s[1].title = "The plan".into();
+        s[1].bullets[2] = "Cut methane: 75% from fossil fuels".into();
+        s[1].bullets[0] = "Clean the grid: triple renewables by 2030".into();
+        let answer = |title: &str| {
+            json!({ "slides": [{ "slide": 2, "layout": "", "title": title, "subtitle": "", "bullets": [], "why": "w" }] })
+                .to_string()
+        };
+        let stated = read(&answer("Cut methane 75% by 2030"), &s).unwrap();
+        assert_eq!(stated[0].title.as_deref(), Some("Cut methane 75% by 2030"), "{stated:#?}");
+        assert!(stated[0].figured.is_empty(), "{stated:#?}");
+        let other = read(&answer("Cut methane 80% by 2030"), &s).unwrap();
+        assert_eq!(other[0].title, None, "{other:#?}");
+        assert_eq!(other[0].figured[0].why, "it adds 80, which the slide did not write");
+        // A figure the title wrote is kept, whatever the slide writes.
+        s[1].title = "Methane falls 40%".into();
+        assert_eq!(read(&answer("Methane falls 75%"), &s).unwrap()[0].title, None);
     }
 
     #[test]
