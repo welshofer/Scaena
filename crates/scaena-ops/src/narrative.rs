@@ -659,6 +659,22 @@ fn cited(sources: &[Provenance], named: &str) -> Option<String> {
     Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
 }
 
+/// Why the slides an agent wrote were refused, as it can mend it (agent dogfood 5): too few for
+/// the length the brief asks says that length, where the minutes gave it, and the two ways on;
+/// any other refusal as it reads.
+fn too_few(e: &scaena_narrato::NarratoError, brief: &scaena_narrato::Brief) -> String {
+    let scaena_narrato::NarratoError::Incomplete { delivered, minimum } = e else { return e.to_string() };
+    let more = minimum - delivered;
+    let asked = match brief.minutes {
+        Some(minutes) => format!("`{}`, the length {minutes} minutes take", brief.length),
+        None => format!("`{}`", brief.length),
+    };
+    format!(
+        "{delivered} given, and the length asked, {asked}, holds at least {minimum}: write {more} more, or ask a \
+         `length` that holds {delivered}"
+    )
+}
+
 /// The source a slide names, of those the deck was grounded in: matched as written, then with
 /// case and spaces set aside, then as the source's address, which a repository given as
 /// `github:OWNER/REPO` is named by too, its case and a closing slash aside (agent dogfood 5).
@@ -1257,7 +1273,9 @@ pub fn from_slides(
     if let Some(outline) = outline {
         generation.settle(outline).map_err(|e| OpsError::new(format!("the outline: {e}")))?;
     }
-    generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
+    generation
+        .written(slides, false)
+        .map_err(|e| OpsError::new(format!("the slides: {}", too_few(&e, generation.brief()))))?;
     // Each data file given is a source the deck is grounded in, by its file's name: a chart says
     // it as its source, and the beat of a slide whose `sourceRef` names it cites it (agent
     // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
@@ -8206,6 +8224,28 @@ mod tests {
         assert_eq!(sentence("wrap it in <div> tags"), "wrap it in <div> tags");
         // Code keeps its marks, as it keeps its case.
         assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
+    }
+
+    /// Slides an agent wrote too few for the length its brief asks are refused saying that length,
+    /// where the minutes gave it, and the two ways on (agent dogfood 5: "the model wrote 10 slides,
+    /// and a deck of this length has at least 11", where no model was called).
+    #[test]
+    fn too_few_slides_say_the_length_asked_and_the_ways_on() {
+        let short = scaena_narrato::NarratoError::Incomplete { delivered: 10, minimum: 11 };
+        let mut brief = Brief::new("How one core draws every screen");
+        brief.length = "11-15 slides".into();
+        brief.minutes = Some(20);
+        assert_eq!(
+            too_few(&short, &brief),
+            "10 given, and the length asked, `11-15 slides`, the length 20 minutes take, holds at least 11: \
+             write 1 more, or ask a `length` that holds 10"
+        );
+        brief.minutes = None;
+        assert!(
+            too_few(&short, &brief).starts_with("10 given, and the length asked, `11-15 slides`, holds at least 11")
+        );
+        let other = scaena_narrato::NarratoError::Answer("no slides".into());
+        assert_eq!(too_few(&other, &brief), "no slides");
     }
 
     /// A slide asked for as code ("Code"), or a list of one item that reads as code in the language
