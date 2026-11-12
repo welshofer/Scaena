@@ -2566,13 +2566,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             aloud.push(i);
         }
     }
-    // A slide that says again what the slide before it said, in other words than lint's W425
+    // A slide that says again what a slide before it said, in other words than lint's W425
     // reads as the same claim (W1's dogfood 4): their headlines share two content words or more,
-    // and half of the shorter's, or their words, headline and body, are half the same.
+    // and half of the shorter's, or their words, headline and body, are half the same. The slide
+    // just before it, as before, and else the nearest earlier slide that makes a point, so a
+    // slide that repeats one two back, with another between, is found too (agent dogfood 7:
+    // slide 6 said slide 4's accessorials again, slide 5 between); a cover, a divider, an
+    // agenda, and the close frame the talk, and say its words again by design; and a slide with
+    // a figure of its own the earlier one has not tells a change, not the same point ("0.8 hours"
+    // after "6.5 hours" four slides back: the fleet pitch's before and after).
+    let told = |was: &SlideForHealth, now: &SlideForHealth| {
+        let before = scaena_narrato::figures(&format!("{} {}", was.title, was.body));
+        scaena_narrato::figures(&format!("{} {}", now.title, now.body)).iter().all(|f| before.contains(f))
+    };
     for i in 1..read.len() {
-        let (was, now) = (&read[i - 1], &read[i]);
-        let Some(shared) = repeated(was, now) else { continue };
-        let (k, j) = (i + 1, i);
+        let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
+        let Some((at, shared)) =
+            std::iter::once(i - 1).chain(earlier).find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
+        else {
+            continue;
+        };
+        let (was, now) = (&read[at], &read[i]);
+        let (k, j) = (i + 1, at + 1);
         let said: Vec<String> = shared.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
         let said = match said.split_last() {
             Some((last, [])) => last.clone(),
@@ -2587,7 +2602,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
                 unstopped(was.title.trim())
             ),
-            format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on."),
+            // A slide further back is no fold the editors make, which join a slide to the one
+            // just before it: it is cut, or given a point of its own.
+            if at + 1 == i {
+                format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on.")
+            } else {
+                format!(
+                    concat!(
+                        "Cut slide {k}, which slide {j} says already, ",
+                        "or give slide {k} a point of its own that moves the talk on."
+                    ),
+                    k = k,
+                    j = j
+                )
+            },
             None,
         );
     }
@@ -2626,11 +2654,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     if let Some((lo, Some(hi))) = asked.filter(|_| n > 2) {
         let over = n.saturating_sub(hi);
         if over > 0 {
-            // The slides that turn least from the one before, the first and the last kept.
+            // The slides that add least: those whose words a slide before them, one that makes a
+            // point, said most of, then those that turn least from the one before, the first and
+            // the last kept, and a divider, an agenda, or the close, which frame the talk, and
+            // its ask, which it is given for, never named. A slide's likeness to its neighbour
+            // alone named a coherent talk's best-joined slides, its hook among them, and missed
+            // one that said again a slide two back (agent dogfood 7).
             let pairs = &m.coherence.pair_similarities;
-            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).collect();
+            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).filter(|&i| !framing(i) && !closes(i)).collect();
             scaena_core::sort::by_key(&mut cut, |&i| {
-                std::cmp::Reverse((pairs.get(i - 1).copied().unwrap_or(0.0) * 1e6) as i64)
+                let said = (0..i).filter(|&j| !framing(j)).map(|j| already(&read[j], &read[i])).fold(0.0, f64::max);
+                let turned = pairs.get(i - 1).copied().unwrap_or(0.0);
+                (std::cmp::Reverse((said * 1e6) as i64), std::cmp::Reverse((turned * 1e6) as i64))
             });
             cut.truncate(over);
             scaena_core::sort::by_key(&mut cut, |&i| i);
@@ -2987,6 +3022,17 @@ fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
             .unwrap_or_else(|| w.clone())
     };
     (headlines || words).then(|| shared.iter().map(shown).collect())
+}
+
+/// The share of the words `now` says, its headline's and its body's, that `was` said already: none
+/// where it says fewer than three, which tell too little to judge (agent dogfood 7).
+fn already(was: &SlideForHealth, now: &SlideForHealth) -> f64 {
+    let whole = |s: &SlideForHealth| said(&format!("{} {}", s.title, s.body));
+    let (before, words) = (whole(was), whole(now));
+    if words.len() < 3 {
+        return 0.0;
+    }
+    words.intersection(&before).count() as f64 / words.len() as f64
 }
 
 /// The words `text` says, as a repeat is read (W1's dogfood 5): its content words, a hyphen
@@ -5504,6 +5550,72 @@ mod tests {
             slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
         };
         assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
+    }
+
+    /// A slide that says again what a slide two or more back said, another between them, is found
+    /// as one just after it is, and the slides a deck past its length is asked to cut are those an
+    /// earlier slide said most of, not those most like their neighbour (agent dogfood 7): the
+    /// pitch with its accessorials said again on slide 6, slide 5 between, and three slides that
+    /// tell How It Works again a step at a time named its hook, its big number, and its chart.
+    #[test]
+    fn a_slide_that_says_again_what_one_further_back_said_is_found_and_named_to_cut() {
+        let faulted = |slides: &mut Vec<answer::Slide>| {
+            let six = &mut slides[5];
+            six.slide_title = "Accessorials are where most of the overbilling hides".into();
+            six.layout_suggestion = "Bullets".into();
+            six.key_bullets = vec![
+                "Accessorial charges are 41% of every overbilled dollar".into(),
+                "Liftgates, detention, and residential fees rarely match the contract".into(),
+                "They are billed after the fact, so nobody checks them".into(),
+            ];
+            let mut told = Vec::new();
+            for (title, items) in [
+                (
+                    "Manifest reads every invoice format carriers send",
+                    ["EDI, email, and carrier portals", "Scanned PDFs included", "Parsed line by line"],
+                ),
+                (
+                    "Manifest matches every charge against the contract",
+                    [
+                        "Each charge against the contract rate",
+                        "Each charge against the shipment",
+                        "Each charge against proof of delivery",
+                    ],
+                ),
+                (
+                    "Manifest disputes what doesn't match before AP pays",
+                    [
+                        "Disputes go to the carrier with evidence",
+                        "AP only pays verified amounts",
+                        "Carriers usually reissue the invoice",
+                    ],
+                ),
+            ] {
+                let mut s = slides[7].clone();
+                s.slide_title = title.into();
+                s.layout_suggestion = "Bullets".into();
+                s.key_bullets = items.iter().map(|&w| w.into()).collect();
+                s.subtitle = String::new();
+                told.push(s);
+            }
+            slides.splice(9..9, told);
+        };
+        let h = of(&dogfood("pitch", "", faulted));
+        let again: Vec<&Finding> = (h.findings.iter()).filter(|f| f.says.contains("says again")).collect();
+        let cut_or_own = concat!(
+            "Cut slide 6, which slide 4 says already, ",
+            "or give slide 6 a point of its own that moves the talk on."
+        );
+        assert!(
+            again.iter().any(|f| f.slide == 6
+                && f.says.starts_with("Slide 6 says again what slide 4 said")
+                && f.ask == cut_or_own),
+            "{again:#?}"
+        );
+        assert!(again.iter().any(|f| f.says.contains("what slide 8 said")), "{again:#?}");
+        // Three past the 11–15 slides asked: the three that tell How It Works again, not the hook.
+        let cut = (h.findings.iter()).find(|f| f.kind == Kind::Pacing && f.says.contains("add least")).expect("a cut");
+        assert!(cut.says.ends_with(": slides 10, 11 and 12 add least to the slides before them."), "{}", cut.says);
     }
 
     /// Notes that read the slide aloud are coached, as one finding at the first (W1's dogfood 4):
