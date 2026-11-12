@@ -702,6 +702,9 @@ mod tests {
         assert_eq!(measured("umsatz_teur"), "umsatz");
         assert_eq!(measured("Gebühr je Tonne"), "gebuehr");
         assert_eq!(measured("gebuehr_eur_t"), "gebuehr");
+        // Folded both ways: a file that keeps its umlauts and a slide that writes them out.
+        assert_eq!(measured("gebühr_eur_t"), measured("Gebuehr je Tonne"));
+        assert_eq!(measured("Straße"), measured("strasse"));
         assert_eq!(measured("Restmüll (t)"), "restmuell");
         assert_eq!(measured("Umsatz (Mio. EUR)"), "umsatz");
     }
