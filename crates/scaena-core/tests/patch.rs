@@ -1460,6 +1460,41 @@ fn furnish_sets_the_decks_number_and_footer() {
     assert!(e.contains("a footer is words"), "{e}");
 }
 
+/// `brief` sets the deck's brief, which health paces and reads it by (agent dogfood 6): a deck made
+/// by hand has none, and is given one; what it leaves out stays; `null` takes a field away; a goal
+/// or a length Narrato does not take, or minutes past 1 to 600, is refused, naming what it takes.
+#[test]
+fn brief_sets_the_decks_brief() {
+    let mut bare = example();
+    bare.as_object_mut().unwrap().remove("meta");
+    let c = patch(&bare, json!([{ "op": "brief", "audience": "The finance committee", "minutes": 10 }])).unwrap();
+    assert_eq!(
+        rfc(&c),
+        json!([{ "op": "add", "path": "/meta", "value": { "narrative": { "brief": {
+            "audience": "The finance committee", "minutes": 10 } } } }])
+    );
+    assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
+    let c = patch(&c.doc, json!([{ "op": "brief", "goal": "Persuade", "minutes": null }])).unwrap();
+    assert_eq!(c.doc["meta"]["narrative"]["brief"], json!({ "audience": "The finance committee", "goal": "Persuade" }));
+    let c = patch(&c.doc, json!([{ "op": "brief", "length": "5-10 slides", "desiredOutcomes": "Fund it" }])).unwrap();
+    let brief = &c.doc["meta"]["narrative"]["brief"];
+    assert_eq!((brief["length"].as_str(), brief["desiredOutcomes"].as_str()), (Some("5-10 slides"), Some("Fund it")));
+    // A deck with a meta of its own keeps it beside the brief.
+    let c = patch(&example(), json!([{ "op": "brief", "topic": "Ridgeline" }])).unwrap();
+    assert_eq!(c.doc["meta"]["title"], example()["meta"]["title"]);
+    assert_eq!(c.doc["meta"]["narrative"]["brief"], json!({ "topic": "Ridgeline" }));
+    // Nothing changed is no change; what it does not take is refused, saying what it takes.
+    assert_eq!(rfc(&patch(&example(), json!([{ "op": "brief", "voice": null }])).unwrap()), json!([]));
+    let e = patch(&example(), json!([{ "op": "brief", "goal": "Win" }])).unwrap_err().to_string();
+    assert!(e.contains("one of Inform, Persuade, Inspire, Sell, Educate, Update Status"), "{e}");
+    let e = patch(&example(), json!([{ "op": "brief", "length": "10 slides" }])).unwrap_err().to_string();
+    assert!(e.contains("5-10 slides"), "{e}");
+    let e = patch(&example(), json!([{ "op": "brief", "minutes": 0 }])).unwrap_err().to_string();
+    assert!(e.contains("from 1 to 600"), "{e}");
+    let e = patch(&example(), json!([{ "op": "brief", "persona": "x" }])).unwrap_err().to_string();
+    assert!(e.contains("brief"), "{e}");
+}
+
 /// A slide says whether it shows the deck's number and footer on its first state (ADR-0028):
 /// chosen from a step, it is written there, and `null` takes it away. Anything but `true`,
 /// `false`, or `null` is refused, and a step that says it itself is E106.

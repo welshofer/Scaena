@@ -2451,7 +2451,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             continue;
         }
         let (Some(said), listed) = (counts(&s.title), bullets(s)) else { continue };
-        if listed == 0 || listed == said {
+        if listed == 0 || listed == said || shows_figure(s, said) {
             continue;
         }
         let k = i + 1;
@@ -3245,6 +3245,19 @@ fn counts(headline: &str) -> Option<usize> {
         found = Some(n);
     }
     found
+}
+
+/// Whether one of the items `s` lists is led by `n`, as a figure or its word: the headline's
+/// count is then a figure the slide shows ("$1.2M opens two neighborhoods" over a card of "2 new
+/// neighborhoods"), not how many it lists (agent dogfood 6).
+fn shows_figure(s: &SlideForHealth, n: usize) -> bool {
+    const WORDS: [&str; 12] =
+        ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+    let word = n.checked_sub(1).and_then(|k| WORDS.get(k));
+    s.body.lines().filter_map(|l| l.trim().strip_prefix('\u{2022}')).any(|item| {
+        let first = item.split(|c: char| c.is_whitespace() || c == ',').find(|w| !w.is_empty()).unwrap_or_default();
+        first == n.to_string() || word.is_some_and(|w| first.eq_ignore_ascii_case(w))
+    })
 }
 
 /// The bullet lines balance counts on a slide: those its body sets as a list's items.
@@ -4681,6 +4694,27 @@ mod tests {
         scaena_core::patch::apply(&mut bare, &fix.patch).unwrap();
     }
 
+    /// The `brief` op takes the goals and lengths Narrato takes, which core keeps beside its patch
+    /// ops (agent dogfood 6), and health reads the brief it writes.
+    #[test]
+    fn the_brief_op_takes_what_narrato_takes() {
+        assert_eq!(scaena_core::patch::GOALS, scaena_narrato::brief::GOALS);
+        assert_eq!(scaena_core::patch::LENGTHS, scaena_narrato::brief::LENGTHS);
+        struct NoFiles;
+        impl scaena_core::validate::BundleFiles for NoFiles {
+            fn exists(&self, _: &str) -> bool {
+                true
+            }
+            fn read_text(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
+        let deck = climate();
+        let brief = [json!({ "op": "brief", "length": "26-40 slides" })];
+        let made = scaena_core::patch::compile(&deck, &brief, &NoFiles).unwrap().doc;
+        assert!(of(&made).pacing.says.contains("26\u{2013}40"), "{}", of(&made).pacing.says);
+    }
+
     /// A headline that counts what its slide lists is held to the count (the calibration against a
     /// reader): the training deck's "Three traps that make reviews useless" lists two. A measure,
     /// a figure's words, a count kept, and a deck in another language are not found.
@@ -4718,6 +4752,23 @@ mod tests {
         let mut deck = dogfood("training", "", |_| {});
         deck["meta"]["narrative"]["brief"]["language"] = json!("German");
         assert!(!of(&deck).findings.iter().any(|f| f.says.contains("headline counts")));
+        // A count the slide shows as one of its figures is no count of its list (agent dogfood 6):
+        // "$1.2M opens two neighborhoods" over three cards, the first "2 new neighborhoods".
+        let figured = |slides: &mut Vec<answer::Slide>| {
+            slides[7].slide_title = "$1.2M opens two neighborhoods in 2027".into();
+            slides[7].layout_suggestion = "Three Numbers".into();
+            slides[7].key_bullets = vec![
+                "2 new neighborhoods, chosen by demand".into(),
+                "$1.2M to build, less than the pilot cost".into(),
+                "$1.20 a trip to run, against $2.90 by bus".into(),
+            ];
+        };
+        let h = of(&dogfood("training", "", figured));
+        assert!(!h.findings.iter().any(|f| f.says.contains("headline counts")), "{:#?}", h.findings);
+        let card = |body: &str| SlideForHealth { body: body.into(), ..SlideForHealth::default() };
+        assert!(shows_figure(&card("\u{2022} 2 \u{2014} New neighborhoods\n\u{2022} $1.2M \u{2014} to build"), 2));
+        assert!(shows_figure(&card("\u{2022} Two, chosen by demand"), 2));
+        assert!(!shows_figure(&card("\u{2022} Timelines with no timestamps\n\u{2022} 20 minutes"), 2));
     }
 
     /// A turn's pair is read by its words in any script (W1's dogfood 7): Vzestup's split at

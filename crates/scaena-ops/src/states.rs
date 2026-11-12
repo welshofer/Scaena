@@ -222,7 +222,8 @@ fn told(slot: &str, s: &Slot, layout: &str, theme: &Theme, node: &mut Value, cla
 
 /// `added`, a slide [`starting`] made, telling `claim` in a beat of its own (dogfood 3): the beat
 /// just after the one that tells the state the slide follows, in that section, else last; and
-/// not in that beat, which would then make two claims. Refused in a deck with no spine.
+/// not in that beat, which would then make two claims. Its headline says the claim. Refused in a
+/// deck with no spine.
 pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedState, OpsError> {
     let spine = deck.spine.as_ref().filter(|s| !s.sections.is_empty()).ok_or_else(|| {
         OpsError::new(
@@ -247,6 +248,13 @@ pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedS
         .expect("some number is free");
     let beat = json!({ "id": id, "claim": claim, "states": [added.id] });
     added.patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}"), "value": beat }));
+    // The headline the slide was started with says the claim, in place of the words to type over
+    // that tell what goes there (agent dogfood 6: "What this slide says" under a claim given).
+    let headline = (added.patch.iter_mut())
+        .find(|op| op["op"] == "add_node" && op["node"]["semantic"] == "claim" && op["node"]["text"].is_string());
+    if let Some(op) = headline {
+        op["node"]["text"] = json!(claim.trim());
+    }
     Ok(added)
 }
 
@@ -1389,6 +1397,12 @@ mod tests {
             .collect();
         assert_eq!(beats, [("doubled", &json!(["revenue", "mix"])), ("bullets", &json!(["bullets"]))]);
         assert_eq!(doc["spine"]["sections"][1]["beats"][1]["claim"], "Pro will lead next year.");
+        // Its headline says the claim, not the words that tell what goes there (agent dogfood 6).
+        let said: Vec<&str> = (doc["nodes"].as_object().unwrap().iter())
+            .filter(|(id, n)| id.starts_with("bullets") && n["semantic"] == "claim")
+            .filter_map(|(_, n)| n["text"].as_str())
+            .collect();
+        assert_eq!(said, ["Pro will lead next year."]);
         let d = Deck::from_value(&doc).unwrap();
         let found = scaena_core::lint::check(&d, None);
         assert!(!found.iter().any(|f| f.code == "W426" || f.code == "W429"), "{found:#?}");

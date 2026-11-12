@@ -1,0 +1,14 @@
+{
+  "scaena": "0.40",
+  "_comment": "W315 trigger: a line chart whose value axis the author bound at 10, over values that rise to 45: the line and its last values are drawn far above the chart's box.",
+  "canvas": {"width": 1920, "height": 1080},
+  "theme": "theme.json",
+  "fonts": [{"family": "Roboto Serif", "file": "fonts/RobotoSerif-VF.ttf"}, {"family": "EB Garamond", "file": "fonts/EBGaramond-VF.ttf"}],
+  "data": {"sales": {"source": {"inline": [{"q": "Q1", "v": 8}, {"q": "Q2", "v": 30}, {"q": "Q3", "v": 45}]}, "schema": {"v": "number"}}},
+  "nodes": {
+    "c": {"type": "chart", "kind": "line", "data": "@sales", "x": {"field": "q"}, "y": {"field": "v", "domain": [0, 10]}, "labels": {"show": "all"}, "alt": "Sales rise each quarter.", "at": {"col": [1, 12], "row": [4, 6]}}
+  },
+  "states": [
+    {"id": "a", "layout": "full", "props": {"c": {}}}
+  ]
+}

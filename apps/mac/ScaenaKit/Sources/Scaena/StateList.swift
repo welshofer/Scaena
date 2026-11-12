@@ -20,6 +20,8 @@ struct StateList: View {
     let add: (String, StateAdding) -> Void
     /// Write This Slide Again…, `true`, or Add a Slide About… for a state's slide (lift-up FUNC-1).
     var asking: ((String, Bool) -> Void)? = nil
+    /// Fold a state's slide into the slide before it (editor dogfood 6).
+    var fold: ((String) -> Void)? = nil
     /// The rows, as the Slides rotor finds them (lift-up 10-24b USE-4).
     @Namespace private var rows
 
@@ -128,6 +130,10 @@ struct StateList: View {
         Button("Duplicate Slide", systemImage: "plus.square.on.square") {
             make(Restaging.duplicateSlides([slot.slide]), nil)
         }
+        if let fold, let label = Slide.folding(slot.state, in: editor.slots) {
+            Button(label, systemImage: "arrow.up.to.line") { fold(slot.state) }
+                .disabled(!editor.valid)
+        }
         if let asking {
             Button("Write This Slide Again…", systemImage: "arrow.trianglehead.2.clockwise") { asking(slot.state, true) }
                 .disabled(!editor.valid || editor.assisting)
@@ -159,6 +165,9 @@ struct StateList: View {
             Button("Move Down") { step(slot.state, by: 1) }
         }
         Button("Duplicate Slide") { make(Restaging.duplicateSlides([slot.slide]), nil) }
+        if let fold, let label = Slide.folding(slot.state, in: editor.slots) {
+            Button(label) { fold(slot.state) }
+        }
         Button("New Slide") { add(slot.state, .slide) }
         if editor.slots.filter({ $0.slide == slot.slide }).count > 1 {
             Button("Delete Step") { remove(slot.state) }
