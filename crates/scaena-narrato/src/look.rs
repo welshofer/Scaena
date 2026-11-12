@@ -78,7 +78,8 @@ pub struct Figured {
     pub what: String,
     pub why: String,
     /// What let it go: none for words that write the slide's figures otherwise, as every record
-    /// before this reads; `layout`, a layout the slide may not take (W1 dogfood 12).
+    /// before this reads; `layout`, a layout the slide may not take; `labels`, points that lose or
+    /// take a label (W1 dogfood 12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
 }
@@ -295,9 +296,28 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
             .filter(|now| {
                 now.len() == s.bullets.len()
                     && now != &s.bullets
-                    && now.iter().zip(&s.bullets).all(|(now, was)| {
-                        !now.is_empty() && now.chars().count() <= longest(was) && labelled(now) == labelled(was)
-                    })
+                    && now
+                        .iter()
+                        .zip(&s.bullets)
+                        .all(|(now, was)| !now.is_empty() && now.chars().count() <= longest(was))
+            })
+            // A point that loses its label, or takes one its writer did not give it, is let go, and
+            // said (W1 dogfood 12): "Label: detail" stays so written.
+            .filter(|all| {
+                let Some((now, was)) = all.iter().zip(&s.bullets).find(|(now, was)| labelled(now) != labelled(was))
+                else {
+                    return true;
+                };
+                let quoted: Vec<String> = all.iter().map(|b| format!("\u{201c}{b}\u{201d}")).collect();
+                let what = format!("the points {}", quoted.join(", "));
+                let why = match was.split_once(": ").filter(|_| labelled(was)) {
+                    Some((label, _)) => {
+                        format!("\u{201c}{now}\u{201d} drops the label \u{201c}{label}\u{201d}, which the slide wrote")
+                    }
+                    None => format!("\u{201c}{now}\u{201d} gives a label the slide did not write"),
+                };
+                figured.push(Figured { what, why, by: Some("labels".into()) });
+                false
             })
             .filter(|all| {
                 let Some((now, was)) = all.iter().zip(&s.bullets).find(|(now, was)| !crate::same_figures(was, now))
@@ -562,9 +582,19 @@ mod tests {
         assert_eq!(read(&answer(&tightened), &s).unwrap()[0].bullets.as_ref(), Some(&tightened));
         // One fewer, a label lost, or one much longer: none of them taken.
         assert!(read(&answer(&tightened[..3]), &s).unwrap().is_empty());
+        // A label lost is let go, and said, by its label (W1 dogfood 12).
         let mut unlabelled = tightened.clone();
         unlabelled[1] = "Electrify cars, heat, and industry".into();
-        assert!(read(&answer(&unlabelled), &s).unwrap().is_empty());
+        let lost = read(&answer(&unlabelled), &s).unwrap();
+        assert!(!lost[0].changes(), "{lost:?}");
+        assert_eq!(lost[0].figured.len(), 1, "{lost:?}");
+        assert_eq!(lost[0].figured[0].by.as_deref(), Some("labels"));
+        assert!(
+            lost[0].figured[0]
+                .why
+                .starts_with("\u{201c}Electrify cars, heat, and industry\u{201d} drops the label \u{201c}"),
+            "{lost:?}"
+        );
         let mut longer = tightened.clone();
         longer[0] = "Clean the grid: triple renewables by 2030 and double storage, worldwide, every year".into();
         assert!(read(&answer(&longer), &s).unwrap().is_empty());

@@ -248,9 +248,12 @@ impl Brief {
         let length = if filled(&self.length) {
             if !LENGTHS.contains(&self.length.as_str()) {
                 return Err(BriefError {
+                    // Each length it takes, named as the goal's error names each goal, so a client
+                    // with no form to pick one from says them too (W1 dogfood 12).
                     message: format!(
-                        "Unsupported length \"{}\". Pick a length bucket from the form.",
-                        js::first_units(&self.length, 80)
+                        "Unsupported length \"{}\". Pick one of: {}.",
+                        js::first_units(&self.length, 80),
+                        LENGTHS.join(", ")
                     ),
                     field: Some("length"),
                 });
@@ -426,6 +429,13 @@ mod tests {
         );
         let err = Brief { topic: "x".into(), length: "3 slides".into(), ..Brief::default() }.validated().unwrap_err();
         assert_eq!(err.field, Some("length"));
+        // Said once where a client joins an error's causes, as the CLI does.
+        let narrato = crate::NarratoError::from(err.clone());
+        assert!(std::error::Error::source(&narrato).is_none_or(|s| s.to_string() != narrato.to_string()));
+        assert_eq!(
+            err.message,
+            "Unsupported length \"3 slides\". Pick one of: 5-10 slides, 11-15 slides, 16-25 slides, 26-40 slides, 41+ slides."
+        );
 
         let long = Brief { topic: "t".repeat(3000), ..Brief::default() }.validated().unwrap();
         assert_eq!(long.topic.len(), 2000);
