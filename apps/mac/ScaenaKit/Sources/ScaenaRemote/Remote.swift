@@ -463,7 +463,7 @@ extension NWConnection {
         header.prefix(4).reduce(0) { $0 << 8 | Int($1) }
     }
 
-    /// The next frame's body, on the main queue; nil where none can come or it says it is longer
+    /// The next frame's body, on the connection's queue; nil where none can come or it says it is longer
     /// than `largest`, and the frame is not taken up again after.
     func receiveFrame(largest: Int, _ take: @escaping (Data?) -> Void) {
         receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] header, _, _, error in
