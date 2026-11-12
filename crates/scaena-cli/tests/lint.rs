@@ -470,6 +470,21 @@ fn errors_exit_1_and_a_fix_is_kept_only_where_it_works() {
     assert!(found.iter().all(|f| f.get("fix").is_none()), "{found:#?}");
 }
 
+/// W323 names the hold a state that shows for no time needs, and gives it as its fix, which `--fix`
+/// takes (agent dogfood 6: an agent wrote the `set_state` itself from the message's words).
+#[test]
+fn a_state_held_for_no_time_is_given_the_hold_it_names() {
+    let dir = fixture("hold", "W323", "trigger");
+    let (_, found) = lint(&dir);
+    let w323 = found.iter().find(|f| f["code"] == "W323").unwrap();
+    let hold = w323["measure"]["suggestedHold"].as_f64().unwrap().round();
+    assert_eq!(w323["fix"], serde_json::json!([{ "op": "add", "path": "/states/1/hold", "value": hold }]), "{w323:#}");
+    let out = scaena(&["--json", "lint", dir.to_str().unwrap(), "--fix"]);
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["fixed"].as_array().unwrap().iter().any(|f| f["code"] == "W323"), "{v:#}");
+    assert!(!v["findings"].as_array().unwrap().iter().any(|f| f["code"] == "W323"), "{v:#}");
+}
+
 #[test]
 fn a_contrast_fix_chooses_the_color_that_reads_wherever_the_choice_reaches() {
     // A caption in the line color on the dark surface: the theme's color that reads best there
