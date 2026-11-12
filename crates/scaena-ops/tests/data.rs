@@ -168,7 +168,9 @@ fn a_figure_quoted_by_its_rows_index_keeps_to_its_row() {
     assert_eq!(run(&read())["quote"]["row"], json!(10));
     // Its own row taken away: the words stay, quoting nothing, and the result says so.
     let gone = edit(&dir, "q3", json!([{ "op": "remove", "row": 10 }]), false).unwrap();
-    assert_eq!(gone.unquoted, ["title"], "{gone:?}");
+    let said: Vec<(&str, &[usize], &str)> =
+        gone.unquoted.iter().map(|u| (u.node.as_str(), u.slides.as_slice(), u.words.as_str())).collect();
+    assert_eq!(said, [("title", &[2][..], "$19.4")], "{gone:?}");
     assert_eq!(run(&read()), json!({ "text": "$19.4" }));
 }
 

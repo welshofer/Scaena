@@ -266,21 +266,16 @@ fn fits(cell: &Cell, f: &Figure) -> bool {
 }
 
 /// The cells of number columns in `tables` (each a kept source's id and its table), each with its
-/// row named by the first column of words whose values tell its rows apart, else the first such
-/// column of dates (a month), else by its index: a row named by its values stays the row it was
-/// as rows are added before it (R1's agent dogfood 10).
+/// row named by the first column of words whose values tell its rows apart, else by its index.
 fn cells(tables: &[(String, Table)]) -> Vec<Cell<'_>> {
     let mut out = Vec::new();
     for (source, table) in tables {
-        let apart = |c: usize, kind: ColumnType| {
+        let key = (0..table.columns.len()).find(|&c| {
             let labels: Vec<String> = table.rows.iter().map(|r| r[c].label()).collect();
-            table.types[c] == kind
+            table.types[c] == ColumnType::String
                 && labels.iter().all(|l| !l.trim().is_empty())
                 && labels.iter().enumerate().all(|(i, l)| !labels[..i].contains(l))
-        };
-        let key = (0..table.columns.len())
-            .find(|&c| apart(c, ColumnType::String))
-            .or_else(|| (0..table.columns.len()).find(|&c| apart(c, ColumnType::Date)));
+        });
         for (r, row) in table.rows.iter().enumerate() {
             let named = match key {
                 Some(k) => {

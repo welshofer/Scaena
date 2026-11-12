@@ -52,10 +52,21 @@ pub struct DataEdited {
     /// written in the deck in the same change, with each claim that held the old figure.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quoted: Vec<String>,
-    /// The texts that quoted, by its index, a row the edits took away, by node id, each once:
-    /// their words stay as they were last set, and quote nothing.
+    /// Each text that quoted, by its index, a row the edits took away, each once: its words stay
+    /// as they were last set, and quote nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unquoted: Vec<String>,
+    pub unquoted: Vec<Unquoted>,
+}
+
+/// A text whose quote of a row taken away was taken off it (R1's agent dogfood 10).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Unquoted {
+    /// The text's node.
+    pub node: String,
+    /// The slides that show it, numbered from 1.
+    pub slides: Vec<usize>,
+    /// The figure it keeps, as last set, quoting nothing now.
+    pub words: String,
 }
 
 /// Make `req.edits` in source `req.source`, all or none, and write the file it is, or the deck
@@ -89,7 +100,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     let file = declared.source.as_str().map(String::from);
     let mut deck = b.deck.clone();
     let mut view = View::of(b);
-    let mut unquoted: Vec<String> = Vec::new();
+    let mut unquoted: Vec<(String, String)> = Vec::new();
     for (i, edit) in req.edits.iter().enumerate() {
         let at = |message: String| OpsError { message, plan: None, op: Some(i) };
         // A quote that names its row by index keeps to that row as rows are added before it or
@@ -176,7 +187,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
         errors: errors(&after),
         refused,
         quoted: if refused { vec![] } else { quoted },
-        unquoted: if refused { vec![] } else { unquoted },
+        unquoted: if refused { vec![] } else { said_on(&deck, unquoted) },
     };
     if refused {
         return Ok((edited, None));
@@ -189,12 +200,38 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     Ok((edited, Some(made)))
 }
 
+/// Each text taken off its quote, with the slides that show it, numbered from 1.
+fn said_on(deck: &Deck, unquoted: Vec<(String, String)>) -> Vec<Unquoted> {
+    let shown = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
+    let slides = deck.slides();
+    (unquoted.into_iter())
+        .map(|(node, words)| {
+            // A slide shows the figure where it draws the node with the run that wrote it.
+            let draws = |p: &scaena_core::document::Props| {
+                (p.get("runs").and_then(serde_json::Value::as_array).into_iter().flatten())
+                    .any(|r| r.get("text").and_then(serde_json::Value::as_str) == Some(words.as_str()))
+            };
+            let on = |states: &Vec<usize>| {
+                states.iter().any(|&k| shown.get(k).and_then(|s| s.nodes.get(&node)).is_some_and(draws))
+            };
+            let slides = (slides.iter().enumerate()).filter(|(_, states)| on(states)).map(|(s, _)| s + 1).collect();
+            Unquoted { node, slides, words }
+        })
+        .collect()
+}
+
 /// Each quote of source `name` in `doc` that names its row by index, kept to that row as `edit`
 /// adds a row or takes one away from the `rows` there are: an index at or past a row added moves
 /// down one, past a row taken away up one, and one counted from the end is counted from the top.
 /// A quote of the row taken away is taken off its run, whose words stay, and its node is said in
 /// `unquoted`. Whether `doc` changed.
-fn keep_rows(doc: &mut serde_json::Value, name: &str, edit: &RowEdit, rows: usize, unquoted: &mut Vec<String>) -> bool {
+fn keep_rows(
+    doc: &mut serde_json::Value,
+    name: &str,
+    edit: &RowEdit,
+    rows: usize,
+    unquoted: &mut Vec<(String, String)>,
+) -> bool {
     let source = format!("@{name}");
     let moves: Vec<(String, String, i64)> = scaena_core::quotes::quoted(doc)
         .into_iter()
@@ -224,8 +261,9 @@ fn keep_rows(doc: &mut serde_json::Value, name: &str, edit: &RowEdit, rows: usiz
             }
             None => {
                 run.remove("quote");
-                if !unquoted.contains(&node) {
-                    unquoted.push(node);
+                let words = run.get("text").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                if !unquoted.iter().any(|(n, w)| *n == node && *w == words) {
+                    unquoted.push((node, words));
                 }
                 changed = true;
             }
