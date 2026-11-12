@@ -1,6 +1,6 @@
 # vello_shaders 0.10.0, patched for Scaena
 
-This is vello_shaders 0.10.0 as crates.io publishes it, with one change, carried while it saves
+This is vello_shaders 0.10.0 as crates.io publishes it, with two changes, each carried while it saves
 the browser's editor module its size under SPEC §15's 3.0 MB. The workspace takes it through
 `[patch.crates-io]` and leaves it out of its members, so Scaena's lints, formatting, and tests do
 not run over it. Its `Cargo.lock`, its `Cargo.toml.orig`, and its `.cargo_vcs_info.json` are left
@@ -25,3 +25,16 @@ with it, from 2,996,232: 36.7 KB less.
 On a vello bump: vendor vello_shaders again at the version vello names, carry `minified` and
 `spanless` over into its `build.rs`, and build; the check fails a shader that reads otherwise
 (ADR-0004 finding 29).
+
+**The multisampled fine shaders are embedded as no text.** vello builds a fine shader for each
+antialiasing its renderer is made to support, and every renderer Scaena makes supports area
+antialiasing alone (`AaSupport::area_only()`, rendering by `AaConfig::Area`): the GPU painter,
+natively and on the Mac's layer, and the browser's WebGPU canvas. So `fine_msaa8` and
+`fine_msaa16` are never compiled, and `build.rs` writes each with an empty text (`UNASKED`), its
+name, workgroup size, and bindings kept, since vello names every field. A renderer made to
+support MSAA would hand wgpu an empty shader, which fails to compile and draws nothing otherwise.
+`crates/scaena-paint/tests/area_only.rs` holds every renderer to area antialiasing and the list
+to the two. To have them back, empty `UNASKED`.
+
+The editor's module is 2,825,863 bytes gzipped with it, from 2,840,178: 14.3 KB less (ADR-0004
+finding 31).
