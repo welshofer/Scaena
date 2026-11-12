@@ -816,6 +816,11 @@ fn moved(slides: &[SlideForHealth]) -> Vec<(usize, usize, usize)> {
 /// written as 0.78 read 0.2524 from its words, past the gap, and the fix's plan was found flat).
 fn held(asked: f64, words: Option<f64>) -> f64 {
     let hundredths = asked * 100.0;
+    // A plan already on a hundredth but for the float's last bits (0.54 − 0.25 is 29.000000000000004
+    // hundredths) is that hundredth, not the next one over (W2's review of #1186).
+    if (hundredths - hundredths.round()).abs() < 1e-6 {
+        return hundredths.round() / 100.0;
+    }
     let rounded = match words {
         Some(w) if asked > w => hundredths.floor(),
         Some(w) if asked < w => hundredths.ceil(),
@@ -2203,6 +2208,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 };
                 let reach = (asked - calls).abs() <= DEVIANT_INTENSITY_DELTA + 1e-9;
                 let says = format!("Slide {k} was planned {hotter} than its place in the talk.");
+                // The plan asked, written where the slide's plan is, for the person to take, and
+                // said as it is written (W2's review of #1186).
+                let value = held(asked, words);
                 let ask = match (words, reach) {
                     (Some(w), false) => format!(
                         "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), and its words read {}, further from its place than a plan they carry can come: move it {moved}{beat}.",
@@ -2211,14 +2219,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     (Some(w), true) if asked != calls => format!(
                         "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), and its words read {}: plan it at {} by its Intensity{beat}, as near its place as its words carry, or move it {moved}.",
                         level(w),
-                        level(asked)
+                        level(value)
                     ),
                     _ => format!(
                         "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}): plan it {way} by its Intensity{beat}, or move it {moved}."
                     ),
                 };
-                // The plan asked, written where the slide's plan is, for the person to take.
-                let value = held(asked, words);
                 let fix = reach.then(|| at(&d.slide_id, "intensity")).flatten().map(|path| Fix {
                     says: format!("Plan it at {}", level(value)),
                     patch: vec![json!({ "op": "replace", "path": path, "value": value })],
@@ -4156,6 +4162,28 @@ mod tests {
         assert!(long.len() == 1 && long[0].contains("past the 15 minutes its brief asks"), "{long:?}");
     }
 
+    /// The plan a bend asks in words is the one its fix writes (W2's review of #1186): rounded
+    /// toward the words, a person who types the plan the ask says writes what the fix would.
+    #[test]
+    fn a_bends_ask_says_the_plan_its_fix_writes() {
+        let base = dogfood("lecture", "", |_| {});
+        let states: Vec<String> = of(&base).slides.iter().map(|s| s.state.clone()).collect();
+        let mut checked = 0;
+        for state in &states {
+            for plan in [0.05, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9, 0.98] {
+                let mut deck = base.clone();
+                planned(&mut deck, state, plan);
+                for f in of(&deck).findings.into_iter().filter(|f| f.kind == Kind::Arc && f.state == *state) {
+                    let (Some(at), Some(fix)) = (f.ask.find(": plan it at "), f.fix.as_ref()) else { continue };
+                    let said = &f.ask[at + ": plan it at ".len()..][..4];
+                    assert_eq!(format!("Plan it at {said}"), fix.says, "{}", f.ask);
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 0, "a bend that asks a plan its words carry");
+    }
+
     /// A plan written to two places is rounded toward the words it is held to, so a plan held to
     /// the most they carry is found within it (agent dogfood 8: 0.7776 written as 0.78, 0.2524
     /// from words that read 0.5276, asked the slide's words to carry it).
@@ -4164,6 +4192,8 @@ mod tests {
         assert_eq!(held(0.5276 + INTENSITY_GAP_THRESHOLD, Some(0.5276)), 0.77);
         assert_eq!(held(0.4724 - INTENSITY_GAP_THRESHOLD, Some(0.4724)), 0.23);
         assert_eq!((held(0.5, None), held(0.914, Some(0.67)), held(0.6, Some(0.6))), (0.5, 0.91, 0.6));
+        // On a hundredth but for the float's last bits, it is that hundredth (W2's review of #1186).
+        assert_eq!((held(0.54 - INTENSITY_GAP_THRESHOLD, Some(0.54)), held(0.04 + 0.25, Some(0.04))), (0.29, 0.29));
         for k in 0..=1000 {
             let w = f64::from(k) / 1000.0;
             for asked in [w + INTENSITY_GAP_THRESHOLD, w - INTENSITY_GAP_THRESHOLD] {
