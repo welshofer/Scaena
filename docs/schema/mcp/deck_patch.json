@@ -34,7 +34,8 @@
           "beats_added": { "type": "array", "items": { "type": "string" } },
           "beats_removed": { "type": "array", "items": { "type": "string" } },
           "beats_moved": { "type": "array", "items": { "type": "string" } },
-          "beats_changed": { "type": "array", "items": { "type": "string" } }
+          "beats_changed": { "type": "array", "items": { "type": "string" } },
+          "brief": { "type": "array", "items": { "type": "string" } }
         },
         "required": [
           "json_patch",
@@ -44,7 +45,8 @@
           "beats_added",
           "beats_removed",
           "beats_moved",
-          "beats_changed"
+          "beats_changed",
+          "brief"
         ]
       },
       "JsonOp": {
