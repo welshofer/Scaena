@@ -2999,6 +2999,14 @@ fn assemble(
             running = None;
         }
         let state = deck.state_id(&slide.slide_title, &layout);
+        // Each data source the deck keeps in a file, by its id and the file's name, which a chart
+        // that names it by its id credits (agent dogfood 8: "Source: losses" for losses.csv).
+        let attached: Vec<(String, String)> = (deck.data.iter())
+            .filter_map(|(id, d)| {
+                let file = d.get("source")?.as_str()?.rsplit('/').next()?.to_string();
+                Some((id.clone(), file))
+            })
+            .collect();
         let slots = Slots {
             theme,
             layout: &layout,
@@ -3018,6 +3026,7 @@ fn assemble(
                 .map(|s| if s.name.trim().is_empty() { s.url.as_deref().unwrap_or_default() } else { s.name.as_str() })
                 .filter(|n| !n.trim().is_empty()),
             given: &narrative.sources,
+            attached: &attached,
         };
         let last = first + i + 1 == total;
         let peak = peaked == Some(i);
@@ -5364,6 +5373,9 @@ struct Slots<'a> {
     /// The sources the deck was given, by which a chart's source written as a file's stem or a
     /// data source's id is said by the file's name (agent dogfood 3).
     given: &'a [Provenance],
+    /// Each data source the deck keeps in a file, by its id and the file's name, which a chart
+    /// naming it by its id credits by the name (agent dogfood 8).
+    attached: &'a [(String, String)],
 }
 
 /// What one slide added beyond its nodes: the data source its chart reads, and the steps its
@@ -5679,7 +5691,8 @@ impl Slots<'_> {
             .map(str::trim)
             .filter(|s| !s.is_empty())?;
         let file = |s: &&Provenance| !s.name.trim().is_empty() && s.url.is_none() && stem(&s.name) == stem(wrote);
-        Some(self.given.iter().find(file).map_or(wrote, |s| s.name.as_str()))
+        let attached = || self.attached.iter().find(|(id, _)| id == wrote).map(|(_, file)| file.as_str());
+        Some(self.given.iter().find(file).map(|s| s.name.as_str()).or_else(attached).unwrap_or(wrote))
     }
 
     fn fact(&self) -> Option<String> {
@@ -14794,6 +14807,41 @@ mod tests {
         let after = patched(&doc, &written.patch);
         assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
         assert_eq!(firsts(&after), [written.states[0].clone()]);
+    }
+
+    /// A chart a slide written by hand draws from a data source attached by its id credits the
+    /// file by its name, as a made deck's chart does (agent dogfood 8: "Source: losses" for
+    /// `data/losses.csv`, where `deck_generate`'s credits "Quelle: umsatz.csv").
+    #[test]
+    fn a_chart_of_an_attached_source_credits_its_file_by_name() {
+        let (doc, theme, _) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["data"] = json!({ "losses": { "source": "data/losses.csv", "schema": {
+            "month": "string", "lost_ml": "number" } } });
+        let csv = "month,lost_ml\nJan,412\nFeb,398\nMar,405\n";
+        let files = BTreeMap::from([("data/losses.csv".to_string(), csv.as_bytes().to_vec())]);
+        let slide = Slide {
+            slide_title: "Water lost each month fell".into(),
+            layout_suggestion: "Bar Chart".into(),
+            key_bullets: vec!["Down from 412 to 405 megalitres".into()],
+            chart_data: Some(ChartData {
+                categories: ["Jan", "Feb", "Mar"].map(String::from).to_vec(),
+                series: vec![scaena_narrato::Series {
+                    name: Some("Water lost".into()),
+                    values: vec![Some(412.0), Some(398.0), Some(405.0)],
+                }],
+                source_id: Some("losses".into()),
+                ..ChartData::default()
+            }),
+            ..Slide::default()
+        };
+        let written = slide_into(&doc, &theme, slide, &Place::End, None, BTreeMap::new(), &files).unwrap();
+        let after = patched(&doc, &written.patch);
+        let said: Vec<&str> = (after["nodes"].as_object().unwrap().values())
+            .filter_map(|n| n["text"].as_str())
+            .filter(|t| t.contains("Source"))
+            .collect();
+        assert_eq!(said, ["Source: losses.csv"], "{:#}", after["nodes"]);
     }
 
     /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
