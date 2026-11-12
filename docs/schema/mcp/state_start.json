@@ -17,7 +17,7 @@
         "default": null
       },
       "claim": {
-        "description": "The one sentence the slide tells: it starts a beat of its own for it, just after the beat\nof the state it follows. Without it, the slide joins that beat.",
+        "description": "The one sentence the slide tells: its headline says it, and it starts a beat of its own for\nit, just after the beat of the state it follows. Without it, the slide joins that beat.",
         "type": ["string", "null"],
         "default": null
       },

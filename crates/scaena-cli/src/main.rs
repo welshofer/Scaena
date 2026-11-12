@@ -412,7 +412,7 @@ enum Cmd {
         /// blank slide without it.
         #[arg(long)]
         layout: Option<String>,
-        /// The one sentence the slide tells, in a beat of its own just after the beat of STATE.
+        /// The one sentence the slide tells, its headline, in a beat of its own just after the beat of STATE.
         /// Without it, the slide joins that beat.
         #[arg(long)]
         claim: Option<String>,
