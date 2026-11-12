@@ -370,27 +370,38 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
   read -r ax ay aw ah <<<"$(frames find add-slide)" || true
   if [[ "${ah:-}" =~ ^[0-9]+$ ]]; then
     pointer click $((ax + aw / 2)) $((ay + ah / 2))
+    # Waited for by the clock, 30 s, however long each search of the app takes: counted by
+    # searches, a search that found nothing took half a minute and the wait seventeen (#1236).
     drawn="not within 30 s"
-    for waited in $(seq 0 30); do
+    began=$SECONDS
+    searched=""
+    while :; do
+      asked=$SECONDS
       read -r bx by bw bh <<<"$(frames find start-title)" || true
+      [[ -n "${searched:-}" ]] || searched=$((SECONDS - asked))
       if [[ "${bh:-}" =~ ^[0-9]+$ ]]; then
-        drawn="within $waited s"
+        drawn="within $((SECONDS - began)) s"
         break
       fi
+      ((SECONDS - began < 30)) || break
       sleep 1
     done
     echo "the gallery drawn: $drawn"
+    echo "one search of the app for the picker's first slide: ${searched} s"
+    [[ "${bh:-}" =~ ^[0-9]+$ ]] || echo "what the app shows: $(frames roots)"
     shot gallery
     read -r fx fy fw fh <<<"$(frames find section-frameworks)" || true
     if [[ "${fh:-}" =~ ^[0-9]+$ ]]; then
       pointer click $((fx + fw / 2)) $((fy + fh / 2))
       shown="not within 20 s"
-      for waited in $(seq 0 20); do
+      began=$SECONDS
+      while :; do
         read -r _ _ _ wh <<<"$(frames find start-swot)" || true
         if [[ "${wh:-}" =~ ^[0-9]+$ ]]; then
-          shown="within $waited s"
+          shown="within $((SECONDS - began)) s"
           break
         fi
+        ((SECONDS - began < 20)) || break
         sleep 1
       done
       echo "Frameworks shown: $shown"
@@ -418,8 +429,14 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
       holds canvas
       shot started-undone
     else
+      # Put away, so the steps after it find the window again; said where it stays up.
       events 'key code 53'
       sleep 1
+      if frames roots | grep -q AXPopover; then
+        echo "the picker still up after Escape: $(frames roots)"
+        events 'key code 53'
+        sleep 1
+      fi
     fi
   else
     echo "no Add Slide in the toolbar: $ax $ay $aw $ah"

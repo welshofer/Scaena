@@ -14,6 +14,7 @@
 //   osascript -l JavaScript apps/mac/frames.js value IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js holds IDENTIFIER
 //   osascript -l JavaScript apps/mac/frames.js splits
+//   osascript -l JavaScript apps/mac/frames.js roots
 //   osascript -l JavaScript apps/mac/frames.js press TITLE
 function run(argv) {
   const [what, arg] = argv;
@@ -57,11 +58,17 @@ function run(argv) {
     }
     return null;
   };
+  // What the app shows at its top but its windows and its menu bar: a popover, which stands on its
+  // own there. The windows are searched first, each with a budget of its own; searched again here,
+  // a window's thousands of elements took the budget a popover's few needed before the search came
+  // down to them, so Add Slide's picker, a popover, was never found (#1236).
+  const besides = () =>
+    (read(() => process.uiElements()) ?? []).filter((e) => !["AXMenuBar", "AXWindow"].includes(read(() => e.role())));
   // The first element identified as `tag` in the window; else in the app's other windows, then in
   // what else it shows but its menu bar, where a popover may be one of its own.
   const found = (tag) => {
     const others = (read(() => process.windows()) ?? []).slice(1);
-    const shown = (read(() => process.uiElements()) ?? []).filter((e) => read(() => e.role()) !== "AXMenuBar");
+    const shown = besides();
     const is = (e) => id(e) === tag;
     const e = search(is, [window]) ?? search(is, others) ?? search(is, shown);
     if (!e) throw new Error(`nothing is identified as ${tag}`);
@@ -76,6 +83,17 @@ function run(argv) {
     return "pressed";
   }
   if (what === "find") return frame(found(arg)).join(" ");
+  // What the app shows at its top, one to a line: each window and each element beside them, by its
+  // role, subrole, identifier, and name, its frame, and how many elements it holds.
+  if (what === "roots") {
+    return (read(() => process.uiElements()) ?? [])
+      .filter((e) => read(() => e.role()) !== "AXMenuBar")
+      .map((e) => {
+        const sub = read(() => e.subrole());
+        return `${read(() => e.role()) ?? "?"}${sub ? `/${sub}` : ""}${id(e) ? ` #${id(e)}` : ""}${name(e) ? ` "${name(e)}"` : ""} ${frame(e).join(" ")}, holding ${children(e).length}`;
+      })
+      .join("\n");
+  }
   if (what === "value") {
     const e = read(() => found(arg));
     return e ? String(read(() => e.value()) || label(e) || "") : "";
