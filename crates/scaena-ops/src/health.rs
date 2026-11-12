@@ -2554,7 +2554,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
                 unstopped(was.title.trim())
             ),
-            format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on."),
+            // A slide further back is no fold the editors make, which join a slide to the one
+            // just before it: it is cut, or given a point of its own.
+            if at + 1 == i {
+                format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on.")
+            } else {
+                format!(
+                    concat!(
+                        "Cut slide {k}, which slide {j} says already, ",
+                        "or give slide {k} a point of its own that moves the talk on."
+                    ),
+                    k = k,
+                    j = j
+                )
+            },
             None,
         );
     }
@@ -5369,8 +5382,14 @@ mod tests {
         };
         let h = of(&dogfood("pitch", "", faulted));
         let again: Vec<&Finding> = (h.findings.iter()).filter(|f| f.says.contains("says again")).collect();
+        let cut_or_own = concat!(
+            "Cut slide 6, which slide 4 says already, ",
+            "or give slide 6 a point of its own that moves the talk on."
+        );
         assert!(
-            again.iter().any(|f| f.slide == 6 && f.says.starts_with("Slide 6 says again what slide 4 said")),
+            again.iter().any(|f| f.slide == 6
+                && f.says.starts_with("Slide 6 says again what slide 4 said")
+                && f.ask == cut_or_own),
             "{again:#?}"
         );
         assert!(again.iter().any(|f| f.says.contains("what slide 8 said")), "{again:#?}");
