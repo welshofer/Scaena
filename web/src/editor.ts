@@ -1577,8 +1577,8 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
     },
     show: showState,
     enter: (state) => showState(entered(state)),
-    fold: async (state) => {
-      await states.fold(state);
+    fold: async (state, into) => {
+      await states.fold(state, into);
     },
     // The slide shown, its Format tab, and the field there scrolled to and in focus, once the tab
     // has drawn the slide's choices (editor dogfood 6).
