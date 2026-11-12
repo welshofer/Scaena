@@ -1114,6 +1114,7 @@ impl Engine {
         };
         // Code's lines are its own at any size, and verse's: a size fits its box or it does not.
         let fits = |t: &TextLayout| fits_box(t) && (code || unbroken || max_lines.is_none_or(|m| t.lines.len() <= m));
+        let whole = |t: &TextLayout| fits(t) && !t.cut;
         let mut lay = |scale: f32| -> Result<TextLayout, EngineError> {
             self.text.layout(&mut self.fonts, theme, &spec.scaled(scale), cell[2]).map_err(|e| in_node(id, e))
         };
@@ -1151,13 +1152,21 @@ impl Engine {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
                 worked_out(&mut lay, &fits, &base, [cell[2], cell[3]], trim, floor)?
             }
-            TextFit::Shrink if !fits(&base) || cap < 1.0 => {
+            // A Japanese phrase cut in two fits no better than an English word too wide for its line:
+            // a shrinking text is set as large as stands each phrase whole, where any size within
+            // its floor does, else as large as it fits (W1 dogfood 15).
+            TextFit::Shrink if !whole(&base) || cap < 1.0 => {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
-                largest_fit(&mut lay, &fits, floor.min(cap), cap)?
+                // Searched again by fit alone only where the floor fits but cuts a phrase: one that
+                // does not fit at all is set at its floor either way, laid out as often as before.
+                match largest_fit(&mut lay, &whole, floor.min(cap), cap)? {
+                    (_, laid) if fits(&laid) && !whole(&laid) => largest_fit(&mut lay, &fits, floor.min(cap), cap)?,
+                    set => set,
+                }
             }
-            TextFit::Grow if fits(&base) => {
+            TextFit::Grow if whole(&base) => {
                 let ceiling = number("maxSize").or(spec.role.max_size).map_or(2.0, |m| m / spec.role.size).max(1.0);
-                largest_fit(&mut lay, &fits, 1.0, ceiling)?
+                largest_fit(&mut lay, &whole, 1.0, ceiling)?
             }
             TextFit::Error if !fits_box(&base) && !self.lenient => {
                 let (top, bottom) = base.trimmed(trim);
