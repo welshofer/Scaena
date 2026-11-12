@@ -735,6 +735,10 @@ pub struct Restored {
     pub errors: usize,
     /// The states it changes what shows in, by id, as `patch` says them.
     pub states: Vec<String>,
+    /// With `slide`, the slide put back, by its number and its headline in the deck it makes
+    /// ("Slide 2: Revenue doubled"), so a dry run says which slide it brings back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slide: Option<String>,
     /// Refused: the version's deck would not validate in the bundle as it is now (in `added`).
     #[serde(skip)]
     pub refused: bool,
@@ -788,7 +792,9 @@ pub fn restoring_slide(b: &Bundle, name: &str, slide: &str) -> Result<(Restored,
     let version = named(&all, name)?.clone();
     let (was, held) = then(&doc, &version)?;
     let (deck, files) = slide_back(&b.deck, &was, &held, slide, version.n)?;
-    let (restored, write_it) = restored(b, version, deck, files)?;
+    let said = put_back(&deck, slide);
+    let (mut restored, write_it) = restored(b, version, deck, files)?;
+    restored.slide = said;
     let id = restored.version.id.clone();
     let write_it = write_it.map(|w| Write { why: Why::new(format!("history --restore {id} --slide {slide}")), ..w });
     Ok((restored, write_it))
@@ -907,6 +913,20 @@ fn slide_back(
     Ok((deck, files))
 }
 
+/// The slide of `deck` that holds `state`, by its number and the headline it shows at its last
+/// step, as a person names it.
+fn put_back(deck: &Deck, state: &str) -> Option<String> {
+    let slides = deck.slides();
+    let k = slides.iter().position(|s| s.iter().any(|&i| deck.states[i].id == state))?;
+    let snaps = scaena_core::tracking::resolve_states(deck).ok()?;
+    let last = *slides[k].last()?;
+    let headline = snaps.get(last).and_then(|snap| scaena_core::reading::headline(deck, snap));
+    Some(match headline {
+        Some(h) => format!("Slide {}: {h}", k + 1),
+        None => format!("Slide {}", k + 1),
+    })
+}
+
 /// The slide `state` of `deck` belongs to, by its first state's id.
 fn deck_slide<'a>(deck: &Deck, state: &'a scaena_core::document::State) -> &'a str {
     deck.slide_of(state)
@@ -953,6 +973,7 @@ pub fn restored(
         states,
         refused,
         version,
+        slide: None,
     };
     let changes = text != b.deck.to_json()? || !restored.files.is_empty();
     let write_it = (!refused && changes).then(|| Write {

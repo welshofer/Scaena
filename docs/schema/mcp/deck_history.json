@@ -173,7 +173,8 @@
           "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
           "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
           "errors": { "type": "integer", "minimum": 0 },
-          "states": { "type": "array", "items": { "type": "string" } }
+          "states": { "type": "array", "items": { "type": "string" } },
+          "slide": { "type": ["string", "null"] }
         },
         "required": ["version", "applied", "files", "added", "removed", "errors", "states"]
       },

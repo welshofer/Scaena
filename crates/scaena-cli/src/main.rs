@@ -1776,8 +1776,14 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
             (true, _) => {
                 println!("refused: version {n} would make the deck invalid in the bundle as it is; nothing was written")
             }
-            (false, true) => println!("would make version {n} the deck again"),
-            (false, false) => println!("made version {n} the deck again"),
+            (false, true) => match &r.slide {
+                Some(slide) => println!("would put {slide} back as version {n} held it"),
+                None => println!("would make version {n} the deck again"),
+            },
+            (false, false) => match &r.slide {
+                Some(slide) => println!("put {slide} back as version {n} held it"),
+                None => println!("made version {n} the deck again"),
+            },
         }
         for file in &r.files {
             println!("  {file} as it was then");

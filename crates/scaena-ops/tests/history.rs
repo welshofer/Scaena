@@ -279,6 +279,9 @@ fn one_slide_is_put_back_and_every_later_edit_stays() {
     let b = scaena_ops::open(&dir).unwrap();
     let dry = scaena_ops::history::restore_slide(&b, "1", "mix", true).unwrap();
     assert!(!dry.applied && dry.states.contains(&"revenue".to_string()), "{dry:?}");
+    // It names the slide it brings back as a person does, by its number and its headline.
+    let named = dry.slide.as_deref().unwrap_or_default();
+    assert!(named.starts_with("Slide 2: ") && named.len() > "Slide 2: ".len(), "{dry:?}");
     assert_eq!(ids(&deck()), ["intro", "close"], "a dry run writes nothing");
     let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
     assert!(back.applied && back.errors == 0, "{back:?}");
