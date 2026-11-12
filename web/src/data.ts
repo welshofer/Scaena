@@ -254,8 +254,12 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
           // Figures that quote the data, set again, are an edit of the deck's source too.
           const quoted = result.quoted ?? [];
           const figures = quoted.map((n) => object(editor.words?.(), n, true)).join(", ");
-          const told = quoted.length ? `${done}; what ${figures} quotes set again` : done;
-          if (result.file && !quoted.length) editor.took(edited);
+          // A figure that quoted a row taken away quotes it no more, said as a figure typed over
+          // is, with the undo that brings the row and the quote back (R1's agent dogfood 10).
+          const unquoted = result.unquoted ?? [];
+          const set = quoted.length ? `${done}; what ${figures} quotes set again` : done;
+          const told = unquoted.length ? `${set}. ${unquoted.map((u) => u.said).join("; ")} · ${MOD}Z brings it back` : set;
+          if (result.file && !quoted.length && !unquoted.length) editor.took(edited);
           else editor.apply(source, edited, told);
           editor.say(told);
         } else {

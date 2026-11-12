@@ -67,6 +67,8 @@ pub struct Unquoted {
     pub slides: Vec<usize>,
     /// The figure it keeps, as last set, quoting nothing now.
     pub words: String,
+    /// What an editor's status line says of it: "Slide 7's “275” quotes the data no more".
+    pub said: String,
 }
 
 /// Make `req.edits` in source `req.source`, all or none, and write the file it is, or the deck
@@ -200,6 +202,16 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     Ok((edited, Some(made)))
 }
 
+/// Slides by number as a sentence opens on them: "Slide 7's ", "Slides 2 and 3's ", else "".
+fn on_slides(slides: &[usize]) -> String {
+    let named: Vec<String> = slides.iter().map(usize::to_string).collect();
+    match named.split_last() {
+        None => String::new(),
+        Some((one, [])) => format!("Slide {one}'s "),
+        Some((last, rest)) => format!("Slides {} and {last}'s ", rest.join(", ")),
+    }
+}
+
 /// Each text taken off its quote, with the slides that show it, numbered from 1.
 fn said_on(deck: &Deck, unquoted: Vec<(String, String)>) -> Vec<Unquoted> {
     let shown = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
@@ -214,8 +226,10 @@ fn said_on(deck: &Deck, unquoted: Vec<(String, String)>) -> Vec<Unquoted> {
             let on = |states: &Vec<usize>| {
                 states.iter().any(|&k| shown.get(k).and_then(|s| s.nodes.get(&node)).is_some_and(draws))
             };
-            let slides = (slides.iter().enumerate()).filter(|(_, states)| on(states)).map(|(s, _)| s + 1).collect();
-            Unquoted { node, slides, words }
+            let slides: Vec<usize> =
+                (slides.iter().enumerate()).filter(|(_, states)| on(states)).map(|(s, _)| s + 1).collect();
+            let said = format!("{}“{words}” quotes the data no more", on_slides(&slides));
+            Unquoted { node, slides, words, said }
         })
         .collect()
 }

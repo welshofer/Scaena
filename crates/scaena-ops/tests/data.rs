@@ -171,6 +171,7 @@ fn a_figure_quoted_by_its_rows_index_keeps_to_its_row() {
     let said: Vec<(&str, &[usize], &str)> =
         gone.unquoted.iter().map(|u| (u.node.as_str(), u.slides.as_slice(), u.words.as_str())).collect();
     assert_eq!(said, [("title", &[2][..], "$19.4")], "{gone:?}");
+    assert_eq!(gone.unquoted[0].said, "Slide 2's “$19.4” quotes the data no more");
     assert_eq!(run(&read()), json!({ "text": "$19.4" }));
 }
 

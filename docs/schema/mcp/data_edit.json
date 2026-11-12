@@ -110,9 +110,10 @@
         "properties": {
           "node": { "type": "string" },
           "slides": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
-          "words": { "type": "string" }
+          "words": { "type": "string" },
+          "said": { "type": "string" }
         },
-        "required": ["node", "slides", "words"]
+        "required": ["node", "slides", "words", "said"]
       }
     },
     "required": ["edited", "source", "sheet", "added", "removed", "errors", "refused"],
