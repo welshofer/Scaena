@@ -27,6 +27,8 @@ struct LightTable: View {
     /// Write This Slide Again…, `true`, or Add a Slide About… for a slide, by its first state
     /// (lift-up FUNC-1).
     var asking: ((String, Bool) -> Void)? = nil
+    /// Fold a slide, by its first state, into the slide before it (editor dogfood 6).
+    var fold: ((String) -> Void)? = nil
     /// The slide last clicked: where Shift+click selects from.
     @State private var anchor: String?
     @FocusState private var focused: Bool
@@ -74,6 +76,13 @@ struct LightTable: View {
                                         asking(slide.last, false)
                                     }
                                     .disabled(!editor.valid || editor.assisting)
+                                }
+                                // Its words and notes joined to the slide before it, as the Story
+                                // asks of a slide that says again what that one said (editor
+                                // dogfood 6).
+                                if let fold, let label = Slide.folding(slide.id, in: editor.slots) {
+                                    Button(label, systemImage: "arrow.up.to.line") { fold(slide.id) }
+                                        .disabled(!editor.valid)
                                 }
                             }
                             .onTapGesture(count: 2) { show(slide.last) }
@@ -191,6 +200,9 @@ struct LightTable: View {
             }
         }
         Button("Duplicate Slide") { make(Restaging.duplicateSlides([slide.id]), [slide.id]) }
+        if let fold, let label = Slide.folding(slide.id, in: editor.slots) {
+            Button(label) { fold(slide.id) }
+        }
         if ids.count > 1 {
             Button("Delete Slide") {
                 let after = ids.drop { $0 != slide.id }.dropFirst().first ?? ids.last { $0 != slide.id }

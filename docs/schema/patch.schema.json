@@ -444,6 +444,26 @@
           }
         },
         {
+          "description": "The deck's brief (`meta.narrative.brief`): what it is about, who it is for, its goal and length, the minutes it is given, its language, its voice, and what it is to achieve, which health paces and reads it by (agent dogfood 6). Each field given is set, `null` takes it away, and what it leaves out stays as it was: the goal one of `GOALS`, the length one of `LENGTHS`, the minutes 1 to 600, the rest words.",
+          "type": "object",
+          "required": ["op"],
+          "additionalProperties": false,
+          "properties": {
+            "topic": { "type": "string" },
+            "audience": { "type": "string" },
+            "goal": { "description": "One of `GOALS`.", "type": "string" },
+            "length": { "description": "One of `LENGTHS`.", "type": "string" },
+            "minutes": { "description": "The minutes the talk is given, 1 to 600.", "type": "integer", "minimum": 0 },
+            "language": { "description": "The language its words are in, by its English name.", "type": "string" },
+            "voice": { "description": "A voice the words take: tone, vocabulary, posture.", "type": "string" },
+            "desiredOutcomes": {
+              "description": "What the talk is to achieve, in the person's words.",
+              "type": "string"
+            },
+            "op": { "type": "string", "const": "brief" }
+          }
+        },
+        {
           "description": "The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in), or a theme inline.",
           "type": "object",
           "required": ["op", "theme"],

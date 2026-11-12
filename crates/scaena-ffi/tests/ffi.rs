@@ -1567,6 +1567,28 @@ fn playing(s: *mut ScaenaSession) -> Vec<String> {
     slots.as_array().unwrap().iter().map(slot).collect()
 }
 
+/// A slide folded into the one before it (editor dogfood 6), as the Mac's slide list, light table,
+/// and Story fold one: each slot says where its words would go, the patch makes the slide one fewer,
+/// and the first slide is refused, saying why.
+#[test]
+fn a_slide_folds_into_the_one_before_it() {
+    let s = open(B1);
+    let slots = call(s, "timeline", Value::Null);
+    let to = |state: &str| slots.as_array().unwrap().iter().find(|t| t["state"] == state).unwrap()["foldsTo"].clone();
+    assert_eq!((to("cover"), to("goal"), to("belief-2")), (Value::Null, json!("notes"), json!("place")));
+    let folded = call(s, "folding", json!({ "state": "goal" }));
+    assert_eq!(
+        (&folded["said"], &folded["to"], &folded["into"]),
+        (&json!("Folded slide 2 into slide 1's notes"), &json!("notes"), &json!("cover"))
+    );
+    let made = tool(s, "deck_patch", json!({ "ops": folded["patch"] }));
+    assert_eq!(made["edited"], true, "{made}");
+    assert!(!playing(s).iter().any(|p| p.starts_with("goal/")), "{:?}", playing(s));
+    let first = call(s, "folding", json!({ "state": "cover" }));
+    assert_eq!(first["refused"], "Slide 1 has no slide before it to fold into.");
+    unsafe { scaena_session_free(s) };
+}
+
 /// States and slides (PLAN 3.14), as the browser's strip, light table, rehearsal, and cue make
 /// them (PLAN 2.35, 2.97, 2.63, 2.44): a step and a slide added after the state shown, a state
 /// renamed, moved, and removed; a slide moved, copied, and taken out; a hold kept; and a motion

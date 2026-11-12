@@ -26,6 +26,7 @@ enum Issues {
         case "W312": "Some of the chart's text is too small to read."
         case "W313": "The chart is too small to read."
         case "W314": "A credit here can't be read."
+        case "W315": "Some of the chart's text is drawn outside it."
         case "W410": "The picture has no description for people who can't see it."
         case "W427": "A figure here no longer matches its data."
         case "W428": "What this shows has gone out of date."

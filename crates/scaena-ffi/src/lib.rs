@@ -2194,6 +2194,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let what = serde_json::from_value(Value::String(arg("what")?.to_string())).map_err(said)?;
             value(serde_json::to_value(s.adding_state(arg("state")?, what).map_err(said)?))?
         }
+        // The slide `state` is on folded into the slide before it (editor dogfood 6): `{into, patch,
+        // said, refused?, to}`, `to` its words' place there or its notes.
+        "folding" => value(serde_json::to_value(s.folding(arg("state")?).map_err(said)?))?,
         // The panels (PLAN 3.15). The theme (PLAN 2.39, 2.61, 2.94): the themes that ship; the deck
         // put in another, one the bundle holds by its path or one that ships by its name, with its
         // fonts; and the theme edited by RFC 6902 operations, or to a photo's colors, with the file

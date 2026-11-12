@@ -73,6 +73,9 @@ struct PanelEdits {
     /// Show the state and type in the text that heads it, its words selected, so what is typed takes
     /// their place (editor dogfood 6).
     let headline: (_ state: String) -> Void
+    /// Fold the slide `state` is on into the slide before it, one step to undo, or say why it
+    /// cannot be (editor dogfood 6).
+    var fold: (_ state: String) -> Void = { _ in }
     /// Show the state with the Format tab open and its field there, `intensity` or `notes`, in view
     /// and in focus (editor dogfood 6).
     var field: (_ state: String, _ field: String) -> Void = { _, _ in }
