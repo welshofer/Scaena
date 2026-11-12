@@ -338,7 +338,8 @@ struct Inspector: View {
                     if field.prop.hasPrefix("adjust/") {
                         AdjustRow(
                             label: label, value: field.value?.number ?? 0,
-                            awayAtNone: field.lives == nil || field.lives == .node, choose: choose)
+                            awayAtNone: field.lives == nil || field.lives == .node,
+                            preview: { held in self.preview(field.prop, held, in: state) }, choose: choose)
                     } else {
                         NumberRow(
                             label: label, value: field.value?.number, whole: whole, unit: Self.unit[field.prop],
@@ -611,6 +612,13 @@ struct Inspector: View {
 
     /// Choose `value` for `prop`: the node selected's, or the state's with none. Null takes it
     /// away where it lives, and the theme's shows.
+    /// The slide drawn as choosing `value` for `prop` would draw it, nothing made: an Adjust Image
+    /// slider held (lift-up 20261110 ATTR-5), as the browser's previews it. None: as it is.
+    private func preview(_ prop: String, _ value: JSONValue?, in state: String) {
+        guard let value, let node = choices?.node, characters == nil else { return editor.still() }
+        editor.show([["op": "choose", "node": .string(node), "prop": .string(prop), "value": value, "state": .string(state)]])
+    }
+
     private func choose(_ prop: String, _ value: JSONValue, in state: String) {
         // The characters selected take it as a look of their own: one `style_text`.
         if characters != nil, let typing {
@@ -1579,6 +1587,8 @@ private struct AdjustRow: View {
     /// Whether none takes the value away: the object's own, or none set. Written on a slide, none
     /// is written there, so that what the object or an earlier slide sets does not show through.
     let awayAtNone: Bool
+    /// Draw the slide as the value held would, nothing made; none, as it is.
+    let preview: (JSONValue?) -> Void
     let choose: (JSONValue) -> Void
     /// Where the slider is while it moves, before it is let go.
     @State private var moving: Double?
@@ -1592,8 +1602,9 @@ private struct AdjustRow: View {
                         get: { moving ?? value },
                         set: { now in
                             moving = now
-                            // A step not dragged, as VoiceOver's, is set at once.
-                            if !editing { commit() }
+                            // A step not dragged, as VoiceOver's, is set at once; one dragged shows
+                            // on the slide as it moves.
+                            if !editing { commit() } else { preview(chosen(now)) }
                         }),
                     in: -1...1,
                     onEditingChanged: { now in
@@ -1615,11 +1626,20 @@ private struct AdjustRow: View {
         return percent == 0 ? "None" : "\(v > 0 ? "+" : "−")\(percent)"
     }
 
+    /// The value the slider stands at, as it is chosen: to the hundredth, and none where it takes
+    /// the object's own away.
+    private func chosen(_ v: Double) -> JSONValue {
+        let set = (v * 100).rounded() / 100
+        return set == 0 && awayAtNone ? .null : .number(set)
+    }
+
+    /// Set where it moved, the slide drawn as the deck then is: what it previewed let go.
     private func commit() {
         guard let now = moving else { return }
         moving = nil
+        preview(nil)
         let set = (now * 100).rounded() / 100
-        if set != value { choose(set == 0 && awayAtNone ? .null : .number(set)) }
+        if set != value { choose(chosen(now)) }
     }
 }
 
