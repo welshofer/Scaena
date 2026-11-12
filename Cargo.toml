@@ -169,6 +169,16 @@ wasm-bindgen-futures = "0.4.79"
 web-sys = "0.3.106"
 js-sys = "0.3.106"
 
+# icu_provider in a debug build prints each data error it meets with `eprintln!`, a shim it
+# compiles only with debug assertions on and its `logging` feature off; a release build compiles
+# it to nothing. parley's word segmenter sends Han and kana to icu's complex path, where no
+# Chinese or Japanese model is compiled in (none can be: the editor's module has no room), so every
+# text in Japanese said "No segmentation model for complex script" on stderr, 131 times for one
+# deck's lint, burying the CLI's own output. Built without them, as in every release (ADR-0004
+# finding 32; `crates/scaena-cli/tests/lint.rs` holds a Japanese lint to an empty stderr).
+[profile.dev.package.icu_provider]
+debug-assertions = false
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

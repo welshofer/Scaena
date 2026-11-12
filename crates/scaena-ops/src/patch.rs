@@ -38,9 +38,25 @@ pub struct Patched {
     /// worked out for an edit as it is typed, which an editor asks of the whole burst.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub restated: Vec<scaena_core::claims::Restated>,
+    /// With a `fold_slide`, what it folds where, as the editors' Fold Into Slide N says it
+    /// before and after (agent dogfood 7). Left out otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folded: Option<Fold>,
     /// Refused: the patch would have added a validation finding (in `added`).
     #[serde(skip)]
     pub refused: bool,
+}
+
+/// What a `fold_slide` folds where: the slide it joins, by its first state, and where the folded
+/// slide's words go there, said in a person's words, beforehand on a dry run and as done after.
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize, JsonSchema)]
+pub struct Fold {
+    /// The first state of the slide it folds into.
+    pub into: String,
+    /// Where its words go: that slide's place for words, or, where it has none, its notes.
+    pub to: crate::states::FoldsTo,
+    /// "Folds slide 7 into slide 6: its words join that slide's place for words, …".
+    pub says: String,
 }
 
 /// Apply `ops` (a patch: a JSON array of ops) to the bundle's deck, all or none. An op that
@@ -80,6 +96,9 @@ pub struct Reported {
     /// says them (lift-up FUNC-2). Left out when none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub restated: Vec<scaena_core::claims::Restated>,
+    /// With a `fold_slide`, what it folds where ([`Patched::folded`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folded: Option<Fold>,
 }
 
 /// What a patch changed in a deck's slides, each by the id of its first state, and in its
@@ -131,6 +150,7 @@ impl Reported {
             errors: patched.errors,
             states: patched.states,
             restated: patched.restated,
+            folded: patched.folded,
         }
     }
 }
@@ -295,6 +315,47 @@ enum Judge<'a> {
     Reached(&'a mut Layout<'a>),
 }
 
+/// A `fold_slide`, alone in its patch, made as `states::folding` makes the editors' fold, and
+/// patched as that fold's patch is, with what it folds where (agent dogfood 7).
+fn folding(
+    b: &Bundle,
+    list: &[Value],
+    at: usize,
+    what: Option<&str>,
+    judge: Judge,
+    validated: Option<Vec<Finding>>,
+    pending: BTreeMap<String, Vec<u8>>,
+) -> Result<(Patched, Option<Write>), OpsError> {
+    let refused = |message: String| OpsError { message, plan: None, op: Some(at) };
+    if list.len() != 1 {
+        return Err(refused("a `fold_slide` stands alone in its patch: send the other ops in a patch after it".into()));
+    }
+    let Some(slide) = list[at].get("slide").and_then(Value::as_str) else {
+        return Err(refused(format!(
+            "`fold_slide` is written {}",
+            scaena_core::patch::shape("fold_slide").unwrap_or_default()
+        )));
+    };
+    let folded = crate::states::folding(b, slide).map_err(|e| refused(e.message))?;
+    if let Some(why) = folded.refused {
+        return Err(refused(why));
+    }
+    let what = what.unwrap_or("patch: fold_slide");
+    let ops = Value::Array(folded.patch);
+    let (mut patched, write) = made(b, &ops, Some(what), judge, validated, pending)?;
+    let into = folded.said.strip_prefix("Folded ").unwrap_or(&folded.said);
+    let rest = match folded.to {
+        crate::states::FoldsTo::Place => {
+            "its words join that slide's place for words, its notes follow that slide's, and its beat's \
+             claim joins that slide's beat's notes"
+        }
+        crate::states::FoldsTo::Notes => "its words lead that slide's notes, and its own notes follow them",
+    };
+    let says = format!("Folds {into}: {rest}");
+    patched.folded = Some(Fold { into: folded.into, to: folded.to, says });
+    Ok((patched, write))
+}
+
 fn made(
     b: &Bundle,
     ops: &Value,
@@ -310,6 +371,10 @@ fn made(
     let Some(list) = ops.as_array() else {
         return Err(OpsError::new("a patch is a JSON array of ops (SPEC §7.3, docs/schema/patch.schema.json)"));
     };
+    let op_named = |op: &Value| op.get("op").and_then(Value::as_str).map(str::to_string);
+    if let Some(at) = list.iter().position(|op| op_named(op).as_deref() == Some("fold_slide")) {
+        return folding(b, list, at, what, judge, validated, pending);
+    }
     let doc = b.deck.to_value()?;
     let compiled = scaena_core::patch::compile(&doc, list, &view).map_err(|e| OpsError {
         message: e.to_string(),
@@ -380,6 +445,7 @@ fn made(
         states,
         restated,
         refused,
+        folded: None,
     };
     Ok((patched, write))
 }

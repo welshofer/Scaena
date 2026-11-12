@@ -735,6 +735,10 @@ pub struct Restored {
     pub errors: usize,
     /// The states it changes what shows in, by id, as `patch` says them.
     pub states: Vec<String>,
+    /// With `slide`, the slide put back, by its number and its headline in the deck it makes
+    /// ("Slide 2: Revenue doubled"), so a dry run says which slide it brings back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slide: Option<String>,
     /// Refused: the version's deck would not validate in the bundle as it is now (in `added`).
     #[serde(skip)]
     pub refused: bool,
@@ -753,6 +757,16 @@ pub fn restore(b: &Bundle, name: &str, dry_run: bool) -> Result<Restored, OpsErr
     Ok(restored)
 }
 
+/// [`restoring_slide`], written unless `dry_run`.
+pub fn restore_slide(b: &Bundle, name: &str, slide: &str, dry_run: bool) -> Result<Restored, OpsError> {
+    let (mut restored, write_it) = restoring_slide(b, name, slide)?;
+    match write_it {
+        Some(w) if !dry_run => write(b, w)?,
+        _ => restored.applied &= !dry_run,
+    }
+    Ok(restored)
+}
+
 /// [`restore`] with nothing written: what restoring does, and what to write, if it changes
 /// the deck or a file it is drawn from and is not refused. A client that keeps its bundle in
 /// memory writes it there.
@@ -762,6 +776,160 @@ pub fn restoring(b: &Bundle, name: &str) -> Result<(Restored, Option<Write>), Op
     let version = named(&all, name)?.clone();
     let (deck, held) = then(&doc, &version)?;
     restored(b, version, deck, held)
+}
+
+/// [`restoring`] of one slide alone (agent dogfood 7): the slide that holds `slide`, a state of
+/// version `name`, put back into the deck as it is now, with everything else as it is. Its
+/// states as the version held them; each node they show, where the deck lacks it now, or shows
+/// it on no other slide, as the version held it (a node another slide shows stays as it is);
+/// each data source they read that the deck lacks, with its file; and the beat that told it,
+/// with its claim and notes, in its part of the talk. A slide the deck still has is put back
+/// where it stands; one taken away goes after the nearest slide before it in the version that
+/// the deck still has, else first. Refused as a patch is where the deck would not validate.
+pub fn restoring_slide(b: &Bundle, name: &str, slide: &str) -> Result<(Restored, Option<Write>), OpsError> {
+    let doc = kept(b)?;
+    let all = listed(&doc);
+    let version = named(&all, name)?.clone();
+    let (was, held) = then(&doc, &version)?;
+    let (deck, files) = slide_back(&b.deck, &was, &held, slide, version.n)?;
+    let said = put_back(&deck, slide);
+    let (mut restored, write_it) = restored(b, version, deck, files)?;
+    restored.slide = said;
+    let id = restored.version.id.clone();
+    let write_it = write_it.map(|w| Write { why: Why::new(format!("history --restore {id} --slide {slide}")), ..w });
+    Ok((restored, write_it))
+}
+
+/// `now` with the slide of `was` that holds `state` put back ([`restoring_slide`]), and the
+/// files of `held` the data sources it brings back read.
+fn slide_back(
+    now: &Deck,
+    was: &Deck,
+    held: &BTreeMap<String, Vec<u8>>,
+    state: &str,
+    n: usize,
+) -> Result<(Deck, BTreeMap<String, Vec<u8>>), OpsError> {
+    let slides = was.slides();
+    let Some(k) = (slides.iter()).position(|s| s.iter().any(|&i| was.states[i].id == state)) else {
+        let near = scaena_core::patch::nearest("states", state, was.states.iter().map(|s| s.id.as_str()));
+        return Err(OpsError::new(format!("version {n} has no state `{state}`{near}")));
+    };
+    let back: Vec<scaena_core::document::State> = slides[k].iter().map(|&i| was.states[i].clone()).collect();
+    let ids: Vec<&str> = back.iter().map(|s| s.id.as_str()).collect();
+    let first = was.slide_of(&was.states[slides[k][0]]).to_string();
+    let mut deck = now.clone();
+    // Where it stands now, if the deck still has it, and the deck without it, each other state
+    // showing what it showed, as a slide taken away leaves them.
+    let ours = |s: &scaena_core::document::State| deck_slide(now, s) == first;
+    let stood = deck.states.iter().position(ours);
+    let rest: Vec<scaena_core::document::State> = deck.states.iter().filter(|s| !ours(s)).cloned().collect();
+    if let Some(taken) = rest.iter().find(|s| ids.contains(&s.id.as_str())) {
+        return Err(OpsError::new(format!("the deck has a state `{}` of another slide now", taken.id)));
+    }
+    if rest.len() != deck.states.len() {
+        deck.states = scaena_core::tracking::keep_looks(&deck, rest, &[]).map_err(OpsError::new)?;
+    }
+    let at = stood.unwrap_or_else(|| {
+        // After the nearest slide before it that the deck still has, else first.
+        let before = slides[..k].iter().rev().find_map(|earlier| {
+            let id = was.slide_of(&was.states[earlier[0]]);
+            deck.states.iter().rposition(|s| deck_slide(&deck, s) == id)
+        });
+        before.map_or(0, |i| i + 1)
+    });
+    // Its nodes: each the deck lacks, or shows on no other slide, as the version held it.
+    let shown: Vec<&String> = back.iter().flat_map(|s| s.props.keys()).collect();
+    for id in shown {
+        let Some(node) = was.nodes.get(id) else { continue };
+        let elsewhere =
+            (deck.states.iter()).filter(|s| !ids.contains(&s.id.as_str())).any(|s| s.props.contains_key(id));
+        if !deck.nodes.contains_key(id) || !elsewhere {
+            deck.nodes.insert(id.clone(), node.clone());
+            match was.overrides.get(id) {
+                Some(o) => {
+                    deck.overrides.insert(id.clone(), o.clone());
+                }
+                None => {
+                    deck.overrides.shift_remove(id);
+                }
+            }
+        }
+    }
+    // The data it reads that the deck lacks, with the files the history kept of it.
+    let written = serde_json::to_string(&(
+        &back,
+        back.iter().flat_map(|s| s.props.keys()).filter_map(|id| was.nodes.get(id)).collect::<Vec<_>>(),
+    ))
+    .unwrap_or_default();
+    let mut files = BTreeMap::new();
+    for (id, source) in &was.data {
+        let named = |id: &str| written.contains(&format!("\"{id}\"")) || written.contains(&format!("\"@{id}\""));
+        if deck.data.contains_key(id) || !named(id) {
+            continue;
+        }
+        deck.data.insert(id.clone(), source.clone());
+        if let Some(file) = source.source.get("file").and_then(Value::as_str)
+            && let Some(bytes) = held.get(file)
+        {
+            files.insert(file.to_string(), bytes.clone());
+        }
+    }
+    // Its states put back, each other state showing what it showed: the slide after it, which
+    // tracked from another, keeps its looks.
+    let mut order = deck.states.clone();
+    order.splice(at..at, back.iter().cloned());
+    deck.states = scaena_core::tracking::keep_looks(&deck, order, &[]).map_err(OpsError::new)?;
+    // The beat that told it, in its part of the talk, telling its states alone.
+    let told = was.spine.iter().flat_map(|sp| &sp.sections).find_map(|sec| {
+        let beat = sec.beats.iter().position(|b| b.states.iter().any(|s| ids.contains(&s.as_str())))?;
+        Some((sec, beat))
+    });
+    if let Some((sec, j)) = told {
+        let spine = deck.spine.get_or_insert_with(|| scaena_core::document::Spine { sections: Vec::new() });
+        for other in spine.sections.iter_mut().flat_map(|s| s.beats.iter_mut()) {
+            other.states.retain(|s| !ids.contains(&s.as_str()));
+        }
+        let beat = sec.beats[j].clone();
+        let present = |spine: &scaena_core::document::Spine| {
+            (spine.sections.iter().enumerate())
+                .find_map(|(a, s)| s.beats.iter().position(|b| b.id == beat.id).map(|b| (a, b)))
+        };
+        if let Some((a, i)) = present(spine) {
+            spine.sections[a].beats[i] = beat;
+        } else if let Some(a) = spine.sections.iter().position(|s| s.id == sec.id) {
+            let near =
+                sec.beats[..j].iter().rev().find_map(|e| spine.sections[a].beats.iter().position(|b| b.id == e.id));
+            let i = near.map_or(0, |i| i + 1);
+            spine.sections[a].beats.insert(i, beat);
+        } else {
+            let sections = &was.spine.as_ref().map(|s| s.sections.as_slice()).unwrap_or_default();
+            let k = sections.iter().position(|s| s.id == sec.id).unwrap_or_default();
+            let near = sections[..k].iter().rev().find_map(|e| spine.sections.iter().position(|s| s.id == e.id));
+            let i = near.map_or(0, |i| i + 1);
+            spine.sections.insert(i, scaena_core::document::Section { beats: vec![beat], ..sec.clone() });
+        }
+        spine.sections.retain(|s| !s.beats.is_empty());
+    }
+    Ok((deck, files))
+}
+
+/// The slide of `deck` that holds `state`, by its number and the headline it shows at its last
+/// step, as a person names it.
+fn put_back(deck: &Deck, state: &str) -> Option<String> {
+    let slides = deck.slides();
+    let k = slides.iter().position(|s| s.iter().any(|&i| deck.states[i].id == state))?;
+    let snaps = scaena_core::tracking::resolve_states(deck).ok()?;
+    let last = *slides[k].last()?;
+    let headline = snaps.get(last).and_then(|snap| scaena_core::reading::headline(deck, snap));
+    Some(match headline {
+        Some(h) => format!("Slide {}: {h}", k + 1),
+        None => format!("Slide {}", k + 1),
+    })
+}
+
+/// The slide `state` of `deck` belongs to, by its first state's id.
+fn deck_slide<'a>(deck: &Deck, state: &'a scaena_core::document::State) -> &'a str {
+    deck.slide_of(state)
 }
 
 /// `deck`, version `version`'s, made the bundle's deck again with `held`, the files it was
@@ -805,6 +973,7 @@ pub fn restored(
         states,
         refused,
         version,
+        slide: None,
     };
     let changes = text != b.deck.to_json()? || !restored.files.is_empty();
     let write_it = (!refused && changes).then(|| Write {
@@ -833,6 +1002,11 @@ pub struct Ask {
     /// change.
     #[serde(default)]
     pub restore: Option<String>,
+    /// With `restore`, the one slide that holds this state, put back as the version held it
+    /// into the deck as it is now, with everything else as it is: its steps, the objects it
+    /// alone shows, the data it reads, and its beat (agent dogfood 7).
+    #[serde(default)]
+    pub slide: Option<String>,
     /// With `restore`, say what it would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
@@ -878,8 +1052,15 @@ pub fn history(b: &Bundle, ask: &Ask) -> Result<History, OpsError> {
     if let Some(name) = &ask.at {
         return Ok(History { seen: Some(at(b, name, ask.scn)?), ..History::default() });
     }
+    if ask.slide.is_some() && ask.restore.is_none() {
+        return Err(OpsError::new("`slide` names the slide a `restore` puts back: ask it with `restore`"));
+    }
     if let Some(name) = &ask.restore {
-        return Ok(History { restored: Some(restore(b, name, ask.dry_run)?), ..History::default() });
+        let restored = match &ask.slide {
+            Some(slide) => restore_slide(b, name, slide, ask.dry_run)?,
+            None => restore(b, name, ask.dry_run)?,
+        };
+        return Ok(History { restored: Some(restored), ..History::default() });
     }
     let compared = match ask.compare.as_slice() {
         [] => {

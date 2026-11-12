@@ -375,6 +375,17 @@ public final class DeckEditor {
         drawn += 1
     }
 
+    /// Whether any slide has notes a presenter reads, its own or its beat's: what a PDF with the
+    /// notes prints under each slide. With none, each page would hold its slide alone, drawn
+    /// smaller, which the window says before it is made, as the browser's Export… does (editor
+    /// dogfood 2). Asked of each state when it is asked, never kept.
+    public var noted: Bool {
+        slots.contains { slot in
+            let notes = (try? session.notes(state: slot.state))?.text ?? ""
+            return !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     /// Draw frames at rest in the theme `ops` would make, nothing made: a theme color held in its
     /// picker (lift-up ATTR-5). None: the theme as it is.
     public func show(theme ops: [JSONValue]?) {
