@@ -137,6 +137,54 @@ import Testing
     }
 }
 
+/// A movie is made at the width and the frames a second its sheet asks, as the browser's Export…
+/// offers them: 640 pixels wide in the canvas's proportions, at 24 frames a second.
+@Test func aMovieIsMadeAtTheWidthAndFramesASecondAsked() async throws {
+    let session = try ScaenaSession(directory: b1)
+    let canvas = try session.canvasSize()
+    let data = try await session.snapshot().exported(.movie(title: "B1", seconds: 1, width: 640, fps: 24))
+    let url = FileManager.default.temporaryDirectory.appending(path: "MovieTests-\(UUID().uuidString).mp4")
+    try data.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let asset = AVURLAsset(url: url)
+    let duration = try await asset.load(.duration)
+    #expect(abs(duration.seconds - 1) < 0.05, "it runs \(duration.seconds) s")
+    let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+    let size = try await track.load(.naturalSize)
+    let asked = MovieSize.pixels(width: 640, canvas: canvas)
+    #expect(Int(size.width) == 640 && abs(Int(size.height) - asked.height) <= 2, "\(size), \(asked)")
+    let rate = try await track.load(.nominalFrameRate)
+    #expect(abs(rate - 24) < 0.5, "it plays at \(rate) frames a second")
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+    reader.add(output)
+    #expect(reader.startReading())
+    var frames = 0
+    while output.copyNextSampleBuffer() != nil { frames += 1 }
+    #expect(frames == 24)
+
+    // A rate the sheet does not offer, and a width a movie may not be: each an error that says why.
+    await #expect(throws: ScaenaError.self) {
+        try await session.snapshot().exported(.movie(title: "B1", seconds: 1, fps: 25))
+    }
+    await #expect(throws: ScaenaError.self) {
+        try await session.snapshot().exported(.movie(title: "B1", seconds: 1, width: 9000))
+    }
+}
+
+/// The sheet's width read as the browser's field reads it, and the pixels it makes: a whole number
+/// from 2 to 8192, made even, the height the canvas's proportions give it.
+@Test func aMoviesWidthIsReadAndItsHeightFollowsTheCanvas() {
+    #expect(MovieSize.width("1280") == 1280 && MovieSize.width(" 640 ") == 640)
+    #expect(MovieSize.width("1") == nil && MovieSize.width("9000") == nil)
+    #expect(MovieSize.width("12.5") == nil && MovieSize.width("wide") == nil)
+    #expect(MovieSize.rates == [24, 30, 60] && MovieSize.fps == 30)
+    let made = MovieSize.pixels(width: 1281, canvas: CGSize(width: 1920, height: 1080))
+    #expect(made.width == 1280 && made.height == 720, "\(made)")
+    let tall = MovieSize.pixels(width: 1080, canvas: CGSize(width: 1080, height: 1920))
+    #expect(tall.width == 1080 && tall.height == 1920, "\(tall)")
+}
+
 /// `seconds` of a 440 Hz tone as a WAV file: mono, 16-bit, 44.1 kHz.
 private func tone(seconds: Double) -> Data {
     let rate = 44_100
