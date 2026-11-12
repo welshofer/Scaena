@@ -118,9 +118,6 @@ impl Rule for W323Skipped {
         for state in cx.states.iter().filter(|s| s.slot.span + s.slot.hold <= 0.0) {
             let (words, figures) = reading(cx, state);
             let hold = hold_for(words, figures);
-            // The hold it names, as the fix that gives it (agent dogfood 6), in whole milliseconds.
-            let fix =
-                vec![json!({ "op": "add", "path": format!("/states/{}/hold", state.index), "value": hold.round() })];
             out.push(
                 cx.finding(
                     self.code(),
@@ -135,8 +132,7 @@ impl Rule for W323Skipped {
                 .measure(json!({ "words": words, "figures": figures, "suggestedHold": hold }))
                 .hint(
                     "The deck has holds, so it runs on its own. Hold each state for its reading: about four words a second, plus 2 s for each chart, table, or image.",
-                )
-                .fix(fix),
+                ),
             );
         }
         out
