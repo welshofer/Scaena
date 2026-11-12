@@ -397,6 +397,23 @@ function cappedSaid(h: Health): string {
 
 /** The panel in `into`, over `stage`. */
 export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor) {
+  // A fold's button says beforehand what the fold does, as the fold itself lays it out: into the
+  // slide's notes where its words would run past their place, or why it cannot be (W1's dogfood
+  // 16). The label from the deck's slots stands until the fold answers.
+  const foldSaid = (button: HTMLButtonElement, before: string, state: string, into?: string) => {
+    void stage.folding(editor.source(), state, into).then(
+      (folded) => {
+        if (!button.isConnected) return;
+        if (folded.refused) {
+          button.disabled = true;
+          button.title = folded.refused;
+        } else {
+          button.textContent = foldLabel(before, folded.to);
+        }
+      },
+      () => {},
+    );
+  };
   const score = into.querySelector<HTMLElement>("[data-score]")!;
   // A slide the cap names shows it (W1's dogfood 5): the score's line is drawn anew as it changes,
   // so its buttons are heard here.
@@ -671,6 +688,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = foldLabel(`slide ${at}`, undefined);
       button.addEventListener("click", () => void editor.fold(state, into));
       actions.append(button);
+      foldSaid(button, `slide ${at}`, state, into);
     }
     // A slide that says again what the one before said, or adds least to it, offers to fold into it,
     // as its to-do says (editor dogfood 6).
@@ -681,6 +699,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = foldLabel(`slide ${slide - 1}`, editor.foldsTo(state));
       button.addEventListener("click", () => void editor.fold(state));
       actions.append(button);
+      foldSaid(button, `slide ${slide - 1}`, state);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
     // the slide shown with its first problem's mark open, where the fix or the words are

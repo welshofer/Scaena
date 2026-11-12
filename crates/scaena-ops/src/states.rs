@@ -1029,9 +1029,9 @@ fn built_in(
 /// states taken out by `remove_slide`, which takes the beat it alone told. That beat's claim is
 /// not lost: it joins the previous beat's notes, never its evidence, which health and W423 read
 /// as sources. Where the slide before has no place for words (a big number's), its words lead its
-/// notes there instead ([`FoldsTo::Notes`]). Refused, saying why, where there is no slide before
-/// it, or the words joined would run past their place (E100), as laying the deck out with the
-/// patch finds.
+/// notes there instead ([`FoldsTo::Notes`]), and so do words that would run past their place
+/// (E100), as laying the deck out with the patch finds (W1's dogfood 16). Refused, saying why,
+/// where there is no slide before it.
 ///
 /// With `into`, a state of an earlier slide, the slide folds into that slide in place of the one
 /// before it, as a Story row offers where a slide says again what an earlier one said (R1's
@@ -1039,6 +1039,14 @@ fn built_in(
 /// claim joins that slide's beat's notes; the slides between are left as they were. Refused,
 /// saying why, where `into` is the slide itself or one after it.
 pub fn folding(b: &Bundle, state: &str, into: Option<&str>) -> Result<Folded, OpsError> {
+    folded_to(b, state, into, true)
+}
+
+/// [`folding`], the folded slide's words joining the place for words of the slide it folds into
+/// where `placed` and it has one, else that slide's notes: where they would run past the place,
+/// the fold puts them in the notes instead of refusing (W1's dogfood 16, the coordinator's call),
+/// which the dry run and the editors' button say beforehand.
+fn folded_to(b: &Bundle, state: &str, into: Option<&str>, placed: bool) -> Result<Folded, OpsError> {
     let deck = &b.deck;
     let i = deck.state_index(state).ok_or_else(|| OpsError::unknown_state(deck, state))?;
     let slides = deck.slides();
@@ -1087,7 +1095,7 @@ pub fn folding(b: &Bundle, state: &str, into: Option<&str>) -> Result<Folded, Op
     let snaps = scaena_core::resolve_states(deck).context("tracking")?;
     let (was, last) = (&snaps[*prev.last().unwrap_or(&prev[0])], &snaps[*folded.last().unwrap_or(&folded[0])]);
     // The previous slide's place for words, where it has one; else its notes take them.
-    let target = joined_place(deck, was);
+    let target = if placed { joined_place(deck, was) } else { None };
     // The folded slide's words, in the order it reads (SPEC §3.12), its headline first.
     let lines = folded_words(b, deck, last, was)?;
     let joined = lines.join("\n");
@@ -1191,12 +1199,7 @@ pub fn folding(b: &Bundle, state: &str, into: Option<&str>) -> Result<Folded, Op
     if let Some((target, _)) = target
         && patched.added.iter().any(|f| f.code == "E100" && f.node.as_deref() == Some(target.as_str()))
     {
-        return Ok(refused(
-            into,
-            format!(
-                "Slide {n}'s words would run past slide {k}'s place for them: shorten them first, or cut slide {n}."
-            ),
-        ));
+        return folded_to(b, state, Some(&into), false);
     }
     let (said, to) = match target {
         Some(_) => (format!("Folded slide {n} into slide {k}"), FoldsTo::Place),
@@ -1483,16 +1486,22 @@ mod tests {
         assert!(!carried.lines().any(|l| l.starts_with("6,820")), "{carried}");
     }
 
-    /// Words that would run past the place they join are no fold (E100): laid out, refused. B1's
-    /// slides each fill their place, so slide 4's whole paragraph and quote have no room on slide 3.
+    /// Words that would run past the place they join (E100), laid out, go into that slide's notes
+    /// instead, which the fold says (W1's dogfood 16): B1's slides each fill their place, so
+    /// slide 4's whole paragraph and quote have no room on slide 3, and lead its notes.
     #[test]
-    fn a_fold_whose_words_would_run_past_their_place_is_refused() {
-        let folded = folding(&b1(), "belief-2", None).unwrap();
-        assert_eq!(
-            folded.refused.as_deref(),
-            Some("Slide 4's words would run past slide 3's place for them: shorten them first, or cut slide 4.")
-        );
-        assert!(folded.patch.is_empty());
+    fn a_fold_whose_words_would_run_past_their_place_goes_into_its_notes() {
+        let b = b1();
+        let folded = folding(&b, "belief-2", None).unwrap();
+        assert_eq!(folded.refused, None);
+        assert_eq!((folded.to, folded.said.as_str()), (FoldsTo::Notes, "Folded slide 4 into slide 3's notes"));
+        let snaps = scaena_core::resolve_states(&b.deck).unwrap();
+        let (was, gone) = (b.deck.state_index("belief-1").unwrap(), b.deck.state_index("belief-2").unwrap());
+        let words = folded_words(&b, &b.deck, &snaps[gone], &snaps[was]).unwrap();
+        let deck = applied(&b, &folded.patch);
+        assert!(deck.state_index("belief-2").is_none(), "slide 4 is gone");
+        let notes = scaena_core::spine::notes(&deck, "belief-1").unwrap_or_default().to_string();
+        assert!(words.iter().all(|w| notes.contains(w.as_str())), "{notes}\n{words:?}");
     }
 
     fn revenue() -> Deck {
