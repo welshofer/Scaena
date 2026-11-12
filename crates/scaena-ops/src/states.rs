@@ -968,9 +968,9 @@ fn folded_words(
 /// states taken out by `remove_slide`, which takes the beat it alone told. That beat's claim is
 /// not lost: it joins the previous beat's notes, never its evidence, which health and W423 read
 /// as sources. Where the slide before has no place for words (a big number's), its words lead its
-/// notes there instead ([`FoldsTo::Notes`]). Refused, saying why, where there is no slide before
-/// it, or the words joined would run past their place (E100), as laying the deck out with the
-/// patch finds.
+/// notes there instead ([`FoldsTo::Notes`]), and so they do where the words joined would run past
+/// their place (E100), as laying the deck out with the patch finds, so a fold offered is never
+/// refused for its words (W1 dogfood 16). Refused, saying why, where there is no slide before it.
 ///
 /// With `into`, a state of an earlier slide, the slide folds into that slide in place of the one
 /// before it, as a Story row offers where a slide says again what an earlier one said (R1's
@@ -1030,112 +1030,135 @@ pub fn folding(b: &Bundle, state: &str, into: Option<&str>) -> Result<Folded, Op
     // The folded slide's words, in the order it reads (SPEC §3.12), its headline first.
     let lines = folded_words(b, deck, last, was)?;
     let joined = lines.join("\n");
-    let mut patch = Vec::new();
-    if let Some((target, props)) = target
-        && !joined.is_empty()
-    {
-        let written = scaena_core::reading::words(props);
-        let at = written.chars().count();
-        let text = if written.trim().is_empty() { joined.clone() } else { format!("\n{joined}") };
-        let shown = &deck.states[*prev.last().unwrap_or(&prev[0])].id;
-        patch.push(json!({ "op": "replace_text", "node": target, "from": at, "to": at, "text": text, "state": shown }));
-    }
-    // Notes, each after what is there with a blank line: the folded slide's after the previous
-    // slide's, where they live (its first state's own, else its beat's), and the claim of a beat
-    // the fold leaves with no slide after the previous beat's.
-    let ids = |slide: &[usize]| slide.iter().map(|&s| deck.states[s].id.clone()).collect::<Vec<_>>();
-    let (gone, kept) = (ids(folded), ids(prev));
-    let after = |was: &str, more: &str| match (was.trim().is_empty(), more.trim().is_empty()) {
-        (_, true) => was.to_string(),
-        (true, false) => more.trim().to_string(),
-        (false, false) => format!("{}\n\n{}", was.trim_end(), more.trim()),
+    // The fold's patch, its words joined to `target`, else leading the notes of the slide it folds into.
+    let build = |target: Option<(&String, &scaena_core::document::Props)>| -> Vec<Value> {
+        let mut patch = Vec::new();
+        if let Some((target, props)) = target
+            && !joined.is_empty()
+        {
+            let written = scaena_core::reading::words(props);
+            let at = written.chars().count();
+            let text = if written.trim().is_empty() { joined.clone() } else { format!("\n{joined}") };
+            let shown = &deck.states[*prev.last().unwrap_or(&prev[0])].id;
+            patch.push(
+                json!({ "op": "replace_text", "node": target, "from": at, "to": at, "text": text, "state": shown }),
+            );
+        }
+        // Notes, each after what is there with a blank line: the folded slide's after the previous
+        // slide's, where they live (its first state's own, else its beat's), and the claim of a beat
+        // the fold leaves with no slide after the previous beat's.
+        let ids = |slide: &[usize]| slide.iter().map(|&s| deck.states[s].id.clone()).collect::<Vec<_>>();
+        let (gone, kept) = (ids(folded), ids(prev));
+        let after = |was: &str, more: &str| match (was.trim().is_empty(), more.trim().is_empty()) {
+            (_, true) => was.to_string(),
+            (true, false) => more.trim().to_string(),
+            (false, false) => format!("{}\n\n{}", was.trim_end(), more.trim()),
+        };
+        let beats: Vec<(usize, usize, &scaena_core::document::Beat)> =
+            (deck.spine.iter().flat_map(|s| s.sections.iter()))
+                .enumerate()
+                .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+                .collect();
+        let beat_of = |state: &str| beats.iter().find(|(_, _, b)| b.states.iter().any(|s| s == state));
+        let mut beat_notes: Vec<((usize, usize), String)> = Vec::new();
+        let to_beat = |at: (usize, usize), was: &str, more: &str, notes: &mut Vec<((usize, usize), String)>| match notes
+            .iter_mut()
+            .find(|(b, _)| *b == at)
+        {
+            Some((_, text)) => *text = after(text, more),
+            None => notes.push((at, after(was, more))),
+        };
+        // The folded slide's notes as its presenter reads them, but a beat's it shares with the slide
+        // before, which that slide reads already.
+        let first_gone = &deck.states[folded[0]];
+        let shared = first_gone.notes.is_none()
+            && beat_of(&first_gone.id)
+                .is_some_and(|(s, b, _)| beat_of(&kept[0]).is_some_and(|(t, c, _)| (s, b) == (t, c)));
+        let mut folded_notes =
+            if shared { String::new() } else { scaena_core::spine::notes(deck, &gone[0]).unwrap_or("").to_string() };
+        // Each later step's own notes after them, as a presenter reads them in turn.
+        for &step in &folded[1..] {
+            if let Some(own) = deck.states[step].notes.as_deref() {
+                folded_notes = after(&folded_notes, own);
+            }
+        }
+        // With no place for them, its words lead its notes there.
+        if target.is_none() {
+            folded_notes = after(&joined, &folded_notes);
+        }
+        // The notes of the slide it folds into's first state, where they are written there.
+        let first = &deck.states[prev[0]];
+        let mut first_notes: Option<String> = None;
+        if !folded_notes.trim().is_empty() {
+            match (&first.notes, beat_of(&first.id)) {
+                (None, Some((s, b, beat))) => {
+                    to_beat((*s, *b), beat.notes.as_deref().unwrap_or(""), &folded_notes, &mut beat_notes)
+                }
+                (own, _) => first_notes = Some(after(own.as_deref().unwrap_or(""), &folded_notes)),
+            }
+        }
+        // The claim of each beat the fold leaves with no slide: in the notes of the beat that tells
+        // the slide it folds into, else, where no beat tells it, that slide's own, so no claim is lost.
+        let told = beat_of(kept.last().unwrap_or(&kept[0]));
+        for (_, _, beat) in &beats {
+            let alone = !beat.states.is_empty() && beat.states.iter().all(|s| gone.contains(s));
+            if !alone || beat.claim.trim().is_empty() {
+                continue;
+            }
+            match told {
+                Some((s, b, kept_in)) => {
+                    to_beat((*s, *b), kept_in.notes.as_deref().unwrap_or(""), &beat.claim, &mut beat_notes)
+                }
+                None => {
+                    let was = first_notes.take().or_else(|| first.notes.clone()).unwrap_or_default();
+                    first_notes = Some(after(&was, &beat.claim));
+                }
+            }
+        }
+        if let Some(notes) = first_notes {
+            patch.push(json!({ "op": "add", "path": format!("/states/{}/notes", prev[0]), "value": notes }));
+        }
+        for ((s, b), notes) in beat_notes {
+            patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}/notes"), "value": notes }));
+        }
+        patch.push(json!({ "op": "remove_slide", "slide": gone[0] }));
+        patch
     };
-    let beats: Vec<(usize, usize, &scaena_core::document::Beat)> = (deck.spine.iter().flat_map(|s| s.sections.iter()))
-        .enumerate()
-        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
-        .collect();
-    let beat_of = |state: &str| beats.iter().find(|(_, _, b)| b.states.iter().any(|s| s == state));
-    let mut beat_notes: Vec<((usize, usize), String)> = Vec::new();
-    let to_beat = |at: (usize, usize), was: &str, more: &str, notes: &mut Vec<((usize, usize), String)>| match notes
-        .iter_mut()
-        .find(|(b, _)| *b == at)
-    {
-        Some((_, text)) => *text = after(text, more),
-        None => notes.push((at, after(was, more))),
-    };
-    // The folded slide's notes as its presenter reads them, but a beat's it shares with the slide
-    // before, which that slide reads already.
-    let first_gone = &deck.states[folded[0]];
-    let shared = first_gone.notes.is_none()
-        && beat_of(&first_gone.id).is_some_and(|(s, b, _)| beat_of(&kept[0]).is_some_and(|(t, c, _)| (s, b) == (t, c)));
-    let mut folded_notes =
-        if shared { String::new() } else { scaena_core::spine::notes(deck, &gone[0]).unwrap_or("").to_string() };
-    // Each later step's own notes after them, as a presenter reads them in turn.
-    for &step in &folded[1..] {
-        if let Some(own) = deck.states[step].notes.as_deref() {
-            folded_notes = after(&folded_notes, own);
+    // Checked as a patch is, and laid out: a patch that would not read is no fold.
+    let checked = |patch: &[Value]| -> Result<Result<crate::patch::Patched, String>, OpsError> {
+        let (patched, _) = crate::patch::patching(b, &Value::Array(patch.to_vec()), Some("Fold slide"))?;
+        if !patched.refused {
+            return Ok(Ok(patched));
         }
-    }
-    // With no place for them, its words lead its notes there.
-    if target.is_none() {
-        folded_notes = after(&joined, &folded_notes);
-    }
-    // The notes of the slide it folds into's first state, where they are written there.
-    let first = &deck.states[prev[0]];
-    let mut first_notes: Option<String> = None;
-    if !folded_notes.trim().is_empty() {
-        match (&first.notes, beat_of(&first.id)) {
-            (None, Some((s, b, beat))) => {
-                to_beat((*s, *b), beat.notes.as_deref().unwrap_or(""), &folded_notes, &mut beat_notes)
-            }
-            (own, _) => first_notes = Some(after(own.as_deref().unwrap_or(""), &folded_notes)),
-        }
-    }
-    // The claim of each beat the fold leaves with no slide: in the notes of the beat that tells
-    // the slide it folds into, else, where no beat tells it, that slide's own, so no claim is lost.
-    let told = beat_of(kept.last().unwrap_or(&kept[0]));
-    for (_, _, beat) in &beats {
-        let alone = !beat.states.is_empty() && beat.states.iter().all(|s| gone.contains(s));
-        if !alone || beat.claim.trim().is_empty() {
-            continue;
-        }
-        match told {
-            Some((s, b, kept_in)) => {
-                to_beat((*s, *b), kept_in.notes.as_deref().unwrap_or(""), &beat.claim, &mut beat_notes)
-            }
-            None => {
-                let was = first_notes.take().or_else(|| first.notes.clone()).unwrap_or_default();
-                first_notes = Some(after(&was, &beat.claim));
-            }
-        }
-    }
-    if let Some(notes) = first_notes {
-        patch.push(json!({ "op": "add", "path": format!("/states/{}/notes", prev[0]), "value": notes }));
-    }
-    for ((s, b), notes) in beat_notes {
-        patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}/notes"), "value": notes }));
-    }
-    patch.push(json!({ "op": "remove_slide", "slide": gone[0] }));
-    // Checked as a patch is, and laid out: words that run past their place are no fold.
-    let (patched, _) = crate::patch::patching(b, &Value::Array(patch.clone()), Some("Fold slide"))?;
-    if patched.refused {
         let why = patched.added.iter().find(|f| f.severity == scaena_core::lint::Severity::Error);
         let why = why.map_or_else(|| "the deck would not read".to_string(), |f| f.message.clone());
-        return Ok(refused(into, format!("Slide {n} cannot be folded into slide {k}: {why}.")));
+        Ok(Err(format!("Slide {n} cannot be folded into slide {k}: {why}.")))
+    };
+    let mut patch = build(target);
+    let patched = match checked(&patch)? {
+        Ok(patched) => patched,
+        Err(why) => return Ok(refused(into, why)),
+    };
+    // Words that would run past their place lead that slide's notes instead, as they do where it
+    // has no place for them, so the fold is never offered and then refused (W1 dogfood 16).
+    let overrun = target.is_some_and(|(target, _)| {
+        patched.added.iter().any(|f| f.code == "E100" && f.node.as_deref() == Some(target.as_str()))
+    });
+    if overrun {
+        patch = build(None);
+        if let Err(why) = checked(&patch)? {
+            return Ok(refused(into, why));
+        }
     }
-    if let Some((target, _)) = target
-        && patched.added.iter().any(|f| f.code == "E100" && f.node.as_deref() == Some(target.as_str()))
-    {
-        return Ok(refused(
-            into,
+    let (said, to) = match (target, overrun) {
+        (Some(_), false) => (format!("Folded slide {n} into slide {k}"), FoldsTo::Place),
+        (Some(_), true) => (
             format!(
-                "Slide {n}'s words would run past slide {k}'s place for them: shorten them first, or cut slide {n}."
+                "Folded slide {n} into slide {k}'s notes, since its words would run past slide {k}'s place for them"
             ),
-        ));
-    }
-    let (said, to) = match target {
-        Some(_) => (format!("Folded slide {n} into slide {k}"), FoldsTo::Place),
-        None => (format!("Folded slide {n} into slide {k}'s notes"), FoldsTo::Notes),
+            FoldsTo::Notes,
+        ),
+        (None, _) => (format!("Folded slide {n} into slide {k}'s notes"), FoldsTo::Notes),
     };
     Ok(Folded { into, patch, said, refused: None, to })
 }
@@ -1375,16 +1398,32 @@ mod tests {
         assert!(!carried.lines().any(|l| l.starts_with("6,820")), "{carried}");
     }
 
-    /// Words that would run past the place they join are no fold (E100): laid out, refused. B1's
-    /// slides each fill their place, so slide 4's whole paragraph and quote have no room on slide 3.
+    /// Words that would run past the place they join lead that slide's notes instead (W1 dogfood
+    /// 16), so a fold the Story offers is never refused: laid out, the patch that joins them is
+    /// E100, and the fold says it went to the notes, and why. B1's slides each fill their place,
+    /// so slide 4's whole paragraph and quote have no room on slide 3.
     #[test]
-    fn a_fold_whose_words_would_run_past_their_place_is_refused() {
-        let folded = folding(&b1(), "belief-2", None).unwrap();
+    fn a_fold_whose_words_would_run_past_their_place_goes_to_its_notes() {
+        let b = b1();
+        let before = shown(&b.deck, "belief-1-line", "body");
+        let headline = shown(&b.deck, "belief-2-line", "headline");
+        let folded = folding(&b, "belief-2", None).unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        assert_eq!(folded.to, FoldsTo::Notes);
         assert_eq!(
-            folded.refused.as_deref(),
-            Some("Slide 4's words would run past slide 3's place for them: shorten them first, or cut slide 4.")
+            folded.said,
+            "Folded slide 4 into slide 3's notes, since its words would run past slide 3's place for them"
         );
-        assert!(folded.patch.is_empty());
+        assert!(!folded.patch.iter().any(|op| op["op"] == "replace_text"), "{:?}", folded.patch);
+        let deck = applied(&b, &folded.patch);
+        // Slide 3 shows what it showed; its notes lead with slide 4's headline.
+        assert_eq!(shown(&deck, "belief-1-line", "body"), before);
+        let notes = scaena_core::spine::notes(&deck, "belief-1").unwrap_or("");
+        assert!(notes.contains(&headline), "{notes}");
+        assert!(deck.state_index("belief-2").is_none());
+        // What the patch makes lays out: the patch is taken, no E100.
+        let (patched, _) = crate::patch::patching(&b, &Value::Array(folded.patch.clone()), None).unwrap();
+        assert!(patched.applied && !patched.added.iter().any(|f| f.code == "E100"), "{:?}", patched.added);
     }
 
     fn revenue() -> Deck {

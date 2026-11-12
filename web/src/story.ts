@@ -414,6 +414,23 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
   const arc = into.querySelector<HTMLElement>("[data-arc]")!;
   const idea = into.querySelector<HTMLElement>("[data-big-idea]")!;
   const list = into.querySelector<HTMLOListElement>("[data-findings]")!;
+  /** Where each fold the rows offer would put the slide's words, by the fold's own dry run, laid
+   * out: a place its words would run past sends them to the notes, so the button says so before it
+   * is pressed (W1 dogfood 16). Kept for the source it was asked of. */
+  let dried: { source: string; to: Map<string, Promise<FoldsTo | undefined>> } = { source: "", to: new Map() };
+  const labelled = (button: HTMLButtonElement, before: string, state: string, into?: string) => {
+    const source = editor.source();
+    if (dried.source !== source) dried = { source, to: new Map() };
+    const key = `${state}\u0000${into ?? ""}`;
+    let to = dried.to.get(key);
+    if (!to) {
+      to = stage.folding(source, state, into).then((f) => (f.refused ? undefined : f.to), () => undefined);
+      dried.to.set(key, to);
+    }
+    void to.then((to) => {
+      if (to && button.isConnected) button.textContent = foldLabel(before, to);
+    });
+  };
   /** The line that says the story shown is as last read, while the source does not compile. */
   const stale = Object.assign(document.createElement("p"), { hidden: true });
   stale.dataset.stale = "";
@@ -671,6 +688,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = foldLabel(`slide ${at}`, undefined);
       button.addEventListener("click", () => void editor.fold(state, into));
       actions.append(button);
+      labelled(button, `slide ${at}`, state, into);
     }
     // A slide that says again what the one before said, or adds least to it, offers to fold into it,
     // as its to-do says (editor dogfood 6).
@@ -681,6 +699,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = foldLabel(`slide ${slide - 1}`, editor.foldsTo(state));
       button.addEventListener("click", () => void editor.fold(state));
       actions.append(button);
+      labelled(button, `slide ${slide - 1}`, state);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
     // the slide shown with its first problem's mark open, where the fix or the words are
