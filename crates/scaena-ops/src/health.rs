@@ -4607,6 +4607,27 @@ mod tests {
         assert!(pitch.balance.says.starts_with("Slides make 1.8 points each"), "{}", pitch.balance.says);
     }
 
+    /// The `brief` op takes the goals and lengths Narrato takes, which core keeps beside its patch
+    /// ops (agent dogfood 6), and health reads the brief it writes.
+    #[test]
+    fn the_brief_op_takes_what_narrato_takes() {
+        assert_eq!(scaena_core::patch::GOALS, scaena_narrato::brief::GOALS);
+        assert_eq!(scaena_core::patch::LENGTHS, scaena_narrato::brief::LENGTHS);
+        struct NoFiles;
+        impl scaena_core::validate::BundleFiles for NoFiles {
+            fn exists(&self, _: &str) -> bool {
+                true
+            }
+            fn read_text(&self, _: &str) -> Option<String> {
+                None
+            }
+        }
+        let deck = climate();
+        let brief = [json!({ "op": "brief", "length": "26-40 slides" })];
+        let made = scaena_core::patch::compile(&deck, &brief, &NoFiles).unwrap().doc;
+        assert!(of(&made).pacing.says.contains("26\u{2013}40"), "{}", of(&made).pacing.says);
+    }
+
     /// A headline that counts what its slide lists is held to the count (the calibration against a
     /// reader): the training deck's "Three traps that make reviews useless" lists two. A measure,
     /// a figure's words, a count kept, and a deck in another language are not found.
