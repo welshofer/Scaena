@@ -2863,6 +2863,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 .collect()
         })
         .unwrap_or_default();
+    // The deck's sources as a person names them, by name, else title, else address: what a finding
+    // says the slide cites none of, never that the figure came from them (R1's agent dogfood 9).
+    let named: Vec<String> = (narrative.and_then(|n| n.get("sources")).and_then(Value::as_array))
+        .map(|all| {
+            (all.iter())
+                .filter_map(|s| {
+                    ["name", "title", "url"].iter().find_map(|k| s.get(*k).and_then(Value::as_str).map(str::trim))
+                })
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let uncited = match named.as_slice() {
+        [] => "cites none of the deck's sources for it".to_string(),
+        [one] => format!("does not cite the deck's source, {one}, for it"),
+        [a, b] => format!("cites neither of the deck's sources, {a} and {b}, for it"),
+        [rest @ .., last] if rest.len() < 4 => {
+            format!("cites none of the deck's sources, {}, and {last}, for it", rest.join(", "))
+        }
+        [first, second, third, more @ ..] => {
+            format!("cites none of the deck's sources, {first}, {second}, {third}, and {} more, for it", more.len())
+        }
+    };
     let mut unsourced: Vec<(String, String)> = Vec::new();
     if !sources.is_empty() {
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
@@ -2898,9 +2922,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             unsourced.push((read[first].id.clone(), figure.clone()));
             let (says, ask) = match on.len() {
                 1 => (
-                    format!(
-                        "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
-                    ),
+                    format!("Slide {k} writes {figure}, and {uncited}."),
                     format!(
                         "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
                     ),
@@ -2909,9 +2931,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     let (again, many) = slides_named(&on[1..]);
                     let does = if many { "do" } else { "does" };
                     (
-                        format!(
-                            "Slide {k} writes {figure}, as {again} {does}, and names no source for it, though the deck was made from its sources."
-                        ),
+                        format!("Slide {k} writes {figure}, as {again} {does}, and {uncited}."),
                         format!(
                             "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from: that sources it on {again} too."
                         ),
@@ -5970,7 +5990,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         let (slide, says, ask) = &found[0];
         assert_eq!(*slide, 8);
-        assert_eq!(says, "Slide 8 writes 38%, and names no source for it, though the deck was made from its sources.");
+        assert_eq!(says, "Slide 8 writes 38%, and does not cite the deck's source, pilot.csv, for it.");
         assert_eq!(ask, "Say on slide 8 where 38% comes from, naming the source, or cite the source it is from.");
         let figured = of(&made).findings.into_iter().find(|f| f.kind == Kind::Source).and_then(|f| f.figure);
         assert_eq!(figured.as_deref(), Some("38%"), "the finding says its figure");
@@ -6017,7 +6037,7 @@ mod tests {
         assert_eq!(*slide, 7);
         assert_eq!(
             says,
-            "Slide 7 writes 38%, as slide 8 does, and names no source for it, though the deck was made from its sources."
+            "Slide 7 writes 38%, as slide 8 does, and does not cite the deck's source, pilot.csv, for it."
         );
         assert_eq!(
             ask,
@@ -6029,6 +6049,21 @@ mod tests {
             slides[6].source_ref = Some("pilot.csv".into());
         };
         assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), both)).is_empty());
+        // Made from more than one source, the finding names each, and claims none of them holds it.
+        let mut two = pilot();
+        two.push(scaena_narrato::Provenance {
+            name: "season.pdf".into(),
+            kind: "pdf".into(),
+            url: None,
+            bytes: 1,
+            truncated: false,
+        });
+        let found = unsourced(&grounded_dogfood("fleet", "", two, |_| {}));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].1,
+            "Slide 8 writes 38%, and cites neither of the deck's sources, pilot.csv and season.pdf, for it."
+        );
         let shown = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<_>>();
         assert!(shown("Q3 by product, p99 latency, Week 1, 3 steps, November 2026").is_empty());
         assert_eq!(shown("Costs fell to $1.4M (2.5x less)")[0], ("$1.4M".into(), "1.4".into(), "$".into()));
@@ -6178,7 +6213,7 @@ mod tests {
         let h = of(&grounded_dogfood("board-de", "", board(), said));
         let source = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == 8).expect("slide 8's figure");
         let says = source.says.replace(['\u{a0}', '\u{202f}'], " ");
-        assert!(says.starts_with("Slide 8 writes 40 %, and names no source"), "{says}");
+        assert!(says == "Slide 8 writes 40 %, and does not cite the deck's source, bericht.pdf, for it.", "{says}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
