@@ -1158,7 +1158,7 @@ mod tests {
         assert!(fold.says.starts_with("Folds slide 4 into slide 3: its words join"), "{}", fold.says);
         assert!(!dry.applied && dry.summary.slides_removed == ["belief-2"], "{dry:?}");
         let (patched, write) = crate::patch::patching(&b, &ops, None).unwrap();
-        let folded = folding(&b, "belief-2-why").unwrap();
+        let folded = folding(&b, "belief-2-why", None).unwrap();
         assert_eq!(applied(&b, &folded.patch).to_json().unwrap(), write.as_ref().unwrap().deck.to_json().unwrap());
         assert!(patched.applied);
         assert_eq!(write.unwrap().why.message, "patch: fold_slide");

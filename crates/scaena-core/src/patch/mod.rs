@@ -515,15 +515,19 @@ pub enum SemanticOp {
         #[schemars(with = "Id")]
         slide: String,
     },
-    /// A slide folded into the slide before it (agent dogfood 7), as the editors' Fold Into
-    /// Slide N folds one: its words joined to that slide's place for words, or put in its notes
-    /// where it has none, its notes after that slide's, its beat's claim in that beat's notes,
-    /// and its states taken out as `remove_slide` takes them. The operations make it, laying the
-    /// slide out to find words that would run past their place (`scaena_ops::states::folding`),
-    /// so it stands alone in its patch; this crate alone refuses it.
+    /// A slide folded into the slide before it (agent dogfood 7), or into the earlier slide
+    /// `into` is a state of (R1's #1161), as the editors' Fold Into Slide N folds one: its words
+    /// joined to that slide's place for words, or put in its notes where it has none, its notes
+    /// after that slide's, its beat's claim in that beat's notes, and its states taken out as
+    /// `remove_slide` takes them. The operations make it, laying the slide out to find words that
+    /// would run past their place (`scaena_ops::states::folding`), so it stands alone in its
+    /// patch; this crate alone refuses it.
     FoldSlide {
         #[schemars(with = "Id")]
         slide: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Id>")]
+        into: Option<String>,
     },
     /// A state's id, everywhere it is used: the states that build on it or track from it,
     /// and the spine's beats.

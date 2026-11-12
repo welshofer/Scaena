@@ -5808,6 +5808,14 @@ mod tests {
         let four_last = &deck.states[*deck.slides()[3].last().unwrap()].id;
         let joined = words(&now, four_last).join("\n");
         assert!(joined.contains("Accessorials are where most of the overbilling hides"), "{joined}");
+        // By the patch op, as `deck_patch` takes it: the same fold, said as folding into slide 4.
+        let ops = json!([{ "op": "fold_slide", "slide": gone, "into": six.into }]);
+        let dry = crate::patch::reported(&b, &ops, true, false).unwrap();
+        let fold = dry.folded.as_ref().expect("what it folds where");
+        assert!(fold.says.starts_with("Folds slide 6 into slide 4: its words join"), "{}", fold.says);
+        let (_, write) = crate::patch::patching(&b, &ops, None).unwrap();
+        let by_hand = scaena_core::patch::compile(&b.deck.to_value().unwrap(), &folded.patch, &files).unwrap().doc;
+        assert_eq!(write.unwrap().deck.to_json().unwrap(), Deck::from_value(&by_hand).unwrap().to_json().unwrap());
         // Into a slide after it, or into itself, it is refused, saying why.
         let later = deck.states[deck.slides()[7][0]].id.clone();
         let refused = crate::states::folding(&b, &gone, Some(&later)).unwrap();
