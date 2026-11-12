@@ -4556,17 +4556,35 @@ fn calling(slide: &Slide, items: &[Item], lang: &str, claim: Option<&str>) -> Op
     // The claim its beat settled, where it asks something of the room, is the ask (W1's dogfood 8):
     // "Approve a twelve-month pilot in this budget."
     let claimed = claim.map(str::trim).filter(|c| asks(c)).map(|c| c.trim_end_matches('.').to_string());
-    let ask = claimed.or_else(|| {
+    // A line without its address: "Book a demo at relay.app/demo" is "Book a demo".
+    let unaddressed = |l: &str| {
+        let rest = l.replace(&address, "");
+        let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
+        rest.strip_suffix(" at").unwrap_or(rest).trim().to_string()
+    };
+    let asked = || {
         lines.iter().find_map(|l| {
-            // The ask without its address: "Book a demo at relay.app/demo" asks "Book a demo".
-            let rest = l.replace(&address, "");
-            let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
-            let rest = rest.strip_suffix(" at").unwrap_or(rest).trim();
+            let rest = unaddressed(l);
             let words: Vec<&str> = rest.split_whitespace().collect();
             let first = words.first()?.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-            (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.to_string())
+            (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.clone())
         })
-    })?;
+    };
+    // A bare thanks with somewhere to reach its speaker and no ask, nor a claim its beat settled,
+    // and more lines than the closing's one place under its thanks holds: its own words, the
+    // thanks and its other lines, over the address as its button, never a list of "Questions?"
+    // and an email (W1 dogfood 12). One line under it, "relay.app", the closing holds.
+    let thanked = || {
+        (claim.is_none() && bare(&slide.slide_title) && lines.len() > 1).then(|| {
+            let said: Vec<String> = std::iter::once(slide.slide_title.trim().to_string())
+                .chain(lines.iter().map(|l| if l == line { unaddressed(l) } else { l.trim().to_string() }))
+                .filter(|w| !w.is_empty())
+                .collect();
+            // Each on a line of its own, as a display sets them: never "Thank you ·" ending one.
+            said.join("\n")
+        })
+    };
+    let ask = claimed.or_else(asked).or_else(thanked)?;
     Some((ask, shown))
 }
 
@@ -11295,6 +11313,50 @@ mod tests {
         let (layout, said) = close(&n);
         assert_eq!(layout, "closing");
         has(&said, "statement", "Thank you");
+    }
+
+    /// A bare thanks with somewhere to reach its speaker and no ask takes Call to Action, its own
+    /// words over the address as its button, never a list of "Questions?" and an email; in a deck
+    /// whose asks are not read, it keeps its closing (W1 dogfood 12).
+    #[test]
+    fn a_bare_thanks_with_an_address_takes_a_call_to_action() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = |title: &str, bullets: &[&str], language: Option<&str>| {
+            let text = serde_json::json!({
+                "executiveSummary": "Compost pays.",
+                "slides": [
+                    { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                    { "slideTitle": "Approve $2.4M for carts", "subtitle": "", "layoutSuggestion": "Statement",
+                      "keyBullets": ["Rollout starts in 2027"] },
+                    { "slideTitle": title, "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": bullets },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.brief.language = language.map(str::to_string);
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+            (made.layouts[2].clone(), shown(&made.deck, &state))
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let (layout, said) = made("Thank you", &["Questions?", "compost@cityofbrookhaven.gov"], None);
+        assert_eq!(layout, "call-to-action", "{said:#?}");
+        has(&said, "statement", "Thank you\nQuestions?");
+        has(&said, "button", "compost@cityofbrookhaven.gov");
+        // Its address in a line of words: the words without it.
+        let (layout, said) = made("Thank you", &["Questions?", "Reach us at compost@cityofbrookhaven.gov"], None);
+        assert_eq!(layout, "call-to-action", "{said:#?}");
+        has(&said, "statement", "Thank you\nQuestions?\nReach us");
+        // A thanks with nowhere to reach anyone, or one line the closing holds under it, keeps
+        // its closing.
+        assert_eq!(made("Thank you", &["Questions?"], None).0, "closing");
+        assert_eq!(made("Thank you", &["compost@cityofbrookhaven.gov"], None).0, "closing");
+        // Asks are read in English alone (Jay's item g): a French thanks keeps its closing.
+        let (layout, said) = made("Merci", &["Des questions ?", "compost@ville.fr"], Some("French"));
+        assert_ne!(layout, "call-to-action", "{said:#?}");
     }
 
     #[test]
