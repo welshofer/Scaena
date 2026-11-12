@@ -43,6 +43,10 @@ struct WindowPanes {
     var saveImages: ((Int) -> Void)? = nil
     var saveHTML: (() -> Void)? = nil
     var saveMovie: (() -> Void)? = nil
+    /// The movie with one of the bundle's sound files under it, as the CLI's `--audio` takes one:
+    /// the files it may take, and what saves it with one.
+    var sounds: [String] = []
+    var saveMovieWith: ((String) -> Void)? = nil
 }
 
 private struct WindowPanesKey: FocusedValueKey {
@@ -87,6 +91,13 @@ struct WindowCommands: Commands {
                 Button("Movie…") { panes?.saveMovie?() }
                     .disabled(panes?.saveMovie == nil)
                     .help("The deck as it plays, as an MPEG-4 movie")
+                if let panes, !panes.sounds.isEmpty, let saveMovieWith = panes.saveMovieWith {
+                    Menu("Movie with Sound") {
+                        ForEach(panes.sounds, id: \.self) { sound in
+                            Button(Exporting.soundName(sound)) { saveMovieWith(sound) }
+                        }
+                    }
+                }
                 Menu("Images") {
                     Button("Actual Size…") { panes?.saveImages?(1) }
                     Button("Double Size…") { panes?.saveImages?(2) }

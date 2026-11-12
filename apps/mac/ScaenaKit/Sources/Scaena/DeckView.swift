@@ -666,8 +666,22 @@ struct DeckView: View {
             Button("Save All Slides as PNGs…") { save(allSlides) }
             // The deck as it plays, as a movie (lift-up 20261031 FUNC-2).
             Divider()
-            Button("Share as Movie…") { export(.movie, sharing: true) }
-            Button("Save as Movie…") { save(.movie) }
+            Button("Share as Movie…") { export(.movie(), sharing: true) }
+            Button("Save as Movie…") { save(.movie()) }
+            // With one of the bundle's sound files under it, as the CLI's `--audio` takes one.
+            let sounds = (try? editor.session.sounds()) ?? []
+            if !sounds.isEmpty {
+                Menu("Share as Movie with Sound") {
+                    ForEach(sounds, id: \.self) { sound in
+                        Button(Exporting.soundName(sound)) { export(.movie(sound: sound), sharing: true) }
+                    }
+                }
+                Menu("Save as Movie with Sound") {
+                    ForEach(sounds, id: \.self) { sound in
+                        Button(Exporting.soundName(sound)) { save(.movie(sound: sound)) }
+                    }
+                }
+            }
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
@@ -707,7 +721,9 @@ struct DeckView: View {
             made.saveNotes = { save(.notes) }
             made.saveImages = { scale in save(slides(scaled: scale)) }
             made.saveHTML = { save(.html) }
-            made.saveMovie = { save(.movie) }
+            made.saveMovie = { save(.movie()) }
+            made.sounds = (try? editor.session.sounds()) ?? []
+            made.saveMovieWith = { sound in save(.movie(sound: sound)) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
