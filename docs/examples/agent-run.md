@@ -418,12 +418,13 @@ On 2026-11-12, an agent with nothing but the scaena MCP server built a 10-minute
 8. `deck_lint` and `deck_health` until nothing it could act on was left.
 9. `deck_export` as a PDF with notes, and as HTML.
 
-**Calls.** It took 27 calls in all:
+**Calls.** It took 26 calls in all:
 - 4 to set the deck up: `deck_create`, the brief, the data, and the spine;
 - 7 for slides;
-- 7 to repair what the tools did;
-- 6 of lint and health;
-- 3 exports.
+- 2 for the photo;
+- 8 patches to repair and finish, 2 of them refused;
+- 3 of lint and health;
+- 2 exports.
 
 Lint was 0 after the last slide. Health went from 71 to 74 and stopped asking for anything the agent could act on but its own words.
 
