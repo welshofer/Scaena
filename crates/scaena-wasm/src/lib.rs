@@ -1093,8 +1093,8 @@ impl Player {
 
     /// The patch that folds `state`'s slide into the slide before it, as JSON: `{ into, patch,
     /// said, refused? }` (editor dogfood 6).
-    pub fn folding(&self, state: &str) -> Result<String, JsError> {
-        serde_json::to_string(&self.0.folding(state).map_err(js)?).map_err(js)
+    pub fn folding(&self, state: &str, into: Option<String>) -> Result<String, JsError> {
+        serde_json::to_string(&self.0.folding(state, into.as_deref()).map_err(js)?).map_err(js)
     }
 
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say

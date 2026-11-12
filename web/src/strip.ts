@@ -307,16 +307,17 @@ export function strip(stage: Stage, into: HTMLElement, editor: StripEditor) {
     );
   }
 
-  /** The slide `state` is on, folded into the slide before it (editor dogfood 6): its words joined to
+  /** The slide `state` is on, folded into the slide before it, or into the earlier slide `into` is on
+   * (R1's #1161) (editor dogfood 6): its words joined to
    * that slide's place for words, its notes after that slide's, one change to undo; that slide shows,
    * at its last step, where the words joined. Or why it cannot be, said. */
-  function fold(state: string) {
+  function fold(state: string, into?: string) {
     return stage
-      .folding(editor.source(), state)
+      .folding(editor.source(), state, into)
       .then((folded) => {
         if (folded.refused) return editor.say(folded.refused);
-        const into = (all: Slot[]) => all.reduce((at, s, i) => ((s.slide ?? s.state) === folded.into ? i : at), -1);
-        return make(folded.patch, "Folding…", `${folded.said} · ⌘Z takes it back`, into);
+        const shown = (all: Slot[]) => all.reduce((at, s, i) => ((s.slide ?? s.state) === folded.into ? i : at), -1);
+        return make(folded.patch, "Folding…", `${folded.said} · ⌘Z takes it back`, shown);
       })
       .catch((e) => editor.say(`Not folded: ${said(e)}`));
   }
