@@ -179,6 +179,9 @@ public final class ScaenaSession {
         /// The text that heads it, which the window types in when a finding asks for its headline
         /// (editor dogfood 6).
         public var headlineNode: String? = nil
+        /// Where its slide's words would go, folded into the slide before it; none on the first
+        /// slide (editor dogfood 6).
+        public var foldsTo: FoldsTo? = nil
         public var story: Story? = nil
 
         /// A state's place in the talk (`Session::story_place`): its section's title, its beat's
