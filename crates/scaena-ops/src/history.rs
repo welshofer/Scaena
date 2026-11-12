@@ -781,9 +781,12 @@ pub fn restoring(b: &Bundle, name: &str) -> Result<(Restored, Option<Write>), Op
 /// [`restoring`] of one slide alone (agent dogfood 7): the slide that holds `slide`, a state of
 /// version `name`, put back into the deck as it is now, with everything else as it is. Its
 /// states as the version held them; each node they show, where the deck lacks it now, or shows
-/// it on no other slide, as the version held it (a node another slide shows stays as it is);
-/// each data source they read that the deck lacks, with its file; and the beat that told it,
-/// with its claim and notes, in its part of the talk. A slide the deck still has is put back
+/// it on no other slide, as the version held it (a node another slide shows stays as it is, and
+/// one the slide alone showed whose id another slide gives a node of its own now comes back under
+/// a fresh id, [`fresh_ids`]); each data source they read that the deck lacks, with its file; and
+/// the beat that told it: one the deck has keeps its own claim, notes, and states, the slide's
+/// states put back among them, and one the deck lacks comes back with its claim and notes, in its
+/// part of the talk. A slide the deck still has is put back
 /// where it stands; one taken away goes after the nearest slide before it in the version that
 /// the deck still has, else first. Refused as a patch is where the deck would not validate.
 pub fn restoring_slide(b: &Bundle, name: &str, slide: &str) -> Result<(Restored, Option<Write>), OpsError> {
@@ -814,6 +817,7 @@ fn slide_back(
         let near = scaena_core::patch::nearest("states", state, was.states.iter().map(|s| s.id.as_str()));
         return Err(OpsError::new(format!("version {n} has no state `{state}`{near}")));
     };
+    let was = &fresh_ids(now, was, &slides[k])?;
     let back: Vec<scaena_core::document::State> = slides[k].iter().map(|&i| was.states[i].clone()).collect();
     let ids: Vec<&str> = back.iter().map(|s| s.id.as_str()).collect();
     let first = was.slide_of(&was.states[slides[k][0]]).to_string();
@@ -885,32 +889,99 @@ fn slide_back(
         Some((sec, beat))
     });
     if let Some((sec, j)) = told {
+        let states: Vec<String> = deck.states.iter().map(|s| s.id.clone()).collect();
         let spine = deck.spine.get_or_insert_with(|| scaena_core::document::Spine { sections: Vec::new() });
         for other in spine.sections.iter_mut().flat_map(|s| s.beats.iter_mut()) {
             other.states.retain(|s| !ids.contains(&s.as_str()));
         }
-        let beat = sec.beats[j].clone();
+        let mut beat = sec.beats[j].clone();
         let present = |spine: &scaena_core::document::Spine| {
             (spine.sections.iter().enumerate())
                 .find_map(|(a, s)| s.beats.iter().position(|b| b.id == beat.id).map(|b| (a, b)))
         };
+        // A beat the deck has keeps its own claim, notes, and states, edits made since and all,
+        // the slide's states going back where the version had them among its states; one the deck
+        // lacks comes back as the version held it, telling only states the deck has that no beat
+        // tells now (W1's review of #1172).
+        let told: Vec<String> =
+            spine.sections.iter().flat_map(|s| &s.beats).flat_map(|b| b.states.iter().cloned()).collect();
         if let Some((a, i)) = present(spine) {
-            spine.sections[a].beats[i] = beat;
-        } else if let Some(a) = spine.sections.iter().position(|s| s.id == sec.id) {
-            let near =
-                sec.beats[..j].iter().rev().find_map(|e| spine.sections[a].beats.iter().position(|b| b.id == e.id));
-            let i = near.map_or(0, |i| i + 1);
-            spine.sections[a].beats.insert(i, beat);
+            let kept = &mut spine.sections[a].beats[i].states;
+            *kept = among(&beat.states, kept, &ids);
         } else {
-            let sections = &was.spine.as_ref().map(|s| s.sections.as_slice()).unwrap_or_default();
-            let k = sections.iter().position(|s| s.id == sec.id).unwrap_or_default();
-            let near = sections[..k].iter().rev().find_map(|e| spine.sections.iter().position(|s| s.id == e.id));
-            let i = near.map_or(0, |i| i + 1);
-            spine.sections.insert(i, scaena_core::document::Section { beats: vec![beat], ..sec.clone() });
+            beat.states.retain(|s| ids.contains(&s.as_str()) || (states.contains(s) && !told.contains(s)));
+            if let Some(a) = spine.sections.iter().position(|s| s.id == sec.id) {
+                let near = (sec.beats[..j].iter().rev())
+                    .find_map(|e| spine.sections[a].beats.iter().position(|b| b.id == e.id));
+                let i = near.map_or(0, |i| i + 1);
+                spine.sections[a].beats.insert(i, beat);
+            } else {
+                let sections = &was.spine.as_ref().map(|s| s.sections.as_slice()).unwrap_or_default();
+                let k = sections.iter().position(|s| s.id == sec.id).unwrap_or_default();
+                let near = sections[..k].iter().rev().find_map(|e| spine.sections.iter().position(|s| s.id == e.id));
+                let i = near.map_or(0, |i| i + 1);
+                spine.sections.insert(i, scaena_core::document::Section { beats: vec![beat], ..sec.clone() });
+            }
         }
         spine.sections.retain(|s| !s.beats.is_empty());
     }
     Ok((deck, files))
+}
+
+/// `kept`, a beat's states now, with `back`, the slide's states put back, each where `version`,
+/// that beat's states as the version held them, had it: after the nearest state before it there
+/// that `kept` still has, else first.
+fn among(version: &[String], kept: &[String], back: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = kept.iter().filter(|s| !back.contains(&s.as_str())).cloned().collect();
+    for (k, id) in version.iter().enumerate().filter(|(_, id)| back.contains(&id.as_str())) {
+        let at = version[..k].iter().rev().find_map(|e| out.iter().position(|o| o == e)).map_or(0, |i| i + 1);
+        out.insert(at, id.clone());
+    }
+    out
+}
+
+/// `was` with each node `slide`, its states, alone showed renamed to an id new to both decks, where
+/// another slide of `now` shows a node of that id (W1's review of #1172): the id was given again
+/// since, so the version's node comes back under a fresh one and the other slide keeps its own. A
+/// node the version showed on other slides too is the one node, edited since, and keeps its id.
+fn fresh_ids(now: &Deck, was: &Deck, slide: &[usize]) -> Result<Deck, OpsError> {
+    let ids: Vec<&str> = slide.iter().map(|&i| was.states[i].id.as_str()).collect();
+    let then = scaena_core::resolve_states(was).context("tracking")?;
+    let since = scaena_core::resolve_states(now).context("tracking")?;
+    let elsewhere = |snaps: &[scaena_core::Snapshot], node: &str| {
+        snaps.iter().any(|s| !ids.contains(&s.state_id.as_str()) && s.nodes.contains_key(node))
+    };
+    let shown: Vec<&String> =
+        then.iter().filter(|s| ids.contains(&s.state_id.as_str())).flat_map(|s| s.nodes.keys()).collect();
+    let mut renames: Vec<Value> = Vec::new();
+    let mut taken: Vec<String> = Vec::new();
+    for id in shown {
+        let given = now.nodes.contains_key(id) && elsewhere(&since, id) && !elsewhere(&then, id);
+        if !given || renames.iter().any(|r| r["id"] == id.as_str()) {
+            continue;
+        }
+        let to = (2..)
+            .map(|n| format!("{id}-{n}"))
+            .find(|to| !now.nodes.contains_key(to) && !was.nodes.contains_key(to) && !taken.contains(to))
+            .expect("some number is free");
+        taken.push(to.clone());
+        renames.push(serde_json::json!({ "op": "rename_node", "id": id, "to": to }));
+    }
+    if renames.is_empty() {
+        return Ok(was.clone());
+    }
+    struct Bare;
+    impl scaena_core::validate::BundleFiles for Bare {
+        fn exists(&self, _: &str) -> bool {
+            false
+        }
+        fn read_text(&self, _: &str) -> Option<String> {
+            None
+        }
+    }
+    let doc =
+        scaena_core::patch::compile_alone(&was.to_value()?, &renames, &Bare).map_err(|e| OpsError::new(e.message))?;
+    Deck::from_value(&doc.doc).map_err(|e| OpsError::new(e.to_string()))
 }
 
 /// The slide of `deck` that holds `state`, by its number and the headline it shows at its last
