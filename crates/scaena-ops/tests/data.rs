@@ -270,7 +270,8 @@ fn words_that_still_write_an_edited_cells_old_value_are_said_and_left() {
     deck["spine"]["sections"][1]["beats"][0]["claim"] = json!("Core began at 18.2 and Pro drove the rest.");
     deck["states"][3]["notes"] = json!("18.25 is another figure, and 118.2 another.");
     std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
-    let set = edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "revenue", "value": "18.5" }]), false).unwrap();
+    let set =
+        edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "revenue", "value": "18.5" }]), false).unwrap();
     assert!(set.edited, "{set:?}");
     let said: Vec<&str> = set.stale.iter().map(|s| s.said.as_str()).collect();
     assert_eq!(said, ["Slide 2's notes still say 18.2", "Slide 2's claim still says 18.2"], "{:?}", set.stale);
@@ -290,7 +291,8 @@ fn a_number_is_found_with_its_thousands_grouped_too() {
     let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     deck["states"][2]["notes"] = json!("We closed with 1,210 customers on Core.");
     std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
-    let set = edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "customers", "value": "1250" }]), false).unwrap();
+    let set =
+        edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "customers", "value": "1250" }]), false).unwrap();
     let said: Vec<&str> = set.stale.iter().map(|s| s.said.as_str()).collect();
     assert_eq!(said, ["Slide 2's notes still say 1,210"], "{:?}", set.stale);
 }
