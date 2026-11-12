@@ -269,6 +269,15 @@
         "type": "object",
         "properties": { "slide": { "type": "integer", "minimum": 0 }, "words": { "type": "integer", "minimum": 0 } },
         "required": ["slide", "words"]
+      },
+      "Told": {
+        "type": "object",
+        "properties": {
+          "slide": { "type": "integer", "minimum": 0 },
+          "beat": { "type": ["string", "null"] },
+          "states": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["slide", "states"]
       }
     },
     "required": [
@@ -282,7 +291,8 @@
       "kept",
       "quoted",
       "unbound",
-      "fixed"
+      "fixed",
+      "slides"
     ],
     "type": "object",
     "properties": {
@@ -298,7 +308,8 @@
       "quoted": { "type": "array", "items": { "$ref": "#/$defs/Quoted" } },
       "unbound": { "type": "array", "items": { "$ref": "#/$defs/Unbound" } },
       "fixed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
-      "notes": { "anyOf": [{ "$ref": "#/$defs/Notes" }, { "type": "null" }] }
+      "notes": { "anyOf": [{ "$ref": "#/$defs/Notes" }, { "type": "null" }] },
+      "slides": { "type": "array", "items": { "$ref": "#/$defs/Told" } }
     }
   }
 }

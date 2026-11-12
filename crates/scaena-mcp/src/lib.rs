@@ -1392,6 +1392,11 @@ pub struct DeckGenerated {
     /// slot: write them again to it (`set_state`'s `notes`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<scaena_ops::narrative::Notes>,
+    /// Each slide by its number from 1, with the beat that tells it and its states' ids, the
+    /// first its own: name a slide, a step, or a beat in a later call by these, never by an id
+    /// guessed from its headline or its beat's (agent dogfood 9).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub slides: Vec<scaena_ops::narrative::Told>,
 }
 
 // --- tools ----------------------------------------------------------------------------
@@ -2104,6 +2109,7 @@ impl Scaena {
                 unbound: made.unbound,
                 fixed: made.fixed,
                 notes: made.notes,
+                slides: made.slides,
             })
         })
         .await
