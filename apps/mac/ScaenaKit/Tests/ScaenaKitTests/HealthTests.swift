@@ -289,3 +289,17 @@ private func read(slides: Int, _ findings: [(Int, String, String)]) throws -> He
         #"{"state": "cover", "slide": 1, "severity": "info", "kind": "look", "says": "", "ask": ""}"#.utf8))
     #expect(none.field == nil)
 }
+
+/// A finding whose to-do names a field of the Format tab says which, as the browser's `fieldOf`
+/// reads it (editor dogfood 6): by its `field`, `intensity` or `notes`, else by where its `path`
+/// says its plan is written; a headline, a claim, and a finding that names none have none here.
+@Test func aFindingNamesTheFormatFieldItsToDoAsks() throws {
+    let finding = { (json: String) in try JSONDecoder().decode(Health.Finding.self, from: Data(json.utf8)) }
+    let base = #""state": "s2", "slide": 2, "severity": "warning", "says": "", "ask": """#
+    #expect(try finding(#"{\#(base), "kind": "intensity", "field": "intensity"}"#).formatField == "intensity")
+    #expect(try finding(#"{\#(base), "kind": "turn", "field": "notes"}"#).formatField == "notes")
+    #expect(try finding(#"{\#(base), "kind": "arc", "path": "/spine/sections/0/beats/1/media/narrato/intensity"}"#).formatField == "intensity")
+    #expect(try finding(#"{\#(base), "kind": "label", "field": "headline"}"#).formatField == nil)
+    #expect(try finding(#"{\#(base), "kind": "claim", "field": "claim"}"#).formatField == nil)
+    #expect(try finding(#"{\#(base), "kind": "dense"}"#).formatField == nil)
+}

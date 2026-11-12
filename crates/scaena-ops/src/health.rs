@@ -480,10 +480,36 @@ fn unit_of(word: &str) -> String {
 /// (`narrative::figures_in`), so a finding names the figure the slide writes (R1's agent
 /// dogfood 3: "writes 40" for "40 %").
 fn figures(text: &str) -> Vec<Figure> {
-    let words: Vec<&str> = text
-        .split_whitespace()
-        .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))))
+    let trimmed =
+        text.split_whitespace().map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))));
+    // A word of a script set without spaces is a phrase, its figures inside it ("建設費：3億円"),
+    // so its words are the figures the builder reads in it, a magnitude and a counter with each
+    // ("3億円", "4,500万円"), a percent set right after one kept with it ("18%増"), and none a
+    // date's or a time's counter follows ("2026年", "12月10日", "9時"), as a year and a clock
+    // are none (health read of a Japanese deck).
+    let words: Vec<String> = trimmed
+        .flat_map(|w| -> Vec<String> {
+            if !w.chars().any(unspaced) {
+                return vec![w.to_string()];
+            }
+            let mut found = Vec::new();
+            let mut rest = w;
+            for f in crate::narrative::figures_in(w) {
+                let Some(at) = rest.find(f.as_str()) else { continue };
+                let after = &rest[at + f.len()..];
+                rest = after;
+                if after.starts_with(['年', '月', '日', '時', '分', '秒']) {
+                    continue;
+                }
+                match after.starts_with('%') && !f.ends_with('%') {
+                    true => found.push(format!("{f}%")),
+                    false => found.push(f),
+                }
+            }
+            found
+        })
         .collect();
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
     // Each figure as the builder reads it, a mark set apart after it with it ("48,6 Mio. €").
     let spelled = crate::narrative::figures_in(text);
     let mut out = Vec::new();
@@ -831,14 +857,16 @@ fn slot((lo, hi): (u32, Option<u32>)) -> String {
 
 /// Two connectives a speaker opens a slide's notes with in `language`, which carry nothing across
 /// alone: German's "Also" and "Aber", French's "Donc" and "Mais", Spanish's "Entonces" and "Pero"
-/// (health read of a Spanish deck), else English's "So" and "But" (health's English-only sweep,
-/// item 2).
+/// (health read of a Spanish deck), Portuguese's "Então" and "Mas" and Italian's "Quindi" and "Ma"
+/// (W1's dogfood 11), else English's "So" and "But" (health's English-only sweep, item 2).
 fn connectives(language: Option<&str>) -> (&'static str, &'static str) {
     let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
     match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
         "de" | "deu" | "ger" | "german" | "deutsch" => ("Also", "Aber"),
         "fr" | "fra" | "fre" | "french" | "français" | "francais" => ("Donc", "Mais"),
         "es" | "spa" | "spanish" | "español" | "espanol" => ("Entonces", "Pero"),
+        "pt" | "por" | "portuguese" | "português" | "portugues" => ("Então", "Mas"),
+        "it" | "ita" | "italian" | "italiano" => ("Quindi", "Ma"),
         _ => ("So", "But"),
     }
 }
@@ -3288,7 +3316,8 @@ const COMMON: [&str; 105] = [
 /// ask never names as one to carry across: [`GERMAN`] in a German deck (R1's agent dogfood 3:
 /// "sich", "zwei", and "voll" were named), [`FRENCH`] in a French one (health's English-only
 /// sweep, item 3), [`SPANISH`] in a Spanish one (health read of a Spanish deck: "tres" was
-/// named), else [`COMMON`], English's, as before.
+/// named), [`PORTUGUESE`] and [`ITALIAN`] in theirs (W1's dogfood 11: "para" was named), else
+/// [`COMMON`], English's, as before.
 fn joining(language: Option<&str>) -> &'static [&'static str] {
     let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
     let head = tag.split(['-', '_', ' ']).next().unwrap_or_default();
@@ -3296,6 +3325,8 @@ fn joining(language: Option<&str>) -> &'static [&'static str] {
         "de" | "deu" | "ger" | "german" | "deutsch" => &GERMAN,
         "fr" | "fra" | "fre" | "french" | "français" | "francais" => &FRENCH,
         "es" | "spa" | "spanish" | "español" | "espanol" => &SPANISH,
+        "pt" | "por" | "portuguese" | "português" | "portugues" => &PORTUGUESE,
+        "it" | "ita" | "italian" | "italiano" => &ITALIAN,
         _ => &COMMON,
     }
 }
@@ -3341,6 +3372,144 @@ const SPANISH: [&str; 109] = [
     "otros", "para", "pero", "poco", "poder", "porque", "puede", "pueden", "pues", "quién", "quienes", "sean", "según",
     "seis", "sido", "siempre", "siete", "sino", "sobre", "solo", "sólo", "somos", "también", "tanto", "tener", "tiene",
     "tienen", "todas", "todo", "todos", "tras", "tres", "unas", "unos", "usted", "ustedes", "vamos", "veces",
+];
+
+/// Words of more than three letters a Portuguese sentence holds that say nothing of what it is
+/// about: those that join its parts, the counts to twelve, and the words that only weigh another
+/// (W1's dogfood 11: "para" was named beside "receita" and "subiu").
+const PORTUGUESE: [&str; 139] = [
+    "agora", "ainda", "algo", "algum", "alguma", "algumas", "alguns", "além", "ante", "antes", "apenas", "aquela",
+    "aquelas", "aquele", "aqueles", "aqui", "aquilo", "assim", "cada", "cinco", "como", "contra", "cuja", "cujo",
+    "dela", "delas", "dele", "deles", "depois", "desde", "dessa", "desse", "desta", "deste", "dois", "doze", "duas",
+    "durante", "elas", "eles", "embora", "enquanto", "entre", "então", "essa", "essas", "esse", "esses", "esta",
+    "estamos", "estar", "estas", "estava", "este", "estes", "está", "estão", "fazer", "foram", "isso", "isto", "mais",
+    "menos", "mesma", "mesmas", "mesmo", "mesmos", "muita", "muitas", "muito", "muitos", "nada", "nela", "nele",
+    "nenhum", "nenhuma", "nessa", "nesse", "nesta", "neste", "nossa", "nossas", "nosso", "nossos", "nove", "numa",
+    "oito", "onde", "onze", "outra", "outras", "outro", "outros", "para", "pela", "pelas", "pelo", "pelos", "pode",
+    "podem", "poder", "pois", "porque", "porém", "pouco", "quais", "qual", "quando", "quanto", "quase", "quatro",
+    "quem", "segundo", "seis", "seja", "sejam", "sempre", "sete", "seus", "sido", "sobre", "somos", "suas", "também",
+    "tanta", "tanto", "temos", "tinha", "toda", "todas", "todo", "todos", "três", "tudo", "umas", "vamos", "vezes",
+    "você", "vocês",
+];
+
+/// Words of more than three letters an Italian sentence holds that say nothing of what it is about:
+/// those that join its parts, the counts to twelve, and the words that only weigh another.
+const ITALIAN: [&str; 115] = [
+    "adesso",
+    "affinché",
+    "agli",
+    "alla",
+    "alle",
+    "allo",
+    "allora",
+    "altra",
+    "altre",
+    "altri",
+    "altro",
+    "anche",
+    "ancora",
+    "anzi",
+    "avere",
+    "benché",
+    "bene",
+    "cinque",
+    "cioè",
+    "come",
+    "contro",
+    "cosa",
+    "dagli",
+    "dalla",
+    "dalle",
+    "dallo",
+    "degli",
+    "della",
+    "delle",
+    "dello",
+    "dentro",
+    "dieci",
+    "dodici",
+    "dopo",
+    "dove",
+    "dunque",
+    "durante",
+    "ecco",
+    "essa",
+    "essere",
+    "esso",
+    "fino",
+    "forse",
+    "fuori",
+    "invece",
+    "loro",
+    "meno",
+    "mentre",
+    "molta",
+    "molte",
+    "molti",
+    "molto",
+    "negli",
+    "nella",
+    "nelle",
+    "nello",
+    "niente",
+    "nostra",
+    "nostre",
+    "nostri",
+    "nostro",
+    "nove",
+    "nulla",
+    "oggi",
+    "ogni",
+    "oltre",
+    "otto",
+    "perché",
+    "però",
+    "poco",
+    "poiché",
+    "potere",
+    "presso",
+    "prima",
+    "proprio",
+    "quale",
+    "quali",
+    "quando",
+    "quanto",
+    "quasi",
+    "quattro",
+    "quella",
+    "quelle",
+    "quelli",
+    "quello",
+    "questa",
+    "queste",
+    "questi",
+    "questo",
+    "sebbene",
+    "sempre",
+    "senza",
+    "sette",
+    "siamo",
+    "sono",
+    "sopra",
+    "sotto",
+    "stati",
+    "stato",
+    "stessa",
+    "stesso",
+    "sugli",
+    "sulla",
+    "sulle",
+    "sullo",
+    "tante",
+    "tanti",
+    "tanto",
+    "tutta",
+    "tutte",
+    "tutti",
+    "tutto",
+    "undici",
+    "verso",
+    "volte",
 ];
 
 /// The words of more than three letters a big idea is about: `content_words` less [`COMMON`].
@@ -4685,6 +4854,29 @@ mod tests {
         assert!(ask.contains("such as \u{201c}risques\u{201d} or \u{201c}pèsent\u{201d}:"), "{ask}");
     }
 
+    /// A Portuguese or Italian deck's turn asks name its own connectives and no joining word of its
+    /// language to carry across (W1's dogfood 11: a Brazilian deck's ask said "So" and "But" and
+    /// named "para" beside "receita" and "subiu").
+    #[test]
+    fn a_portuguese_turn_names_its_connectives_and_no_joining_word() {
+        assert_eq!(connectives(Some("Portuguese")), ("Ent\u{e3}o", "Mas"));
+        assert_eq!(connectives(Some("pt-BR")), ("Ent\u{e3}o", "Mas"));
+        assert_eq!(connectives(Some("portugu\u{ea}s")), ("Ent\u{e3}o", "Mas"));
+        assert_eq!(connectives(Some("it")), ("Quindi", "Ma"));
+        assert_eq!(connectives(Some("Italian")), ("Quindi", "Ma"));
+        let slide = |title: &str| SlideForHealth { title: title.into(), ..SlideForHealth::default() };
+        let (was, next) =
+            (slide("A receita subiu de R$ 1,2 mi para R$ 2,1 mi em seis meses"), slide("O que puxou o crescimento"));
+        let said = carried(&was, &next, joining(Some("pt-BR")));
+        assert!(!said.contains("\u{201c}para\u{201d}") && !said.contains("\u{201c}seis\u{201d}"), "{said}");
+        assert!(said.contains("\u{201c}receita\u{201d}") && said.contains("\u{201c}subiu\u{201d}"), "{said}");
+        assert!(carried(&was, &next, joining(None)).contains("\u{201c}para\u{201d}"), "English's list keeps it");
+        let (was, next) = (slide("Il fatturato cresce ancora nelle nostre sedi"), slide("Tre rischi da gestire"));
+        let said = carried(&was, &next, joining(Some("Italian")));
+        assert!(!said.contains("\u{201c}ancora\u{201d}") && !said.contains("\u{201c}nelle\u{201d}"), "{said}");
+        assert!(said.contains("\u{201c}fatturato\u{201d}"), "{said}");
+    }
+
     /// A turn's ask names no Spanish joining word to carry across in a Spanish deck (health read of
     /// a Spanish deck: "tres" was named beside "plan" and "avanza"), as a French deck's names no
     /// French one.
@@ -5131,6 +5323,29 @@ mod tests {
         assert!(plain.is_empty(), "{plain:?}");
         let priced = unsourced(&grounded_dogfood("fleet", "", pilot(), timed(", for $1.1M a year")));
         assert!(priced.iter().any(|s| s.contains("writes $1.1M")), "{priced:?}");
+    }
+
+    /// A figure in a script set without spaces is read inside its phrase, as the builder reads it
+    /// (health read of a Japanese deck): "3億円" in "建設費：3億円" with its magnitude and currency,
+    /// and a percent set right after one with it; and none a date's or a time's counter follows,
+    /// as a year and a clock are none: "2026年の歩み" was found unsourced on the cover, the slide's
+    /// "3億円" never.
+    #[test]
+    fn a_figure_is_read_inside_a_phrase_a_script_sets_without_spaces() {
+        let named = |text: &str| {
+            figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<(String, String, String)>>()
+        };
+        let one = |shown: &str, value: &str, unit: &str| vec![(shown.to_string(), value.to_string(), unit.to_string())];
+        assert_eq!(named("建設費：3億円"), one("3億円", "3", "億円"));
+        assert_eq!(named("年間運営費：4,500万円"), one("4,500万円", "4500", "万円"));
+        assert_eq!(named("国の補助金：運営費の50%"), one("50%", "50", "%"));
+        assert_eq!(named("前年より18%増"), one("18%", "18", "%"));
+        assert_eq!(named("12万人が図書館を利用しました"), one("12万", "12", "万"));
+        for none in ["みどり市立図書館 2026年の歩み", "採決：12月10日", "夜9時までの開館"] {
+            assert_eq!(named(none), [], "{none}");
+        }
+        // A word in a spaced script is read as before.
+        assert_eq!(named("40 miles of trail, 38% more"), [one("40", "40", "mile"), one("38%", "38", "%")].concat());
     }
 
     /// A quoted sentence's full stop comes off before the finding's own sentence goes on, in a

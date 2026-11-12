@@ -25,6 +25,8 @@ struct StoryPanel: View {
     /// The open rows as last read, each kept where it stood by the read before (editor dogfood 6).
     @State private var places = StoryPlaces()
     @State private var open: [[Health.Finding]] = []
+    /// What the edits before the last read answered, under the score for a moment (editor dogfood 6).
+    @State private var answered: String?
     @State private var again = 0
 
     var body: some View {
@@ -43,6 +45,11 @@ struct StoryPanel: View {
                             .accessibilityLabel("Narrative health \(health.score) of 100")
                         Text(health.arc.map { "of 100, written to the \($0) arc" } ?? "of 100, no arc named")
                             .foregroundStyle(.secondary)
+                    }
+                    if let answered {
+                        Text(answered)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("story-answered")
                     }
                     // What holds the score down, each slide it names a button that shows it, as the
                     // browser's Story says it (W1's dogfood 5): inline where it fits, else the
@@ -137,6 +144,12 @@ struct StoryPanel: View {
         })
         .opacity(asLastRead ? 0.6 : 1)
         .task(id: Asked(revision: editor.revision, again: again)) { await read() }
+        .task(id: answered) {
+            // Beside the score for 8 seconds, as the browser's stands.
+            guard let words = answered else { return }
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled, answered == words { answered = nil }
+        }
         .onChange(of: editor.linted) { _, linted in
             if StoryLint.rereads(linted, readWith: readWith) { again += 1 }
         }
@@ -153,6 +166,15 @@ struct StoryPanel: View {
         readWith = StoryLint.keyed(editor.findings)
         do {
             guard let read = try await editor.story(after: health), !Task.isCancelled else { return }
+            // What the edits since the last read answered, said once (editor dogfood 6): never of a
+            // read kept while the source has an error, nor of the first.
+            if let before = health, !asLastRead, !read.asLastRead,
+                let said = Health.answeredSaid(
+                    Health.answered(before, read.health, states: Set(editor.slots.map(\.state))))
+            {
+                edits.answered(said)
+                answered = said
+            }
             health = read.health
             open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health.findings)
             asLastRead = read.asLastRead
@@ -253,6 +275,15 @@ struct StoryPanel: View {
                     Button("Edit Its Headline") { edits.headline(first.state) }
                         .disabled(asLastRead)
                         .accessibilityIdentifier("story-edit-headline")
+                }
+                // A finding whose to-do names a field of the Format tab offers it, there and in
+                // focus (editor dogfood 6), as the browser's Story row does.
+                if let asking = run.first(where: { $0.formatField != nil }), let field = asking.formatField {
+                    Button(field == "intensity" ? "Set Its Intensity" : "Edit Its Notes") {
+                        edits.field(asking.state, field)
+                    }
+                    .disabled(asLastRead)
+                    .accessibilityIdentifier("story-field-\(field)")
                 }
                 // The slide it is about shown first: a question begins with what the window shows,
                 // which "this slide" means to the assistant (lift-up USE-5).

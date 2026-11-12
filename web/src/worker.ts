@@ -47,6 +47,7 @@ import type {
   Edited,
   Export,
   Finding,
+  Folded,
   FromHelper,
   FromWorker,
   Generate,
@@ -653,6 +654,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       case "addingState":
         current(data.source);
         return post({ type: "addingState", id: data.id, added: JSON.parse(player.addingState(data.state, data.what)) as { id: string; patch: unknown[] } });
+      case "folding":
+        current(data.source);
+        return post({ type: "folding", id: data.id, folded: JSON.parse(player.folding(data.state)) as Folded });
       case "starters": {
         current(data.source);
         if (data.listed) {

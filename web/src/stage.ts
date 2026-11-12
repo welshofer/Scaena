@@ -17,6 +17,7 @@ import type {
   Drawn,
   Edited,
   Export,
+  Folded,
   Found,
   FromWorker,
   Grid,
@@ -203,6 +204,7 @@ type Reply = Extract<
       | "pasted"
       | "thumbnails"
       | "addingState"
+      | "folding"
       | "starters"
       | "starting"
       | "waiting"
@@ -1236,6 +1238,12 @@ export class Stage {
     return this.request<"addingState">({ type: "addingState", id: ++this.asked, source, state, what }).then(({ added }) => added);
   }
 
+  /** The patch that folds `state`'s slide into the slide before it, on the deck `source` compiles
+   * to, or why it cannot be (editor dogfood 6). */
+  folding(source: string, state: string): Promise<Folded> {
+    return this.request<"folding">({ type: "folding", id: ++this.asked, source, state }).then(({ folded }) => folded);
+  }
+
   /** The slides a person may start after `state`'s slide, on the deck `source` compiles to (PLAN
    * 3.30): one in each of the theme's layouts, then a blank one, or those `layouts` names, a null
    * the blank one (PLAN 3.31), each as its layout's picture shows it, painted `height` pixels high. */
@@ -1583,6 +1591,7 @@ export class Stage {
       case "pasted":
       case "thumbnails":
       case "addingState":
+      case "folding":
       case "starters":
       case "starting":
       case "waiting":

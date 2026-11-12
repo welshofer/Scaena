@@ -31,8 +31,11 @@ fn stem(name: &str) -> String {
 }
 
 /// The words of a series' or a column's name that say what it measures, its unit's aside, as
-/// quoting reads a column's (agent dogfood 2): "On time" and `on_time_pct` alike, `ontime`.
+/// quoting reads a column's (agent dogfood 2): "On time" and `on_time_pct` alike, `ontime`. A
+/// currency's letters before its sign are its unit too: "Receita (R$ mi)" measures "Receita"
+/// (W1's dogfood 11).
 fn measured(name: &str) -> String {
+    let name = ["R$", "r$", "US$", "us$"].iter().fold(name.to_string(), |n, sign| n.replace(sign, " brl "));
     (name.split(|c: char| !c.is_alphanumeric()))
         .map(str::to_lowercase)
         .filter(|w| !w.is_empty() && !super::quoting::UNITS.contains(&w.as_str()))
@@ -55,16 +58,24 @@ pub fn source_named(deck: &Deck, named: &str) -> Option<String> {
     by_id.cloned().or_else(by_file)
 }
 
-/// The data sources a chart's `named` source may be: the one called so, else each sheet the
-/// deck keeps from the workbook named, whose id is the workbook's name and the sheet's
-/// (`navette-mensuel` for "navette.xlsx"), in the deck's order. A model names the file it was
-/// given, never the id Scaena kept a sheet under (W1's dogfood 10).
+/// The data sources a chart's `named` source may be: the one called so, else the one sheet the
+/// deck keeps by that sheet's own name, else each sheet the deck keeps from the workbook named,
+/// whose id is the workbook's name and the sheet's (`navette-mensuel` for "navette.xlsx"), in the
+/// deck's order. A model names the file it was given, never the id Scaena kept a sheet under
+/// (W1's dogfood 10).
 pub fn sources_named(deck: &Deck, named: &str) -> Vec<String> {
     if let Some(id) = source_named(deck, named) {
         return vec![id];
     }
     if stem(named).chars().count() < 3 {
         return Vec::new();
+    }
+    // A sheet by its own name, as the workbook shows it ("Annuel" for `velo-2025-annuel`), where
+    // one sheet the deck keeps is called so (agent dogfood 4).
+    let own = format!("-{}", slug(named.trim(), "data"));
+    let sheets: Vec<String> = deck.data.keys().filter(|id| id.ends_with(&own)).cloned().collect();
+    if sheets.len() == 1 {
+        return sheets;
     }
     // The ids `keeping` makes of a workbook's sheets: the slug of its name, its extension off,
     // then each sheet's (`navette-mensuel`), so a source of another file whose name begins alike
@@ -664,5 +675,44 @@ mod tests {
         }
         assert_eq!(measured("umsatz_teur"), "umsatz");
         assert_eq!(measured("Umsatz (Mio. EUR)"), "umsatz");
+    }
+
+    /// W1's dogfood 11: a Brazilian sheet's columns carry the real and its magnitude in their
+    /// names ("Receita (R$ mi)"), and a series binds by what it measures, "Receita" to it, where
+    /// the sheet has two number columns and so a name must choose. Spanish's and Italian's
+    /// accounts write theirs alike ("Ventas (millones)", "Ricavi (mln)").
+    #[test]
+    fn a_portuguese_series_binds_to_its_column_with_its_units_words_aside() {
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["data"]["padaria-mensal"] = json!({ "source": "data/padaria-mensal.csv", "schema": {
+            "M\u{ea}s": "string", "Receita (R$ mi)": "number", "Pedidos": "number"
+        } });
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        let csv = "M\u{ea}s,Receita (R$ mi),Pedidos\njan.,1.2,8400\nfev.,1.1,7900\nmar.,1.5,9800\n";
+        let files = BTreeMap::from([("data/padaria-mensal.csv".to_string(), csv.as_bytes().to_vec())]);
+        for (series, values, column) in
+            [("Receita", [1.2, 1.1, 1.5], "Receita (R$ mi)"), ("Pedidos", [8400.0, 7900.0, 9800.0], "Pedidos")]
+        {
+            let mut node = json!({
+                "type": "chart", "chart": "bar", "data": "@own",
+                "x": { "field": "category", "type": "ordinal" },
+                "y": { "field": "value", "type": "quantitative" }
+            });
+            let chart = ChartData {
+                categories: ["jan.", "fev.", "mar."].map(String::from).to_vec(),
+                series: vec![Series { name: Some(series.into()), values: values.iter().map(|v| Some(*v)).collect() }],
+                unit: None,
+                source_id: Some("padaria-mensal".into()),
+            };
+            let bound = bind(&mut node, &chart, &deck, &files, "padaria-mensal");
+            assert!(bound.is_ok(), "{series}: {bound:?}");
+            assert_eq!(node["y"]["field"], json!(column), "{series}");
+        }
+        assert_eq!(measured("Receita (R$ mi)"), "receita");
+        assert_eq!(measured("Faturamento em US$ bi"), "faturamentoem");
+        assert_eq!(measured("Ventas (millones)"), "ventas");
+        assert_eq!(measured("Ricavi (mln)"), "ricavi");
+        // A word that only begins with a unit's letters stays whole: "Milhas" counts miles.
+        assert_eq!(measured("Milhas"), "milhas");
     }
 }

@@ -676,11 +676,21 @@ fn too_few(e: &scaena_narrato::NarratoError, brief: &scaena_narrato::Brief) -> S
 }
 
 /// The source a slide names, of those the deck was grounded in: matched as written, then with
-/// case and spaces set aside, then as the source's address.
+/// case and spaces set aside, then as the source's address, which a repository given as
+/// `github:OWNER/REPO` is named by too, its case and a closing slash aside (agent dogfood 5).
 fn source_named<'a>(sources: &'a [Provenance], named: &str) -> Option<&'a Provenance> {
+    let address = |a: &str| -> String {
+        let a = a.trim();
+        let a = match a.strip_prefix("github:") {
+            Some(repo) => format!("https://github.com/{repo}"),
+            None => a.to_string(),
+        };
+        a.trim_end_matches('/').to_lowercase()
+    };
     (sources.iter().find(|s| s.name == named))
         .or_else(|| sources.iter().find(|s| loose(&s.name) == loose(named)))
         .or_else(|| sources.iter().find(|s| s.url.as_deref() == Some(named)))
+        .or_else(|| sources.iter().find(|s| s.url.as_deref().is_some_and(|u| address(u) == address(named))))
 }
 
 /// `s` with its runs of spaces one and its letters small, to match a name as a person means it.
@@ -3734,6 +3744,23 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
     {
         begin -= 1;
     }
+    // A currency set before its figure keeps the letters of its country ("R$", "US$", "C$") and
+    // stands with its figure spaced too, as Brazil's and Europe's accounts write it: "R$ 2,1 mi",
+    // "\u{20ac} 12" (W1's dogfood 11), never "2,1".
+    let sign = |c: char| matches!(c, '$' | '\u{20ac}' | '\u{a3}' | '\u{a5}');
+    let before = |at: usize| at == 0 || !chars[at - 1].is_alphanumeric();
+    if begin == start && begin >= 2 && spacing(chars[begin - 1]) && sign(chars[begin - 2]) {
+        begin -= 2;
+    }
+    if begin < start && chars[begin] == '$' {
+        let mut letters = begin;
+        while letters > 0 && begin - letters < 3 && chars[letters - 1].is_ascii_uppercase() {
+            letters -= 1;
+        }
+        if letters < begin && before(letters) {
+            begin = letters;
+        }
+    }
     let end = paired(chars, end).unwrap_or(end);
     let at = |from: usize, n: usize| -> String { chars[from.min(chars.len())..].iter().take(n).collect() };
     // A magnitude a language without spaces writes after its figure, and its currency after
@@ -3890,7 +3917,7 @@ fn spacing(c: char) -> bool {
 /// The magnitudes written as a word after a figure: "48,6 Mio. \u{20ac}", "1.2 million", and
 /// Spanish's, Italian's, and Portuguese's ("1.234,5 millones", "3,4 milioni", "1,2 milh\u{f5}es",
 /// "2 mil millones"; R2's Valdemar). The longest that stands whole is read.
-const SPACED_MAGNITUDES: [&str; 35] = [
+const SPACED_MAGNITUDES: [&str; 38] = [
     "Tsd.",
     "Tsd",
     "Mio.",
@@ -3926,6 +3953,9 @@ const SPACED_MAGNITUDES: [&str; 35] = [
     "milh\u{f5}es",
     "mil milh\u{f5}es",
     "bilh\u{f5}es",
+    "mi",
+    "bi",
+    "tri",
 ];
 
 /// The currency signs written after a figure, against it or spaced: "12 \u{20ac}", "5\u{20ac}".
@@ -4051,6 +4081,11 @@ fn layout_for(
     let brief = items.iter().all(|i| i.detail.chars().count() <= 120);
     let side = |left: &'static str, right: &'static str| if index.is_multiple_of(2) { left } else { right };
     let storied = story(items) && theme.layouts.contains_key("statement");
+    // A slide asked for as code, or whose one item reads as code, shows it on Title and Code, its
+    // card the slide's width (agent dogfood 5).
+    let code = n == 1
+        && theme.layouts.contains_key("title-code")
+        && (code_asked(slide) || coded_in(slide, items, &items[0].whole).is_some());
     let wanted: &str = match identity {
         "title" if pictured => "title-split",
         "title" => "title-center",
@@ -4082,6 +4117,7 @@ fn layout_for(
             4 => "scorecard",
             _ => "number-grid",
         },
+        "body" if code => "title-code",
         "body" if pictured => "bullets-photo",
         // Three or four points each led by its figure, "64% have no car", are figures a room
         // reads at a glance, each on its card with its words under it (W1's dogfood 8).
@@ -4939,6 +4975,26 @@ fn coded_in(slide: &Slide, items: &[Item], text: &str) -> Option<&'static str> {
     (language.name != "plain").then_some(language.name)
 }
 
+/// Whether `slide` asks to be shown as code by its `layoutSuggestion` ("Code", "Code Block",
+/// "Code Snippet", "Snippet", "Source Code", "Code Sample"), as an agent asks it (agent dogfood 5).
+fn code_asked(slide: &Slide) -> bool {
+    let asked = slide.layout_suggestion.trim().to_lowercase();
+    ["code", "code block", "code snippet", "snippet", "source code", "code sample"].contains(&asked.as_str())
+}
+
+/// The language the one item of a slide asked for as code ([`code_asked`]) is written in: as
+/// [`coded_in`] finds it, else by the file its subtitle names alone ("TOML" for
+/// ".cargo/config.toml"), else plain text, which is code all the same (agent dogfood 5).
+fn asked_code_in(slide: &Slide, items: &[Item], text: &str) -> &'static str {
+    if let Some(language) = coded_in(slide, items, text) {
+        return language;
+    }
+    let subtitle = slide.subtitle.trim();
+    let file = (!subtitle.contains(char::is_whitespace) && subtitle.contains('.')).then_some(subtitle);
+    let hints = code::Hints { file, ..Default::default() };
+    code::detect(text, &hints).language().map_or("plain", |l| l.name)
+}
+
 /// The least share of its role's size code set side by side keeps before the two sides stand one
 /// above the other (PLAN 2.138): seven-eighths, 14 pt of the shipped role's 16. A pair shrinking
 /// less keeps the comparison side by side, which reads best as a pair.
@@ -5775,6 +5831,8 @@ impl Slots<'_> {
                 self.subtitle().or_else(|| self.item(0).map(|i| i.whole.clone()))
             }
             "hub" => self.subtitle().or_else(|| self.title()),
+            // Title and Code's code: the slide's one item, as written (agent dogfood 5).
+            "code" if layout == "title-code" => self.item(0).map(|i| i.whole.clone()),
             // A call to action's button: what it asks, as the slide says it (lift-up ATTR-3).
             // A call to action's button: a bare closing's address (lift-up ATTR-3).
             "button" => calling(self.slide, self.items, self.lang, self.claim).map(|(_, address)| address),
@@ -6444,7 +6502,12 @@ impl Builder {
                     let mut node = json!({ "type": "text", "role": role, "text": text, "at": at });
                     // An item written in code is set as code, in its language, on its card, in the
                     // theme's code role, its lines as written and fitted as code fits (dogfood 8a).
-                    let coded = ordinal(name).filter(|(_, part)| part.is_empty()).and_then(|_| s.coded(&text));
+                    let coded =
+                        ordinal(name).filter(|(_, part)| part.is_empty()).and_then(|_| s.coded(&text)).or_else(|| {
+                            // Title and Code's one place for it: in the language it is written in,
+                            // plain text where none is found (agent dogfood 5).
+                            (name == "code" && s.layout == "title-code").then(|| asked_code_in(s.slide, s.items, &text))
+                        });
                     if let Some(language) = coded {
                         node["text"] = json!(blocked(&text, language));
                         node["code"] = json!({ "language": language });
@@ -7190,7 +7253,10 @@ fn typeset_all(narrative: &Narrative) -> Narrative {
     for slide in &mut out.slides {
         set(&mut slide.slide_title);
         set(&mut slide.subtitle);
-        slide.key_bullets.iter_mut().for_each(set);
+        // Code is set as written: no quotation mark curled, no dash made a range (agent dogfood 5).
+        if !code_asked(slide) {
+            slide.key_bullets.iter_mut().for_each(set);
+        }
         set(&mut slide.speaker_notes);
         slide.supporting_facts.iter_mut().for_each(set);
         slide.beat_name.iter_mut().for_each(set);
@@ -8152,6 +8218,50 @@ mod tests {
         assert_eq!(too_few(&other, &brief), "no slides");
     }
 
+    /// A slide asked for as code ("Code"), or a list of one item that reads as code in the language
+    /// of the file its subtitle names, shows it on Title and Code, the code in its language, as
+    /// written: a config file's straight quotes kept, its language named by the file its subtitle
+    /// names. A list of one item in words stays a list (agent dogfood 5).
+    #[test]
+    fn a_code_slide_shows_its_code_on_title_and_code() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let slide = |title: &str, subtitle: &str, layout: &str, item: &str| Slide {
+            slide_title: title.into(),
+            subtitle: subtitle.into(),
+            layout_suggestion: layout.into(),
+            key_bullets: vec![item.into()],
+            ..Slide::default()
+        };
+        let signature = "fn render(document: &Deck, theme: &Theme, state: &str, t: f64) -> DisplayList";
+        let toml = "[target.wasm32-unknown-unknown]\nrustflags = [\"-C\", \"target-feature=+simd128\"]";
+        let slides = vec![
+            slide("One core, every screen", "", "Title", ""),
+            slide("Render is a pure function", "crates/scaena-engine", "Code", signature),
+            slide("The browser runs it with SIMD on", ".cargo/config.toml", "Code", toml),
+            slide("Sum the prices once", "src/price.rs", "Bullet List", "let total: f64 = prices.iter().sum();"),
+            slide("Each state is laid out once", "", "Bullet List", "Frames only sample between snapshots"),
+            slide("Keep layout out of the painters", "", "Closing", ""),
+        ];
+        let made = deck(&narrative("One core.", slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.layouts[1..5], ["title-code", "title-code", "title-code", "bullets"]);
+        let code: Vec<(String, String, String)> = (made.deck["nodes"].as_object().unwrap().values())
+            .filter_map(|n| {
+                let language = n["code"]["language"].as_str()?;
+                Some((language.into(), n["role"].as_str()?.into(), n["text"].as_str()?.into()))
+            })
+            .collect();
+        assert_eq!(
+            code,
+            [
+                // One line names no language by itself, and its subtitle names no file: plain
+                // text, still code, on its card in the code role.
+                ("plain".to_string(), "code".to_string(), signature.to_string()),
+                ("toml".to_string(), "code".to_string(), toml.to_string()),
+                ("rust".to_string(), "code".to_string(), "let total: f64 = prices.iter().sum();".to_string()),
+            ]
+        );
+    }
+
     /// An item written in code is set as code in its language, on its card, in the theme's code
     /// role and fitted as code fits (dogfood 8a F1, deepdive 6): its language named by the file the
     /// subtitle names, else found in the slide's code read together, a block on one line set on
@@ -8533,6 +8643,48 @@ mod tests {
         assert_eq!(figure("Inversi\u{f3}n de 2,3 M\u{20ac} en 2026").as_deref(), Some("2,3 M\u{20ac}"));
         // A word that only begins as one is none: "500 millonarios" counts people.
         assert_eq!(figure("500 millonarios en la ciudad").as_deref(), Some("500"));
+        // A currency set before its figure, spaced or not, keeps its country's letters, and
+        // Portuguese's short magnitudes stay with the figure (W1's dogfood 11: "R$ 2,1 mi" was
+        // drawn "2,1").
+        assert_eq!(figure("R$ 2,1 mi").as_deref(), Some("R$ 2,1 mi"));
+        assert_eq!(figure("A receita chegou a R$\u{a0}2,1\u{a0}mi em junho").as_deref(), Some("R$\u{a0}2,1\u{a0}mi"));
+        assert_eq!(figure("R$2,1 bi").as_deref(), Some("R$2,1 bi"));
+        assert_eq!(figure("Raised US$ 3 million").as_deref(), Some("US$ 3 million"));
+        assert_eq!(figure("Costs C$40 a seat").as_deref(), Some("C$40"));
+        assert_eq!(figure("Biglietto da \u{20ac} 12").as_deref(), Some("\u{20ac} 12"));
+        assert_eq!(figure("R$ 400 mil por loja").as_deref(), Some("R$ 400 mil"));
+        assert_eq!(figures_in("de R$ 1,2 mi para R$ 2,1 mi"), ["R$ 1,2 mi".to_string(), "R$ 2,1 mi".to_string()]);
+        assert!(numeric("R$ 2,1 mi"));
+        // A sign that ends a word, or letters a word runs on into, stay the word's.
+        assert_eq!(figure("costs $5").as_deref(), Some("$5"));
+        assert_eq!(figure("about 2 minutes").as_deref(), Some("2"));
+        assert_eq!(figure("5 bits").as_deref(), Some("5"));
+    }
+
+    /// A Portuguese big number keeps its currency and its magnitude (W1's dogfood 11: the hero of
+    /// "R$ 2,1 mi" / "de receita em junho" was drawn "2,1").
+    #[test]
+    fn a_real_big_number_keeps_its_currency_and_magnitude() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({
+            "executiveSummary": "Um semestre.",
+            "slides": [
+                { "slideTitle": "O semestre", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "A receita de junho chegou a R$ 2,1 mi", "layoutSuggestion": "Big Number",
+                    "keyBullets": ["R$ 2,1 mi", "de receita em junho, o melhor m\u{ea}s da cooperativa"] },
+                { "slideTitle": "Obrigado", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.brief.language = Some("Portuguese".into());
+        let made = deck_as(&n, &theme, &Pictures::new(), &BTreeMap::new()).unwrap();
+        let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        let hero: Vec<&str> = said.iter().filter(|(s, _)| s == "number").map(|(_, w)| w.as_str()).collect();
+        assert_eq!(hero.len(), 1, "{said:#?}");
+        assert_eq!(hero[0].replace(['\u{a0}', '\u{202f}'], " "), "R$ 2,1 mi", "{said:#?}");
     }
 
     #[test]
@@ -8890,7 +9042,7 @@ mod tests {
         assert_eq!(said("board-de", "ein-starkes-quartal-in-vier-second-figure"), "1,2\u{a0}Mio.\u{a0}\u{20ac}");
         // A figure the builder writes is written as its chart's labels write it, in the deck's language,
         // its unit held to it by a space that never breaks, as the typesetter sets it (DF7-2).
-        assert_eq!(said("board-de", "der-umsatz-w-chst-seit-f-nf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
+        assert_eq!(said("board-de", "der-umsatz-wachst-seit-funf-callout"), "48,6\u{a0}Mio.\u{a0}\u{20ac}");
         assert_eq!(said("deepdive", "latency-climbed-every-week-as-callout"), "1,840\u{a0}ms");
         // Its Go set as Go, on its card (dogfood 8a F1).
         let deepdive = &decks.iter().find(|(n, _)| *n == "deepdive").unwrap().1.deck;
@@ -12945,10 +13097,20 @@ mod tests {
     fn each_beat_cites_the_source_its_slide_names() {
         let notes = source("notes.md", Kind::Markdown, "# Tidewater\nShipping emits about 3% of CO2.");
         let page = source("https://example.org/report", Kind::Html, "Ports electrify by 2030.");
-        let g = grounding(&[notes, page], Provider::Anthropic).unwrap();
+        // A repository given as `github:OWNER/REPO`, kept by its name and its address.
+        let repo = source("GitHub: tidewater/ports (Rust)", Kind::GitHub, "# Ports");
+        let g = grounding(&[notes, page, repo], Provider::Anthropic).unwrap();
         let (summary, mut slides) = catalog();
-        slides.truncate(5);
-        let refs = [None, Some("notes.md"), Some("  Notes.MD "), Some("https://example.org/report"), Some("q3.pdf")];
+        slides.truncate(7);
+        let refs = [
+            None,
+            Some("notes.md"),
+            Some("  Notes.MD "),
+            Some("https://example.org/report"),
+            Some("q3.pdf"),
+            Some("github:tidewater/ports"),
+            Some("https://github.com/Tidewater/ports/"),
+        ];
         for (slide, named) in slides.iter_mut().zip(refs) {
             slide.source_ref = named.map(str::to_string);
         }
@@ -12963,6 +13125,8 @@ mod tests {
                 { "name": "notes.md", "kind": "markdown", "bytes": g.given[0].bytes, "truncated": false },
                 { "name": "https://example.org/report", "kind": "web page", "url": "https://example.org/report",
                   "bytes": g.given[1].bytes, "truncated": false },
+                { "name": "GitHub: tidewater/ports (Rust)", "kind": "github repository",
+                  "url": "https://github.com/tidewater/ports", "bytes": g.given[2].bytes, "truncated": false },
             ])
         );
         let beats: Vec<&Value> = (deck["spine"]["sections"].as_array().unwrap().iter())
@@ -12979,6 +13143,9 @@ mod tests {
         assert_eq!(cites(2), ["source:notes.md"], "named loosely");
         assert_eq!(cites(3), ["https://example.org/report"], "a page by its address");
         assert_eq!(cites(4), Vec::<&str>::new(), "a source the deck was not grounded in");
+        // A repository named as it was given, `github:OWNER/REPO`, or by its address in any case.
+        assert_eq!(cites(5), ["https://github.com/tidewater/ports"], "a repository as it was given");
+        assert_eq!(cites(6), ["https://github.com/tidewater/ports"], "its address, case and slash aside");
         assert!(!made.created.findings.iter().any(|f| f.code == "W423"), "{:?}", made.created.findings);
         // A deck grounded in nothing says nothing of sources.
         let (summary, slides) = catalog();
@@ -13067,13 +13234,26 @@ mod tests {
     /// in French).
     #[test]
     fn a_chart_that_names_its_workbook_binds_to_the_sheet_that_holds_it() {
-        let chart = |categories: &[&str], values: &[f64]| ChartData {
+        navette_bound(["navette.xlsx", "navette.xlsx"]);
+    }
+
+    /// A chart that names its sheet by the sheet's own name, as the workbook shows it, binds to
+    /// the sheet kept under the workbook's name and its own (agent dogfood 4: "Annuel" for
+    /// `velo-2025-annuel`).
+    #[test]
+    fn a_chart_that_names_its_sheet_by_its_own_name_binds_to_it() {
+        navette_bound(["Mensuel", "Quartiers"]);
+    }
+
+    /// The shuttle's deck made with its two charts naming their sources as `named` says, bound.
+    fn navette_bound(named: [&str; 2]) {
+        let chart = |categories: &[&str], values: &[f64], named: &str| ChartData {
             categories: categories.iter().map(|c| c.to_string()).collect(),
             series: vec![scaena_narrato::Series {
                 name: Some("Voyageurs".into()),
                 values: values.iter().map(|v| Some(*v)).collect(),
             }],
-            source_id: Some("navette.xlsx".into()),
+            source_id: Some(named.into()),
             ..ChartData::default()
         };
         let slide = |title: &str, kind: &str, chart: Option<ChartData>| Slide {
@@ -13092,12 +13272,12 @@ mod tests {
                 slide(
                     "La fr\u{e9}quentation a progress\u{e9} chaque mois",
                     "Line Chart",
-                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.])),
+                    Some(chart(&months, &[41200., 42800., 45100., 46900., 47700., 48600.], named[0])),
                 ),
                 slide(
                     "Le quartier Nord porte la hausse",
                     "Bar Chart",
-                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.])),
+                    Some(chart(&["Nord", "Gare", "Sud"], &[14800., 11200., 5600.], named[1])),
                 ),
                 slide("Prolonger la navette jusqu\u{2019}en juin 2027", "Closing", None),
             ],
@@ -13160,6 +13340,11 @@ mod tests {
         // A name no source starts with keeps none of them.
         assert!(binding::sources_named(&write.deck, "rapport.pdf").is_empty());
         assert!(binding::sources_named(&write.deck, "na").is_empty());
+        // A sheet by its own name is the one sheet kept so, in any case; a name two sheets end
+        // in, or none, is none of them.
+        assert_eq!(binding::sources_named(&write.deck, "Quartiers"), ["navette-quartiers"]);
+        assert_eq!(binding::sources_named(&write.deck, "mensuel"), ["navette-mensuel"]);
+        assert!(binding::sources_named(&write.deck, "Annuel").is_empty());
     }
 
     /// A deck in another language titles each section by the model's name for its beat, else its
