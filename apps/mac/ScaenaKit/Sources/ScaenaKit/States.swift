@@ -8,6 +8,31 @@ public struct AddedState: Decodable, Sendable {
     public let patch: [JSONValue]
 }
 
+/// A slide folded into the slide before it (editor dogfood 6, `scaena_ops::states::folding`): the
+/// first state of the slide it folds into, the patch (empty where it is refused), what it did in a
+/// person's words ("Folded slide 7 into slide 6"), why it cannot be, where it cannot, and where its
+/// words went.
+public struct Folded: Decodable, Sendable {
+    public let into: String
+    public let patch: [JSONValue]
+    public let said: String
+    public var refused: String? = nil
+    public let to: FoldsTo
+}
+
+/// Where a slide's words go, folded into the slide before it: that slide's place for words, or its
+/// notes where it has none, a big number's or a title's (editor dogfood 6).
+public enum FoldsTo: String, Decodable, Sendable {
+    case place
+    case notes
+
+    /// What a fold into `before`, a slide as a person counts it, is called before it is made, as a
+    /// presentation app names a command: "Fold Into Slide 6", or "Fold Into Slide 6's Notes".
+    public static func label(_ before: String, _ to: FoldsTo?) -> String {
+        "Fold Into \(before)\(to == .notes ? "'s Notes" : "")"
+    }
+}
+
 /// What a state is added as, after the state shown (PLAN 2.35).
 public enum StateAdding: String, Sendable {
     /// A step of its slide, right after it, showing what that state shows until it is changed.
@@ -21,6 +46,13 @@ extension ScaenaSession {
     /// it follows (`cover-2`), a slide `slide`, `slide-2`, …, the first that names no state.
     public func addingState(after state: String, as what: StateAdding) throws -> AddedState {
         try call("addingState", ["state": .string(state), "what": .string(what.rawValue)])
+    }
+
+    /// The patch that folds the slide `state` is on into the slide before it (editor dogfood 6):
+    /// its words joined to that slide's place for words, or its notes where it has none, its notes
+    /// after that slide's, its beat's claim in the previous beat's notes; or why it cannot be.
+    public func folding(_ state: String) throws -> Folded {
+        try call("folding", ["state": .string(state)])
     }
 
     /// The patch that starts a slide in `layout`, one of the theme's, after the slide of `state`,
@@ -252,6 +284,15 @@ public struct Slide: Identifiable, Equatable, Sendable {
 
     /// The state it is drawn at: its last.
     public var last: String { states.last ?? id }
+
+    /// What folding the slide `state` is on into the slide before it is called (editor dogfood 6),
+    /// as the browser names it: "Fold Into Slide 6", or "Fold Into Slide 6's Notes" where that slide
+    /// has no place for words; none on the first slide.
+    public static func folding(_ state: String, in slots: [ScaenaSession.Slot]) -> String? {
+        let slides = Slide.of(slots)
+        guard let i = slides.firstIndex(where: { $0.states.contains(state) }), i > 0 else { return nil }
+        return FoldsTo.label("Slide \(i)", slots.first { $0.state == state }?.foldsTo)
+    }
 
     /// The slides of `slots`, in the order the timeline plays them.
     public static func of(_ slots: [ScaenaSession.Slot]) -> [Slide] {

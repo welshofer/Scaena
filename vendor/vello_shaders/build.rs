@@ -86,11 +86,13 @@ fn write_shaders(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(
                 .map(|binding| binding.location.1)
                 .collect::<Vec<_>>();
             writeln!(buf, "            wgsl: WgslSource {{")?;
-            writeln!(
-                buf,
-                "                code: Cow::Borrowed({:?}),",
+            // Scaena: a shader no painter of Scaena's asks for is embedded as no text (SCAENA.md).
+            let code = if UNASKED.contains(&name.as_str()) {
+                String::new()
+            } else {
                 minified(&info.source)
-            )?;
+            };
+            writeln!(buf, "                code: Cow::Borrowed({code:?}),")?;
             writeln!(
                 buf,
                 "                binding_indices : Cow::Borrowed(&{indices:?}),"
@@ -106,6 +108,15 @@ fn write_shaders(buf: &mut String, shaders: &[(String, ShaderInfo)]) -> Result<(
     writeln!(buf, "}}")?;
     Ok(())
 }
+
+/// The shaders Scaena embeds as no text (Scaena's patch, `SCAENA.md`, ADR-0004 finding 31): the
+/// fine stage's multisampled permutations. Every painter of Scaena's renders with area
+/// antialiasing alone (`AaSupport::area_only()`, `AaConfig::Area`), and vello compiles a fine
+/// shader only for an antialiasing its renderer is made to support, so neither text is ever read.
+/// Their names, sizes, and bindings stay, since vello names each field; a renderer made to
+/// support MSAA would hand wgpu an empty shader, which fails to compile, never draws otherwise.
+/// To have them back, empty this list.
+const UNASKED: [&str; 2] = ["fine_msaa16", "fine_msaa8"];
 
 /// The shader as WGSL with nothing a compiler reads taken out (Scaena's patch, `SCAENA.md`): its
 /// comments, line and block (which WGSL nests), each line's indentation and trailing space, and

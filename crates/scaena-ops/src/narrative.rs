@@ -659,6 +659,22 @@ fn cited(sources: &[Provenance], named: &str) -> Option<String> {
     Some(source.url.clone().unwrap_or_else(|| format!("{}{}", scaena_core::document::SOURCE_CITED, source.name)))
 }
 
+/// Why the slides an agent wrote were refused, as it can mend it (agent dogfood 5): too few for
+/// the length the brief asks says that length, where the minutes gave it, and the two ways on;
+/// any other refusal as it reads.
+fn too_few(e: &scaena_narrato::NarratoError, brief: &scaena_narrato::Brief) -> String {
+    let scaena_narrato::NarratoError::Incomplete { delivered, minimum } = e else { return e.to_string() };
+    let more = minimum - delivered;
+    let asked = match brief.minutes {
+        Some(minutes) => format!("`{}`, the length {minutes} minutes take", brief.length),
+        None => format!("`{}`", brief.length),
+    };
+    format!(
+        "{delivered} given, and the length asked, {asked}, holds at least {minimum}: write {more} more, or ask a \
+         `length` that holds {delivered}"
+    )
+}
+
 /// The source a slide names, of those the deck was grounded in: matched as written, then with
 /// case and spaces set aside, then as the source's address, which a repository given as
 /// `github:OWNER/REPO` is named by too, its case and a closing slash aside (agent dogfood 5).
@@ -1257,7 +1273,9 @@ pub fn from_slides(
     if let Some(outline) = outline {
         generation.settle(outline).map_err(|e| OpsError::new(format!("the outline: {e}")))?;
     }
-    generation.written(slides, false).map_err(|e| OpsError::new(format!("the slides: {e}")))?;
+    generation
+        .written(slides, false)
+        .map_err(|e| OpsError::new(format!("the slides: {}", too_few(&e, generation.brief()))))?;
     // Each data file given is a source the deck is grounded in, by its file's name: a chart says
     // it as its source, and the beat of a slide whose `sourceRef` names it cites it (agent
     // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
@@ -1532,8 +1550,12 @@ pub fn rooms(write: &Write) -> Vec<Option<usize>> {
             .map(|states| {
                 let state = &deck.states[states[0]].id;
                 // The place the slide's title is set in, by the slot that takes it.
+                // A number's claim is what the number means, not the slide's title, which its
+                // layout draws nowhere: no room is told for it (W1 dogfood 12).
+                let numbered = deck.nodes.contains_key(&format!("{state}-number"));
                 let id = ["header", "title", "headline", "statement", "claim"]
                     .iter()
+                    .filter(|slot| !(numbered && **slot == "claim"))
                     .map(|slot| format!("{state}-{slot}"))
                     .find(|id| deck.nodes.contains_key(id))?;
                 let req = scaena_engine::FrameRequest {
@@ -1638,7 +1660,13 @@ fn others(
             });
         }
     }
-    wanted.extend(if ordered { ["numbered", "bullets"] } else { ["bullets", "numbered"] });
+    // A numbered list says its points have an order: offered only where they do, or where the
+    // writer asked for one, never for points the builder found have none (W1 dogfood 12).
+    if ordered || identity == "numbered" {
+        wanted.extend(["numbered", "bullets"]);
+    } else {
+        wanted.push("bullets");
+    }
     let mut out: Vec<String> = Vec::new();
     for l in wanted {
         if l != own && theme.layouts.contains_key(l) && holds(theme, l, n) && !out.iter().any(|o| o == l) {
@@ -1908,12 +1936,11 @@ pub fn figures_let_go(changes: &mut Vec<Change>) -> Vec<Refused> {
     let mut said = Vec::new();
     for change in changes.iter_mut() {
         let slide = change.slide;
-        let by = || Some("figures".to_string());
         said.extend(std::mem::take(&mut change.figured).into_iter().map(|f| Refused {
             slide,
             what: f.what,
             why: f.why,
-            by: by(),
+            by: Some(f.by.unwrap_or_else(|| "figures".to_string())),
         }));
     }
     changes.retain(Change::changes);
@@ -1982,6 +2009,28 @@ pub fn adopt(
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
+    // A title the slide's layout draws nowhere is no change a person would see (a big number
+    // shows its figure and what it means): not said as kept (W1 dogfood 12).
+    let mut kept = kept;
+    let slides = write.deck.slides();
+    for change in &mut kept {
+        let Some(title) = change.title.as_deref().map(letters) else { continue };
+        let state = (change.slide.checked_sub(1).and_then(|i| slides.get(i)))
+            .and_then(|states| states.first())
+            .map(|k| write.deck.states[*k].id.clone());
+        let drawn = state.is_some_and(|state| {
+            let ours = format!("{state}-");
+            (write.deck.nodes.iter()).any(|(id, n)| {
+                id.starts_with(&ours)
+                    && letters(&said_by(&json!({ "text": n.props.get("text"), "runs": n.props.get("runs") })))
+                        .contains(&title)
+            })
+        });
+        if !drawn {
+            change.title = None;
+        }
+    }
+    kept.retain(Change::changes);
     made.looked = kept;
     if !worse.is_empty() {
         made.unlooked = Some(as_made(worse));
@@ -2995,6 +3044,19 @@ fn assemble(
         for item in items.iter().skip(1).filter(|item| charted && !set_in(item, &words)) {
             unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
         }
+        // And each item one of whose figures its layout draws nowhere, nor its notes say: a layout
+        // of names alone may leave a detail's figures off its cards (DF7-5), but never in silence
+        // (W1 dogfood 12).
+        let noted = letters(&slide.speaker_notes);
+        let unsaid = |item: &&Item| {
+            figures_in(&item.whole)
+                .iter()
+                .map(|f| letters(f))
+                .any(|f| !f.is_empty() && !words.iter().any(|w| w.contains(&f)) && !noted.contains(&f))
+        };
+        for item in items.iter().filter(|_| !charted).filter(unsaid) {
+            unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
+        }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
             running = Some((slide.slide_title.clone(), beat));
@@ -3144,6 +3206,23 @@ fn assemble(
         },
         deck,
     ))
+}
+
+/// The columns a layout's name asks for by their count, "Three Column" or "four-columns": three
+/// or four, the counts the library sets across; any other name none.
+fn columns_asked(name: &str) -> Option<usize> {
+    let name = name.trim().to_lowercase().replace('-', " ");
+    let count = name.strip_suffix(" columns").or_else(|| name.strip_suffix(" column"))?;
+    match count.trim() {
+        "three" | "3" => Some(3),
+        "four" | "4" => Some(4),
+        _ => None,
+    }
+}
+
+/// The theme's layout that sets `n` items across, three or four.
+fn across(n: usize) -> &'static str {
+    if n == 3 { "three-columns" } else { "four-columns" }
 }
 
 /// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
@@ -3431,12 +3510,13 @@ impl Item {
     }
 
     /// Its figure: the label that is one, else its detail where that is a figure alone, its unit
-    /// and magnitude with it ("34 M€", dogfood pass 11), else the first in its detail.
+    /// and magnitude with it ("34 M€", dogfood pass 11), else the one its detail is about
+    /// ([`meant`]).
     fn figure(&self) -> Option<String> {
         match &self.label {
             Some(label) if numeric(label) => Some(label.clone()),
             Some(_) if numeric(&self.detail) => Some(self.detail.trim().to_string()),
-            _ => figure(&self.detail),
+            _ => meant(&self.detail),
         }
     }
 
@@ -3578,6 +3658,24 @@ fn without_figure(text: &str) -> String {
     }
 }
 
+/// The figure `text` is about: its first, unless that is a year a clause dates something by
+/// ("curbside since 2011, 40% less landfilled food") and another figure follows, which the words
+/// are about (W1 dogfood 12).
+fn meant(text: &str) -> Option<String> {
+    let all = figures_in(text);
+    let dated = |f: &str| {
+        let year = f.len() == 4 && f.bytes().all(|b| b.is_ascii_digit()) && ("1800".."2200").contains(&f);
+        let before = text.find(f).map(|at| text[..at].trim_end()).unwrap_or_default();
+        let word = before.rsplit(|c: char| !c.is_alphabetic()).next().unwrap_or_default().to_lowercase();
+        const DATING: [&str; 15] = [
+            "since", "in", "from", "by", "until", "till", "through", "before", "after", "during", "seit", "depuis",
+            "desde", "dal", "sinds",
+        ];
+        year && DATING.contains(&word.as_str())
+    };
+    all.iter().find(|f| !dated(f)).or(all.first()).cloned()
+}
+
 /// The first figure in `text`: a number with its currency sign, its suffix, or its percent; a
 /// ratio or a range of two ("1 in 7", "3 of 4", "2\u{2013}3\u{d7}"); and a magnitude, a percent, or
 /// a currency a language sets after it, spaced or not ("48,6 Mio. \u{20ac}", "+18 %"). Never the
@@ -3650,10 +3748,16 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
     };
     let all = texts.iter().map(|(_, t)| plain(t)).collect::<Vec<_>>().join("|");
     let shown = led.iter().all(|f| all.contains(f.as_str()));
+    // A layout that sets figures apart sets every one written: one that would take a figure from
+    // an item and leave its others ("Portland: curbside since 2011, 40% less landfilled food" as
+    // "2011" over "Portland") is no place for it (W1 dogfood 12). A layout of names alone may
+    // leave a detail's figures to the notes (DF7-5).
+    let figured = texts.iter().any(|(role, _)| figure_role(role));
+    let kept = !figured || written.iter().all(|f| all.contains(f.as_str()));
     let whole = (texts.iter().filter(|(role, _)| figure_role(role)))
         .filter_map(|(_, t)| figure(t).map(|f| plain(&f)))
         .all(|f| written.contains(&f) || !(names.contains(&f) || written.iter().any(|w| part(w, &f))));
-    shown && whole
+    shown && kept && whole
 }
 
 /// Every figure in `text`, in order, as [`figure`] reads the first.
@@ -4117,6 +4221,11 @@ fn layout_for(
         "bar-chart" if chart => "bar-chart",
         "line-chart" if chart => "line-chart",
         "bar-chart" | "line-chart" => "bullets",
+        // A slide asked for by its count of columns, its items as many: as many across, labelled
+        // or not (R1's agent dogfood 5).
+        "two-column" if columns_asked(&slide.layout_suggestion) == Some(n) && theme.layouts.contains_key(across(n)) => {
+            across(n)
+        }
         "two-column" if n == 3 && labelled => "three-columns",
         "two-column" if n == 4 && labelled => "quadrants",
         // Two sides in code too long to stand side by side: one above the other.
@@ -4447,17 +4556,35 @@ fn calling(slide: &Slide, items: &[Item], lang: &str, claim: Option<&str>) -> Op
     // The claim its beat settled, where it asks something of the room, is the ask (W1's dogfood 8):
     // "Approve a twelve-month pilot in this budget."
     let claimed = claim.map(str::trim).filter(|c| asks(c)).map(|c| c.trim_end_matches('.').to_string());
-    let ask = claimed.or_else(|| {
+    // A line without its address: "Book a demo at relay.app/demo" is "Book a demo".
+    let unaddressed = |l: &str| {
+        let rest = l.replace(&address, "");
+        let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
+        rest.strip_suffix(" at").unwrap_or(rest).trim().to_string()
+    };
+    let asked = || {
         lines.iter().find_map(|l| {
-            // The ask without its address: "Book a demo at relay.app/demo" asks "Book a demo".
-            let rest = l.replace(&address, "");
-            let rest = rest.trim().trim_end_matches([':', '-', '\u{2013}', '\u{2014}', ',']).trim();
-            let rest = rest.strip_suffix(" at").unwrap_or(rest).trim();
+            let rest = unaddressed(l);
             let words: Vec<&str> = rest.split_whitespace().collect();
             let first = words.first()?.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-            (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.to_string())
+            (ASKING.contains(&first.as_str()) && words.len() <= 8).then(|| rest.clone())
         })
-    })?;
+    };
+    // A bare thanks with somewhere to reach its speaker and no ask, nor a claim its beat settled,
+    // and more lines than the closing's one place under its thanks holds: its own words, the
+    // thanks and its other lines, over the address as its button, never a list of "Questions?"
+    // and an email (W1 dogfood 12). One line under it, "relay.app", the closing holds.
+    let thanked = || {
+        (claim.is_none() && bare(&slide.slide_title) && lines.len() > 1).then(|| {
+            let said: Vec<String> = std::iter::once(slide.slide_title.trim().to_string())
+                .chain(lines.iter().map(|l| if l == line { unaddressed(l) } else { l.trim().to_string() }))
+                .filter(|w| !w.is_empty())
+                .collect();
+            // Each on a line of its own, as a display sets them: never "Thank you ·" ending one.
+            said.join("\n")
+        })
+    };
+    let ask = claimed.or_else(asked).or_else(thanked)?;
     Some((ask, shown))
 }
 
@@ -7622,9 +7749,10 @@ fn headlined(categories: &[String], headline: &str) -> Option<usize> {
 
 /// The first of two of `categories` that `headline` compares, by its index: the subject of
 /// "X … than Y", "X … que Y", "X … als Y", or "X vs Y", where the word that compares stands between
-/// the two (R1's French dogfood 4). A "que" or an "als" compares only after a word that does
-/// ("cinq fois moins … qu'au centre", "mehr Fahrten als", "dreimal so viele … wie"), since each
-/// also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
+/// the two (R1's French dogfood 4), and Portuguese's and Italian's "que" and "che" or "di" alike
+/// (W1's dogfood 11: "cinco vezes menos que a do centro", "cinque volte meno del centro"). A "que",
+/// an "als", or a "di" compares only after a word that does ("cinq fois moins … qu'au centre",
+/// "mehr Fahrten als", "dreimal so viele … wie"), since each also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
 /// own (`ordered`, years or quarters), it names no subject, and "2024 vs 2025" is left to the
 /// rules that light the latest. None where the headline names other than two, or compares neither.
 fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) -> Option<usize> {
@@ -7651,6 +7779,13 @@ fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) ->
         Some("fr") => (&["que", "qu"], &["plus", "moins", "fois", "autant", "mieux", "pire", "davantage"]),
         Some("es") => (&["que"], &["m\u{e1}s", "menos", "veces", "mejor", "peor", "mayor", "menor"]),
         Some("de") => (&["als", "wie"], &["mehr", "weniger", "mal", "doppelt", "halb", "so", "besser", "schlechter"]),
+        Some("pt") => {
+            (&["que", "quanto"], &["mais", "menos", "vezes", "melhor", "pior", "maior", "menor", "tanto", "t\u{e3}o"])
+        }
+        Some("it") => (
+            &["che", "di", "del", "della", "dello", "dei", "degli", "delle", "quanto"],
+            &["pi\u{f9}", "meno", "volte", "meglio", "peggio", "maggiore", "minore", "tanto", "cos\u{ec}"],
+        ),
         _ => (&["than"], &[]),
     };
     let compares = between.iter().enumerate().any(|(i, w)| {
@@ -7705,7 +7840,10 @@ fn chart_node(
     if let Some(t) = y_title {
         y["title"] = json!(t);
     }
-    if kind == "bar" {
+    // Bars from zero, where every one stands above it; a deficit's run below it, the axis taking
+    // them in (W1 dogfood 12).
+    let below = chart.series.iter().flat_map(|s| s.values.iter().flatten()).any(|v| *v < 0.0);
+    if kind == "bar" && !below {
         y["domain"] = json!([0, null]);
     }
     let mut node = json!({
@@ -8178,6 +8316,28 @@ mod tests {
         assert_eq!(typeset_en("prices, err := pricing.GetMany(\"a\")"), "prices, err := pricing.GetMany(\"a\")");
     }
 
+    /// Slides an agent wrote too few for the length its brief asks are refused saying that length,
+    /// where the minutes gave it, and the two ways on (agent dogfood 5: "the model wrote 10 slides,
+    /// and a deck of this length has at least 11", where no model was called).
+    #[test]
+    fn too_few_slides_say_the_length_asked_and_the_ways_on() {
+        let short = scaena_narrato::NarratoError::Incomplete { delivered: 10, minimum: 11 };
+        let mut brief = Brief::new("How one core draws every screen");
+        brief.length = "11-15 slides".into();
+        brief.minutes = Some(20);
+        assert_eq!(
+            too_few(&short, &brief),
+            "10 given, and the length asked, `11-15 slides`, the length 20 minutes take, holds at least 11: \
+             write 1 more, or ask a `length` that holds 10"
+        );
+        brief.minutes = None;
+        assert!(
+            too_few(&short, &brief).starts_with("10 given, and the length asked, `11-15 slides`, holds at least 11")
+        );
+        let other = scaena_narrato::NarratoError::Answer("no slides".into());
+        assert_eq!(too_few(&other, &brief), "no slides");
+    }
+
     /// A slide asked for as code ("Code"), or a list of one item that reads as code in the language
     /// of the file its subtitle names, shows it on Title and Code, the code in its language, as
     /// written: a config file's straight quotes kept, its language named by the file its subtitle
@@ -8493,6 +8653,48 @@ mod tests {
         assert_eq!((i.label.as_deref(), i.detail.as_str()), (Some("Contact"), "equipe@exemple.fr"));
     }
 
+    /// A year a clause dates something by is not what an item is about where another figure
+    /// follows (W1 dogfood 12).
+    #[test]
+    fn an_items_figure_is_the_one_its_words_are_about() {
+        let figure = |text: &str| item(text).figure();
+        assert_eq!(figure("Portland: curbside since 2011, 40% less landfilled food").as_deref(), Some("40%"));
+        assert_eq!(figure("San Antonio: citywide since 2019, $3.2M saved a year").as_deref(), Some("$3.2M"));
+        // A year alone is the figure, and so is one the words are about.
+        assert_eq!(figure("Founded: in 2011").as_deref(), Some("2011"));
+        assert_eq!(figure("Launch: 2027, then 40 cities").as_deref(), Some("2027"));
+    }
+
+    /// A slide's items each written with more figures than one are never set as figures that
+    /// keep one and drop the rest: "40% less landfilled food" stays on the slide (W1 dogfood 12).
+    #[test]
+    fn no_item_loses_its_figures_to_a_scorecard() {
+        let text = serde_json::json!({
+            "executiveSummary": "Compost pays.",
+            "slides": [
+                { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Other cities", "subtitle": "", "layoutSuggestion": "Scorecard", "keyBullets": [
+                    "Portland: curbside since 2011, 40% less landfilled food",
+                    "Minneapolis: opt-in since 2015, 47% of homes signed up",
+                    "San Antonio: citywide since 2019, $3.2M saved a year"] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let words: String = (made.deck["nodes"].as_object().unwrap().values())
+            .filter_map(|n| n["text"].as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        for figure in ["2011", "40%", "2015", "47%", "2019", "$3.2M"] {
+            assert!(words.contains(figure), "{figure} is drawn on {}: {words}", made.layouts[1]);
+        }
+        assert!(words.contains("less landfilled food"), "{words}");
+    }
+
     #[test]
     fn an_item_reads_its_label_and_its_figure() {
         let i = item("\u{2022} $4.1M: Q3 revenue, up 12%");
@@ -8743,6 +8945,16 @@ mod tests {
         assert_eq!(lit(&de, "S\u{fc}d ist l\u{e4}nger unterwegs als Zentrum", "de-AT"), Some(2));
         let es = stations(["Norte", "Centro", "Sur"]);
         assert_eq!(lit(&es, "El norte hace cinco veces menos viajes que el centro", "es"), Some(0));
+        // Portuguese and Italian compare alike (W1's dogfood 11), and their "que", "che", and "di"
+        // compare only after a word that does.
+        let pt = stations(["Norte", "Centro", "Sul"]);
+        assert_eq!(lit(&pt, "A loja do norte vende cinco vezes menos que a do centro", "pt-BR"), Some(0));
+        assert_eq!(lit(&pt, "O sul vende mais do que o norte", "pt"), Some(2));
+        assert_eq!(lit(&pt, "O norte e o centro, que a nova linha liga", "pt"), Some(1));
+        let it = stations(["Nord", "Centro", "Sud"]);
+        assert_eq!(lit(&it, "Il negozio del nord vende cinque volte meno del centro", "it"), Some(0));
+        assert_eq!(lit(&it, "Il sud vende pi\u{f9} che il nord", "it"), Some(2));
+        assert_eq!(lit(&it, "Il nord di Milano e il centro", "it"), Some(1), "a di that compares nothing");
         // A "que" or an "als" that joins clauses, with nothing comparing, compares nothing; nor do two
         // named with no word between them that compares: the largest, as before.
         assert_eq!(lit(&fr, "Le nord et le centre, que la ligne relie", "fr"), Some(1));
@@ -10423,6 +10635,119 @@ mod tests {
         assert_eq!(kept.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", kept.layouts);
     }
 
+    /// A slide asked for by its columns, "Three Column", is set side by side as its items run, not
+    /// fallen to a numbered list as a name Narrato's table did not know (R1's agent dogfood 5).
+    #[test]
+    fn a_slide_asked_by_its_columns_sets_them_side_by_side() {
+        let columns = |title: &str, layout: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": "", "layoutSuggestion": layout,
+              "keyBullets": bullets, "beatIndex": 1, "beatName": "Problem" })
+        };
+        // Two such slides a deck, a quote between, so Narrato's variety pass leaves each as it is.
+        let made = |first: serde_json::Value, second: serde_json::Value| {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    first,
+                    { "slideTitle": "\"We pay twice for one proof.\"", "subtitle": "A shipper",
+                      "layoutSuggestion": "Quote", "keyBullets": [], "beatIndex": 1, "beatName": "Problem" },
+                    second,
+                    { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                      "beatIndex": 2, "beatName": "Close" },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
+            let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            assert!(made.fell.iter().all(|f| ![1, 3].contains(&f.slide)), "{:?}", made.fell);
+            assert!(made.unset.iter().all(|u| ![1, 3].contains(&u.slide)), "{:?}", made.unset);
+            [made.layouts[1].clone(), made.layouts[3].clone()]
+        };
+        let labelled = made(
+            columns(
+                "Why green freight stalls",
+                "Three Column",
+                &["Verification: weeks per container", "Offsets: no one sees the ledger", "Shippers: they pay twice"],
+            ),
+            columns(
+                "Who the ledger serves",
+                "Four Columns",
+                &[
+                    "Ports: they clear the cargo",
+                    "Carriers: they move it",
+                    "Shippers: they pay for it",
+                    "Auditors: they check it",
+                ],
+            ),
+        );
+        assert_eq!(labelled, ["three-columns", "four-columns"]);
+        // An agent that asks for three columns of three points means three across, labelled or not.
+        let unlabelled = made(
+            columns(
+                "What the ledger proves",
+                "Three Column",
+                &[
+                    "Each container is weighed at the port",
+                    "Each offset is matched to a voyage",
+                    "Each shipper sees what it paid for",
+                ],
+            ),
+            columns(
+                "Who checks it",
+                "four-columns",
+                &[
+                    "The port weighs each container",
+                    "The carrier logs each voyage",
+                    "The shipper reads each ledger",
+                    "The auditor signs each year",
+                ],
+            ),
+        );
+        assert_eq!(unlabelled, ["three-columns", "four-columns"]);
+        // "Two Column" asks no count of its own: its items are set as they were.
+        assert_eq!(
+            ["Two Column", "Two Columns", "Three Columns", "four-column", "Five Columns"].map(columns_asked),
+            [None, None, Some(3), Some(4), None]
+        );
+    }
+
+    /// A layout of names alone that leaves an item's figure off its cards says so in `unset`,
+    /// with the item's words, where the slide's notes do not say it (W1 dogfood 12).
+    #[test]
+    fn a_figure_no_place_sets_is_said() {
+        let made = |notes: &str| {
+            let text = serde_json::json!({
+                "executiveSummary": "A talk.",
+                "slides": [
+                    { "slideTitle": "A talk", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                    { "slideTitle": "Every line item made its own call to pricing",
+                      "subtitle": "How a checkout request flows today", "layoutSuggestion": "Architecture",
+                      "speakerNotes": notes,
+                      "keyBullets": ["Edge: CDN and API gateway", "Checkout service: Go, 40 pods",
+                        "Pricing service: one synchronous call per line item",
+                        "Postgres: one primary, two read replicas"] },
+                    { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
+            let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+            deck(&n, &theme, &Pictures::new()).unwrap()
+        };
+        let silent = made("");
+        assert_eq!(silent.layouts[1], "architecture");
+        let unset: Vec<(usize, &str)> = silent.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
+        assert_eq!(unset, [(2, "Checkout service: Go, 40 pods")]);
+        // Said in the slide's notes, it is not left out.
+        let noted = made("Checkout runs on Go, 40 pods behind the gateway.");
+        assert!(noted.unset.is_empty(), "{:?}", noted.unset);
+    }
+
     #[test]
     fn the_layouts_a_talk_names_that_the_library_has_are_reached() {
         // Dogfood pass 7: an architecture, a decision brief, a quiz, and a risk matrix the library
@@ -10868,6 +11193,47 @@ mod tests {
     /// What the look's reading let go for writing a slide's figures otherwise is kept beside
     /// what else is refused, in the report and in `meta.narrative.refused`, and said as no
     /// slide lint found worse (W1 dogfood 9); what else the answer asks stands.
+    /// A big number draws its figure and what it means, never the slide's title: the look is told
+    /// no room for that title, and a title it rewrites there is not said as kept, as no one would
+    /// see it (W1 dogfood 12).
+    #[test]
+    fn a_title_its_layout_draws_nowhere_is_given_no_room_and_no_credit() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = serde_json::json!({
+            "executiveSummary": "Compost pays.",
+            "slides": [
+                { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Payback", "subtitle": "", "layoutSuggestion": "Big Number",
+                  "keyBullets": ["3 years", "until avoided fees repay the carts"] },
+                { "slideTitle": "Risks", "subtitle": "", "layoutSuggestion": "Bullet List", "keyBullets": [
+                    "Contamination above 5%: cart tags and a second notice",
+                    "Low sign-up: door-to-door visits on low blocks"] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let write = write.unwrap();
+        assert_eq!(made.layouts[1], "big-number");
+        let rooms = rooms(&write);
+        assert_eq!(rooms[1], None, "{rooms:?}");
+        assert!(rooms[2].is_some(), "a headline's room is told: {rooms:?}");
+        let title = |slide: usize, title: &str| Change {
+            slide,
+            title: Some(title.into()),
+            why: "A topic.".into(),
+            ..Change::default()
+        };
+        let changes = vec![title(2, "The carts pay for themselves"), title(3, "Each risk has a plan")];
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, _) = looked(shown, changes, (made, write), Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        let said: Vec<(usize, Option<&str>)> = made.looked.iter().map(|c| (c.slide, c.title.as_deref())).collect();
+        assert_eq!(said, [(3, Some("Each risk has a plan"))]);
+    }
+
     #[test]
     fn a_look_that_writes_a_figure_otherwise_is_said_let_go() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -10880,6 +11246,7 @@ mod tests {
             figured: vec![scaena_narrato::look::Figured {
                 what: what.into(),
                 why: "it drops 12, which the slide wrote".into(),
+                by: None,
             }],
             ..Change::default()
         };
@@ -10946,6 +11313,50 @@ mod tests {
         let (layout, said) = close(&n);
         assert_eq!(layout, "closing");
         has(&said, "statement", "Thank you");
+    }
+
+    /// A bare thanks with somewhere to reach its speaker and no ask takes Call to Action, its own
+    /// words over the address as its button, never a list of "Questions?" and an email; in a deck
+    /// whose asks are not read, it keeps its closing (W1 dogfood 12).
+    #[test]
+    fn a_bare_thanks_with_an_address_takes_a_call_to_action() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = |title: &str, bullets: &[&str], language: Option<&str>| {
+            let text = serde_json::json!({
+                "executiveSummary": "Compost pays.",
+                "slides": [
+                    { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                    { "slideTitle": "Approve $2.4M for carts", "subtitle": "", "layoutSuggestion": "Statement",
+                      "keyBullets": ["Rollout starts in 2027"] },
+                    { "slideTitle": title, "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": bullets },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.brief.language = language.map(str::to_string);
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+            (made.layouts[2].clone(), shown(&made.deck, &state))
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let (layout, said) = made("Thank you", &["Questions?", "compost@cityofbrookhaven.gov"], None);
+        assert_eq!(layout, "call-to-action", "{said:#?}");
+        has(&said, "statement", "Thank you\nQuestions?");
+        has(&said, "button", "compost@cityofbrookhaven.gov");
+        // Its address in a line of words: the words without it.
+        let (layout, said) = made("Thank you", &["Questions?", "Reach us at compost@cityofbrookhaven.gov"], None);
+        assert_eq!(layout, "call-to-action", "{said:#?}");
+        has(&said, "statement", "Thank you\nQuestions?\nReach us");
+        // A thanks with nowhere to reach anyone, or one line the closing holds under it, keeps
+        // its closing.
+        assert_eq!(made("Thank you", &["Questions?"], None).0, "closing");
+        assert_eq!(made("Thank you", &["compost@cityofbrookhaven.gov"], None).0, "closing");
+        // Asks are read in English alone (Jay's item g): a French thanks keeps its closing.
+        let (layout, said) = made("Merci", &["Des questions ?", "compost@ville.fr"], Some("French"));
+        assert_ne!(layout, "call-to-action", "{said:#?}");
     }
 
     #[test]
@@ -11430,6 +11841,10 @@ mod tests {
         // Several series with no subtitle keep their unit alone: it is all that says the scale.
         let several = json!([{ "name": "Asked", "values": [1, 2, 3] }, { "name": "Granted", "values": [1, 2, 2] }]);
         assert_eq!(budget(several)["y"]["title"], "$");
+        // Bars from zero where every one stands above it; a deficit's run below it, the axis not
+        // held at zero (W1 dogfood 12).
+        assert_eq!(budget(json!([{ "values": [120, 140, 180] }]))["y"]["domain"], json!([0, null]));
+        assert!(budget(json!([{ "values": [2.4, -0.4, -1.3] }]))["y"].get("domain").is_none());
     }
 
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".
@@ -12277,6 +12692,40 @@ mod tests {
             assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
         }
         assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2\n</data>"));
+    }
+
+    /// The look offers a numbered list only for points in an order, or that their writer
+    /// numbered: never for points the builder set as bullets for having none (W1 dogfood 12).
+    #[test]
+    fn the_look_numbers_no_points_that_have_no_order() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = serde_json::json!({
+            "executiveSummary": "Compost pays.",
+            "slides": [
+                { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Residents want it", "subtitle": "", "layoutSuggestion": "Bullet List", "keyBullets": [
+                    "72% of surveyed households would separate scraps",
+                    "41% already compost at home or at a drop-off",
+                    "Top worry: smell and pests, named by 38%"] },
+                { "slideTitle": "How it works", "subtitle": "", "layoutSuggestion": "Numbered", "keyBullets": [
+                    "Each home gets a green cart", "Scraps go in loose or in paper bags",
+                    "Carts are picked up weekly with trash"] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let narrative = narrative(&written.executive_summary, written.slides);
+        let pictures = Pictures::new();
+        let layouts = deck(&narrative, &theme, &pictures).unwrap().layouts;
+        let seen = seeing(&narrative, &theme, &pictures, &layouts);
+        let offered = |k: usize| seen[k].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(seen[1].layout.id, "bullets");
+        assert!(!offered(1).contains(&"numbered"), "{:?}", offered(1));
+        // Points their writer numbered keep the list that numbers them, and may take the one
+        // that does not.
+        assert_eq!(seen[2].layout.id, "numbered");
+        assert!(offered(2).contains(&"bullets"), "{:?}", offered(2));
     }
 
     #[test]

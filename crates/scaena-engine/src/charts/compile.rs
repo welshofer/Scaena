@@ -916,15 +916,31 @@ fn compile_in(
     // widens it as the data would.
     let note_ys: Vec<f64> =
         notes.iter().flat_map(|n| n.at.y.iter().flat_map(Place::values)).filter_map(|v| v.position(false)).collect();
+    // What the marks reach, which a bound never cuts off a length at; an annotation past a bound is
+    // the author's to widen.
+    let (data_min, data_max) = (min, max);
     let (min, max) = note_ys.iter().fold((min, max), |(lo, hi), &v| (lo.min(v), hi.max(v)));
     let domain = y.get("domain").and_then(Value::as_array);
     let bound = |i: usize| domain.and_then(|d| d.get(i)).and_then(Value::as_f64);
-    let lo = bound(0).unwrap_or(if kind.zero_based() { min.min(0.0) } else { min });
-    let hi = bound(1).unwrap_or(max).max(lo + f64::EPSILON);
+    // A length runs from zero to its value: a bound that would cut a bar off is widened to hold it,
+    // as an author's `[0, null]` over a deficit would draw its bars past the plot and their values
+    // off the slide (W1 dogfood 12).
+    let lo = match bound(0) {
+        Some(b) if kind.zero_based() => b.min(data_min.min(0.0)),
+        Some(b) => b,
+        None if kind.zero_based() => min.min(0.0),
+        None => min,
+    };
+    let hi = match bound(1) {
+        Some(b) if kind.zero_based() => b.max(data_max),
+        Some(b) => b,
+        None => max,
+    }
+    .max(lo + f64::EPSILON);
     let ruled = y_show || y_grid;
     // About `tickCount` ticks, and no more than `maxTicks`: the axis asks for fewer,
     // down to two, until its ticks fit, so it draws at most that many reference lines.
-    let widen = [bound(0).is_none(), bound(1).is_none()];
+    let widen = [bound(0).is_none_or(|b| b != lo), bound(1).is_none_or(|b| b != hi)];
     let fits = |count: usize| {
         let (a, b) = scale::nice(lo, hi, count, widen);
         scale::ticks(a, b, count).len() <= max_ticks
@@ -1311,9 +1327,14 @@ fn compile_in(
         _ => 0.0,
     };
     let top = title_y + legend_top + over.max(0.5 * tick_cap) + note_room;
+    // Bars on both sides of zero: each category is named on the side of the zero line away from
+    // its bars, over it for a bar below zero, as charting tools name one, never on the bar; the
+    // foot keeps room for a value under the lowest bar's end (W1 dogfood 12).
+    let straddles = x_show && !continuous && matches!(kind, Kind::Bar | Kind::StackedBar) && lo < 0.0 && hi > 0.0;
     let mut bottom = size[1];
     if x_show {
-        bottom = bottom - gap - x_texts.iter().map(|(_, t)| below_cap(t)).fold(0.0_f32, f32::max);
+        let names = x_texts.iter().map(|(_, t)| below_cap(t)).fold(0.0_f32, f32::max);
+        bottom = bottom - gap - if straddles { names.max(label_room) } else { names };
     }
     bottom -= title_x;
     if legend_place == "bottom" {
@@ -1998,6 +2019,15 @@ fn compile_in(
             kept
         }
     };
+    // A category whose bars run below zero, stacked or side by side: one that comes to less than
+    // nothing, none of its bars above it.
+    let below_zero = |key: &str| {
+        let ys = || rows.iter().filter(|r| r.category == key).map(|r| r.y);
+        match stacked {
+            true => ys().sum::<f64>() < 0.0,
+            false => ys().any(|y| y < 0.0) && ys().all(|y| y <= 0.0),
+        }
+    };
     let mut shorts: Vec<Option<(String, TextLayout)>> = x_texts.into_iter().map(Some).collect();
     let mut longs = x_longs;
     for (i, long) in kept {
@@ -2006,8 +2036,13 @@ fn compile_in(
             Some(text) => text,
             None => short,
         };
-        let origin = [at(i, &text), foot + gap - text.trimmed(TextBox::Cap).0];
-        out.ticks.push(Label::new(key, origin, text, None));
+        let y = match straddles {
+            // Over the zero line, its baseline a space above it, for a category below zero.
+            true if below_zero(&key) => base - gap - text.lines[0].baseline,
+            true => base + gap - text.trimmed(TextBox::Cap).0,
+            false => foot + gap - text.trimmed(TextBox::Cap).0,
+        };
+        out.ticks.push(Label::new(key, [at(i, &text), y], text, None));
     }
     // A line's first value does not stand on the category's label under its point: where the
     // point is near the plot's foot, the value ending a space over it sat two spaces over the

@@ -189,7 +189,7 @@ struct DeckView: View {
     /// The states down the side; beside them the canvas and the rest; and the toolbar.
     private var window: some View {
         NavigationSplitView(columnVisibility: $columns) {
-            StateList(editor: editor, chosen: $chosen, make: restage, add: addState, asking: askSlide)
+            StateList(editor: editor, chosen: $chosen, make: restage, add: addState, asking: askSlide, fold: foldSlide)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         } detail: {
             #if os(macOS)
@@ -364,7 +364,7 @@ struct DeckView: View {
                     try document.make(ops, undo: undo)
                     slidesPicked = Set(then)
                 }
-            }, touch: touch, asking: askSlide)
+            }, touch: touch, asking: askSlide, fold: foldSlide)
         } else {
             // The canvas takes the room the find bar, the other sizes, and the timeline leave.
             CanvasColumn {
@@ -2090,6 +2090,10 @@ struct DeckView: View {
                 // the canvas takes the keyboard, as a key pressed over a text selected begins it.
                 Task { @MainActor in _ = typing?.enterOver(head, in: state) }
             },
+            fold: { state in
+                if typing?.typing == true { typing?.leave() }
+                foldSlide(state)
+            },
             field: { state, field in
                 // The slide, nothing on it selected, under the Format tab, where the inspector
                 // scrolls to the field and focuses it once the slide's choices are drawn.
@@ -2154,6 +2158,22 @@ struct DeckView: View {
             try document.make(added.patch, undo: undo, named: what == .step ? "New Step" : "New Slide")
             chosen = added.id
             said = what == .step ? "Step added" : "Slide added"
+        }
+    }
+
+    /// The slide `state` is on folded into the slide before it (editor dogfood 6): one step to undo,
+    /// that slide shown at its last step, where the words joined, and what it did said; or why it
+    /// cannot be, said, nothing made.
+    private func foldSlide(_ state: String) {
+        perform {
+            let folded = try editor.session.folding(state)
+            if let refused = folded.refused {
+                said = refused
+                return
+            }
+            try document.make(folded.patch, undo: undo, named: "Fold Slide")
+            chosen = editor.entered(folded.into)
+            said = folded.said
         }
     }
 

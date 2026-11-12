@@ -83,7 +83,7 @@ fn lint_with(bundle: &Path, args: &[&str]) -> (i32, Vec<Value>) {
 }
 
 /// Each rule's trigger, and where in the deck it finds what it finds.
-const RULES: [(&str, &[&str]); 50] = [
+const RULES: [(&str, &[&str]); 51] = [
     ("E100", &["/nodes/t"]),
     ("E101", &["/nodes/b", "/nodes/note", "/nodes/src"]),
     ("E107", &["/nodes/pic"]),
@@ -112,6 +112,7 @@ const RULES: [(&str, &[&str]); 50] = [
     ("W312", &["/nodes/c"]),
     ("W313", &["/nodes/c"]),
     ("W314", &["/nodes/map"]),
+    ("W315", &["/nodes/c"]),
     ("W320", &["/states/0"]),
     ("W321", &["/states/0/choreography"]),
     ("W322", &["/states/1/choreography/0", "/states/2/choreography/0"]),
@@ -214,6 +215,29 @@ fn chart_text_is_judged_in_its_color_over_what_the_chart_paints() {
     let dir = bundle("chart-note-clean", &deck(sales(), chart), |_| {});
     let (_, found) = lint(&dir);
     assert!(contrast(&found).is_empty(), "{found:#?}");
+}
+
+/// W315 passes bars on both sides of zero, run up or across, where the value axis takes in every
+/// value: each value and each category name stands inside the chart (W1 dogfood 12). It finds the
+/// line whose author bound cuts its values off, naming the value furthest out.
+#[test]
+fn w315_passes_bars_below_zero_and_finds_values_past_a_bound() {
+    let rows = [("2026", 2.4), ("2027", 0.9), ("2028", -0.4), ("2029", -1.2), ("2030", -4.8)];
+    let inline: Vec<Value> = rows.iter().map(|(q, v)| serde_json::json!({ "q": q, "v": v })).collect();
+    let budget = serde_json::json!({ "budget": { "source": { "inline": inline }, "schema": { "v": "number" } } });
+    for orient in ["vertical", "horizontal"] {
+        let chart = serde_json::json!({ "c": {
+            "type": "chart", "kind": "bar", "orient": orient, "data": "@budget",
+            "x": { "field": "q" }, "y": { "field": "v" }, "labels": { "show": "all" },
+            "alt": "The surplus turns to deficit.", "at": { "in": "main" }
+        }});
+        let (_, found) = lint(&bundle(&format!("w315-{orient}"), &deck(budget.clone(), chart), |_| {}));
+        assert!(!found.iter().any(|f| f["code"] == "W315"), "{orient}: {found:#?}");
+    }
+    let (_, found) = lint(&fixture("w315-past", "W315", "trigger"));
+    let w315 = found.iter().find(|f| f["code"] == "W315").expect("W315");
+    assert_eq!(w315["measure"]["label"], "45");
+    assert_eq!(w315["measure"]["off"], true);
 }
 
 /// W204's fix holds a code text's lines in focus to the lines it has (PLAN 2.140): lines 2 to 6 of

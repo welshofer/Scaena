@@ -237,7 +237,8 @@ impl Narrative {
 /// Why a deck could not be generated.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum NarratoError {
-    #[error("{0}")]
+    /// Its message alone, never the brief's again as its cause (W1 dogfood 12).
+    #[error(transparent)]
     Brief(#[from] BriefError),
     /// What the provider said: a status and its words, a refusal, a block.
     #[error("{0}")]

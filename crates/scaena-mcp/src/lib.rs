@@ -1065,8 +1065,8 @@ pub struct StateStart {
     /// each by its name; `deck_read` with `theme` gives them all, in its `layouts`). Without it, a blank slide.
     #[serde(default)]
     pub layout: Option<String>,
-    /// The one sentence the slide tells: it starts a beat of its own for it, just after the beat
-    /// of the state it follows. Without it, the slide joins that beat.
+    /// The one sentence the slide tells: its headline says it, and it starts a beat of its own for
+    /// it, just after the beat of the state it follows. Without it, the slide joins that beat.
     #[serde(default)]
     pub claim: Option<String>,
     /// The new state's id, and its nodes' after it (`pricing-header`). Without it, the layout's
@@ -1411,7 +1411,9 @@ impl Scaena {
         duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
         layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); \
         place puts a node where it goes; choose sets a property where its value \
-        lives; replace_text changes words, keeping their runs. An op that does not read says the shape it is written \
+        lives; replace_text changes words, keeping their runs; brief sets the deck's brief, which health paces \
+        and reads it by (`{\"op\": \"brief\", \"audience\": \"…\", \"goal\": \"Persuade\", \"minutes\": 10}`), \
+        a deck made by hand having none. An op that does not read says the shape it is written \
         in, and the skill `scaena://skills/author-deck` writes every op so. A patch that would make the deck invalid \
         is refused. \
         Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats \

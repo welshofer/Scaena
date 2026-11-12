@@ -60,6 +60,10 @@ pub const SHAPES: &[(&str, &str)] = &[
         r#"{ "op": "set_state", "id": STATE, "prop": "layout" | "hold" | "notes" | "furniture" | "transition" | "transition/KEY", "value": VALUE, "fork"?: BOOL }"#,
     ),
     ("furnish", r#"{ "op": "furnish", "number"?: BOOL, "footer"?: TEXT }"#),
+    (
+        "brief",
+        r#"{ "op": "brief", "topic"?: TEXT, "audience"?: TEXT, "goal"?: GOAL, "length"?: LENGTH, "minutes"?: 1-600, "language"?: TEXT, "voice"?: TEXT, "desiredOutcomes"?: TEXT }"#,
+    ),
     ("retheme", r#"{ "op": "retheme", "theme": THEME }"#),
 ];
 
