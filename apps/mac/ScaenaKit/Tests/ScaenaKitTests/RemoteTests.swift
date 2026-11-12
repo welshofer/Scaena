@@ -478,7 +478,14 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
         let receiving = Sealed(keys: ofPresenter, side: .presenter)
         let first = try sending.seal(Data("on".utf8))
         let second = try sending.seal(Data("back".utf8))
-        #expect(first != Data("on".utf8) && first.range(of: Data("on".utf8)) == nil, "nothing passes in the clear")
+        #expect(first != Data("on".utf8), "nothing passes in the clear")
+        // What a message says is not found in what is sent: asked of words long enough that no
+        // sealing holds them by chance. Two letters, "on", turned up in the random bytes of a
+        // sealed frame about one run in four thousand, as on #1240's ipad job.
+        let notes = Data("Welcome everyone. Fifteen minutes, then questions.".utf8)
+        let sealedNotes = try Sealed(keys: ofRemote, side: .remote).seal(notes)
+        #expect(sealedNotes.count == 12 + notes.count + 16, "a nonce, the words sealed, and a tag")
+        #expect(sealedNotes.range(of: notes) == nil, "nothing passes in the clear")
         #expect(throws: (any Error).self, "out of turn") { try receiving.open(second) }
         #expect(try receiving.open(first) == Data("on".utf8))
         #expect(throws: (any Error).self, "replayed") { try receiving.open(first) }
