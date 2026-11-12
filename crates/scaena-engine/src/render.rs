@@ -1157,8 +1157,10 @@ impl Engine {
             // its floor does, else as large as it fits (W1 dogfood 15).
             TextFit::Shrink if !whole(&base) || cap < 1.0 => {
                 let floor = number("minSize").or(spec.role.min_size).map_or(0.5, |m| m / spec.role.size).min(1.0);
+                // Searched again by fit alone only where the floor fits but cuts a phrase: one that
+                // does not fit at all is set at its floor either way, laid out as often as before.
                 match largest_fit(&mut lay, &whole, floor.min(cap), cap)? {
-                    (_, laid) if !whole(&laid) => largest_fit(&mut lay, &fits, floor.min(cap), cap)?,
+                    (_, laid) if fits(&laid) && !whole(&laid) => largest_fit(&mut lay, &fits, floor.min(cap), cap)?,
                     set => set,
                 }
             }

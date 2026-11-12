@@ -772,6 +772,11 @@ fn a_japanese_phrase_stands_whole_past_its_measure_as_an_english_word_does() {
         // Its measure holds about nine of its letters, and the phrase is eleven.
         assert!(wide.measure >= 10.0 * size && wide.measure <= 1680.0, "{wrap:?}: {}", wide.measure);
     }
+    // The dogfood's close, eleven kana and one phrase, wider than the measure: on one line, whole.
+    for wrap in [Wrap::Greedy, Wrap::Balance] {
+        let close = set("ありがとうございました", wrap, 1680.0);
+        assert!(close.lines.len() == 1 && !close.cut, "{wrap:?}: {:?}", breaks(&close));
+    }
     // In a box too narrow for the phrase, it is cut where it must be, as before.
     let narrow = set(text, Wrap::Greedy, 6.0 * size);
     assert!(narrow.cut && narrow.lines.iter().all(|l| l.width <= 6.0 * size + 1e-3), "{:?}", breaks(&narrow));
