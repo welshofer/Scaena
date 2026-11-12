@@ -318,6 +318,16 @@ fn every_lint_code_is_said_in_a_sentence() {
 fn a_change_of_the_history_is_said_as_a_person_says_it() {
     assert_eq!(words::change("patch: add_node, place, place"), "An object added, an object moved");
     assert_eq!(words::change("patch: a_new_op"), "An edit");
+    // Each op a patch takes is said, the brief and the furniture too (agent dogfood 7: a brief
+    // set over MCP was "An edit").
+    for (op, _) in scaena_core::patch::SHAPES {
+        assert_ne!(words::change(&format!("patch: {op}")), "An edit", "{op}");
+    }
+    assert_eq!(words::change("patch: brief"), "The brief changed");
+    // A run of one op is counted (agent dogfood 7: three slides cut were "A slide deleted").
+    assert_eq!(words::change("patch: remove_slide \u{d7}3"), "3 slides deleted");
+    assert_eq!(words::change("patch: add_node \u{d7}2, place, add_node"), "3 objects added, an object moved");
+    assert_eq!(words::change("patch: replace_text \u{d7}2"), "Words typed");
     assert_eq!(words::change("history --restore 0@12 --slide revenue"), "A slide restored");
     assert_eq!(words::change(""), "A change");
     assert_eq!(words::change("history begins"), "The history begins");
