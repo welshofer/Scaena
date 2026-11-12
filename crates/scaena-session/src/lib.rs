@@ -2584,8 +2584,10 @@ impl Session {
     /// states taken out, one step to undo; or why it cannot be, in a person's words, laid out to
     /// find words that would run past their place (`scaena_ops::states::folding`).
     #[cfg(feature = "editor")]
-    pub fn folding(&self, state: &str) -> Result<scaena_ops::states::Folded, Error> {
-        scaena_ops::states::folding(&self.bundle(), state).map_err(|e| Error::Ops(e.to_string()))
+    /// With `into`, a state of an earlier slide, it folds into that slide in place of the one
+    /// before it, as a Story row offers where a slide says again what an earlier one said.
+    pub fn folding(&self, state: &str, into: Option<&str>) -> Result<scaena_ops::states::Folded, Error> {
+        scaena_ops::states::folding(&self.bundle(), state, into).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
@@ -3830,7 +3832,7 @@ mod tests {
         assert_eq!(to("cover"), serde_json::Value::Null);
         assert_eq!(to("agenda"), "notes");
         assert_eq!(to("budget"), "place");
-        let folded = s.folding("budget").unwrap();
+        let folded = s.folding("budget", None).unwrap();
         assert_eq!((folded.said.as_str(), folded.refused), ("Folded slide 12 into slide 11", None));
     }
 

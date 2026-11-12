@@ -265,6 +265,11 @@ pub struct Finding {
     /// large, or for a cut, a move, or a source.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<Field>,
+    /// The earlier slide a slide that says again what it said may be folded into, by its first
+    /// state's id: what a `story` finding of a repeat offers beside the cut, Fold Into Slide N
+    /// (`scaena_ops::states::folding`'s `into`, R1's #1161).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -565,7 +570,7 @@ fn figures(text: &str) -> Vec<Figure> {
         }
         let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
         let count = w.parse::<u32>().is_ok_and(|n| n < 10);
-        if year || count || clock(w) {
+        if year || count || clock(w) || dated(&words, k) {
             continue;
         }
         let (number, joined) = match w.split_once('-') {
@@ -612,6 +617,109 @@ fn figures(text: &str) -> Vec<Figure> {
         out.push(Figure { shown, value, unit });
     }
     out
+}
+
+/// The names of the months, and their short forms, as a date writes them in English, Spanish,
+/// Portuguese, French, German, and Italian, in lower case.
+const MONTHS: [&str; 75] = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "sept",
+    "oct",
+    "nov",
+    "dec",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "setiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+    "janeiro",
+    "fevereiro",
+    "março",
+    "maio",
+    "junho",
+    "julho",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "décembre",
+    "januar",
+    "jänner",
+    "februar",
+    "märz",
+    "juni",
+    "juli",
+    "oktober",
+    "dezember",
+    "gennaio",
+    "febbraio",
+    "aprile",
+    "maggio",
+    "giugno",
+    "luglio",
+    "settembre",
+    "ottobre",
+    "dicembre",
+];
+
+/// Whether `words[k]` is the day of the month in a date, as each language writes one (W2's health
+/// read: Valdemar's "Votación: 15 de diciembre" read as the figure 15): a day from 1 to 31, an
+/// ordinal's ending aside ("15th", "1er", "15."), before its month ("15 December", "15. Dezember",
+/// "15 décembre", "15 dicembre") or its month after "de" or "del" ("15 de diciembre", "15 de
+/// dezembro"), or after its month in English ("December 15"). A day a counter follows in Chinese or
+/// Japanese ("12月15日") is passed over where the phrase is read. A count is none: "15 de los 30
+/// barrios" names no month.
+fn dated(words: &[&str], k: usize) -> bool {
+    let word = words[k];
+    let digits: String = word.chars().take_while(char::is_ascii_digit).collect();
+    let rest = &word[digits.len()..];
+    let ordinal = ["", ".", "st", "nd", "rd", "th", "er", "e", "º", "ª", "o"].contains(&rest.to_lowercase().as_str());
+    if digits.is_empty() || digits.len() > 2 || !ordinal || !digits.parse::<u32>().is_ok_and(|d| (1..=31).contains(&d))
+    {
+        return false;
+    }
+    let month = |w: Option<&&str>| w.is_some_and(|w| MONTHS.contains(&w.trim_end_matches('.').to_lowercase().as_str()));
+    let english =
+        |w: Option<&&str>| w.is_some_and(|w| MONTHS[..24].contains(&w.trim_end_matches('.').to_lowercase().as_str()));
+    let of = |w: Option<&&str>| w.is_some_and(|w| matches!(w.to_lowercase().as_str(), "de" | "del"));
+    month(words.get(k + 1)) || (of(words.get(k + 1)) && month(words.get(k + 2))) || (k > 0 && english(words.get(k - 1)))
 }
 
 /// Whether `word` is a time of day: hours to 23, a colon, and two digits of minutes to 59.
@@ -701,6 +809,19 @@ fn moved(slides: &[SlideForHealth]) -> Vec<(usize, usize, usize)> {
             Some((declared[j].0, declared[j].1, now))
         })
         .collect()
+}
+
+/// A plan `asked` for a slide whose words read `words`, to two places, rounded toward the words:
+/// a plan held to the most its words carry stays within it once written (agent dogfood 8: 0.7776
+/// written as 0.78 read 0.2524 from its words, past the gap, and the fix's plan was found flat).
+fn held(asked: f64, words: Option<f64>) -> f64 {
+    let hundredths = asked * 100.0;
+    let rounded = match words {
+        Some(w) if asked > w => hundredths.floor(),
+        Some(w) if asked < w => hundredths.ceil(),
+        _ => hundredths.round(),
+    };
+    rounded / 100.0
 }
 
 /// The slides a brief's length asks for (`meta.narrative.brief.length`): `16-25 slides` from 16 to
@@ -1757,6 +1878,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 figure: None,
                 path: None,
                 field: None,
+                into: None,
             });
         }
     };
@@ -2096,7 +2218,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     ),
                 };
                 // The plan asked, written where the slide's plan is, for the person to take.
-                let value = (asked * 100.0).round() / 100.0;
+                let value = held(asked, words);
                 let fix = reach.then(|| at(&d.slide_id, "intensity")).flatten().map(|path| Fix {
                     says: format!("Plan it at {}", level(value)),
                     patch: vec![json!({ "op": "replace", "path": path, "value": value })],
@@ -2114,7 +2236,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     }
                     _ => calls,
                 };
-                let value = (asked * 100.0).round() / 100.0;
+                let value = held(asked, slides_read.get(i).and_then(|r| r.read));
                 let fix = slides[i].beat.map(|(si, bj, b)| {
                     let base = format!("/spine/sections/{si}/beats/{bj}");
                     let op = match b.media.as_ref() {
@@ -2579,6 +2701,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let before = scaena_narrato::figures(&format!("{} {}", was.title, was.body));
         scaena_narrato::figures(&format!("{} {}", now.title, now.body)).iter().all(|f| before.contains(f))
     };
+    // Each slide found saying again what an earlier one said, with that one: what its finding
+    // offers to fold it into.
+    let mut repeats: Vec<(String, String)> = Vec::new();
     for i in 1..read.len() {
         let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
         let Some((at, shared)) =
@@ -2602,14 +2727,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
                 unstopped(was.title.trim())
             ),
-            // A slide further back is no fold the editors make, which join a slide to the one
-            // just before it: it is cut, or given a point of its own.
+            // A slide further back folds as the one just before it does (R1's #1161), its words
+            // joining that slide's place, the slides between left as they were; or it is cut.
             if at + 1 == i {
                 format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on.")
             } else {
                 format!(
                     concat!(
-                        "Cut slide {k}, which slide {j} says already, ",
+                        "Fold slide {k} into slide {j}, which says it already, or cut it, ",
                         "or give slide {k} a point of its own that moves the talk on."
                     ),
                     k = k,
@@ -2618,6 +2743,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             },
             None,
         );
+        repeats.push((now.id.clone(), was.id.clone()));
     }
     // The slides with nothing for the presenter to say, as one finding at the first of them: a
     // deck written by hand has no notes on any, and a row for each would bury the rest.
@@ -2937,6 +3063,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Claim if f.severity == Severity::Warning => Some(Field::Claim),
             _ => None,
         };
+    }
+    // Each finding of a slide said again names the earlier slide it may be folded into.
+    for f in findings.iter_mut().filter(|f| f.kind == Kind::Story && f.says.contains(" says again what slide ")) {
+        f.into = repeats.iter().find(|(id, _)| *id == f.state).map(|(_, was)| was.clone());
     }
     // Each `source` finding says the figure it found no source for.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
@@ -4024,6 +4154,23 @@ mod tests {
         assert!(lasting(16.5 * 60.0).is_empty(), "16.5 minutes is not long");
         let long = lasting(16.6 * 60.0);
         assert!(long.len() == 1 && long[0].contains("past the 15 minutes its brief asks"), "{long:?}");
+    }
+
+    /// A plan written to two places is rounded toward the words it is held to, so a plan held to
+    /// the most they carry is found within it (agent dogfood 8: 0.7776 written as 0.78, 0.2524
+    /// from words that read 0.5276, asked the slide's words to carry it).
+    #[test]
+    fn a_plan_held_to_its_words_stays_within_them_once_written() {
+        assert_eq!(held(0.5276 + INTENSITY_GAP_THRESHOLD, Some(0.5276)), 0.77);
+        assert_eq!(held(0.4724 - INTENSITY_GAP_THRESHOLD, Some(0.4724)), 0.23);
+        assert_eq!((held(0.5, None), held(0.914, Some(0.67)), held(0.6, Some(0.6))), (0.5, 0.91, 0.6));
+        for k in 0..=1000 {
+            let w = f64::from(k) / 1000.0;
+            for asked in [w + INTENSITY_GAP_THRESHOLD, w - INTENSITY_GAP_THRESHOLD] {
+                let asked = asked.clamp(0.0, 1.0);
+                assert!((held(asked, Some(w)) - w).abs() <= INTENSITY_GAP_THRESHOLD + 1e-9, "{asked} for {w}");
+            }
+        }
     }
 
     /// The talk's time beside the count (lift-up FUNC-1): its beats' durations, or their states'
@@ -5628,15 +5775,86 @@ mod tests {
         let h = of(&dogfood("pitch", "", faulted));
         let again: Vec<&Finding> = (h.findings.iter()).filter(|f| f.says.contains("says again")).collect();
         let cut_or_own = concat!(
-            "Cut slide 6, which slide 4 says already, ",
+            "Fold slide 6 into slide 4, which says it already, or cut it, ",
             "or give slide 6 a point of its own that moves the talk on."
         );
-        assert!(
-            again.iter().any(|f| f.slide == 6
-                && f.says.starts_with("Slide 6 says again what slide 4 said")
-                && f.ask == cut_or_own),
-            "{again:#?}"
+        let six = again.iter().find(|f| f.slide == 6 && f.says.starts_with("Slide 6 says again what slide 4 said"));
+        let six = six.unwrap_or_else(|| panic!("{again:#?}"));
+        assert_eq!(six.ask, cut_or_own);
+        // It names slide 4, which it may be folded into (R1's #1161).
+        let deck = Deck::from_value(&dogfood("pitch", "", faulted)).unwrap();
+        let four = deck.slides()[3][0];
+        assert_eq!(six.into.as_deref(), Some(deck.states[four].id.as_str()));
+        // Folded into slide 4, as its row offers: slide 6's words join slide 4's, slide 5 is as
+        // it was, and slide 6 is gone (R1's #1161). Its points written short, so they fit there.
+        let short = |slides: &mut Vec<answer::Slide>| {
+            faulted(slides);
+            slides[5].key_bullets = vec!["41% of overbilled dollars".into(), "Rarely checked".into()];
+        };
+        let deck = Deck::from_value(&dogfood("pitch", "", short)).unwrap();
+        let short_h = health(&deck).unwrap();
+        let six = (short_h.findings.iter())
+            .find(|f| f.slide == 6 && f.says.starts_with("Slide 6 says again what slide 4 said"));
+        let six = six.unwrap_or_else(|| panic!("{:#?}", short_h.findings));
+        let dir = std::env::temp_dir().join(format!("scaena-health-fold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for sub in ["themes", "fonts"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            for f in std::fs::read_dir(root().join("docs/examples").join(sub)).unwrap() {
+                let f = f.unwrap().path();
+                std::fs::copy(&f, dir.join(sub).join(f.file_name().unwrap())).unwrap();
+            }
+        }
+        let mut made = deck.to_value().unwrap();
+        made["theme"] = json!("themes/dusk.theme.json");
+        let ridgeline: Value =
+            serde_json::from_str(&std::fs::read_to_string(root().join("docs/examples/ridgeline.deck.json")).unwrap())
+                .unwrap();
+        if made["fonts"].as_array().is_none_or(Vec::is_empty) {
+            made["fonts"] = ridgeline["fonts"].clone();
+        }
+        std::fs::write(dir.join("pitch.deck.json"), made.to_string()).unwrap();
+        let b = crate::open(&dir.join("pitch.deck.json")).unwrap();
+        let (gone, five) = (deck.states[deck.slides()[5][0]].id.clone(), deck.slides()[4].clone());
+        let folded = crate::states::folding(&b, &gone, six.into.as_deref()).unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        assert_eq!(folded.said, "Folded slide 6 into slide 4");
+        let files = crate::lint::View::of(&b);
+        let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), &folded.patch, &files).unwrap().doc;
+        let after = Deck::from_value(&doc).unwrap();
+        assert_eq!(after.slides().len(), deck.slides().len() - 1);
+        assert!(after.state_index(&gone).is_none(), "slide 6 goes");
+        let (was, now) = (scaena_core::resolve_states(&deck).unwrap(), scaena_core::resolve_states(&after).unwrap());
+        let words = |snaps: &[scaena_core::Snapshot], id: &str| {
+            let snap = snaps.iter().find(|s| s.state_id == id).unwrap();
+            let mut all: Vec<String> = snap.nodes.values().map(scaena_core::reading::words).collect();
+            all.sort();
+            all
+        };
+        for &k in &five {
+            let id = &deck.states[k].id;
+            assert_eq!(words(&was, id), words(&now, id), "slide 5 is as it was");
+        }
+        let four_last = &deck.states[*deck.slides()[3].last().unwrap()].id;
+        let joined = words(&now, four_last).join("\n");
+        assert!(joined.contains("Accessorials are where most of the overbilling hides"), "{joined}");
+        // By the patch op, as `deck_patch` takes it: the same fold, said as folding into slide 4.
+        let ops = json!([{ "op": "fold_slide", "slide": gone, "into": six.into }]);
+        let dry = crate::patch::reported(&b, &ops, true, false).unwrap();
+        let fold = dry.folded.as_ref().expect("what it folds where");
+        assert!(fold.says.starts_with("Folds slide 6 into slide 4: its words join"), "{}", fold.says);
+        let (_, write) = crate::patch::patching(&b, &ops, None).unwrap();
+        let by_hand = scaena_core::patch::compile(&b.deck.to_value().unwrap(), &folded.patch, &files).unwrap().doc;
+        assert_eq!(write.unwrap().deck.to_json().unwrap(), Deck::from_value(&by_hand).unwrap().to_json().unwrap());
+        // Into a slide after it, or into itself, it is refused, saying why.
+        let later = deck.states[deck.slides()[7][0]].id.clone();
+        let refused = crate::states::folding(&b, &gone, Some(&later)).unwrap();
+        assert_eq!(
+            refused.refused.as_deref(),
+            Some("Slide 6 folds only into a slide before it, and slide 8 is after it.")
         );
+        let itself = crate::states::folding(&b, &gone, Some(&gone)).unwrap();
+        assert_eq!(itself.refused.as_deref(), Some("Slide 6 cannot be folded into itself."));
         assert!(again.iter().any(|f| f.says.contains("what slide 8 said")), "{again:#?}");
         // Three past the 11–15 slides asked: the three that tell How It Works again, not the hook.
         let cut = (h.findings.iter()).find(|f| f.kind == Kind::Pacing && f.says.contains("add least")).expect("a cut");
@@ -5794,6 +6012,31 @@ mod tests {
         }
         assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
         assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
+    }
+
+    /// A date's day is no figure to source, as each language writes a date (W2's health read:
+    /// Valdemar's "Votación: 15 de diciembre" read as the figure 15); a count beside the words of
+    /// one still is.
+    #[test]
+    fn a_dates_day_is_no_figure_to_source() {
+        let shown = |text: &str| figures(text).into_iter().map(|f| f.shown).collect::<Vec<_>>();
+        for date in [
+            "Votación: 15 de diciembre",
+            "Votação: 15 de dezembro",
+            "Vote le 15 décembre",
+            "Abstimmung am 15. Dezember",
+            "Voto il 15 dicembre",
+            "Vote on December 15, then 15 December, then Dec. 15th",
+            "採決：12月15日",
+            "表决：12月15日",
+        ] {
+            assert!(shown(date).is_empty(), "{date}: {:?}", shown(date));
+        }
+        // A count, or a figure beside a date, is read as before.
+        assert_eq!(shown("15 de los 30 barrios"), ["15", "30"]);
+        assert_eq!(shown("Votación: 15 de diciembre, por 2,3 M€"), ["2,3 M€"]);
+        assert_eq!(shown("December saw 15 outages"), ["15"], "a month named before a count, not a day");
+        assert_eq!(shown("A 40 de descuento"), ["40"]);
     }
 
     /// A time of day is no figure to source (the ferry deck, read against a reader): "a fourth

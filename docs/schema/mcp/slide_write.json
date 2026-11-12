@@ -54,7 +54,8 @@
           "beats_added": { "type": "array", "items": { "type": "string" } },
           "beats_removed": { "type": "array", "items": { "type": "string" } },
           "beats_moved": { "type": "array", "items": { "type": "string" } },
-          "beats_changed": { "type": "array", "items": { "type": "string" } }
+          "beats_changed": { "type": "array", "items": { "type": "string" } },
+          "brief": { "type": "array", "items": { "type": "string" } }
         },
         "required": [
           "json_patch",
@@ -64,7 +65,8 @@
           "beats_added",
           "beats_removed",
           "beats_moved",
-          "beats_changed"
+          "beats_changed",
+          "brief"
         ]
       },
       "JsonOp": {
@@ -153,6 +155,16 @@
         },
         "required": ["beat", "state", "path", "claim"]
       },
+      "Fold": {
+        "type": "object",
+        "properties": {
+          "into": { "type": "string" },
+          "to": { "$ref": "#/$defs/FoldsTo" },
+          "says": { "type": "string" }
+        },
+        "required": ["into", "to", "says"]
+      },
+      "FoldsTo": { "type": "string", "enum": ["place", "notes"] },
       "Fell": {
         "type": "object",
         "properties": {
@@ -213,6 +225,7 @@
       "errors": { "type": "integer", "minimum": 0 },
       "states": { "type": "array", "items": { "type": "string" } },
       "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } },
+      "folded": { "anyOf": [{ "$ref": "#/$defs/Fold" }, { "type": "null" }] },
       "slide": { "type": "array", "items": { "type": "string" } },
       "layout": { "type": "string" },
       "beat": { "type": "string" },

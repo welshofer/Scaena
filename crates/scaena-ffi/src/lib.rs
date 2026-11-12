@@ -547,6 +547,32 @@ pub unsafe extern "C" fn scaena_add_file(
     .is_ok()
 }
 
+/// The bundle's file at `path`, its bytes as the session holds them: what a movie's sound track
+/// is read from (lift-up 20261031 FUNC-2). Null bytes where the bundle holds no such file, `*error`
+/// then saying so.
+///
+/// # Safety
+/// `session` is a live handle; `path` a NUL-terminated string; `error` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_file(
+    session: *mut ScaenaSession,
+    path: *const c_char,
+    error: *mut *mut c_char,
+) -> ScaenaBytes {
+    let read = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let path = unsafe { text(path, "path") }?;
+        session.0.file(path).map(<[u8]>::to_vec).ok_or_else(|| said(format!("the bundle holds no file `{path}`")))
+    });
+    match read {
+        Ok(bytes) => ScaenaBytes::of(bytes),
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaBytes::NONE
+        }
+    }
+}
+
 /// A file dropped or pasted on the canvas (PLAN 2.45, 2.76, 2.96, 3.12), handed over where the
 /// browser's canvas keeps one: a data file (`.csv`, `.json`) under `data/` by its name, numbered
 /// where the bundle holds other bytes there; anything else, an image above all, under `assets/`,
@@ -2202,9 +2228,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let what = serde_json::from_value(Value::String(arg("what")?.to_string())).map_err(said)?;
             value(serde_json::to_value(s.adding_state(arg("state")?, what).map_err(said)?))?
         }
-        // The slide `state` is on folded into the slide before it (editor dogfood 6): `{into, patch,
-        // said, refused?, to}`, `to` its words' place there or its notes.
-        "folding" => value(serde_json::to_value(s.folding(arg("state")?).map_err(said)?))?,
+        // The slide `state` is on folded into the slide before it (editor dogfood 6), or into the
+        // earlier slide `into?` names: `{into, patch, said, refused?, to}`, `to` its words' place
+        // there or its notes.
+        "folding" => value(serde_json::to_value(s.folding(arg("state")?, optional("into")).map_err(said)?))?,
         // The panels (PLAN 3.15). The theme (PLAN 2.39, 2.61, 2.94): the themes that ship; the deck
         // put in another, one the bundle holds by its path or one that ships by its name, with its
         // fonts; and the theme edited by RFC 6902 operations, or to a photo's colors, with the file

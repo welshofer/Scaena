@@ -459,6 +459,8 @@ export async function generate(
         // unseen.
         for (const f of made.fell ?? []) hear({ kind: "fell", ...f });
         for (const u of made.unset ?? []) hear({ kind: "unset", ...u });
+        // A settled claim kept long, for the person to shorten, never rewritten (W1 dogfood 13).
+        if (made.overlong) hear({ kind: "unfitted", why: made.overlong });
         const files = making.files();
         if (!files) {
           const errors = made.created.findings.filter((f) => f.severity === "error").map((f) => `${f.code} ${f.message}`);

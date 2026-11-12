@@ -1,6 +1,6 @@
 {
   "name": "deck_patch",
-  "description": "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); place puts a node where it goes; choose sets a property where its value lives; replace_text changes words, keeping their runs; brief sets the deck's brief, which health paces and reads it by (`{\"op\": \"brief\", \"audience\": \"…\", \"goal\": \"Persuade\", \"minutes\": 10}`), a deck made by hand having none. An op that does not read says the shape it is written in, and the skill `scaena://skills/author-deck` writes every op so. A patch that would make the deck invalid is refused. Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said before and says no more is `restated`, with a `fix` that sets the claim to the slide's words, or none where its headline was taken away: restate the claim, or ask the user.",
+  "description": "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and duplicate_slide move, take away, and copy a slide with its steps and its beat; fold_slide, alone in its patch, folds a slide into the one before it as the editors' Fold does, `folded` saying what goes where (dry-run it first); set_state sets a state's layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); place puts a node where it goes; choose sets a property where its value lives; replace_text changes words, keeping their runs; brief sets the deck's brief, which health paces and reads it by (`{\"op\": \"brief\", \"audience\": \"…\", \"goal\": \"Persuade\", \"minutes\": 10}`), a deck made by hand having none. An op that does not read says the shape it is written in, and the skill `scaena://skills/author-deck` writes every op so. A patch that would make the deck invalid is refused. Reports the semantic ops given, what changed in the slides and the story (`summary`: slides and beats added, removed, and moved, and beats told otherwise), and what lint finds that it did not (`added`) and finds no more (`removed`); with `verbose`, the patch compiled to JSON Patch too. Each beat whose claim a slide said before and says no more is `restated`, with a `fix` that sets the claim to the slide's words, or none where its headline was taken away: restate the claim, or ask the user.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "ops"],
@@ -34,7 +34,8 @@
           "beats_added": { "type": "array", "items": { "type": "string" } },
           "beats_removed": { "type": "array", "items": { "type": "string" } },
           "beats_moved": { "type": "array", "items": { "type": "string" } },
-          "beats_changed": { "type": "array", "items": { "type": "string" } }
+          "beats_changed": { "type": "array", "items": { "type": "string" } },
+          "brief": { "type": "array", "items": { "type": "string" } }
         },
         "required": [
           "json_patch",
@@ -44,7 +45,8 @@
           "beats_added",
           "beats_removed",
           "beats_moved",
-          "beats_changed"
+          "beats_changed",
+          "brief"
         ]
       },
       "JsonOp": {
@@ -132,7 +134,17 @@
           "fix": { "type": "array", "items": true }
         },
         "required": ["beat", "state", "path", "claim"]
-      }
+      },
+      "Fold": {
+        "type": "object",
+        "properties": {
+          "into": { "type": "string" },
+          "to": { "$ref": "#/$defs/FoldsTo" },
+          "says": { "type": "string" }
+        },
+        "required": ["into", "to", "says"]
+      },
+      "FoldsTo": { "type": "string", "enum": ["place", "notes"] }
     },
     "required": ["applied", "summary", "added", "removed", "errors", "states", "restated"],
     "type": "object",
@@ -145,7 +157,8 @@
       "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "errors": { "type": "integer", "minimum": 0 },
       "states": { "type": "array", "items": { "type": "string" } },
-      "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } }
+      "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } },
+      "folded": { "anyOf": [{ "$ref": "#/$defs/Fold" }, { "type": "null" }] }
     }
   }
 }

@@ -1240,8 +1240,8 @@ export class Stage {
 
   /** The patch that folds `state`'s slide into the slide before it, on the deck `source` compiles
    * to, or why it cannot be (editor dogfood 6). */
-  folding(source: string, state: string): Promise<Folded> {
-    return this.request<"folding">({ type: "folding", id: ++this.asked, source, state }).then(({ folded }) => folded);
+  folding(source: string, state: string, into?: string): Promise<Folded> {
+    return this.request<"folding">({ type: "folding", id: ++this.asked, source, state, into }).then(({ folded }) => folded);
   }
 
   /** The slides a person may start after `state`'s slide, on the deck `source` compiles to (PLAN
