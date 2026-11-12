@@ -7644,9 +7644,10 @@ fn headlined(categories: &[String], headline: &str) -> Option<usize> {
 
 /// The first of two of `categories` that `headline` compares, by its index: the subject of
 /// "X … than Y", "X … que Y", "X … als Y", or "X vs Y", where the word that compares stands between
-/// the two (R1's French dogfood 4). A "que" or an "als" compares only after a word that does
-/// ("cinq fois moins … qu'au centre", "mehr Fahrten als", "dreimal so viele … wie"), since each
-/// also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
+/// the two (R1's French dogfood 4), and Portuguese's and Italian's "que" and "che" or "di" alike
+/// (W1's dogfood 11: "cinco vezes menos que a do centro", "cinque volte meno del centro"). A "que",
+/// an "als", or a "di" compares only after a word that does ("cinq fois moins … qu'au centre",
+/// "mehr Fahrten als", "dreimal so viele … wie"), since each also joins clauses. A bare "vs" is even-handed: where the categories have an order of their
 /// own (`ordered`, years or quarters), it names no subject, and "2024 vs 2025" is left to the
 /// rules that light the latest. None where the headline names other than two, or compares neither.
 fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) -> Option<usize> {
@@ -7673,6 +7674,13 @@ fn compared(categories: &[String], headline: &str, lang: &str, ordered: bool) ->
         Some("fr") => (&["que", "qu"], &["plus", "moins", "fois", "autant", "mieux", "pire", "davantage"]),
         Some("es") => (&["que"], &["m\u{e1}s", "menos", "veces", "mejor", "peor", "mayor", "menor"]),
         Some("de") => (&["als", "wie"], &["mehr", "weniger", "mal", "doppelt", "halb", "so", "besser", "schlechter"]),
+        Some("pt") => {
+            (&["que", "quanto"], &["mais", "menos", "vezes", "melhor", "pior", "maior", "menor", "tanto", "t\u{e3}o"])
+        }
+        Some("it") => (
+            &["che", "di", "del", "della", "dello", "dei", "degli", "delle", "quanto"],
+            &["pi\u{f9}", "meno", "volte", "meglio", "peggio", "maggiore", "minore", "tanto", "cos\u{ec}"],
+        ),
         _ => (&["than"], &[]),
     };
     let compares = between.iter().enumerate().any(|(i, w)| {
@@ -8765,6 +8773,16 @@ mod tests {
         assert_eq!(lit(&de, "S\u{fc}d ist l\u{e4}nger unterwegs als Zentrum", "de-AT"), Some(2));
         let es = stations(["Norte", "Centro", "Sur"]);
         assert_eq!(lit(&es, "El norte hace cinco veces menos viajes que el centro", "es"), Some(0));
+        // Portuguese and Italian compare alike (W1's dogfood 11), and their "que", "che", and "di"
+        // compare only after a word that does.
+        let pt = stations(["Norte", "Centro", "Sul"]);
+        assert_eq!(lit(&pt, "A loja do norte vende cinco vezes menos que a do centro", "pt-BR"), Some(0));
+        assert_eq!(lit(&pt, "O sul vende mais do que o norte", "pt"), Some(2));
+        assert_eq!(lit(&pt, "O norte e o centro, que a nova linha liga", "pt"), Some(1));
+        let it = stations(["Nord", "Centro", "Sud"]);
+        assert_eq!(lit(&it, "Il negozio del nord vende cinque volte meno del centro", "it"), Some(0));
+        assert_eq!(lit(&it, "Il sud vende pi\u{f9} che il nord", "it"), Some(2));
+        assert_eq!(lit(&it, "Il nord di Milano e il centro", "it"), Some(1), "a di that compares nothing");
         // A "que" or an "als" that joins clauses, with nothing comparing, compares nothing; nor do two
         // named with no word between them that compares: the largest, as before.
         assert_eq!(lit(&fr, "Le nord et le centre, que la ligne relie", "fr"), Some(1));
