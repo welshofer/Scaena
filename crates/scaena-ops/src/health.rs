@@ -2447,10 +2447,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // promises three and lists two loses the room on the third. No patch: which is right, the
     // count or the list, is the writer's.
     for (i, s) in read.iter().enumerate() {
-        if !english || i == 0 || framing(i) || s.one_idea || s.drawn || !s.eligible() {
+        if i == 0 || framing(i) || s.one_idea || s.drawn || !s.eligible() {
             continue;
         }
-        let (Some(said), listed) = (counts(&s.title), bullets(s)) else { continue };
+        let (Some(said), listed) = (counts_in(&s.title, language), bullets(s)) else { continue };
         if listed == 0 || listed == said || shows_figure(s, said) {
             continue;
         }
@@ -3206,6 +3206,126 @@ fn spaceless(language: Option<&str>) -> bool {
 /// The fewest points the slides that make several make on average before balance marks a deck
 /// down: Vzestup's floor, `metrics`' "Add more bullets to thin slides" (ADR-0032).
 const FLOOR_POINTS: f64 = 2.0;
+
+/// What a headline counts in `language`, where it counts the things its slide lists: in
+/// English, [`counts`]; in Spanish, [`cuenta`] ("Tres barrios"); in Japanese, [`kazoe`] ("三つ",
+/// "3つ"; W2's health read); in another language, nothing, which reads none.
+fn counts_in(headline: &str, language: Option<&str>) -> Option<usize> {
+    let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
+        "es" | "spa" | "spanish" | "español" | "espanol" => cuenta(headline),
+        "ja" | "jpn" | "japanese" | "日本語" => kazoe(headline),
+        _ if in_english(language) => counts(headline),
+        _ => None,
+    }
+}
+
+/// What a Spanish headline counts, as [`counts`] reads an English one: a number from two to
+/// twelve, in words or figures, before a word that names them ("Tres barrios concentran la
+/// mitad"), never a measure ("tres años", "40 kilómetros") or a figure's own words ("dos de cada
+/// tres").
+fn cuenta(headline: &str) -> Option<usize> {
+    const WORDS: [&str; 11] =
+        ["dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once", "doce"];
+    const MEASURES: [&str; 26] = [
+        "de",
+        "por",
+        "veces",
+        "segundos",
+        "minutos",
+        "horas",
+        "días",
+        "dias",
+        "semanas",
+        "meses",
+        "años",
+        "anos",
+        "trimestres",
+        "kilómetros",
+        "kilometros",
+        "metros",
+        "litros",
+        "personas",
+        "puntos",
+        "euros",
+        "dólares",
+        "dolares",
+        "mil",
+        "millones",
+        "y",
+        "o",
+    ];
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let number = |w: &str| w == "uno" || w == "una" || WORDS.contains(&w) || w.parse::<f64>().is_ok();
+    let mut found = None;
+    for (i, w) in words.iter().enumerate() {
+        let n = WORDS
+            .iter()
+            .position(|n| n == w)
+            .map(|k| k + 2)
+            .or_else(|| w.parse::<usize>().ok().filter(|n| (2..=12).contains(n)));
+        let Some(n) = n else { continue };
+        // A ratio's second number ("dos de cada tres", "uno de cada doce") counts nothing listed.
+        let back = |k: usize| i.checked_sub(k).map(|j| words[j].as_str());
+        if back(1) == Some("cada") && back(2) == Some("de") && back(3).is_some_and(number) {
+            continue;
+        }
+        let next = words.get(i + 1).map(String::as_str);
+        if next.is_none_or(|next| MEASURES.contains(&next) || next.chars().all(|c| c.is_ascii_digit())) {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some(n);
+    }
+    found
+}
+
+/// What a Japanese headline counts: a number from two to twelve, in kanji or figures, half or
+/// full width, before a counter of things listed (つ, 点, 項目, 個, 件, 案), "理由は三つあります" or
+/// "3つのポイント", never a part of a larger figure ("13つ") or a measure ("3億円", "12月").
+fn kazoe(headline: &str) -> Option<usize> {
+    const COUNTERS: [&str; 6] = ["つ", "点", "項目", "個", "件", "案"];
+    let chars: Vec<char> = headline.chars().collect();
+    let digit = |c: char| c.to_digit(10).or_else(|| ('０'..='９').contains(&c).then(|| c as u32 - '０' as u32));
+    let kanji = |c: char| "一二三四五六七八九十".find(c).map(|i| i as u32 / 3 + 1);
+    let numeral = |c: char| digit(c).is_some() || kanji(c).is_some() || "百千万億兆〇".contains(c);
+    let mut found = None;
+    let mut i = 0;
+    while i < chars.len() {
+        if !numeral(chars[i]) || (i > 0 && numeral(chars[i - 1])) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && numeral(chars[i]) {
+            i += 1;
+        }
+        let run = &chars[start..i];
+        let n = if run.iter().all(|&c| digit(c).is_some()) {
+            run.iter().try_fold(0u32, |n, &c| Some(n * 10 + digit(c)?))
+        } else {
+            match run {
+                ['十'] => Some(10),
+                [one] => kanji(*one).filter(|&n| n < 10),
+                ['十', one] => kanji(*one).filter(|&n| n < 3).map(|n| 10 + n),
+                _ => None,
+            }
+        };
+        let rest: String = chars[i..].iter().collect();
+        let counter = COUNTERS.iter().any(|c| rest.starts_with(c));
+        let Some(n) = n.map(|n| n as usize).filter(|n| (2..=12).contains(n) && counter) else { continue };
+        if found.is_some() {
+            return None;
+        }
+        found = Some(n);
+    }
+    found
+}
 
 /// What a headline counts, where it counts the things its slide lists: a number from two to
 /// twelve, in words or figures, before a word that names them ("Three traps", "in five parts"),
@@ -4744,6 +4864,25 @@ mod tests {
         ] {
             assert_eq!(counts(none), None, "{none}");
         }
+        // In Spanish and in Japanese, by their own numbers and counters (W2's health read).
+        assert_eq!(counts_in("Tres barrios concentran la mitad de las fugas", Some("Spanish")), Some(3));
+        assert_eq!(counts_in("El plan avanza en tres fases", Some("es")), Some(3));
+        assert_eq!(counts_in("利用が増えた理由は三つあります", Some("Japanese")), Some(3));
+        assert_eq!(counts_in("3つのポイント", Some("ja")), Some(3));
+        assert_eq!(counts_in("５つの提案", Some("ja-JP")), Some(5));
+        assert_eq!(counts_in("十二項目の改善", Some("ja")), Some(12));
+        for none in [
+            "Con 2,3 M€ en tres años reducimos a la mitad el agua",
+            "Dos de cada tres hogares ahorran",
+            "Pedimos al pleno aprobar 2,3 M€",
+        ] {
+            assert_eq!(counts_in(none, Some("Spanish")), None, "{none}");
+        }
+        for none in ["分館の新設には3億円かかります", "採決は12月10日", "利用者は12万人", "13つの案"]
+        {
+            assert_eq!(counts_in(none, Some("Japanese")), None, "{none}");
+        }
+        assert_eq!(counts_in("Drei Fehler, die Reviews nutzlos machen", Some("German")), None);
         // The list put right: nothing found.
         let kept = |slides: &mut Vec<answer::Slide>| slides[7].key_bullets.push("Timelines with no timestamps".into());
         let h = of(&dogfood("training", "", kept));
@@ -4752,6 +4891,14 @@ mod tests {
         let mut deck = dogfood("training", "", |_| {});
         deck["meta"]["narrative"]["brief"]["language"] = json!("German");
         assert!(!of(&deck).findings.iter().any(|f| f.says.contains("headline counts")));
+        // In Japanese, its own count is held to the list (W2's health read: 理由は三つ over seven).
+        let japanese = |slides: &mut Vec<answer::Slide>| slides[7].slide_title = "レビューを無駄にする三つの罠".into();
+        let mut deck = dogfood("training", "", japanese);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let h = of(&deck);
+        let counted: Vec<&Finding> = h.findings.iter().filter(|f| f.says.contains("headline counts")).collect();
+        assert_eq!(counted.len(), 1, "{:#?}", h.findings);
+        assert_eq!(counted[0].says, "Slide 8's headline counts three, and the slide lists two.");
         // A count the slide shows as one of its figures is no count of its list (agent dogfood 6):
         // "$1.2M opens two neighborhoods" over three cards, the first "2 new neighborhoods".
         let figured = |slides: &mut Vec<answer::Slide>| {
