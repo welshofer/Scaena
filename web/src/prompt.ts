@@ -670,7 +670,9 @@ export function prompting(
   };
 
   opener.onclick = () => {
-    paid = {};
+    // What a run stopped before its deck was made paid for (the arc, the outline the person
+    // settled) stays to go on from, offered as a failed run's is (W1 dogfood 14): only a deck
+    // made, or Generate, starts afresh.
     unopened = undefined;
     offered();
     progress.replaceChildren();
@@ -719,9 +721,16 @@ export function prompting(
   };
 
   // Cancel is no submit button, so Enter in a field generates rather than cancels. While a deck
-  // is being made, Cancel and Escape ask first: closing drops what has been made so far, and the
-  // calls already paid for (lift-up 10-24 USE-2).
-  const stopping = () => !running || confirm("Stop making the deck? What has been made so far is lost.");
+  // is being made, Cancel and Escape ask first: closing stops the call under way, and what the
+  // calls before it paid for is kept to go on from when the dialog opens again (lift-up 10-24
+  // USE-2, W1 dogfood 14).
+  const stopping = () =>
+    !running ||
+    confirm(
+      kept(paid)
+        ? "Stop making the deck? What it has paid for so far is kept: open From a prompt… again to go on from it."
+        : "Stop making the deck? What has been made so far is lost.",
+    );
   $<HTMLButtonElement>("#prompting-cancel").onclick = () => {
     if (stopping()) dialog.close("cancel");
   };
