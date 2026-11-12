@@ -7796,7 +7796,10 @@ fn chart_node(
     if let Some(t) = y_title {
         y["title"] = json!(t);
     }
-    if kind == "bar" {
+    // Bars from zero, where every one stands above it; a deficit's run below it, the axis taking
+    // them in (W1 dogfood 12).
+    let below = chart.series.iter().flat_map(|s| s.values.iter().flatten()).any(|v| *v < 0.0);
+    if kind == "bar" && !below {
         y["domain"] = json!([0, null]);
     }
     let mut node = json!({
@@ -11709,6 +11712,10 @@ mod tests {
         // Several series with no subtitle keep their unit alone: it is all that says the scale.
         let several = json!([{ "name": "Asked", "values": [1, 2, 3] }, { "name": "Granted", "values": [1, 2, 2] }]);
         assert_eq!(budget(several)["y"]["title"], "$");
+        // Bars from zero where every one stands above it; a deficit's run below it, the axis not
+        // held at zero (W1 dogfood 12).
+        assert_eq!(budget(json!([{ "values": [120, 140, 180] }]))["y"]["domain"], json!([0, null]));
+        assert!(budget(json!([{ "values": [2.4, -0.4, -1.3] }]))["y"].get("domain").is_none());
     }
 
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".

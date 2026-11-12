@@ -267,6 +267,46 @@ fn a_bound_the_author_sets_stays_and_gridlines_can_show_alone() {
     assert!(hidden.ticks.is_empty());
 }
 
+/// Bars on both sides of zero (W1 dogfood 12): a bound that would cut a bar off widens to hold it,
+/// so every bar and its value stands inside the chart, and each category is named on the side of
+/// the zero line away from its bar, over it for a deficit, never on the bar.
+#[test]
+fn bars_below_zero_stay_in_the_chart_and_are_named_over_the_zero_line() {
+    let rows = json!([{ "k": "2026", "v": 2.4 }, { "k": "2027", "v": 0.9 }, { "k": "2028", "v": -0.4 },
+                      { "k": "2029", "v": -1.2 }, { "k": "2030", "v": -1.3 }]);
+    let chart = json!({ "type": "chart", "kind": "bar", "data": "@q", "x": { "field": "k" },
+                        "y": { "field": "v", "format": ",.1f", "domain": [0, null] }, "labels": { "show": "all" } });
+    let layout = compile(&deck("en-US", rows, json!({ "v": "number" }), Value::Null, chart));
+    let size = [1600.0_f32, 700.0];
+    assert!(layout.y_scale.domain[0] <= -1.3, "the author's 0 widens to the deficit: {:?}", layout.y_scale.domain);
+    let [_, top, _, height] = layout.plot;
+    let base = layout.base;
+    assert!(top < base && base < top + height, "zero stands inside the plot");
+    // Its figures, from their cap height to their baseline.
+    let inside = |l: &charts::Label| {
+        let (cap_top, baseline) = cap_box(l);
+        cap_top >= -0.5 && baseline <= size[1] + 0.5
+    };
+    for mark in &layout.marks {
+        let b = bar(&mark.shape);
+        assert!(b.y >= top - 0.5 && b.y + b.h <= top + height + 0.5, "{} inside the plot", mark.key);
+    }
+    for l in layout.labels.iter().chain(&layout.ticks) {
+        assert!(inside(l), "`{}` inside the chart: {:?}", l.text.text, cap_box(l));
+    }
+    // Each category's name clear of its bar: under the zero line for a surplus, over it for a deficit.
+    for (tick, mark) in layout.ticks.iter().zip(&layout.marks) {
+        let b = bar(&mark.shape);
+        let (name_top, name_bottom) = (tick.origin[1], tick.origin[1] + tick.text.lines[0].baseline);
+        let below = b.y + 0.5 >= base;
+        if below {
+            assert!(name_bottom <= base, "`{}` over the zero line, off its bar", tick.text.text);
+        } else {
+            assert!(name_top >= base - 0.5, "`{}` under the zero line", tick.text.text);
+        }
+    }
+}
+
 use scaena_engine::charts::Shape;
 
 /// Three products over four quarters.
