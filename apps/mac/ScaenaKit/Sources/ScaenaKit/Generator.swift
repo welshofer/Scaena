@@ -53,10 +53,15 @@ public struct Brief: Encodable, Sendable {
     /// The persona it speaks to, by its id, where the audience is in the user's own words; else the
     /// one the audience names, if any (lift-up FUNC-5).
     public var personaId: String?
+    /// The minutes the talk is given, 1 to 600: the length it asks where none is chosen, and the
+    /// slot health paces it against, as the browser's Minutes and `scaena generate --minutes` give
+    /// them (W1's dogfood 10).
+    public var minutes: Int?
 
     public init(
         topic: String, audience: String? = nil, goal: String? = nil, length: String? = nil, modality: String? = nil,
-        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil, personaId: String? = nil
+        desiredOutcomes: String? = nil, language: String? = nil, voice: String? = nil, personaId: String? = nil,
+        minutes: Int? = nil
     ) {
         self.topic = topic
         self.audience = audience
@@ -67,6 +72,23 @@ public struct Brief: Encodable, Sendable {
         self.language = language
         self.voice = voice
         self.personaId = personaId
+        self.minutes = minutes
+    }
+
+    /// The minutes typed, as the browser's Minutes reads them: a whole number from 1, held to 600;
+    /// none where the field is empty or reads as none.
+    public static func minutes(typed: String) -> Int? {
+        let text = typed.trimmingCharacters(in: .whitespaces)
+        guard let n = Double(text), n.isFinite else { return nil }
+        let whole = Int(n.rounded())
+        return whole >= 1 ? min(whole, 600) : nil
+    }
+
+    /// The length the brief asks: the one shown, unless the person chose none and gave minutes,
+    /// which then ask theirs, as the CLI's `--minutes` with no `--length` does.
+    public static func length(shown: String, chosen: Bool, minutes: Int?) -> String? {
+        if minutes != nil && !chosen { return nil }
+        return shown.isEmpty ? nil : shown
     }
 }
 
@@ -188,6 +210,11 @@ public enum GeneratingStep: Equatable, Sendable {
     case refused(slide: Int, what: String, why: String)
     /// A chart that names a sheet the deck keeps and is not drawn from it, and why (W1 dogfood 9).
     case unbound(slide: Int, source: String, why: String)
+    /// A slide whose layout, asked by name, could not be taken as asked, and why; and a bullet a
+    /// chart's layout sets in no place, its words as written (W1's dogfood 10), as the browser and
+    /// the CLI say them.
+    case fell(slide: Int, asked: String, why: String)
+    case unset(slide: Int, words: String)
     case fitting(texts: Int)
     case fitted(texts: Int)
     case unfitted(String)
@@ -254,6 +281,10 @@ public enum GeneratingStep: Equatable, Sendable {
         case .refused(let slide, let what, let why):
             "Slide \(slide) kept as made: the model asked for \(what). \(Self.sentence(why))"
         case .unbound(let slide, let source, let why): "Slide \(slide)'s chart keeps its own rows, not \(source)'s: \(why)"
+        case .fell(let slide, let asked, let why):
+            "Slide \(slide) could not be set as \u{201c}\(asked)\u{201d} asks: \(why)"
+        case .unset(let slide, let words):
+            "Slide \(slide) shows its chart without \u{201c}\(words)\u{201d}: its layout has no place for it"
         case .fitting(let texts): "\(texts) \(texts == 1 ? "text runs" : "texts run") past their place: asking for them shorter…"
         case .fitted(let texts): "\(texts) rewritten to fit"
         case .unfitted(let why): "Not rewritten to fit: \(why)"
@@ -294,6 +325,26 @@ public struct Generated: Decodable, Sendable {
 
     /// Each chart that names a sheet and is not drawn from it, and why (W1 dogfood 9).
     public let unbound: [Unbound]?
+
+    /// Each slide whose layout could not be taken as asked, and why (agent dogfood).
+    public let fell: [Fell]?
+    /// Each bullet a chart's layout sets in no place, its words as written (agent dogfood 2).
+    public let unset: [Unset]?
+
+    /// A layout asked and not taken: its slide's number, what it asked, the layout it took, and why.
+    public struct Fell: Decodable, Sendable, Equatable {
+        public let slide: Int
+        public let asked: String
+        public let layout: String
+        public let why: String
+    }
+
+    /// Words a slide does not show: its slide's number, the words, and the layout that left them.
+    public struct Unset: Decodable, Sendable, Equatable {
+        public let slide: Int
+        public let words: String
+        public let layout: String
+    }
 
     /// A chart left drawing its own rows: its slide's number, the source it names, and why.
     public struct Unbound: Decodable, Sendable, Equatable {
@@ -1436,6 +1487,11 @@ public final class Generator {
         // Each chart left drawing its own rows, said as the CLI and the browser say it (W1
         // dogfood 9), so a data edit that leaves it as it was surprises no one.
         for u in generated.unbound ?? [] { hear(.unbound(slide: u.slide, source: u.source, why: u.why)) }
+        // Each layout not taken as asked, and each bullet a chart's layout sets nowhere, said as the
+        // browser and the CLI say them (W1's dogfood 10), so words the slide does not show are not
+        // lost unseen.
+        for f in generated.fell ?? [] { hear(.fell(slide: f.slide, asked: f.asked, why: f.why)) }
+        for u in generated.unset ?? [] { hear(.unset(slide: u.slide, words: u.words)) }
         var error: UnsafeMutablePointer<CChar>?
         guard let session = scaena_generator_open(handle, &error) else { throw ScaenaError.taking(error) }
         return (ScaenaSession(handle: session), generated)

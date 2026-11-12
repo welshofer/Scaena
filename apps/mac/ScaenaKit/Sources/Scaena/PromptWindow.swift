@@ -236,6 +236,11 @@ struct PromptView: View {
     @State private var audience = ""
     @State private var goal = ""
     @State private var length = ""
+    /// Whether the person chose the length: one not chosen gives way to the minutes asked, as the
+    /// browser's dialog and the CLI's `--minutes` with no `--length` do (W1's dogfood 10).
+    @State private var lengthChosen = false
+    /// The minutes the talk is given, as typed; none where empty.
+    @State private var minutes = ""
     @State private var modality = ""
     @State private var arc = ""
     @State private var outcome = ""
@@ -361,10 +366,16 @@ struct PromptView: View {
                     Picker("Goal", selection: $goal) {
                         ForEach(choices?.goals ?? [], id: \.self) { Text($0).tag($0) }
                     }
-                    Picker("Length", selection: $length) {
+                    // A length the person picks is theirs; the default shown gives way to the minutes.
+                    Picker("Length", selection: Binding(get: { length }, set: { length = $0; lengthChosen = true })) {
                         ForEach(choices?.lengths ?? [], id: \.self) { Text(Self.said(length: $0)).tag($0) }
                     }
                     .accessibilityIdentifier("prompt-length")
+                    field("Minutes", text: $minutes, prompt: "Not set")
+                        #if os(iOS)
+                        .keyboardType(.numberPad)
+                        #endif
+                        .accessibilityIdentifier("prompt-minutes")
                     // The themes that ship, by family, each family a section (PLAN T.0d).
                     Picker("Theme", selection: $theme) {
                         ForEach((choices?.themes ?? []).byFamily) { family in
@@ -912,9 +923,11 @@ struct PromptView: View {
         let brief = Brief(
             topic: topic.trimmingCharacters(in: .whitespacesAndNewlines),
             audience: audience.isEmpty ? nil : audience, goal: goal.isEmpty ? nil : goal,
-            length: length.isEmpty ? nil : length, modality: modality.isEmpty ? nil : modality,
+            length: Brief.length(shown: length, chosen: lengthChosen, minutes: Brief.minutes(typed: minutes)),
+            modality: modality.isEmpty ? nil : modality,
             desiredOutcomes: outcome.isEmpty ? nil : outcome, language: language.isEmpty || language == "English" ? nil : language,
-            voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona)
+            voice: voice.isEmpty ? nil : voice, personaId: persona.isEmpty ? nil : persona,
+            minutes: Brief.minutes(typed: minutes))
         let paint = painter.flatMap { made in
             keychain.key(for: made).map { Generator.Painter(provider: made, key: $0, look: look, quality: quality) }
         }
