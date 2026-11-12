@@ -24,7 +24,7 @@ impl Layout {
 }
 
 /// A layout name, case-folded, to its structural layout; any other is `body`.
-const BY_SUGGESTION: [(&str, &str); 144] = [
+const BY_SUGGESTION: [(&str, &str); 154] = [
     ("title", "title"),
     ("section", "section"),
     ("section header", "section"),
@@ -58,6 +58,18 @@ const BY_SUGGESTION: [(&str, &str); 144] = [
     ("chart/data", "bar-chart"),
     ("two-column", "two-column"),
     ("two column", "two-column"),
+    // The columns agents and models name a slide of items side by side by: each the layout that
+    // sets them so, which Scaena sizes by the items' count (R1's agent dogfood 5).
+    ("two columns", "two-column"),
+    ("two-columns", "two-column"),
+    ("three column", "two-column"),
+    ("three columns", "two-column"),
+    ("three-column", "two-column"),
+    ("three-columns", "two-column"),
+    ("four column", "two-column"),
+    ("four columns", "two-column"),
+    ("four-column", "two-column"),
+    ("four-columns", "two-column"),
     ("comparison", "two-column"),
     ("before / after", "before-after"),
     ("before/after", "before-after"),
@@ -584,6 +596,16 @@ pub fn vary(slides: &mut [Varied], bookends: bool) -> Vec<Change> {
 mod tests {
     use super::*;
     use crate::prompt::LAYOUT_CATALOG;
+
+    /// The columns agents and models name a slide by are Narrato's side-by-side layout, known
+    /// by that name, not a body that falls back (R1's agent dogfood 5).
+    #[test]
+    fn columns_by_their_count_are_side_by_side() {
+        for name in ["Two Columns", "Three Column", "Three Columns", "three-column", "Four Column", "Four Columns"] {
+            assert_eq!(of(name).identity(), "two-column", "{name}");
+            assert!(known(name), "{name}");
+        }
+    }
 
     /// Vzestup's table: each of the catalog's 56 names, its structural layout and its rich one.
     #[test]

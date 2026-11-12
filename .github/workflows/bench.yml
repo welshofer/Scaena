@@ -174,7 +174,11 @@ jobs:
         with:
           path: bench-history.json
           key: bench-history-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # An upload is a diagnostic: the bench gate judged in the step above, and an upload failing
+      # must not read as a regression. GitHub's artifact service answered every upload with HTML
+      # from 20:30 to 20:43 on 2026-11-11, turning a criterion job red whose gate had passed (#1107).
       - if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: bench-${{ runner.os }}-${{ runner.arch }}

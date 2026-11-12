@@ -313,3 +313,37 @@ On 2026-11-11, an agent with nothing but the scaena MCP server made a deck groun
 - **The renders** agreed with lint's zero, but for the "1" above.
 
 The agent guessed in three places: a sheet's id, a state's id, and whether a chart may name a workbook. The first and third are what the binding fix answers, and `deck_render`'s refusal now answers the second.
+
+## A fifth run: a technical talk from a repository and a docs page (agent dogfood 5)
+
+On 2026-11-11, an agent with nothing but the scaena MCP server made a technical talk grounded in a repository and a web page. It ran on main at 3e8c3d4b.
+
+**The brief.** A twenty-minute talk to engineers, in English, to inform:
+
+- **The talk:** "One core, every screen, the same frame", how one Rust core draws a deck the same in the browser, on the Mac, in a PDF, and in a video.
+- **What it was given:** `github:welshofer/Scaena` and `https://docs.rs/parley/latest/parley/` in `sources`.
+- **How it called:** one `deck_generate` call of eleven slides in Narrato's JSON, with an outline of four beats and `minutes: 20`. Two slides were asked as `"Code"`: a Rust signature, and the two TOML lines of `.cargo/config.toml`.
+- **The read:** `deck_lint`, `deck_health`, `deck_render` of three slides, repairs by `deck_patch`, and `deck_export` as a PDF with notes (eleven pages, its metadata the deck's).
+
+**What it found**
+
+| What the agent met | Fix |
+|---|---|
+| Both slides asked as Code fell to Bullet List, never set as code. The TOML's quotes were curled (`[“-C”, …]`), which corrupts it, and the Rust was set in Inter, `->` drawn as an arrow. The agent's repair by hand took three patches and then met E100 and W203. | #1122: a slide asked as Code, or one item that reads as code in the language of its subtitle's file, takes Title and Code, its item set as code in that language (else `plain`) and never typeset. Lint is 0, and the TOML is colored with its quotes straight. |
+| A `sourceRef` written as the source was given, `github:welshofer/Scaena`, matched no source: not the repository's name ("GitHub: welshofer/Scaena (Rust)") nor its address. So 9 of 11 beats cited nothing, and health warned "Slide 9 writes 0.44, and names no source", which was false. | #1121: a `sourceRef` matches a source's address too, `github:OWNER/REPO` and a URL alike, case and a closing slash aside. |
+| Ten slides for a twenty-minute talk were refused with "the model wrote 10 slides, and a deck of this length has at least 11", which said neither the length asked nor the ways on. | #1123: "10 given, and the length asked, `11-15 slides`, the length 20 minutes take, holds at least 11: write 1 more, or ask a `length` that holds 10". |
+| `github:casey/just` came back 403, "a token allows more". | None: this container's proxy reaches only the repositories in its scope. A repository in scope was fetched in about 5 s. |
+| Health's pacing scored 100 while the notes ran about 3 minutes of the 20-minute slot. `deck_generate`'s `notes` said the slot (20) and the run (5.7). | Routed to Jay (decision d): no beat is timed, so the talk's words are a floor, as in the fourth run. |
+
+**Routed, not fixed here**
+
+- Health read slide 3's headline as counting five while the slide lists one: the five were a signature's parameters, its code read as a list of one.
+- The tone lexicon read "emergency" in "emergency breaks", a typesetter's term, as grave.
+- "Three Column" is no layout's name; `fell` said so, and the slide was set as its items read.
+- A "Before:" and "Between:" pair took Myth and Fact. It reads acceptably.
+
+**What held**
+
+- **Sources.** Each source is kept in `meta.narrative.sources` with its address, and the docs page's `sourceRef` was cited.
+- **Refusals that said why.** A `deck_patch` that made a text code and kept its `list` was E106, which says why.
+- **Health's other findings,** the arc's two bends and the turns, read as true.

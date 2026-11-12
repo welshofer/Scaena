@@ -88,7 +88,17 @@ import Testing
     ]
     #expect(try session.tool("deck_patch", ["ops": [op]]).edited)
     #expect(try await snapshot.exported(.png(state: state, width: 320)) != session.png(state, width: 320))
-    let cancelled = Task { try await snapshot.exported(.pdf) }
-    cancelled.cancel()
+    // Made and cancelled in one turn of the main actor, which the task waits for, so it is
+    // cancelled before it runs, every time, and its export never starts.
+    let cancelled = await MainActor.run {
+        let task = Task { @MainActor in try await snapshot.exported(.pdf) }
+        task.cancel()
+        return task
+    }
     await #expect(throws: CancellationError.self) { try await cancelled.value }
+    // Cancelled while its export is made: the bytes are dropped once the work is done.
+    let meanwhile = Task { try await snapshot.exported(.slides(width: 160, name: "B1")) }
+    try await Task.sleep(for: .milliseconds(1))
+    meanwhile.cancel()
+    await #expect(throws: CancellationError.self) { try await meanwhile.value }
 }
