@@ -1410,8 +1410,14 @@ fn capitalized(text: &str) -> String {
 pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Health, OpsError> {
     let narrative = deck.meta.as_ref().and_then(|m| m.extra.get("narrative"));
     let arc_name = narrative.and_then(|n| n.get("arc")).and_then(Value::as_str).map(str::to_string);
-    let asked =
-        (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
+    // The slides its brief asks: its length, else the length its minutes give, as a brief with
+    // minutes and no length takes (agent dogfood 8: a 10-minute pitch built by hand read as one
+    // with no length asked, paced for 18 slides).
+    let brief = narrative.and_then(|n| n.get("brief"));
+    let briefed = brief.and_then(|b| b.get("minutes")).and_then(Value::as_f64).filter(|m| m.is_finite() && *m >= 1.0);
+    let length = (brief.and_then(|b| b.get("length")).and_then(Value::as_str).map(str::to_string))
+        .or_else(|| briefed.map(|m| scaena_narrato::brief::length_for_minutes(m.round() as u32).to_string()));
+    let asked = length.as_deref().and_then(asked);
     let slides = slides(deck);
     let (read, most, set) = readings(deck, &slides)?;
     let n = read.len();
@@ -4127,6 +4133,21 @@ mod tests {
         assert!(lasting(16.5 * 60.0).is_empty(), "16.5 minutes is not long");
         let long = lasting(16.6 * 60.0);
         assert!(long.len() == 1 && long[0].contains("past the 15 minutes its brief asks"), "{long:?}");
+    }
+
+    /// A brief that asks minutes and no length, as the `brief` op writes one by hand, is paced
+    /// for the length its minutes give, as `deck_generate` takes it (agent dogfood 8): a
+    /// 10-minute talk counted against 5 to 10 slides, not as one that asked no length.
+    #[test]
+    fn a_brief_with_minutes_and_no_length_is_paced_for_the_length_they_give() {
+        let mut deck = climate();
+        deck["meta"]["narrative"]["brief"]["length"] = json!("5-10 slides");
+        deck["meta"]["narrative"]["brief"]["minutes"] = json!(10);
+        let given = of(&deck);
+        deck["meta"]["narrative"]["brief"].as_object_mut().unwrap().remove("length");
+        let h = of(&deck);
+        assert!(!h.pacing.says.contains("no length asked"), "{}", h.pacing.says);
+        assert_eq!((h.score, h.pacing.score, &h.pacing.says), (given.score, given.pacing.score, &given.pacing.says));
     }
 
     /// The talk's time beside the count (lift-up FUNC-1): its beats' durations, or their states'
