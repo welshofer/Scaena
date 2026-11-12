@@ -291,7 +291,11 @@ jobs:
         env:
           SCAENA_REQUIRE_GPU: "1"
       # Diff images from the parity harness and any rejected golden (PLAN 0.9).
+      # An upload is a diagnostic, and the job's verdict is its tests: this one and each upload
+      # below go on when it fails. GitHub's artifact service answered every upload with HTML from
+      # 20:30 to 20:43 on 2026-11-11, and that turned jobs red whose tests had passed (#1065, #1099).
       - if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: diffs-${{ matrix.os }}
@@ -366,7 +370,9 @@ jobs:
       # The app as someone opens it (PLAN 4.2), whether or not ScaenaKit's tests passed.
       - if: ${{ !cancelled() }}
         run: apps/ipad/app-test.sh
+      # A diagnostic: its upload failing fails nothing (the diffs upload above says why).
       - if: ${{ !cancelled() }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ipad-screenshots
@@ -701,7 +707,9 @@ jobs:
         env:
           SCAENA_REQUIRE_GPU: "1"
           SCAENA_WEB_PNGS: ${{ github.workspace }}/target/wasm-smoke:${{ github.workspace }}/target/web-smoke/player-webgpu:${{ github.workspace }}/target/web-smoke/player-cpu:${{ github.workspace }}/target/web-smoke/standalone-cpu
+      # A diagnostic: its upload failing fails nothing (the diffs upload above says why).
       - if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: parity
