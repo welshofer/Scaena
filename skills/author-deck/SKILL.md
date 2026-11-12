@@ -51,6 +51,7 @@ Errors:
    - A whole deck: write its slides in the JSON Narrato writes and make it with `deck_generate` (`scaena generate --slides`), which calls no model and gives the spine, its beats and notes, the layouts, the figures, and the builds.
    - One slide into a deck that exists: `slide_write`, with the `beat` it tells.
    - A deck written by hand: `deck_create`, then the steps below with `deck_patch`.
+   - Name a slide, a step, or a beat by the ids a tool gave you, never by one guessed from a headline: `deck_generate`'s `slides` (each slide's `beat` and its `states`, its own first), `slide_write`'s `slide` and `beat`, or the spine `deck_read` gives (each beat's `states`). A beat's id spells its whole headline, its state's only a few words of it.
 
 1. **Spine first.**
    - From the brief, write `spine.sections[].beats[]`: one `claim` sentence per beat, `evidence` refs, and `notes`.

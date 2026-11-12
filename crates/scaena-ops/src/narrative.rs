@@ -260,6 +260,36 @@ pub struct Generated {
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
+    /// Each slide by its number from 1, with the beat that tells it and its states' ids, the
+    /// first its own: the ids a later call names it by, never guessed from its beat's (agent
+    /// dogfood 9: a beat's id is its whole headline, its state's a few words of it).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub slides: Vec<Told>,
+}
+
+/// A slide of a deck made, by the ids a later call names it by (agent dogfood 9).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Told {
+    /// Its number, from 1.
+    pub slide: usize,
+    /// The beat that tells it, by its id; none where no beat does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beat: Option<String>,
+    /// Its states' ids, in order: its own first, then each step of its build.
+    pub states: Vec<String>,
+}
+
+/// Each slide of `deck` by its ids ([`Told`]).
+pub fn slides_told(deck: &Deck) -> Vec<Told> {
+    let beats: Vec<&scaena_core::document::Beat> =
+        deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).collect();
+    (deck.slides().iter().enumerate())
+        .map(|(k, slide)| {
+            let states: Vec<String> = slide.iter().map(|&i| deck.states[i].id.clone()).collect();
+            let beat = beats.iter().find(|b| b.states.iter().any(|s| states.contains(s))).map(|b| b.id.clone());
+            Told { slide: k + 1, beat, states }
+        })
+        .collect()
 }
 
 /// How many figures a deck's slides write quote one of its data sources, so a data edit sets
@@ -1376,6 +1406,7 @@ pub fn from_slides(
             made.quoted = Quoted::of(counts);
         }
         made.notes = budgeted(&write.deck).ok();
+        made.slides = slides_told(&write.deck);
         crate::create::make(dir, write)?;
     }
     Ok(made)
@@ -2653,6 +2684,7 @@ pub fn making(
         links: Vec::new(),
         refused: Vec::new(),
         notes: None,
+        slides: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -2699,6 +2731,7 @@ pub fn making(
     write.deck = settled.deck;
     made.links = links(&write.deck);
     made.overlong = claims_long(&write.deck, &made.created.findings)?;
+    made.slides = slides_told(&write.deck);
     Ok((made, Some(write)))
 }
 
