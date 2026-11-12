@@ -220,6 +220,14 @@ bool scaena_add_file(struct ScaenaSession *session,
                      const uint8_t *bytes,
                      size_t len);
 
+// The bundle's file at `path`, its bytes as the session holds them: what a movie's sound track
+// is read from (lift-up 20261031 FUNC-2). Null bytes where the bundle holds no such file, `*error`
+// then saying so.
+//
+// # Safety
+// `session` is a live handle; `path` a NUL-terminated string; `error` null or writable.
+struct ScaenaBytes scaena_file(struct ScaenaSession *session, const char *path, char **error);
+
 // A file dropped or pasted on the canvas (PLAN 2.45, 2.76, 2.96, 3.12), handed over where the
 // browser's canvas keeps one: a data file (`.csv`, `.json`) under `data/` by its name, numbered
 // where the bundle holds other bytes there; anything else, an image above all, under `assets/`,

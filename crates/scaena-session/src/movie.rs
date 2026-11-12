@@ -26,10 +26,19 @@ impl Session {
         Reel::of(&self.deck, &paced, None, fps).map_err(|e| Error::Ops(e.message))
     }
 
-    /// The movie of `fps` frames a second, as JSON: `{ "frames", "fps", "durationMs" }`.
+    /// The movie of `fps` frames a second, as JSON: `{ "frames", "fps", "durationMs", "chapters" }`,
+    /// its chapters the CLI's video's (SPEC §10): each beat as it plays, titled by its claim, and a
+    /// slide no beat names by its headline, never an id, each `{ beat?, title, start, end }` in ms
+    /// into the movie; none where the deck has no spine.
     pub fn movie(&mut self, fps: u32) -> Result<serde_json::Value, Error> {
         let reel = self.reel(fps)?;
-        Ok(serde_json::json!({ "frames": reel.frames, "fps": reel.fps, "durationMs": reel.duration_ms() }))
+        let chapters = reel.chapters(&self.deck);
+        Ok(serde_json::json!({
+            "frames": reel.frames,
+            "fps": reel.fps,
+            "durationMs": reel.duration_ms(),
+            "chapters": chapters,
+        }))
     }
 
     /// Frame `k` of the movie of `fps` frames a second, `width` pixels wide: its digest, and its

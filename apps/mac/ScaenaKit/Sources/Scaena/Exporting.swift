@@ -35,8 +35,9 @@ enum Exporting {
         /// the browser's Export… asks (lift-up 20261025 SEC-3).
         case htmlNotes
         /// The deck as it plays, as a movie: each state's cue then its hold, at the canvas's size
-        /// and 30 frames a second, titled as the deck is.
-        case movie
+        /// and 30 frames a second, titled as the deck is, a chapter for each beat, and the bundle's
+        /// sound file at `sound` under it where one is chosen.
+        case movie(sound: String? = nil)
 
         var type: UTType {
             switch self {
@@ -59,7 +60,7 @@ enum Exporting {
         case .slides(let width): .slides(width: width, name: title(of: editor))
         case .html: .html(name: title(of: editor))
         case .htmlNotes: .html(name: title(of: editor), notes: true)
-        case .movie: .movie(title: ((try? editor.session.title()) ?? nil) ?? title(of: editor))
+        case .movie(let sound): .movie(title: ((try? editor.session.title()) ?? nil) ?? title(of: editor), sound: sound)
         }
     }
 
@@ -137,6 +138,11 @@ enum Exporting {
         case .htmlNotes: return "\(safe) - Notes.html"
         case .movie: return "\(safe).mp4"
         }
+    }
+
+    /// A sound file of the bundle as a menu names it: its name, without its folder.
+    static func soundName(_ path: String) -> String {
+        (path as NSString).lastPathComponent
     }
 
     /// The deck's title, as a file's name may hold it.

@@ -2361,6 +2361,26 @@ fn the_decks_movie_is_painted_frame_by_frame_as_the_browsers_is() {
     let frames = movie["frames"].as_u64().unwrap();
     assert!(frames > 30 && movie["fps"] == json!(30) && movie["durationMs"].as_f64().unwrap() > 1000.0, "{movie}");
     assert!(answered(s, "movie", &json!({ "fps": 0 }))["error"]["message"].as_str().unwrap().contains("`fps`"));
+    // Its chapters, as the CLI's video carries them: each beat by its claim, from the movie's start
+    // to its end, one after another.
+    let chapters = movie["chapters"].as_array().unwrap();
+    assert!(chapters.len() > 1, "{movie}");
+    assert_eq!(chapters[0]["start"], json!(0.0));
+    assert_eq!(chapters.last().unwrap()["end"], movie["durationMs"]);
+    for (a, b) in chapters.iter().zip(&chapters[1..]) {
+        assert_eq!(a["end"], b["start"], "{a} then {b}");
+    }
+    assert!(chapters.iter().all(|c| !c["title"].as_str().unwrap().is_empty()), "{movie}");
+
+    // A bundle's file by its path, as a sound track is read; one it lacks an error that names it.
+    let mut error = null_mut();
+    let deck = unsafe { scaena_file(s, c("deck.json").as_ptr(), &mut error) };
+    assert!(!deck.data.is_null() && error.is_null());
+    let held = unsafe { std::slice::from_raw_parts(deck.data, deck.len) }.to_vec();
+    unsafe { scaena_bytes_free(deck) };
+    assert_eq!(held, std::fs::read(format!("{B1}/deck.json")).unwrap());
+    let none = unsafe { scaena_file(s, c("sound/none.m4a").as_ptr(), &mut error) };
+    assert!(none.data.is_null() && took(error).contains("sound/none.m4a"));
 
     let frame = |k: u64, before: Option<&str>| {
         let before = before.map(c);
