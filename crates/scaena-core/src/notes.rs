@@ -459,7 +459,11 @@ mod tests {
     #[test]
     fn a_slides_notes_are_each_steps_in_turn_each_once() {
         let mut deck = crate::Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
-        assert_eq!(of_slide(&deck, "mix").unwrap().text, of(&deck, "mix").unwrap().text);
+        // As the example ships, the slide's first step reads its beat's notes and `mix` its own:
+        // both, the beat's first, where `of` gives the last step's alone.
+        let (beat, own) = (of(&deck, "revenue").unwrap().text, of(&deck, "mix").unwrap().text);
+        assert!(!beat.is_empty() && beat != own, "{beat:?} {own:?}");
+        assert_eq!(of_slide(&deck, "mix").unwrap().text, format!("{beat}\n\n{own}"));
         for (state, notes) in [("revenue", "Open on the doubling."), ("mix", "Then point at the orange band.")] {
             deck.states.iter_mut().find(|s| s.id == state).unwrap().notes = Some(notes.into());
         }
