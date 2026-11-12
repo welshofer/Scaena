@@ -44,6 +44,8 @@ import Testing
     #expect(try await session.snapshot().exported(.png(state: "images", width: 320)) == tall)
     try session.setFormat(nil)
     #expect(try await session.snapshot().exported(.png(state: "images", width: 320)) == own)
+}
+
 /// Whether any slide has notes, which the window asks before a PDF with the notes is made where
 /// none has, as the browser's Export… says (editor dogfood 2): B1 has none, the torture deck many.
 @Test func aDeckSaysWhetherAnySlideHasNotesBeforeAPDFWithThemIsMade() throws {
