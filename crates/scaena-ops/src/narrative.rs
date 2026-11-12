@@ -155,10 +155,17 @@ fn fell_back(narrative: &Narrative, chosen: &[String]) -> Vec<Fell> {
             "it names a chart but gives no `chartData` to draw".to_string()
         } else if matches!(identity, "bar-chart" | "line-chart") && slide.chart_data.is_none() {
             "it is a chart but gives no `chartData` to draw".to_string()
+        } else if matches!(layouts::structural(name), "image" | "image-text") && !pictures_in(layout) {
+            // A picture asked for that the slide has none of (agent dogfood 8): its words are set
+            // as they read, and `image_add` gives it one once its layout holds one.
+            "it asks for a picture, and the slide has none: it was set as its items read. Give it a layout \
+             that holds one (`set_state` with `layout`, such as `photo-left` or `bullets-photo`), then put \
+             the picture there with `image_add`"
+                .to_string()
         } else if !chart_named(name) && !layouts::known(name) && !taken_as(name, layout) {
             "no layout is called that; it was set as its items read. Layouts known by name include `Title`, \
-             `Bullet List`, `Big Number`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Timeline`, \
-             `Section Header`, and `Closing`"
+             `Bullet List`, `Big Number`, `Bar Chart`, `Line Chart`, `Two Column`, `Image + Text`, `Quote`, \
+             `Timeline`, `Section Header`, and `Closing`"
                 .to_string()
         } else {
             continue;
@@ -166,6 +173,12 @@ fn fell_back(narrative: &Narrative, chosen: &[String]) -> Vec<Fell> {
         fell.push(Fell { slide: i + 1, asked: name.to_string(), layout: layout.clone(), why });
     }
     fell
+}
+
+/// Whether a theme layout `layout` holds a picture, by the names the library gives them: a photo's
+/// layouts, the art beside words, and a cover split by one.
+fn pictures_in(layout: &str) -> bool {
+    layout.contains("photo") || layout.starts_with("art-") || layout == "title-split" || layout == "poster"
 }
 
 /// A picture made for a slide (PLAN G.10): the path the bundle keeps it at, and what it shows,
@@ -9553,6 +9566,16 @@ mod tests {
         assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
         assert!(m.fell[0].why.contains("no layout is called that") && m.fell[0].layout == m.layouts[1], "{:?}", m.fell);
         assert!(made(named("Bullet List")).fell.is_empty());
+        // A picture asked for by Scaena's own name, with none to show, says how to give it one;
+        // a call to action asked for by name has not fallen back (agent dogfood 8).
+        let mut pictured = named("Bullet List");
+        pictured.layout_suggestion = "Image Left".into();
+        let m = made(pictured);
+        assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
+        assert!(m.fell[0].why.contains("asks for a picture") && m.fell[0].why.contains("image_add"), "{:?}", m.fell);
+        let mut cta = named("Bullet List");
+        cta.layout_suggestion = "Call to Action".into();
+        assert!(made(cta).fell.is_empty());
     }
 
     /// Each figure and its unit stays on the slide, set once, at the lengths a model writes

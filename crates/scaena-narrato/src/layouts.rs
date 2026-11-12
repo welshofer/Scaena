@@ -235,10 +235,30 @@ const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
     ("risk-matrix", "Risk matrix", None, &["risk register", "risk heat map", "heat map", "risk map"]),
 ];
 
-/// `name`'s structural layout (`layoutFromSuggestion`): an exact, case-folded lookup.
+/// Scaena's own names for a structural layout, which Narrato's table lacks and agents writing
+/// slides by hand reach for (agent dogfood 8): a picture beside the words, and a closing's call
+/// to action, which the builder sets as one where the slide carries an ask and an address.
+const SCAENA_SUGGESTION: [(&str, &str); 13] = [
+    ("image left", "image-text"),
+    ("image right", "image-text"),
+    ("picture left", "image-text"),
+    ("picture right", "image-text"),
+    ("photo left", "image-text"),
+    ("photo right", "image-text"),
+    ("text and image", "image-text"),
+    ("image with text", "image-text"),
+    ("picture and text", "image-text"),
+    ("photo and text", "image-text"),
+    ("call to action", "closing"),
+    ("call-to-action", "closing"),
+    ("cta", "closing"),
+];
+
+/// `name`'s structural layout (`layoutFromSuggestion`): an exact, case-folded lookup, in
+/// Narrato's table, then in Scaena's own names ([`SCAENA_SUGGESTION`]).
 pub fn structural(name: &str) -> &'static str {
     let key = crate::js::trim(name).to_lowercase();
-    BY_SUGGESTION.iter().find(|(k, _)| *k == key).map_or("body", |(_, v)| v)
+    (BY_SUGGESTION.iter().chain(SCAENA_SUGGESTION.iter())).find(|(k, _)| *k == key).map_or("body", |(_, v)| v)
 }
 
 /// A name as the rich-layout lookup reads it: lowercase, each run of anything but ASCII letters
@@ -274,7 +294,7 @@ pub fn spec(name: &str) -> Option<&'static str> {
 /// names. Any other comes to `body`, which a client reports as a fallback (agent dogfood).
 pub fn known(name: &str) -> bool {
     let key = crate::js::trim(name).to_lowercase();
-    BY_SUGGESTION.iter().any(|(k, _)| *k == key) || spec(name).is_some()
+    BY_SUGGESTION.iter().chain(SCAENA_SUGGESTION.iter()).any(|(k, _)| *k == key) || spec(name).is_some()
 }
 
 /// What a name maps to (`narratoSlidesToVzestup`).
@@ -599,6 +619,18 @@ mod tests {
 
     /// The columns agents and models name a slide by are Narrato's side-by-side layout, known
     /// by that name, not a body that falls back (R1's agent dogfood 5).
+    /// Scaena's own names for a picture beside the words and a call to action are known, so a
+    /// slide asked for by them is not said to have fallen back (agent dogfood 8).
+    #[test]
+    fn scaenas_own_names_for_a_picture_and_a_call_to_action_are_known() {
+        assert_eq!(
+            (structural("Image Left"), structural("Call to Action"), structural("CTA")),
+            ("image-text", "closing", "closing")
+        );
+        assert!(known("Photo Right") && known("call to action"));
+        assert!(!known("Image Somewhere") && structural("Image Somewhere") == "body");
+    }
+
     #[test]
     fn columns_by_their_count_are_side_by_side() {
         for name in ["Two Columns", "Three Column", "Three Columns", "three-column", "Four Column", "Four Columns"] {
