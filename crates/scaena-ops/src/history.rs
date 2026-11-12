@@ -872,7 +872,9 @@ fn slide_back(
             continue;
         }
         deck.data.insert(id.clone(), source.clone());
-        if let Some(file) = source.source.get("file").and_then(Value::as_str)
+        // A source is written by its file's path (`"source": "data/…"`, SPEC §3.10), its rows
+        // inline otherwise (W1's review of #1172).
+        if let Some(file) = source.source.as_str()
             && let Some(bytes) = held.get(file)
         {
             files.insert(file.to_string(), bytes.clone());
