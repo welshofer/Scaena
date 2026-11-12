@@ -108,7 +108,17 @@
           "fix": { "type": "array", "items": true }
         },
         "required": ["beat", "state", "path", "claim"]
-      }
+      },
+      "Fold": {
+        "type": "object",
+        "properties": {
+          "into": { "type": "string" },
+          "to": { "$ref": "#/$defs/FoldsTo" },
+          "says": { "type": "string" }
+        },
+        "required": ["into", "to", "says"]
+      },
+      "FoldsTo": { "type": "string", "enum": ["place", "notes"] }
     },
     "required": ["applied", "patch", "added", "removed", "errors", "states"],
     "type": "object",
@@ -119,7 +129,8 @@
       "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "errors": { "type": "integer", "minimum": 0 },
       "states": { "type": "array", "items": { "type": "string" } },
-      "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } }
+      "restated": { "type": "array", "items": { "$ref": "#/$defs/Restated" } },
+      "folded": { "anyOf": [{ "$ref": "#/$defs/Fold" }, { "type": "null" }] }
     }
   }
 }

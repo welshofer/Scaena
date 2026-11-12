@@ -1412,7 +1412,9 @@ impl Scaena {
 
     #[tool(description = "Apply a patch: JSON Patch and semantic ops (add_node, rename_node, set_prop, set_text, \
         show_node, hide_node, add_state, …; SPEC §7.3), all or none. A slide's own: move_slide, remove_slide, and \
-        duplicate_slide move, take away, and copy a slide with its steps and its beat; set_state sets a state's \
+        duplicate_slide move, take away, and copy a slide with its steps and its beat; fold_slide, alone in its \
+        patch, folds a slide into the one before it as the editors' Fold does, `folded` saying what goes where \
+        (dry-run it first); set_state sets a state's \
         layout, transition, hold, or notes (`{\"op\": \"set_state\", \"id\": STATE, \"prop\": \"notes\", \"value\": \"…\"}`); \
         place puts a node where it goes; choose sets a property where its value \
         lives; replace_text changes words, keeping their runs; brief sets the deck's brief, which health paces \

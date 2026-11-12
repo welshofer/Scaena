@@ -247,6 +247,11 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         SemanticOp::MoveSlide { slide, after, before } => move_slide(&d, slide, after.as_deref(), before.as_deref())?,
         SemanticOp::DuplicateSlide { slide } => duplicate_slide(&d, slide)?,
         SemanticOp::RemoveSlide { slide } => remove_slide(&d, slide)?,
+        SemanticOp::FoldSlide { .. } => {
+            return Err("a `fold_slide` is made by the operations, which lay the slide out (`deck_patch`, \
+                 `scaena patch`), alone in its patch"
+                .into());
+        }
         SemanticOp::RenameState { id, to } => {
             renamed.push(Renamed::State { from: id.clone(), to: to.clone() });
             rename_state(&d, id, to)?

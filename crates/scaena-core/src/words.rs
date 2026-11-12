@@ -549,6 +549,7 @@ const OPS: &[(&str, &str)] = &[
     ("duplicate_slide", "a slide copied"),
     ("move_slide", "a slide moved"),
     ("remove_slide", "a slide deleted"),
+    ("fold_slide", "a slide folded into the one before"),
     ("retheme", "the theme changed"),
 ];
 

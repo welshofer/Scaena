@@ -1114,6 +1114,31 @@ mod tests {
         scaena_core::reading::words(&snap.nodes[node])
     }
 
+    /// A `fold_slide` in a patch folds as the editors' button does (agent dogfood 7): over MCP
+    /// and the CLI it makes `folding`'s patch, says what it folds where before and after, stands
+    /// alone in its patch, and is refused, saying why, where the fold is.
+    #[test]
+    fn a_fold_slide_op_folds_as_the_editors_fold_and_says_where() {
+        let b = short();
+        let ops = json!([{ "op": "fold_slide", "slide": "belief-2-why" }]);
+        let dry = crate::patch::reported(&b, &ops, true, false).unwrap();
+        let fold = dry.folded.as_ref().expect("what it folds where");
+        assert_eq!((fold.into.as_str(), fold.to), ("belief-1", FoldsTo::Place), "{fold:?}");
+        assert!(fold.says.starts_with("Folds slide 4 into slide 3: its words join"), "{}", fold.says);
+        assert!(!dry.applied && dry.summary.slides_removed == ["belief-2"], "{dry:?}");
+        let (patched, write) = crate::patch::patching(&b, &ops, None).unwrap();
+        let folded = folding(&b, "belief-2-why").unwrap();
+        assert_eq!(applied(&b, &folded.patch).to_json().unwrap(), write.as_ref().unwrap().deck.to_json().unwrap());
+        assert!(patched.applied);
+        assert_eq!(write.unwrap().why.message, "patch: fold_slide");
+        let with = json!([{ "op": "fold_slide", "slide": "belief-2" }, { "op": "remove_slide", "slide": "belief-1" }]);
+        let alone = crate::patch::reported(&b, &with, true, false).unwrap_err();
+        assert!(alone.message.contains("stands alone in its patch") && alone.op == Some(0), "{alone:?}");
+        let first = json!([{ "op": "fold_slide", "slide": b.deck.states[0].id }]);
+        let none = crate::patch::reported(&b, &first, true, false).unwrap_err();
+        assert!(none.message.contains("has no slide before it"), "{none:?}");
+    }
+
     /// A slide folded into the one before it (editor dogfood 6): its headline, then its body,
     /// after the previous slide's words at its last step; its states gone with the beat it alone
     /// told, whose claim joins the previous beat's notes; one patch, said in a person's words.
