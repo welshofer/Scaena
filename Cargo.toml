@@ -280,8 +280,9 @@ opt-level = 2
 # otherwise carries once for each of six pens (PLAN 2.146), and its hinters are compiled out
 # unless its `hinting` feature is asked for, since no draw in Scaena hints (ADR-0004 finding 30,
 # vendor/skrifa/SCAENA.md). vello_shaders
-# 0.10.0 with one change: the WGSL it embeds has no comments, indentation, or blank lines, 36.7 KB
-# less of the editor's module gzipped (vendor/vello_shaders/SCAENA.md).
+# 0.10.0 with two changes: the WGSL it embeds has no comments, indentation, or blank lines, 36.7 KB
+# less of the editor's module gzipped, and its multisampled fine shaders, which no renderer of
+# Scaena's asks for, are embedded as no text (ADR-0004 finding 31, vendor/vello_shaders/SCAENA.md).
 [patch.crates-io]
 parley = { path = "vendor/parley" }
 skera = { path = "vendor/skera" }
