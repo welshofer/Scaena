@@ -4487,7 +4487,10 @@ fn layout_for(
     ];
     // A bare closing headed by its beat's claim sets all its own lines under the claim, on one line
     // of the support, however many they are (W1 dogfood 13).
-    let claimed = wanted == "closing" && bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty());
+    // So does a closing that says its ask and only thanks the room under it ("Thank you",
+    // "Questions?"), in any language, never a list of its thanks (agent dogfood 9).
+    let claimed = wanted == "closing"
+        && ((bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty())) || thanked(slide));
     let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") || claimed {
         true => wanted,
         false if sequential.contains(&identity) => "numbered",
@@ -4500,6 +4503,15 @@ fn layout_for(
         .or_else(|| theme.layouts.keys().next().map(String::as_str))
         .unwrap_or("bullets")
         .to_string()
+}
+
+/// Whether a closing says something in its title and only thanks the room or opens the floor under
+/// it, every line of it ("Approve the pilot" over "Thank you", "Questions?"; agent dogfood 9).
+fn thanked(slide: &Slide) -> bool {
+    !bare(&slide.slide_title)
+        && !slide.slide_title.trim().is_empty()
+        && !slide.key_bullets.is_empty()
+        && slide.key_bullets.iter().all(|b| bare(b))
 }
 
 /// Whether a closing's title only thanks the room or opens the floor ("Thank you", "Questions?",
@@ -4540,7 +4552,9 @@ fn bare(title: &str) -> bool {
         "谢谢",
         "감사합니다",
     ];
-    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
+    // Spanish opens a question or a cry with its own mark ("¿Preguntas?", "¡Gracias!").
+    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim_start_matches(['¿', '¡']);
+    let t = t.trim().to_lowercase();
     !t.is_empty() && BARE.contains(&t.as_str())
 }
 
@@ -5702,6 +5716,11 @@ impl Slots<'_> {
         self.layout == "closing" && bare(&self.slide.slide_title) && self.claim.is_some()
     }
 
+    /// Whether the slide is a closing that says its ask and only thanks the room under it.
+    fn thanked_close(&self) -> bool {
+        self.layout == "closing" && thanked(self.slide)
+    }
+
     /// A bare closing's own words, under the claim that heads it: "Thank you · Questions?".
     fn thanks(&self) -> String {
         let said: Vec<String> = std::iter::once(self.slide.slide_title.trim().to_string())
@@ -6053,6 +6072,14 @@ impl Slots<'_> {
             // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8).
             "statement" if self.claimed_close() => self.claim.map(str::to_string),
             "support" if self.claimed_close() => Some(self.thanks()),
+            // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
+            "support" if self.thanked_close() => {
+                let said: Vec<&str> = std::iter::once(self.slide.subtitle.trim())
+                    .chain(self.items.iter().map(|i| i.whole.trim()))
+                    .filter(|w| !w.is_empty())
+                    .collect();
+                Some(said.join(" \u{b7} "))
+            }
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
@@ -11509,6 +11536,22 @@ mod tests {
         assert_eq!(layout, "closing", "{said:#?}");
         has(&said, "statement", "Free fares bring the riders back.");
         has(&said, "support", "Vielen Dank \u{b7} Fragen? \u{b7} route9@example.gov");
+        // A closing that says its ask, its thanks under it, keeps its closing too, in any
+        // language, the thanks on one line under the ask (agent dogfood 9: "Aprueben la
+        // ampliación" over "Gracias", "¿Preguntas?" was set as a list of the two).
+        for (lang, title, thanks) in [
+            (None, "Approve the pilot in this budget", ["Thank you", "Questions?"]),
+            (Some("Spanish"), "Aprueben la ampliación en el presupuesto de 2026", ["Gracias", "¿Preguntas?"]),
+        ] {
+            n.brief.language = lang.map(String::from);
+            let last = n.slides.last_mut().unwrap();
+            last.slide_title = title.into();
+            last.key_bullets = thanks.iter().map(|t| t.to_string()).collect();
+            let (layout, said) = close(&n);
+            assert_eq!(layout, "closing", "{said:#?}");
+            has(&said, "statement", title);
+            has(&said, "support", &thanks.join(" \u{b7} "));
+        }
         n.brief.language = None;
         let last = n.slides.last_mut().unwrap();
         last.slide_title = "Thank you".into();
