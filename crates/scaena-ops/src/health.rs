@@ -2495,10 +2495,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // promises three and lists two loses the room on the third. No patch: which is right, the
     // count or the list, is the writer's.
     for (i, s) in read.iter().enumerate() {
-        if !english || i == 0 || framing(i) || s.one_idea || s.drawn || !s.eligible() {
+        if i == 0 || framing(i) || s.one_idea || s.drawn || !s.eligible() {
             continue;
         }
-        let (Some(said), listed) = (counts(&s.title), bullets(s)) else { continue };
+        let (Some(said), listed) = (counts_in(&s.title, language), bullets(s)) else { continue };
         if listed == 0 || listed == said || shows_figure(s, said) {
             continue;
         }
@@ -2566,13 +2566,28 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             aloud.push(i);
         }
     }
-    // A slide that says again what the slide before it said, in other words than lint's W425
+    // A slide that says again what a slide before it said, in other words than lint's W425
     // reads as the same claim (W1's dogfood 4): their headlines share two content words or more,
-    // and half of the shorter's, or their words, headline and body, are half the same.
+    // and half of the shorter's, or their words, headline and body, are half the same. The slide
+    // just before it, as before, and else the nearest earlier slide that makes a point, so a
+    // slide that repeats one two back, with another between, is found too (agent dogfood 7:
+    // slide 6 said slide 4's accessorials again, slide 5 between); a cover, a divider, an
+    // agenda, and the close frame the talk, and say its words again by design; and a slide with
+    // a figure of its own the earlier one has not tells a change, not the same point ("0.8 hours"
+    // after "6.5 hours" four slides back: the fleet pitch's before and after).
+    let told = |was: &SlideForHealth, now: &SlideForHealth| {
+        let before = scaena_narrato::figures(&format!("{} {}", was.title, was.body));
+        scaena_narrato::figures(&format!("{} {}", now.title, now.body)).iter().all(|f| before.contains(f))
+    };
     for i in 1..read.len() {
-        let (was, now) = (&read[i - 1], &read[i]);
-        let Some(shared) = repeated(was, now) else { continue };
-        let (k, j) = (i + 1, i);
+        let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
+        let Some((at, shared)) =
+            std::iter::once(i - 1).chain(earlier).find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
+        else {
+            continue;
+        };
+        let (was, now) = (&read[at], &read[i]);
+        let (k, j) = (i + 1, at + 1);
         let said: Vec<String> = shared.iter().map(|w| format!("\u{201c}{w}\u{201d}")).collect();
         let said = match said.split_last() {
             Some((last, [])) => last.clone(),
@@ -2587,7 +2602,20 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
                 unstopped(was.title.trim())
             ),
-            format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on."),
+            // A slide further back is no fold the editors make, which join a slide to the one
+            // just before it: it is cut, or given a point of its own.
+            if at + 1 == i {
+                format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on.")
+            } else {
+                format!(
+                    concat!(
+                        "Cut slide {k}, which slide {j} says already, ",
+                        "or give slide {k} a point of its own that moves the talk on."
+                    ),
+                    k = k,
+                    j = j
+                )
+            },
             None,
         );
     }
@@ -2626,11 +2654,18 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     if let Some((lo, Some(hi))) = asked.filter(|_| n > 2) {
         let over = n.saturating_sub(hi);
         if over > 0 {
-            // The slides that turn least from the one before, the first and the last kept.
+            // The slides that add least: those whose words a slide before them, one that makes a
+            // point, said most of, then those that turn least from the one before, the first and
+            // the last kept, and a divider, an agenda, or the close, which frame the talk, and
+            // its ask, which it is given for, never named. A slide's likeness to its neighbour
+            // alone named a coherent talk's best-joined slides, its hook among them, and missed
+            // one that said again a slide two back (agent dogfood 7).
             let pairs = &m.coherence.pair_similarities;
-            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).collect();
+            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).filter(|&i| !framing(i) && !closes(i)).collect();
             scaena_core::sort::by_key(&mut cut, |&i| {
-                std::cmp::Reverse((pairs.get(i - 1).copied().unwrap_or(0.0) * 1e6) as i64)
+                let said = (0..i).filter(|&j| !framing(j)).map(|j| already(&read[j], &read[i])).fold(0.0, f64::max);
+                let turned = pairs.get(i - 1).copied().unwrap_or(0.0);
+                (std::cmp::Reverse((said * 1e6) as i64), std::cmp::Reverse((turned * 1e6) as i64))
             });
             cut.truncate(over);
             scaena_core::sort::by_key(&mut cut, |&i| i);
@@ -2699,6 +2734,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
         // sourced is sourced where it is said again (W1's dogfood 5).
         let mut known: Vec<(String, String)> = Vec::new();
+        // Each figure found unsourced, by value and unit, with the slides that write it, the first
+        // the one it is found on: a figure several slides write is one finding that names them all
+        // (W2's health read: Valdemar's 2,3 M€ on slides 5 and 8), which citing the first answers,
+        // the rest then saying again what it sourced.
+        let mut found: Vec<((String, String), String, Vec<usize>)> = Vec::new();
         for (i, s) in read.iter().enumerate() {
             let shown = format!("{}\n{}", s.title, s.body);
             let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
@@ -2708,23 +2748,43 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 known.extend(written.into_iter().map(|f| (f.value, f.unit)));
                 continue;
             }
-            let Some(figure) = written.into_iter().find(|f| !known.contains(&(f.value.clone(), f.unit.clone()))) else {
+            // A slide's first figure no cited slide wrote: one an earlier slide was found for adds
+            // this slide to its finding, else it is found here.
+            let Some(f) = written.into_iter().find(|f| !known.contains(&(f.value.clone(), f.unit.clone()))) else {
                 continue;
             };
-            let (k, figure) = (i + 1, figure.shown);
-            unsourced.push((s.id.clone(), figure.clone()));
-            find(
-                &s.id,
-                Severity::Warning,
-                Kind::Source,
-                format!(
-                    "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
+            let key = (f.value.clone(), f.unit.clone());
+            match found.iter_mut().find(|(k, ..)| *k == key) {
+                Some((.., on)) => on.push(i),
+                None => found.push((key, f.shown, vec![i])),
+            }
+        }
+        for (_, figure, on) in found {
+            let (first, k) = (on[0], on[0] + 1);
+            unsourced.push((read[first].id.clone(), figure.clone()));
+            let (says, ask) = match on.len() {
+                1 => (
+                    format!(
+                        "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
+                    ),
+                    format!(
+                        "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
+                    ),
                 ),
-                format!(
-                    "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
-                ),
-                None,
-            );
+                _ => {
+                    let (again, many) = slides_named(&on[1..]);
+                    let does = if many { "do" } else { "does" };
+                    (
+                        format!(
+                            "Slide {k} writes {figure}, as {again} {does}, and names no source for it, though the deck was made from its sources."
+                        ),
+                        format!(
+                            "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from: that sources it on {again} too."
+                        ),
+                    )
+                }
+            };
+            find(&read[first].id, Severity::Warning, Kind::Source, says, ask, None);
         }
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
@@ -2987,6 +3047,17 @@ fn repeated(was: &SlideForHealth, now: &SlideForHealth) -> Option<Vec<String>> {
             .unwrap_or_else(|| w.clone())
     };
     (headlines || words).then(|| shared.iter().map(shown).collect())
+}
+
+/// The share of the words `now` says, its headline's and its body's, that `was` said already: none
+/// where it says fewer than three, which tell too little to judge (agent dogfood 7).
+fn already(was: &SlideForHealth, now: &SlideForHealth) -> f64 {
+    let whole = |s: &SlideForHealth| said(&format!("{} {}", s.title, s.body));
+    let (before, words) = (whole(was), whole(now));
+    if words.len() < 3 {
+        return 0.0;
+    }
+    words.intersection(&before).count() as f64 / words.len() as f64
 }
 
 /// The words `text` says, as a repeat is read (W1's dogfood 5): its content words, a hyphen
@@ -3254,6 +3325,126 @@ fn spaceless(language: Option<&str>) -> bool {
 /// The fewest points the slides that make several make on average before balance marks a deck
 /// down: Vzestup's floor, `metrics`' "Add more bullets to thin slides" (ADR-0032).
 const FLOOR_POINTS: f64 = 2.0;
+
+/// What a headline counts in `language`, where it counts the things its slide lists: in
+/// English, [`counts`]; in Spanish, [`cuenta`] ("Tres barrios"); in Japanese, [`kazoe`] ("三つ",
+/// "3つ"; W2's health read); in another language, nothing, which reads none.
+fn counts_in(headline: &str, language: Option<&str>) -> Option<usize> {
+    let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
+        "es" | "spa" | "spanish" | "español" | "espanol" => cuenta(headline),
+        "ja" | "jpn" | "japanese" | "日本語" => kazoe(headline),
+        _ if in_english(language) => counts(headline),
+        _ => None,
+    }
+}
+
+/// What a Spanish headline counts, as [`counts`] reads an English one: a number from two to
+/// twelve, in words or figures, before a word that names them ("Tres barrios concentran la
+/// mitad"), never a measure ("tres años", "40 kilómetros") or a figure's own words ("dos de cada
+/// tres").
+fn cuenta(headline: &str) -> Option<usize> {
+    const WORDS: [&str; 11] =
+        ["dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once", "doce"];
+    const MEASURES: [&str; 26] = [
+        "de",
+        "por",
+        "veces",
+        "segundos",
+        "minutos",
+        "horas",
+        "días",
+        "dias",
+        "semanas",
+        "meses",
+        "años",
+        "anos",
+        "trimestres",
+        "kilómetros",
+        "kilometros",
+        "metros",
+        "litros",
+        "personas",
+        "puntos",
+        "euros",
+        "dólares",
+        "dolares",
+        "mil",
+        "millones",
+        "y",
+        "o",
+    ];
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let number = |w: &str| w == "uno" || w == "una" || WORDS.contains(&w) || w.parse::<f64>().is_ok();
+    let mut found = None;
+    for (i, w) in words.iter().enumerate() {
+        let n = WORDS
+            .iter()
+            .position(|n| n == w)
+            .map(|k| k + 2)
+            .or_else(|| w.parse::<usize>().ok().filter(|n| (2..=12).contains(n)));
+        let Some(n) = n else { continue };
+        // A ratio's second number ("dos de cada tres", "uno de cada doce") counts nothing listed.
+        let back = |k: usize| i.checked_sub(k).map(|j| words[j].as_str());
+        if back(1) == Some("cada") && back(2) == Some("de") && back(3).is_some_and(number) {
+            continue;
+        }
+        let next = words.get(i + 1).map(String::as_str);
+        if next.is_none_or(|next| MEASURES.contains(&next) || next.chars().all(|c| c.is_ascii_digit())) {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some(n);
+    }
+    found
+}
+
+/// What a Japanese headline counts: a number from two to twelve, in kanji or figures, half or
+/// full width, before a counter of things listed (つ, 点, 項目, 個, 件, 案), "理由は三つあります" or
+/// "3つのポイント", never a part of a larger figure ("13つ") or a measure ("3億円", "12月").
+fn kazoe(headline: &str) -> Option<usize> {
+    const COUNTERS: [&str; 6] = ["つ", "点", "項目", "個", "件", "案"];
+    let chars: Vec<char> = headline.chars().collect();
+    let digit = |c: char| c.to_digit(10).or_else(|| ('０'..='９').contains(&c).then(|| c as u32 - '０' as u32));
+    let kanji = |c: char| "一二三四五六七八九十".find(c).map(|i| i as u32 / 3 + 1);
+    let numeral = |c: char| digit(c).is_some() || kanji(c).is_some() || "百千万億兆〇".contains(c);
+    let mut found = None;
+    let mut i = 0;
+    while i < chars.len() {
+        if !numeral(chars[i]) || (i > 0 && numeral(chars[i - 1])) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < chars.len() && numeral(chars[i]) {
+            i += 1;
+        }
+        let run = &chars[start..i];
+        let n = if run.iter().all(|&c| digit(c).is_some()) {
+            run.iter().try_fold(0u32, |n, &c| Some(n * 10 + digit(c)?))
+        } else {
+            match run {
+                ['十'] => Some(10),
+                [one] => kanji(*one).filter(|&n| n < 10),
+                ['十', one] => kanji(*one).filter(|&n| n < 3).map(|n| 10 + n),
+                _ => None,
+            }
+        };
+        let rest: String = chars[i..].iter().collect();
+        let counter = COUNTERS.iter().any(|c| rest.starts_with(c));
+        let Some(n) = n.map(|n| n as usize).filter(|n| (2..=12).contains(n) && counter) else { continue };
+        if found.is_some() {
+            return None;
+        }
+        found = Some(n);
+    }
+    found
+}
 
 /// What a headline counts, where it counts the things its slide lists: a number from two to
 /// twelve, in words or figures, before a word that names them ("Three traps", "in five parts"),
@@ -4817,6 +5008,25 @@ mod tests {
         ] {
             assert_eq!(counts(none), None, "{none}");
         }
+        // In Spanish and in Japanese, by their own numbers and counters (W2's health read).
+        assert_eq!(counts_in("Tres barrios concentran la mitad de las fugas", Some("Spanish")), Some(3));
+        assert_eq!(counts_in("El plan avanza en tres fases", Some("es")), Some(3));
+        assert_eq!(counts_in("利用が増えた理由は三つあります", Some("Japanese")), Some(3));
+        assert_eq!(counts_in("3つのポイント", Some("ja")), Some(3));
+        assert_eq!(counts_in("５つの提案", Some("ja-JP")), Some(5));
+        assert_eq!(counts_in("十二項目の改善", Some("ja")), Some(12));
+        for none in [
+            "Con 2,3 M€ en tres años reducimos a la mitad el agua",
+            "Dos de cada tres hogares ahorran",
+            "Pedimos al pleno aprobar 2,3 M€",
+        ] {
+            assert_eq!(counts_in(none, Some("Spanish")), None, "{none}");
+        }
+        for none in ["分館の新設には3億円かかります", "採決は12月10日", "利用者は12万人", "13つの案"]
+        {
+            assert_eq!(counts_in(none, Some("Japanese")), None, "{none}");
+        }
+        assert_eq!(counts_in("Drei Fehler, die Reviews nutzlos machen", Some("German")), None);
         // The list put right: nothing found.
         let kept = |slides: &mut Vec<answer::Slide>| slides[7].key_bullets.push("Timelines with no timestamps".into());
         let h = of(&dogfood("training", "", kept));
@@ -4825,6 +5035,14 @@ mod tests {
         let mut deck = dogfood("training", "", |_| {});
         deck["meta"]["narrative"]["brief"]["language"] = json!("German");
         assert!(!of(&deck).findings.iter().any(|f| f.says.contains("headline counts")));
+        // In Japanese, its own count is held to the list (W2's health read: 理由は三つ over seven).
+        let japanese = |slides: &mut Vec<answer::Slide>| slides[7].slide_title = "レビューを無駄にする三つの罠".into();
+        let mut deck = dogfood("training", "", japanese);
+        deck["meta"]["narrative"]["brief"]["language"] = json!("Japanese");
+        let h = of(&deck);
+        let counted: Vec<&Finding> = h.findings.iter().filter(|f| f.says.contains("headline counts")).collect();
+        assert_eq!(counted.len(), 1, "{:#?}", h.findings);
+        assert_eq!(counted[0].says, "Slide 8's headline counts three, and the slide lists two.");
         // A count the slide shows as one of its figures is no count of its list (agent dogfood 6):
         // "$1.2M opens two neighborhoods" over three cards, the first "2 new neighborhoods".
         let figured = |slides: &mut Vec<answer::Slide>| {
@@ -5359,6 +5577,72 @@ mod tests {
         assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
     }
 
+    /// A slide that says again what a slide two or more back said, another between them, is found
+    /// as one just after it is, and the slides a deck past its length is asked to cut are those an
+    /// earlier slide said most of, not those most like their neighbour (agent dogfood 7): the
+    /// pitch with its accessorials said again on slide 6, slide 5 between, and three slides that
+    /// tell How It Works again a step at a time named its hook, its big number, and its chart.
+    #[test]
+    fn a_slide_that_says_again_what_one_further_back_said_is_found_and_named_to_cut() {
+        let faulted = |slides: &mut Vec<answer::Slide>| {
+            let six = &mut slides[5];
+            six.slide_title = "Accessorials are where most of the overbilling hides".into();
+            six.layout_suggestion = "Bullets".into();
+            six.key_bullets = vec![
+                "Accessorial charges are 41% of every overbilled dollar".into(),
+                "Liftgates, detention, and residential fees rarely match the contract".into(),
+                "They are billed after the fact, so nobody checks them".into(),
+            ];
+            let mut told = Vec::new();
+            for (title, items) in [
+                (
+                    "Manifest reads every invoice format carriers send",
+                    ["EDI, email, and carrier portals", "Scanned PDFs included", "Parsed line by line"],
+                ),
+                (
+                    "Manifest matches every charge against the contract",
+                    [
+                        "Each charge against the contract rate",
+                        "Each charge against the shipment",
+                        "Each charge against proof of delivery",
+                    ],
+                ),
+                (
+                    "Manifest disputes what doesn't match before AP pays",
+                    [
+                        "Disputes go to the carrier with evidence",
+                        "AP only pays verified amounts",
+                        "Carriers usually reissue the invoice",
+                    ],
+                ),
+            ] {
+                let mut s = slides[7].clone();
+                s.slide_title = title.into();
+                s.layout_suggestion = "Bullets".into();
+                s.key_bullets = items.iter().map(|&w| w.into()).collect();
+                s.subtitle = String::new();
+                told.push(s);
+            }
+            slides.splice(9..9, told);
+        };
+        let h = of(&dogfood("pitch", "", faulted));
+        let again: Vec<&Finding> = (h.findings.iter()).filter(|f| f.says.contains("says again")).collect();
+        let cut_or_own = concat!(
+            "Cut slide 6, which slide 4 says already, ",
+            "or give slide 6 a point of its own that moves the talk on."
+        );
+        assert!(
+            again.iter().any(|f| f.slide == 6
+                && f.says.starts_with("Slide 6 says again what slide 4 said")
+                && f.ask == cut_or_own),
+            "{again:#?}"
+        );
+        assert!(again.iter().any(|f| f.says.contains("what slide 8 said")), "{again:#?}");
+        // Three past the 11–15 slides asked: the three that tell How It Works again, not the hook.
+        let cut = (h.findings.iter()).find(|f| f.kind == Kind::Pacing && f.says.contains("add least")).expect("a cut");
+        assert!(cut.says.ends_with(": slides 10, 11 and 12 add least to the slides before them."), "{}", cut.says);
+    }
+
     /// Notes that read the slide aloud are coached, as one finding at the first (W1's dogfood 4):
     /// the fleet pitch's notes are each its headline again, the cover's aside, and its slides 2 to
     /// 10 are named; the keynote's, which tell what its slides do not show, are not.
@@ -5472,6 +5756,29 @@ mod tests {
             slides[7].key_bullets = vec![];
         };
         assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), again)).is_empty(), "6.5 hours, as slide 2 cites it");
+        // A figure several slides write that none sources is one finding, on the first, naming
+        // them all (W2's health read: Valdemar's 2,3 M€ on slides 5 and 8).
+        let twice = |slides: &mut Vec<answer::Slide>| {
+            slides[6].key_bullets = vec!["Planning time fell from hours to minutes, and fuel spend 38%".into()];
+        };
+        let found = unsourced(&grounded_dogfood("fleet", "", pilot(), twice));
+        assert_eq!(found.len(), 1, "{found:?}");
+        let (slide, says, ask) = &found[0];
+        assert_eq!(*slide, 7);
+        assert_eq!(
+            says,
+            "Slide 7 writes 38%, as slide 8 does, and names no source for it, though the deck was made from its sources."
+        );
+        assert_eq!(
+            ask,
+            "Say on slide 7 where 38% comes from, naming the source, or cite the source it is from: that sources it on slide 8 too."
+        );
+        // Slide 7 cited, slide 8 is sourced with it.
+        let both = |slides: &mut Vec<answer::Slide>| {
+            twice(slides);
+            slides[6].source_ref = Some("pilot.csv".into());
+        };
+        assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), both)).is_empty());
         let shown = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<_>>();
         assert!(shown("Q3 by product, p99 latency, Week 1, 3 steps, November 2026").is_empty());
         assert_eq!(shown("Costs fell to $1.4M (2.5x less)")[0], ("$1.4M".into(), "1.4".into(), "$".into()));

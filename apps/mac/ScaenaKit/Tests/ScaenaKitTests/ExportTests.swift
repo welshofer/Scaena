@@ -44,6 +44,25 @@ import Testing
     #expect(try await session.snapshot().exported(.png(state: "images", width: 320)) == tall)
     try session.setFormat(nil)
     #expect(try await session.snapshot().exported(.png(state: "images", width: 320)) == own)
+/// Whether any slide has notes, which the window asks before a PDF with the notes is made where
+/// none has, as the browser's Export… says (editor dogfood 2): B1 has none, the torture deck many.
+@Test func aDeckSaysWhetherAnySlideHasNotesBeforeAPDFWithThemIsMade() throws {
+    #expect(!DeckEditor(session: try ScaenaSession(directory: b1)).noted, "B1's slides have no notes")
+    #expect(DeckEditor(session: try ScaenaSession(directory: tortureDeck)).noted, "the torture deck's do")
+}
+
+/// A single HTML file keeps the speaker notes only where they are asked for (lift-up 20261025
+/// SEC-3): Export To › HTML… makes the file the room is sent, and HTML with Notes… the one that
+/// keeps them, as the browser's Export… makes each, away from the window as the session makes it.
+@Test func aSingleHTMLFileKeepsTheNotesOnlyWhereAsked() async throws {
+    guard ScaenaSession.carriesPlayer else { return }
+    let session = try ScaenaSession(directory: tortureDeck)
+    let room = try session.html(name: "Torture")
+    let kept = try session.html(name: "Torture", notes: true)
+    #expect(room != kept, "the notes are kept only where asked")
+    let snapshot = try session.snapshot()
+    #expect(try await snapshot.exported(.html(name: "Torture")) == room)
+    #expect(try await snapshot.exported(.html(name: "Torture", notes: true)) == kept)
 }
 
 /// Every slide as PNGs in one zip, each named by its number (PLAN 2.122), as Share offers it.

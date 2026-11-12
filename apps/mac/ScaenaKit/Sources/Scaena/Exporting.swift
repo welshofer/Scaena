@@ -30,6 +30,10 @@ enum Exporting {
         /// The deck as one HTML file that plays offline, without the presenter's notes, as a file
         /// sent to the room is (lift-up 20261031 FUNC-3).
         case html
+        /// The deck as one HTML file with the speaker notes, the sources each beat cites, and what
+        /// was planned for it, which anyone who opens the file can read: asked for each time, as
+        /// the browser's Export… asks (lift-up 20261025 SEC-3).
+        case htmlNotes
         /// The deck as it plays, as a movie: each state's cue then its hold, at the canvas's size
         /// and 30 frames a second, titled as the deck is.
         case movie
@@ -39,7 +43,7 @@ enum Exporting {
             case .pdf, .notes: .pdf
             case .png: .png
             case .slides: .zip
-            case .html: .html
+            case .html, .htmlNotes: .html
             case .movie: .mpeg4Movie
             }
         }
@@ -54,6 +58,7 @@ enum Exporting {
         case .png(let state, let width): .png(state: state, width: width)
         case .slides(let width): .slides(width: width, name: title(of: editor))
         case .html: .html(name: title(of: editor))
+        case .htmlNotes: .html(name: title(of: editor), notes: true)
         case .movie: .movie(title: ((try? editor.session.title()) ?? nil) ?? title(of: editor))
         }
     }
@@ -69,6 +74,7 @@ enum Exporting {
         case .png: "Making the PNG\(shown)…"
         case .slides: "Making a PNG of every slide\(shown)…"
         case .html: "Making the HTML file…"
+        case .htmlNotes: "Making the HTML file with the notes…"
         case .movie: "Making the movie\(shown)…"
         }
     }
@@ -81,8 +87,38 @@ enum Exporting {
         case .png: "The PNG is made"
         case .slides: "A PNG of every slide is made"
         case .html: "The HTML file is made"
+        case .htmlNotes: "The HTML file with the notes is made"
         case .movie: "The movie is made"
         }
+    }
+
+    /// What the window asks before `kind` is made, in the browser's Export… words, where it asks:
+    /// a PDF with the notes of a deck no slide has notes in yet, whose pages would each hold a slide
+    /// alone, drawn smaller (editor dogfood 2), and an HTML file with the notes, which anyone who
+    /// opens it can read (lift-up 20261025 SEC-3). None: it is made at once.
+    @MainActor static func ask(_ kind: Kind, of editor: DeckEditor) -> Ask? {
+        switch kind {
+        case .notes where !editor.noted:
+            Ask(
+                title: "Make the PDF with no notes?", go: "Make the PDF",
+                said: "No slide has notes yet, so each page would hold its slide alone, drawn smaller. Write a "
+                    + "slide’s notes in its Presenter Notes, or make the PDF without notes for the slides at "
+                    + "full size.")
+        case .htmlNotes:
+            Ask(
+                title: "Keep the notes in the HTML file?", go: "Make the HTML File",
+                said: "The player and the deck in one file that plays in a browser with no network, with the speaker "
+                    + "notes, the sources each beat cites, and what was planned for it, which anyone who opens the "
+                    + "file can read.")
+        default: nil
+        }
+    }
+
+    /// An ask before an export: its title, the button that makes it, and what it says.
+    struct Ask: Equatable {
+        let title: String
+        let go: String
+        let said: String
     }
 
     /// An export's bytes written into a folder of its own as `name`: what the Share sheet and
@@ -101,6 +137,7 @@ enum Exporting {
         case .png(let state, _): return "\(safe) – \(Words.slide(state, in: editor.slots)).png"
         case .slides: return "\(safe) - Slides.zip"
         case .html: return "\(safe).html"
+        case .htmlNotes: return "\(safe) - Notes.html"
         case .movie: return "\(safe).mp4"
         }
     }

@@ -255,3 +255,50 @@ fn a_history_from_a_newer_scaena_is_left_as_it_is() {
         .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains("damaged"));
     assert_eq!(aside.count(), 0, "nothing set aside");
 }
+
+/// One slide is taken back alone (agent dogfood 7): a slide cut, then the close's notes edited,
+/// is put back as the version before the cut held it, its steps, the objects it alone showed,
+/// and its beat in its part of the talk, after the slide it followed, and the edit made since
+/// stays. A dry run writes nothing, and a slide the version lacks is refused, naming the near.
+#[test]
+fn one_slide_is_put_back_and_every_later_edit_stays() {
+    let dir = scratch("slide");
+    keeping_history(&dir);
+    let patch = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    };
+    patch(json!([{ "op": "remove_slide", "slide": "revenue" }]));
+    patch(json!([{ "op": "set_state", "id": "close", "prop": "notes", "value": "Thank them." }]));
+    let deck = || -> Value { serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap() };
+    let ids = |d: &Value| -> Vec<String> {
+        d["states"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(ids(&deck()), ["intro", "close"]);
+    assert!(deck()["nodes"].get("rev").is_none());
+    let b = scaena_ops::open(&dir).unwrap();
+    let dry = scaena_ops::history::restore_slide(&b, "1", "mix", true).unwrap();
+    assert!(!dry.applied && dry.states.contains(&"revenue".to_string()), "{dry:?}");
+    // It names the slide it brings back as a person does, by its number and its headline.
+    let named = dry.slide.as_deref().unwrap_or_default();
+    assert!(named.starts_with("Slide 2: ") && named.len() > "Slide 2: ".len(), "{dry:?}");
+    assert_eq!(ids(&deck()), ["intro", "close"], "a dry run writes nothing");
+    let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
+    assert!(back.applied && back.errors == 0, "{back:?}");
+    let now = deck();
+    assert_eq!(ids(&now), ["intro", "revenue", "mix", "close"]);
+    assert!(now["nodes"].get("rev").is_some() && now["nodes"].get("note").is_some());
+    let growth = &now["spine"]["sections"][1];
+    assert_eq!((growth["id"].as_str(), growth["beats"][0]["id"].as_str()), (Some("growth"), Some("doubled")));
+    assert_eq!(growth["beats"][0]["states"], json!(["revenue", "mix"]));
+    // The close's notes, which `set_state` wrote on its beat, the edit made since, stay.
+    assert_eq!(now["spine"]["sections"][2]["beats"][0]["notes"], "Thank them.", "{}", now["spine"]);
+    // The history says it as one slide put back.
+    let said = scaena_ops::history::history(&scaena_ops::open(&dir).unwrap(), &Default::default()).unwrap();
+    let last = said.versions.unwrap().pop().unwrap();
+    assert_eq!(last.said, "A slide restored", "{last:?}");
+    // A state no version held is refused, naming the one meant.
+    let b = scaena_ops::open(&dir).unwrap();
+    let wrong = scaena_ops::history::restore_slide(&b, "1", "revenu", true).unwrap_err().to_string();
+    assert!(wrong.contains("version 1 has no state `revenu`") && wrong.contains("revenue"), "{wrong}");
+}

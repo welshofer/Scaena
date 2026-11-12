@@ -3094,7 +3094,12 @@ fn assemble(
         // a French talk: the model's name for the beat, or the headline, stands in for it (W1's
         // dogfood 10: "Existing Approaches" over "Approches existantes").
         if last_beat != Some(beat) {
-            let arcs = |n: &str| names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n));
+            // Narrato echoes a beat whole, "Problem: Define core challenge and stakes", and its
+            // name is what comes before the colon (W1 dogfood 13).
+            let arcs = |n: &str| {
+                let n = n.split(':').next().unwrap_or(n).trim();
+                names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n))
+            };
             let outlined = narrative.outline.is_some()
                 && (english
                     || names
@@ -7003,7 +7008,16 @@ fn linked(text: &str, bare: bool) -> Option<Vec<Value>> {
         let end = (word.char_indices().rev())
             .find(|(_, c)| c.is_alphanumeric() || *c == '/')
             .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
-        let Some(href) = href(&word[start..end], bare) else {
+        // An address that ends a word with no space before it, after a label in a script that
+        // sets none ("お問い合わせ：library@midori.jp") or a colon ("Contacto:agua@valdemar.es"): the
+        // address characters that end it (W2's health read).
+        let tail = (word[..end].char_indices().rev())
+            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || "._%+-@/".contains(c)))
+            .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
+        let found = href(&word[start..end], bare).map(|h| (start, h));
+        let Some((start, href)) =
+            found.or_else(|| (tail > start).then(|| href(&word[tail..end], bare)).flatten().map(|h| (tail, h)))
+        else {
             plain.push_str(piece);
             continue;
         };
@@ -12183,6 +12197,20 @@ mod tests {
         {
             assert_eq!(linked(plain, true), None, "{plain}");
         }
+        // An address after a label with no space before it: a full-width colon, as Japanese writes
+        // one, or a colon (W2's health read).
+        assert_eq!(
+            linked("採決：12月10日\nお問い合わせ：library@midori.jp", true),
+            Some(vec![
+                json!({ "text": "採決：12月10日\nお問い合わせ：" }),
+                json!({ "text": "library@midori.jp", "link": { "href": "mailto:library@midori.jp" } }),
+            ])
+        );
+        assert_eq!(
+            linked("Contacto:agua@valdemar.es", true).unwrap()[1],
+            json!({ "text": "agua@valdemar.es", "link": { "href": "mailto:agua@valdemar.es" } })
+        );
+        assert_eq!(linked("お問い合わせ：図書館まで", true), None);
         // A heading's bare domain names a firm; an address with `www.` or a scheme links anywhere.
         assert_eq!(linked("Booking.com books more nights", false), None);
         assert_eq!(linked("Sign up at relay.app", false), None);
@@ -13232,6 +13260,20 @@ mod tests {
         let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
         assert_eq!(titles, [headline(0).as_str(), headline(1).as_str(), names[2], headline(4).as_str()]);
         assert!(titles.iter().zip(&names).all(|(t, n)| t != n || *t == names[2]), "{titles:?} {names:?}");
+        // Echoed whole, its description after the colon, it is the arc's all the same
+        // (W1 dogfood 13: "Problem: Define core challenge and stakes" titling a German section).
+        let arc = scaena_narrato::arcs::arc("Problem\u{2013}Solution");
+        assert!(arc.beats[1].contains(':'), "{:?}", arc.beats);
+        let whole: Vec<Slide> = (picked.iter().cloned())
+            .map(|mut s| {
+                s.beat_name = s.beat_index.map(|b| arc.beats[b].clone());
+                s
+            })
+            .collect();
+        let made = deck(&narrative(&summary, whole), &theme, &Pictures::new()).unwrap();
+        let spine = made.deck["spine"]["sections"].as_array().unwrap();
+        let echoed: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
+        assert_eq!(echoed, titles);
     }
 
     #[test]
