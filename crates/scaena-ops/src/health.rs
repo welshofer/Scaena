@@ -265,6 +265,11 @@ pub struct Finding {
     /// large, or for a cut, a move, or a source.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field: Option<Field>,
+    /// The earlier slide a slide that says again what it said may be folded into, by its first
+    /// state's id: what a `story` finding of a repeat offers beside the cut, Fold Into Slide N
+    /// (`scaena_ops::states::folding`'s `into`, R1's #1161).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub into: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -1757,6 +1762,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 figure: None,
                 path: None,
                 field: None,
+                into: None,
             });
         }
     };
@@ -2579,6 +2585,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let before = scaena_narrato::figures(&format!("{} {}", was.title, was.body));
         scaena_narrato::figures(&format!("{} {}", now.title, now.body)).iter().all(|f| before.contains(f))
     };
+    // Each slide found saying again what an earlier one said, with that one: what its finding
+    // offers to fold it into.
+    let mut repeats: Vec<(String, String)> = Vec::new();
     for i in 1..read.len() {
         let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
         let Some((at, shared)) =
@@ -2602,14 +2611,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 "Slide {k} says again what slide {j} said: its headline shares {said} with \u{201c}{}\u{201d}.",
                 unstopped(was.title.trim())
             ),
-            // A slide further back is no fold the editors make, which join a slide to the one
-            // just before it: it is cut, or given a point of its own.
+            // A slide further back folds as the one just before it does (R1's #1161), its words
+            // joining that slide's place, the slides between left as they were; or it is cut.
             if at + 1 == i {
                 format!("Fold slide {k} into slide {j}, or give slide {k} a point of its own that moves the talk on.")
             } else {
                 format!(
                     concat!(
-                        "Cut slide {k}, which slide {j} says already, ",
+                        "Fold slide {k} into slide {j}, which says it already, or cut it, ",
                         "or give slide {k} a point of its own that moves the talk on."
                     ),
                     k = k,
@@ -2618,6 +2627,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             },
             None,
         );
+        repeats.push((now.id.clone(), was.id.clone()));
     }
     // The slides with nothing for the presenter to say, as one finding at the first of them: a
     // deck written by hand has no notes on any, and a row for each would bury the rest.
@@ -2937,6 +2947,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Claim if f.severity == Severity::Warning => Some(Field::Claim),
             _ => None,
         };
+    }
+    // Each finding of a slide said again names the earlier slide it may be folded into.
+    for f in findings.iter_mut().filter(|f| f.kind == Kind::Story && f.says.contains(" says again what slide ")) {
+        f.into = repeats.iter().find(|(id, _)| *id == f.state).map(|(_, was)| was.clone());
     }
     // Each `source` finding says the figure it found no source for.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Source) {
@@ -5628,15 +5642,78 @@ mod tests {
         let h = of(&dogfood("pitch", "", faulted));
         let again: Vec<&Finding> = (h.findings.iter()).filter(|f| f.says.contains("says again")).collect();
         let cut_or_own = concat!(
-            "Cut slide 6, which slide 4 says already, ",
+            "Fold slide 6 into slide 4, which says it already, or cut it, ",
             "or give slide 6 a point of its own that moves the talk on."
         );
-        assert!(
-            again.iter().any(|f| f.slide == 6
-                && f.says.starts_with("Slide 6 says again what slide 4 said")
-                && f.ask == cut_or_own),
-            "{again:#?}"
+        let six = again.iter().find(|f| f.slide == 6 && f.says.starts_with("Slide 6 says again what slide 4 said"));
+        let six = six.unwrap_or_else(|| panic!("{again:#?}"));
+        assert_eq!(six.ask, cut_or_own);
+        // It names slide 4, which it may be folded into (R1's #1161).
+        let deck = Deck::from_value(&dogfood("pitch", "", faulted)).unwrap();
+        let four = deck.slides()[3][0];
+        assert_eq!(six.into.as_deref(), Some(deck.states[four].id.as_str()));
+        // Folded into slide 4, as its row offers: slide 6's words join slide 4's, slide 5 is as
+        // it was, and slide 6 is gone (R1's #1161). Its points written short, so they fit there.
+        let short = |slides: &mut Vec<answer::Slide>| {
+            faulted(slides);
+            slides[5].key_bullets = vec!["41% of overbilled dollars".into(), "Rarely checked".into()];
+        };
+        let deck = Deck::from_value(&dogfood("pitch", "", short)).unwrap();
+        let short_h = health(&deck).unwrap();
+        let six = (short_h.findings.iter())
+            .find(|f| f.slide == 6 && f.says.starts_with("Slide 6 says again what slide 4 said"));
+        let six = six.unwrap_or_else(|| panic!("{:#?}", short_h.findings));
+        let dir = std::env::temp_dir().join(format!("scaena-health-fold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for sub in ["themes", "fonts"] {
+            std::fs::create_dir_all(dir.join(sub)).unwrap();
+            for f in std::fs::read_dir(root().join("docs/examples").join(sub)).unwrap() {
+                let f = f.unwrap().path();
+                std::fs::copy(&f, dir.join(sub).join(f.file_name().unwrap())).unwrap();
+            }
+        }
+        let mut made = deck.to_value().unwrap();
+        made["theme"] = json!("themes/dusk.theme.json");
+        let ridgeline: Value =
+            serde_json::from_str(&std::fs::read_to_string(root().join("docs/examples/ridgeline.deck.json")).unwrap())
+                .unwrap();
+        if made["fonts"].as_array().is_none_or(Vec::is_empty) {
+            made["fonts"] = ridgeline["fonts"].clone();
+        }
+        std::fs::write(dir.join("pitch.deck.json"), made.to_string()).unwrap();
+        let b = crate::open(&dir.join("pitch.deck.json")).unwrap();
+        let (gone, five) = (deck.states[deck.slides()[5][0]].id.clone(), deck.slides()[4].clone());
+        let folded = crate::states::folding(&b, &gone, six.into.as_deref()).unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        assert_eq!(folded.said, "Folded slide 6 into slide 4");
+        let files = crate::lint::View::of(&b);
+        let doc = scaena_core::patch::compile(&deck.to_value().unwrap(), &folded.patch, &files).unwrap().doc;
+        let after = Deck::from_value(&doc).unwrap();
+        assert_eq!(after.slides().len(), deck.slides().len() - 1);
+        assert!(after.state_index(&gone).is_none(), "slide 6 goes");
+        let (was, now) = (scaena_core::resolve_states(&deck).unwrap(), scaena_core::resolve_states(&after).unwrap());
+        let words = |snaps: &[scaena_core::Snapshot], id: &str| {
+            let snap = snaps.iter().find(|s| s.state_id == id).unwrap();
+            let mut all: Vec<String> = snap.nodes.values().map(scaena_core::reading::words).collect();
+            all.sort();
+            all
+        };
+        for &k in &five {
+            let id = &deck.states[k].id;
+            assert_eq!(words(&was, id), words(&now, id), "slide 5 is as it was");
+        }
+        let four_last = &deck.states[*deck.slides()[3].last().unwrap()].id;
+        let joined = words(&now, four_last).join("\n");
+        assert!(joined.contains("Accessorials are where most of the overbilling hides"), "{joined}");
+        // Into a slide after it, or into itself, it is refused, saying why.
+        let later = deck.states[deck.slides()[7][0]].id.clone();
+        let refused = crate::states::folding(&b, &gone, Some(&later)).unwrap();
+        assert_eq!(
+            refused.refused.as_deref(),
+            Some("Slide 6 folds only into a slide before it, and slide 8 is after it.")
         );
+        let itself = crate::states::folding(&b, &gone, Some(&gone)).unwrap();
+        assert_eq!(itself.refused.as_deref(), Some("Slide 6 cannot be folded into itself."));
         assert!(again.iter().any(|f| f.says.contains("what slide 8 said")), "{again:#?}");
         // Three past the 11–15 slides asked: the three that tell How It Works again, not the hook.
         let cut = (h.findings.iter()).find(|f| f.kind == Kind::Pacing && f.says.contains("add least")).expect("a cut");

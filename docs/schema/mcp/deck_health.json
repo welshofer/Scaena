@@ -58,7 +58,8 @@
           "fix": { "anyOf": [{ "$ref": "#/$defs/Fix" }, { "type": "null" }] },
           "figure": { "type": ["string", "null"] },
           "path": { "type": ["string", "null"] },
-          "field": { "anyOf": [{ "$ref": "#/$defs/Field" }, { "type": "null" }] }
+          "field": { "anyOf": [{ "$ref": "#/$defs/Field" }, { "type": "null" }] },
+          "into": { "type": ["string", "null"] }
         },
         "required": ["state", "slide", "severity", "kind", "says", "ask"]
       },
