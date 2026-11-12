@@ -253,6 +253,19 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
         }
         SemanticOp::SetState { id, prop, value, fork } => set_state(&d, id, prop, value, *fork)?,
         SemanticOp::Furnish { number, footer } => furnish(&d, *number, footer.as_ref())?,
+        SemanticOp::Brief { topic, audience, goal, length, minutes, language, voice, desired_outcomes } => brief(
+            &d,
+            &[
+                ("topic", topic),
+                ("audience", audience),
+                ("goal", goal),
+                ("length", length),
+                ("minutes", minutes),
+                ("language", language),
+                ("voice", voice),
+                ("desiredOutcomes", desired_outcomes),
+            ],
+        )?,
         SemanticOp::Retheme { theme } => {
             match theme {
                 Value::String(path) if !files.exists(path) => {
@@ -2768,6 +2781,57 @@ fn furnish(d: &Doc, number: Option<bool>, footer: Option<&Value>) -> Result<Vec<
         (false, true) => Vec::new(),
         (false, false) => vec![JsonOp::Add { path: "/furniture".into(), value: Value::Object(new) }],
         (true, false) => diff("/furniture", &old, &new),
+    })
+}
+
+/// The deck's brief, `meta.narrative.brief`, with each field given set, or taken away with `null`
+/// (agent dogfood 6): a goal one of [`super::GOALS`], a length one of [`super::LENGTHS`], minutes a
+/// whole number from 1 to 600, the rest words. A brief left with nothing is none.
+fn brief(d: &Doc, given: &[(&str, &Option<Value>)]) -> Result<Vec<JsonOp>, String> {
+    let at = "/meta/narrative/brief";
+    let old = d.0.pointer(at).and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut new = old.clone();
+    for (field, value) in given {
+        let Some(value) = value else { continue };
+        let taken = match value {
+            Value::Null => None,
+            Value::String(words) if words.trim().is_empty() => None,
+            Value::String(words) if *field == "goal" && !super::GOALS.contains(&words.as_str()) => {
+                return Err(format!("a brief's goal is one of {}, not \"{words}\"", super::GOALS.join(", ")));
+            }
+            Value::String(words) if *field == "length" && !super::LENGTHS.contains(&words.as_str()) => {
+                return Err(format!("a brief's length is one of {}, not \"{words}\"", super::LENGTHS.join(", ")));
+            }
+            Value::String(words) if *field != "minutes" => Some(Value::String(words.trim().to_string())),
+            Value::Number(n) if *field == "minutes" => match n.as_u64().filter(|m| (1..=600).contains(m)) {
+                Some(m) => Some(Value::from(m)),
+                None => return Err(format!("a brief's minutes are a whole number from 1 to 600, not {n}")),
+            },
+            other if *field == "minutes" => {
+                return Err(format!("a brief's minutes are a whole number from 1 to 600, not {other}"));
+            }
+            other => return Err(format!("a brief's {field} is words, or `null` to take it away, not {other}")),
+        };
+        match taken {
+            Some(value) => drop(new.insert((*field).to_string(), value)),
+            None => drop(new.shift_remove(*field)),
+        }
+    }
+    if new == old {
+        return Ok(Vec::new());
+    }
+    let has = |path: &str| d.0.pointer(path).is_some_and(Value::is_object);
+    Ok(match (old.is_empty() && !has(at), new.is_empty()) {
+        (true, _) if new.is_empty() => Vec::new(),
+        (true, _) if !has("/meta") => {
+            vec![JsonOp::Add { path: "/meta".into(), value: serde_json::json!({ "narrative": { "brief": new } }) }]
+        }
+        (true, _) if !has("/meta/narrative") => {
+            vec![JsonOp::Add { path: "/meta/narrative".into(), value: serde_json::json!({ "brief": new }) }]
+        }
+        (true, _) => vec![JsonOp::Add { path: at.into(), value: Value::Object(new) }],
+        (false, true) => vec![JsonOp::Remove { path: at.into() }],
+        (false, false) => diff(at, &old, &new),
     })
 }
 

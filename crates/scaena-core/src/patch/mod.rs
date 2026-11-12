@@ -562,6 +562,48 @@ pub enum SemanticOp {
         #[schemars(with = "Option<Option<String>>")]
         footer: Option<Value>,
     },
+    /// The deck's brief (`meta.narrative.brief`): what it is about, who it is for, its goal and
+    /// length, the minutes it is given, its language, its voice, and what it is to achieve, which
+    /// health paces and reads it by (agent dogfood 6). Each field given is set, `null` takes it
+    /// away, and what it leaves out stays as it was: the goal one of [`GOALS`], the length one of
+    /// [`LENGTHS`], the minutes 1 to 600, the rest words.
+    Brief {
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        topic: Option<Value>,
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        audience: Option<Value>,
+        /// One of [`GOALS`].
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        goal: Option<Value>,
+        /// One of [`LENGTHS`].
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        length: Option<Value>,
+        /// The minutes the talk is given, 1 to 600.
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<u32>>")]
+        minutes: Option<Value>,
+        /// The language its words are in, by its English name.
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        language: Option<Value>,
+        /// A voice the words take: tone, vocabulary, posture.
+        #[serde(default, deserialize_with = "kept", skip_serializing_if = "Option::is_none")]
+        #[schemars(with = "Option<Option<String>>")]
+        voice: Option<Value>,
+        /// What the talk is to achieve, in the person's words.
+        #[serde(
+            rename = "desiredOutcomes",
+            default,
+            deserialize_with = "kept",
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[schemars(with = "Option<Option<String>>")]
+        desired_outcomes: Option<Value>,
+    },
     /// The deck's theme: a theme file in the bundle (`scaena theme --apply` copies one in),
     /// or a theme inline.
     Retheme {
@@ -602,10 +644,18 @@ impl SemanticOp {
             SemanticOp::RenameState { .. } => "rename_state",
             SemanticOp::SetState { .. } => "set_state",
             SemanticOp::Furnish { .. } => "furnish",
+            SemanticOp::Brief { .. } => "brief",
             SemanticOp::Retheme { .. } => "retheme",
         }
     }
 }
+
+/// The goals a brief may ask, as Narrato asks them (`scaena_narrato::brief::GOALS`, which a test
+/// holds these to).
+pub const GOALS: [&str; 6] = ["Inform", "Persuade", "Inspire", "Sell", "Educate", "Update Status"];
+
+/// The lengths a brief may ask, as Narrato asks them (`scaena_narrato::brief::LENGTHS`).
+pub const LENGTHS: [&str; 5] = ["5-10 slides", "11-15 slides", "16-25 slides", "26-40 slides", "41+ slides"];
 
 /// What `list` makes paragraphs: items of a kind, or none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
