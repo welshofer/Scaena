@@ -138,6 +138,9 @@ struct CanvasSelection: View {
     #if !os(macOS)
     /// A finger held still, waiting to offer what is done to what it pressed (PLAN 4.3).
     @State private var lingering: Task<Void, Never>?
+    /// When the finger of a press that may yet ask for the menu came down: a press held past
+    /// `lingers` asks for it as it ends where the main actor was too busy to ask while it was held.
+    @State private var pressedAt: Date?
     #endif
     /// Whether a drag from another app is over the canvas, with something it takes (PLAN 3.22).
     @State private var dropping = false
@@ -177,6 +180,8 @@ struct CanvasSelection: View {
     private static let slop = 12.0
     /// How long a finger stays still before its press offers what is done to what it pressed.
     private static let lingers = Duration.milliseconds(500)
+    /// `lingers`, seconds.
+    private static let lingered: TimeInterval = 0.5
     #endif
 
     /// A press on the canvas: a click until it moves, then a drag, or one refused; a press in
@@ -811,7 +816,11 @@ struct CanvasSelection: View {
                     press = .pressing
                     #if !os(macOS)
                     began("as a press, the menu asked once it is held")
+                    pressedAt = value.time
                     linger(at: value.startLocation, fit: fit)
+                    #if DEBUG
+                    Self.busy()
+                    #endif
                     #endif
                 case .typing:
                     typing.drag(to: fit.canvas(value.location))
@@ -847,6 +856,18 @@ struct CanvasSelection: View {
                     aim(value, scale: fit.scale)
                     drop()
                 case .pressing, nil:
+                    #if !os(macOS)
+                    // Held as long as a long press, and still: the menu, though the main actor was
+                    // too busy for `linger` to ask while the finger was down (lift-up 20261110).
+                    if case .pressing = press, let at = pressedAt,
+                        value.time.timeIntervalSince(at) >= Self.lingered,
+                        hypot(value.translation.width, value.translation.height) < Self.still
+                    {
+                        lastPress += "; held as it ended, the menu asked"
+                        offer(at: fit.canvas(value.startLocation), shown: value.startLocation, fit: fit)
+                        break
+                    }
+                    #endif
                     pick(fit.canvas(value.location))
                 case .banding(let from, _):
                     band(CGRect(from: from, to: fit.canvas(value.location)))
@@ -1705,6 +1726,16 @@ struct CanvasSelection: View {
         lastPress = "began \(how)"
         menuLog.debug("press began \(how, privacy: .public)")
     }
+
+    #if DEBUG
+    /// The main actor held for `-busyPress MS` milliseconds as a press begins, where a UI test
+    /// launches the app so, as a loaded runner holds it once a deck opens (lift-up 20261110). Debug
+    /// builds only, as `-softwareKeyboard` is: a release build reads no flag.
+    private static func busy() {
+        let ms = UserDefaults.standard.integer(forKey: "busyPress")
+        if ms > 0 { Thread.sleep(forTimeInterval: Double(ms) / 1000) }
+    }
+    #endif
 
     private func linger(at start: CGPoint, fit: Fit) {
         lingering?.cancel()

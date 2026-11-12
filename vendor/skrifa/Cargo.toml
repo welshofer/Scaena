@@ -35,6 +35,9 @@ all-features = true
 
 [features]
 autohint_shaping = []
+# Scaena: hinting, the TrueType interpreter, the CFF hinter, and the autohinter. Off here, since
+# Scaena draws no glyph hinted; turn it on to have them back (vendor/skrifa/SCAENA.md).
+hinting = []
 default = [
     "std",
     "autohint_shaping",

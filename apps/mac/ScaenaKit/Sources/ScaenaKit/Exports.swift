@@ -17,9 +17,13 @@ extension ScaenaSession.Snapshot {
     /// `export`'s bytes, made on a session of its own on the deck as the snapshot was taken, on a
     /// thread of its own with `OffMain.stack` bytes of stack, so the window answers while a long
     /// deck's PDF or slides are made (lift-up PERF-3). They are the session's own: the snapshot's
-    /// session answers as the one it was taken from. A task cancelled meanwhile throws, its
-    /// bytes dropped.
+    /// session answers as the one it was taken from. A task cancelled before the work starts
+    /// throws without starting it, so Cancel on the sheet costs nothing, and one cancelled
+    /// meanwhile throws, its bytes dropped. The work runs on a `Thread` of its own, outside the
+    /// task tree, where no `Task.checkCancellation()` sees the caller's cancel: these two checks
+    /// on either side of it are the cancel's only readings.
     public func exported(_ export: Export) async throws -> Data {
+        try Task.checkCancellation()
         let data = try await OffMain(label: "ScaenaKit.export").run { () -> Data in
             let session = try self.opened()
             switch export {

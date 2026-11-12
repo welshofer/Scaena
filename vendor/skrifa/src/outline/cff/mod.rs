@@ -265,7 +265,9 @@ impl<'a> Outlines<'a> {
             charstring_data,
         };
         // Only apply hinting if we have a scale
-        let apply_hinting = hint && subfont.scale_requested;
+        // Scaena: without the `hinting` feature no subfont is ever hinted (see
+        // `HintingInstance::reconfigure`), and the hinting sinks are compiled out with it.
+        let apply_hinting = cfg!(feature = "hinting") && hint && subfont.scale_requested;
         let mut pen_sink = PenSink::new(pen);
         let mut simplifying_adapter = NopFilterSink::new(&mut pen_sink);
         let mut transform = Transform {

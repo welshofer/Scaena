@@ -34,6 +34,9 @@ pub enum DrawError {
     /// HarfBuzz style drawing with hints is not supported
     // Error rather than silently returning unhinted per f2f discussion.
     HarfBuzzHintingUnsupported,
+    /// Scaena: hinting is compiled out of this build, which leaves the `hinting` feature off
+    /// (vendor/skrifa/SCAENA.md).
+    HintingCompiledOut,
 }
 
 impl From<HintError> for DrawError {
@@ -84,6 +87,7 @@ impl fmt::Display for DrawError {
                 f,
                 "HarfBuzz style paths with hinting is not (yet?) supported"
             ),
+            Self::HintingCompiledOut => write!(f, "hinting is compiled out of this build"),
         }
     }
 }

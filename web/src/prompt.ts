@@ -95,7 +95,11 @@ export function said(event: GeneratingEvent): string {
     case "fell":
       return `Slide ${event.slide} could not be set as \u201c${event.asked}\u201d asks: ${event.why}`;
     case "unset":
-      return `Slide ${event.slide} shows its chart without \u201c${event.words}\u201d: its layout has no place for it`;
+      // A chart's layout sets its takeaway alone; any other leaves a figure no place of it sets
+      // (W1 dogfood 12).
+      return /chart/.test(event.layout)
+        ? `Slide ${event.slide} shows its chart without \u201c${event.words}\u201d: its layout has no place for it`
+        : `Slide ${event.slide} leaves out \u201c${event.words}\u201d: its layout has no place for its figures`;
     case "fitting":
       return `${event.texts} ${event.texts === 1 ? "text runs" : "texts run"} past ${event.texts === 1 ? "its place" : "their places"}: asking for them shorter…`;
     case "fitted":
