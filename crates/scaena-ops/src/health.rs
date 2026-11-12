@@ -565,7 +565,7 @@ fn figures(text: &str) -> Vec<Figure> {
         }
         let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
         let count = w.parse::<u32>().is_ok_and(|n| n < 10);
-        if year || count || clock(w) {
+        if year || count || clock(w) || dated(&words, k) {
             continue;
         }
         let (number, joined) = match w.split_once('-') {
@@ -612,6 +612,109 @@ fn figures(text: &str) -> Vec<Figure> {
         out.push(Figure { shown, value, unit });
     }
     out
+}
+
+/// The names of the months, and their short forms, as a date writes them in English, Spanish,
+/// Portuguese, French, German, and Italian, in lower case.
+const MONTHS: [&str; 75] = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "jan",
+    "feb",
+    "mar",
+    "apr",
+    "jun",
+    "jul",
+    "aug",
+    "sep",
+    "sept",
+    "oct",
+    "nov",
+    "dec",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "setiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+    "janeiro",
+    "fevereiro",
+    "março",
+    "maio",
+    "junho",
+    "julho",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "décembre",
+    "januar",
+    "jänner",
+    "februar",
+    "märz",
+    "juni",
+    "juli",
+    "oktober",
+    "dezember",
+    "gennaio",
+    "febbraio",
+    "aprile",
+    "maggio",
+    "giugno",
+    "luglio",
+    "settembre",
+    "ottobre",
+    "dicembre",
+];
+
+/// Whether `words[k]` is the day of the month in a date, as each language writes one (W2's health
+/// read: Valdemar's "Votación: 15 de diciembre" read as the figure 15): a day from 1 to 31, an
+/// ordinal's ending aside ("15th", "1er", "15."), before its month ("15 December", "15. Dezember",
+/// "15 décembre", "15 dicembre") or its month after "de" or "del" ("15 de diciembre", "15 de
+/// dezembro"), or after its month in English ("December 15"). A day a counter follows in Chinese or
+/// Japanese ("12月15日") is passed over where the phrase is read. A count is none: "15 de los 30
+/// barrios" names no month.
+fn dated(words: &[&str], k: usize) -> bool {
+    let word = words[k];
+    let digits: String = word.chars().take_while(char::is_ascii_digit).collect();
+    let rest = &word[digits.len()..];
+    let ordinal = ["", ".", "st", "nd", "rd", "th", "er", "e", "º", "ª", "o"].contains(&rest.to_lowercase().as_str());
+    if digits.is_empty() || digits.len() > 2 || !ordinal || !digits.parse::<u32>().is_ok_and(|d| (1..=31).contains(&d))
+    {
+        return false;
+    }
+    let month = |w: Option<&&str>| w.is_some_and(|w| MONTHS.contains(&w.trim_end_matches('.').to_lowercase().as_str()));
+    let english =
+        |w: Option<&&str>| w.is_some_and(|w| MONTHS[..24].contains(&w.trim_end_matches('.').to_lowercase().as_str()));
+    let of = |w: Option<&&str>| w.is_some_and(|w| matches!(w.to_lowercase().as_str(), "de" | "del"));
+    month(words.get(k + 1)) || (of(words.get(k + 1)) && month(words.get(k + 2))) || (k > 0 && english(words.get(k - 1)))
 }
 
 /// Whether `word` is a time of day: hours to 23, a colon, and two digits of minutes to 59.
@@ -5487,6 +5590,31 @@ mod tests {
         }
         assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
         assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
+    }
+
+    /// A date's day is no figure to source, as each language writes a date (W2's health read:
+    /// Valdemar's "Votación: 15 de diciembre" read as the figure 15); a count beside the words of
+    /// one still is.
+    #[test]
+    fn a_dates_day_is_no_figure_to_source() {
+        let shown = |text: &str| figures(text).into_iter().map(|f| f.shown).collect::<Vec<_>>();
+        for date in [
+            "Votación: 15 de diciembre",
+            "Votação: 15 de dezembro",
+            "Vote le 15 décembre",
+            "Abstimmung am 15. Dezember",
+            "Voto il 15 dicembre",
+            "Vote on December 15, then 15 December, then Dec. 15th",
+            "採決：12月15日",
+            "表决：12月15日",
+        ] {
+            assert!(shown(date).is_empty(), "{date}: {:?}", shown(date));
+        }
+        // A count, or a figure beside a date, is read as before.
+        assert_eq!(shown("15 de los 30 barrios"), ["15", "30"]);
+        assert_eq!(shown("Votación: 15 de diciembre, por 2,3 M€"), ["2,3 M€"]);
+        assert_eq!(shown("December saw 15 outages"), ["15"], "a month named before a count, not a day");
+        assert_eq!(shown("A 40 de descuento"), ["40"]);
     }
 
     /// A time of day is no figure to source (the ferry deck, read against a reader): "a fourth
