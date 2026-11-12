@@ -481,12 +481,19 @@ pub fn nearest<'k>(whats: &str, id: &str, known: impl Iterator<Item = &'k str>) 
 /// presets (lift-up 10-25c USE-4).
 pub fn nearest_in<'k>(owner: &str, whats: &str, id: &str, known: impl Iterator<Item = &'k str>) -> String {
     let known: Vec<&str> = known.collect();
+    // An id the one asked begins with, as long as half of it, is the one meant before any nearer
+    // by its letters: a slide's id guessed from its beat's, which runs on past it
+    // (`…-todo-el-sur` for `…-todo-el`), means the slide, never its step `…-todo-el-2` (agent
+    // dogfood 9).
+    let begun = |k: &str| id.starts_with(k) && k.chars().count() * 2 >= id.chars().count();
     let near = (known.iter())
-        .map(|k| (crate::model::check::distance(id, k), *k))
-        .filter(|(d, k)| *d <= 3.min(id.chars().count().saturating_sub(1)).max(1) || k.contains(id) || id.contains(k))
+        .map(|k| (!begun(k), crate::model::check::distance(id, k), *k))
+        .filter(|(_, d, k)| {
+            *d <= 3.min(id.chars().count().saturating_sub(1)).max(1) || k.contains(id) || id.contains(k)
+        })
         .min();
     match near {
-        Some((_, k)) => format!("; did you mean `{k}`?"),
+        Some((_, _, k)) => format!("; did you mean `{k}`?"),
         None if known.is_empty() => format!(": {owner} has no {whats}"),
         None => {
             let some: Vec<String> = known.iter().take(5).map(|k| format!("`{k}`")).collect();
@@ -3302,6 +3309,20 @@ pub fn depths(snaps: &[&Snapshot], node: &str) -> Vec<(String, usize)> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A slide's id guessed from its beat's, which runs on past it, is met with the slide's own
+    /// id, never a step of it nearer by its letters (agent dogfood 9); a typo is met as before.
+    #[test]
+    fn the_id_an_asked_one_begins_with_is_the_one_meant() {
+        let states = ["veinte-estaciones-cubren-todo-el", "veinte-estaciones-cubren-todo-el-2", "cuesta"];
+        let said = |id: &str| nearest("states", id, states.iter().copied());
+        assert_eq!(said("veinte-estaciones-cubren-todo-el-sur"), "; did you mean `veinte-estaciones-cubren-todo-el`?");
+        assert_eq!(said("veinte-estaciones-cubren-todo-el-3"), "; did you mean `veinte-estaciones-cubren-todo-el`?");
+        assert_eq!(said("cuseta"), "; did you mean `cuesta`?");
+        // An id much shorter than the one asked is no prefix it means.
+        let short = ["a", "abcdefgh-2"];
+        assert_eq!(nearest("states", "abcdefgh-x", short.iter().copied()), "; did you mean `abcdefgh-2`?");
+    }
 
     /// The patch schema takes each key of a transition that `set_state` sets (PLAN 2.111): what an
     /// agent reads as the op's schema is what the op does.
