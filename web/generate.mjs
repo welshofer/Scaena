@@ -460,6 +460,9 @@ try {
   check(putBack === "No carrier can cut it alone." && (await page.isHidden("#prompting-removed")), `Undo puts it back where it stood, as typed: ${putBack}`);
   await page.locator("#prompting-beats li").nth(5).locator("button[data-act=remove]").click();
   await page.click("#prompting-add-beat");
+  // A beat added says the one slide the outline gives it, never none (W1 dogfood 14).
+  const added = await page.locator("#prompting-beats li").last().locator(".slides").inputValue();
+  check(added === "1", `a beat added takes one slide: ${added}`);
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
   await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
