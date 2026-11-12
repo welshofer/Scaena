@@ -3181,6 +3181,24 @@ mod tests {
         s
     }
 
+    /// A snapshot opens in the format its session showed (one of the deck's `formats`), so what the
+    /// Mac and the iPad export away from the window is what the window shows, "in 9:16", as the
+    /// browser's Export… makes it: a PNG of a state there, and of every slide.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_snapshot_opens_in_the_format_its_session_showed() {
+        let mut s = torture();
+        let own = s.png("images", 320).unwrap();
+        s.set_format(Some("9:16")).unwrap();
+        let tall = s.png("images", 320).unwrap();
+        assert_ne!(own, tall, "9:16 lays the state out otherwise");
+        let mut opened = s.snapshot().session().unwrap();
+        assert_eq!(opened.png("images", 320).unwrap(), tall, "the snapshot exports in 9:16");
+        s.set_format(None).unwrap();
+        let mut opened = s.snapshot().session().unwrap();
+        assert_eq!(opened.png("images", 320).unwrap(), own, "and on the deck's own canvas where it shows that");
+    }
+
     /// The cue a show goes on to, laid out while the state shown rests, is the one its frames
     /// sample: its first frame lays nothing out, and draws as it would have. An edit lets it go
     /// (lift-up PERF-1).
