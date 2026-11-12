@@ -2651,6 +2651,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
         // sourced is sourced where it is said again (W1's dogfood 5).
         let mut known: Vec<(String, String)> = Vec::new();
+        // Each figure found unsourced, by value and unit, with the slides that write it, the first
+        // the one it is found on: a figure several slides write is one finding that names them all
+        // (W2's health read: Valdemar's 2,3 M€ on slides 5 and 8), which citing the first answers,
+        // the rest then saying again what it sourced.
+        let mut found: Vec<((String, String), String, Vec<usize>)> = Vec::new();
         for (i, s) in read.iter().enumerate() {
             let shown = format!("{}\n{}", s.title, s.body);
             let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
@@ -2660,23 +2665,43 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 known.extend(written.into_iter().map(|f| (f.value, f.unit)));
                 continue;
             }
-            let Some(figure) = written.into_iter().find(|f| !known.contains(&(f.value.clone(), f.unit.clone()))) else {
+            // A slide's first figure no cited slide wrote: one an earlier slide was found for adds
+            // this slide to its finding, else it is found here.
+            let Some(f) = written.into_iter().find(|f| !known.contains(&(f.value.clone(), f.unit.clone()))) else {
                 continue;
             };
-            let (k, figure) = (i + 1, figure.shown);
-            unsourced.push((s.id.clone(), figure.clone()));
-            find(
-                &s.id,
-                Severity::Warning,
-                Kind::Source,
-                format!(
-                    "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
+            let key = (f.value.clone(), f.unit.clone());
+            match found.iter_mut().find(|(k, ..)| *k == key) {
+                Some((.., on)) => on.push(i),
+                None => found.push((key, f.shown, vec![i])),
+            }
+        }
+        for (_, figure, on) in found {
+            let (first, k) = (on[0], on[0] + 1);
+            unsourced.push((read[first].id.clone(), figure.clone()));
+            let (says, ask) = match on.len() {
+                1 => (
+                    format!(
+                        "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
+                    ),
+                    format!(
+                        "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
+                    ),
                 ),
-                format!(
-                    "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
-                ),
-                None,
-            );
+                _ => {
+                    let (again, many) = slides_named(&on[1..]);
+                    let does = if many { "do" } else { "does" };
+                    (
+                        format!(
+                            "Slide {k} writes {figure}, as {again} {does}, and names no source for it, though the deck was made from its sources."
+                        ),
+                        format!(
+                            "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from: that sources it on {again} too."
+                        ),
+                    )
+                }
+            };
+            find(&read[first].id, Severity::Warning, Kind::Source, says, ask, None);
         }
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
@@ -5399,6 +5424,29 @@ mod tests {
             slides[7].key_bullets = vec![];
         };
         assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), again)).is_empty(), "6.5 hours, as slide 2 cites it");
+        // A figure several slides write that none sources is one finding, on the first, naming
+        // them all (W2's health read: Valdemar's 2,3 M€ on slides 5 and 8).
+        let twice = |slides: &mut Vec<answer::Slide>| {
+            slides[6].key_bullets = vec!["Planning time fell from hours to minutes, and fuel spend 38%".into()];
+        };
+        let found = unsourced(&grounded_dogfood("fleet", "", pilot(), twice));
+        assert_eq!(found.len(), 1, "{found:?}");
+        let (slide, says, ask) = &found[0];
+        assert_eq!(*slide, 7);
+        assert_eq!(
+            says,
+            "Slide 7 writes 38%, as slide 8 does, and names no source for it, though the deck was made from its sources."
+        );
+        assert_eq!(
+            ask,
+            "Say on slide 7 where 38% comes from, naming the source, or cite the source it is from: that sources it on slide 8 too."
+        );
+        // Slide 7 cited, slide 8 is sourced with it.
+        let both = |slides: &mut Vec<answer::Slide>| {
+            twice(slides);
+            slides[6].source_ref = Some("pilot.csv".into());
+        };
+        assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), both)).is_empty());
         let shown = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<_>>();
         assert!(shown("Q3 by product, p99 latency, Week 1, 3 steps, November 2026").is_empty());
         assert_eq!(shown("Costs fell to $1.4M (2.5x less)")[0], ("$1.4M".into(), "1.4".into(), "$".into()));
