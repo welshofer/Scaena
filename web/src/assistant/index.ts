@@ -373,13 +373,13 @@ async function mapFetch(
  * changed; or why it did not. */
 export async function slideWrite(session: Session, args: unknown, author: string): Promise<[string, boolean, boolean]> {
   const stop = (message: string): [string, boolean, boolean] => [JSON.stringify({ message }), true, false];
-  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; beat?: unknown; dry_run?: unknown; verbose?: unknown };
+  const a = (args ?? {}) as { slide?: unknown; after?: unknown; replace?: unknown; beat?: unknown; id?: unknown; dry_run?: unknown; verbose?: unknown };
   // `verbose` is the MCP tool's, which keeps the JSON Patch in the report; the page's report is
   // the summary alone, the patch the editor's own.
-  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "beat", "dry_run", "verbose"].includes(k));
+  const known = Object.keys(a).every((k) => ["slide", "after", "replace", "beat", "id", "dry_run", "verbose"].includes(k));
   const place = (v: unknown) => v === undefined || v === null || typeof v === "string";
-  if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace) || !place(a.beat)) {
-    return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; `beat`, a beat of the spine; and `dry_run`");
+  if (!known || typeof a.slide !== "object" || a.slide === null || !place(a.after) || !place(a.replace) || !place(a.beat) || !place(a.id)) {
+    return stop("slide_write takes `slide`, a slide as Narrato writes one; `after` or `replace`, a state; `beat`, a beat of the spine; `id`, its state's; and `dry_run`");
   }
   if (a.after && a.replace) return stop("slide_write: give `after` or `replace`, not both");
   const read = session.tool("deck_read", "{}");
@@ -415,6 +415,8 @@ export async function slideWrite(session: Session, args: unknown, author: string
       ...(a.replace ? { replace: a.replace as string } : a.after ? { after: a.after as string } : {}),
       // The beat of the spine it tells (lift-up M1).
       ...(a.beat ? { beat: a.beat as string } : {}),
+      // Its state's id, where the agent names it (agent dogfood 6).
+      ...(a.id ? { id: a.id as string } : {}),
     };
     const built = await slideBuilt(deck, (JSON.parse(held) as { text: string }).text, slide, where, found, files);
     const called = session.slidePolishing(built, a.dry_run === true, author, new Date().toISOString());

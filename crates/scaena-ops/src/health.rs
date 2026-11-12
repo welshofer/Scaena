@@ -2078,14 +2078,44 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 });
                 (says, ask, fix)
             }
-            // A slide that declares none is read as a talk usually runs where it stands.
-            None => (
-                format!(
-                    "Slide {k} declares no intensity, where its place in the talk calls for a {way} slide than most."
-                ),
-                format!("Plan slide {k}'s intensity for its place in the story."),
-                None,
-            ),
+            // A slide that declares none is read as a talk usually runs where it stands: asked for
+            // the plan its place calls for, the curve's there, or the nearest its words carry, as
+            // a planned slide's is, written where its beat keeps a plan (agent dogfood 6).
+            None => {
+                let calls = curve.get(i).copied().unwrap_or(0.5).clamp(0.0, 1.0);
+                let asked = match slides_read.get(i).and_then(|r| r.read) {
+                    Some(w) if (w - calls).abs() > INTENSITY_GAP_THRESHOLD => {
+                        w + (calls - w).clamp(-INTENSITY_GAP_THRESHOLD, INTENSITY_GAP_THRESHOLD)
+                    }
+                    _ => calls,
+                };
+                let value = (asked * 100.0).round() / 100.0;
+                let fix = slides[i].beat.map(|(si, bj, b)| {
+                    let base = format!("/spine/sections/{si}/beats/{bj}");
+                    let op = match b.media.as_ref() {
+                        Some(media) if media.get("narrato").is_some_and(Value::is_object) => {
+                            json!({ "op": "add", "path": format!("{base}/media/narrato/intensity"), "value": value })
+                        }
+                        Some(media) if media.is_object() => {
+                            json!({ "op": "add", "path": format!("{base}/media/narrato"), "value": { "intensity": value } })
+                        }
+                        _ => json!({ "op": "add", "path": format!("{base}/media"),
+                                     "value": { "narrato": { "intensity": value } } }),
+                    };
+                    Fix { says: format!("Plan it at {}", level(value)), patch: vec![op] }
+                });
+                (
+                    format!(
+                        "Slide {k} declares no intensity, where its place in the talk calls for a {way} slide than most."
+                    ),
+                    format!(
+                        "Plan slide {k}'s intensity for its place in the story: {} by its Intensity, where the talk's curve stands at {}{beat}.",
+                        level(value),
+                        level(calls)
+                    ),
+                    fix,
+                )
+            }
         };
         find(&d.slide_id, Severity::Info, Kind::Arc, says, ask, fix);
     }
@@ -4675,6 +4705,50 @@ mod tests {
             assert!(!f.says.contains("headline counts"), "{}", f.says);
             assert!(!matches!(f.kind, Kind::Dense | Kind::Thin | Kind::Source), "{:#?}", f);
         }
+    }
+
+    /// A slide that declares no intensity where its place calls for another than most is asked for
+    /// the plan its place calls for, by its value, with the fix that writes it where its beat keeps
+    /// a plan (agent dogfood 6: "Plan slide 8's intensity for its place" named the path, no value).
+    #[test]
+    fn a_slide_with_no_plan_is_asked_for_the_one_its_place_calls_for() {
+        let mut deck = dogfood("keynote", "", |_| {});
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                if let Some(narrato) = beat.pointer_mut("/media/narrato").and_then(Value::as_object_mut) {
+                    narrato.remove("intensity");
+                }
+            }
+        }
+        let h = of(&deck);
+        let unplanned: Vec<&Finding> =
+            (h.findings.iter()).filter(|f| f.says.contains("declares no intensity")).collect();
+        assert!(!unplanned.is_empty(), "{:#?}", h.findings);
+        let f = unplanned[0];
+        let curve = h.slides[f.slide - 1].curve;
+        assert!(f.ask.contains(&format!("where the talk's curve stands at {curve:.2}")), "{}", f.ask);
+        let fix = f.fix.as_ref().expect("the plan its place calls for, as a fix");
+        assert!(fix.says.starts_with("Plan it at "), "{}", fix.says);
+        let mut planned = deck.clone();
+        scaena_core::patch::apply(&mut planned, &fix.patch).unwrap();
+        let after = of(&planned);
+        assert!(
+            !after.findings.iter().any(|g| g.slide == f.slide && g.says.contains("declares no intensity")),
+            "{:#?}",
+            after.findings
+        );
+        // A beat with no plan at all, as a deck made by hand keeps one, is given one.
+        let mut bare = deck.clone();
+        for section in bare["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("media");
+            }
+        }
+        let h = of(&bare);
+        let f = (h.findings.iter()).find(|f| f.says.contains("declares no intensity")).expect("an unplanned slide");
+        let fix = f.fix.as_ref().expect("a fix");
+        assert!(fix.patch[0]["path"].as_str().unwrap().ends_with("/media"), "{:?}", fix.patch);
+        scaena_core::patch::apply(&mut bare, &fix.patch).unwrap();
     }
 
     /// The `brief` op takes the goals and lengths Narrato takes, which core keeps beside its patch
