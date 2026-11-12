@@ -270,7 +270,7 @@ fn keep_rows(
             RowEdit::Add { row, .. } => Some(if at >= row.map_or(rows, |r| r.min(rows)) as i64 { at + 1 } else { at }),
             RowEdit::Remove { row } if at == *row as i64 => None,
             RowEdit::Remove { row } => Some(if at > *row as i64 { at - 1 } else { at }),
-            RowEdit::Set { .. } => continue,
+            RowEdit::Set { .. } | RowEdit::Rename { .. } => continue,
         };
         let Some(run) = doc.pointer_mut(&path).and_then(serde_json::Value::as_object_mut) else { continue };
         match now {
