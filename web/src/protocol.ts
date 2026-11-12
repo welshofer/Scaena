@@ -1721,6 +1721,9 @@ export interface Generated {
   fixed: Finding[];
   fitted?: string[];
   unfitted?: string;
+  /** Each settled claim kept in the person's words though longer than its place takes, by its
+   * slide (W1 dogfood 13): the fit never rewrites one. */
+  overlong?: string;
   /** How many pictures were made for its slides, and why each other asked for was not. */
   pictures?: number;
   unpictured?: string[];
