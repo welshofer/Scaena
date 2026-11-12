@@ -1,7 +1,8 @@
 """The workflows' artifact uploads are diagnostics: each goes on when it fails, so an outage of
 GitHub's artifact service never turns a job red whose tests passed (it answered every upload with
 HTML from 20:30 to 20:43 on 2026-11-11). The one upload that is a job's product, the Mac app the
-`mac-app` workflow builds for someone to download, fails its job as it should."""
+`mac-app` workflow builds for someone to download, fails its job as it should. The remote's tests run
+under ThreadSanitizer where what builds the apps runs, and a race they find fails the job."""
 
 import re
 import unittest
@@ -63,6 +64,21 @@ class Uploads(unittest.TestCase):
         self.assertEqual(list(uploads(text)), [("x", False)])
         text = text.replace("    uses:", "    continue-on-error: true\n    uses:")
         self.assertEqual(list(uploads(text)), [("x", True)])
+
+
+class Sanitizer(unittest.TestCase):
+    def test_the_remotes_tests_run_under_threadsanitizer_and_a_race_fails_the_job(self):
+        ci = steps((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+        found = ["\n".join(step) for step in ci if "name: The remote under ThreadSanitizer" in step[0]]
+        self.assertEqual(len(found), 1, "one step runs the remote's tests under ThreadSanitizer")
+        body = found[0]
+        self.assertIn("swift test --sanitize=thread --filter RemoteTests", body)
+        self.assertIn("runner.os == 'macOS' && needs.changes.outputs.app == 'true'", body)
+        self.assertNotRegex(body, r"continue-on-error:\s*true", "a race it finds fails the job")
+        self.assertNotIn("|| true", body)
+        # The filter names a suite the tests are in.
+        tests = WORKFLOWS.parent.parent / "apps" / "mac" / "ScaenaKit" / "Tests" / "ScaenaKitTests" / "RemoteTests.swift"
+        self.assertIn("@Suite struct RemoteTests {", tests.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
