@@ -342,6 +342,46 @@ fn declared(beat: &Beat) -> Option<NarrativeMeta> {
     })
 }
 
+/// How many cards a slide built by hand sets side by side (R1's dogfood 6), the most of any one
+/// set, where it sets three or more: each card a point, as a list's item is, though no bullet
+/// marks it. A card is a container's text, or the stack, shape, or frame its texts stand in, its
+/// label, figure, and words one card; three or more under one container, or three or more texts
+/// in one role in it, are a set. `texts` are the slide's texts shown; `title` its headline, which
+/// is none.
+fn cards<'a>(deck: &'a Deck, texts: &[(&'a String, &'a Props)], title: &str) -> usize {
+    fn parent(props: &Props) -> Option<&str> {
+        props.get("at").and_then(|a| a.get("parent")).and_then(Value::as_str)
+    }
+    let of = |id: &str| deck.nodes.get(id).and_then(|n| n.props.get("at")).and_then(|a| a.get("parent"));
+    // Each card by the container it stands in: (container, card).
+    let mut held: Vec<(&str, &str)> = Vec::new();
+    // Each text in one role straight in a container: (container, role, text).
+    let mut roles: Vec<(&str, &str, &str)> = Vec::new();
+    for &(id, props) in texts {
+        let said = words(props);
+        let aside = matches!(props.get("semantic").and_then(Value::as_str), Some("navigation" | "decoration"));
+        if said.trim().is_empty() || said.trim() == title || aside {
+            continue;
+        }
+        let Some(card) = parent(props) else { continue };
+        let role = props.get("role").and_then(Value::as_str).unwrap_or("body");
+        roles.push((card, role, id));
+        if let Some(container) = of(card).and_then(Value::as_str)
+            && !held.contains(&(container, card))
+        {
+            held.push((container, card));
+        }
+    }
+    let mut most = 0;
+    for &(container, _) in &held {
+        most = most.max(held.iter().filter(|(c, _)| *c == container).count());
+    }
+    for &(container, role, _) in &roles {
+        most = most.max(roles.iter().filter(|(c, r, _)| *c == container && *r == role).count());
+    }
+    if most >= 3 { most } else { 0 }
+}
+
 /// The shipped themes' layouts that make one point by design, whose slides are left out of the
 /// points a slide makes on average (ADR-0032 item 3, Jay's call, 2026-10-25).
 const ONE_IDEA: [&str; 9] = [
@@ -356,13 +396,17 @@ const ONE_IDEA: [&str; 9] = [
     "big-question",
 ];
 
-/// The slides of `deck` as health reads them, each by its first state's id, and the most points
-/// any one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2). A
-/// grid of short places, a SWOT or a timeline, makes few in each.
-fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<usize>), OpsError> {
+/// The slides of `deck` as health reads them, each by its first state's id; the most points any
+/// one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2), a grid of
+/// short places, a SWOT or a timeline, making few in each; and the cards it sets side by side,
+/// [`cards`].
+type Readings = (Vec<SlideForHealth>, Vec<usize>, Vec<usize>);
+
+fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     let mut out = Vec::with_capacity(slides.len());
     let mut most = Vec::with_capacity(slides.len());
+    let mut set = Vec::with_capacity(slides.len());
     for slide in slides {
         let (Some(&first), Some(&last)) = (slide.states.first(), slide.states.last()) else { continue };
         let beat = slide.beat.map(|(.., b)| b);
@@ -435,9 +479,10 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
             }),
             ..SlideForHealth::default()
         });
+        set.push(out.last().map_or(0, |read: &SlideForHealth| cards(deck, &texts, &read.title)));
         most.push(points);
     }
-    Ok((out, most))
+    Ok((out, most, set))
 }
 
 /// A figure a slide writes: as written, its value with its marks between digits taken out
@@ -614,7 +659,7 @@ pub(crate) struct Told<'d> {
 /// Each slide of `deck` as its talk speaks it.
 pub(crate) fn told(deck: &Deck) -> Result<Vec<Told<'_>>, OpsError> {
     let slides = slides(deck);
-    let (read, _) = readings(deck, &slides)?;
+    let (read, ..) = readings(deck, &slides)?;
     let told = slides.iter().filter(|s| !s.states.is_empty()).map(|s| s.beat);
     Ok(read.into_iter().zip(told).map(|(slide, beat)| Told { slide, beat }).collect())
 }
@@ -1265,7 +1310,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let asked =
         (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
     let slides = slides(deck);
-    let (read, most) = readings(deck, &slides)?;
+    let (read, most, set) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
     // What heads each slide as the reader hears it (SPEC §3.12): its heading's words, a figure's
@@ -2378,11 +2423,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // A slide that draws a chart, a picture, or a table shows its point (ADR-0032), and one
         // that frames the talk, a divider or an agenda, makes none by design: neither is asked
         // for points (R1's agent dogfood 2), though balance counts them as Vzestup's does.
+        // A slide's cards are its points as its list's items are (R1's dogfood 6), though balance
+        // counts the bullets alone, as Vzestup's does.
+        let points = |i: usize| bullets(&read[i]).max(set[i]);
         let mut thin: Vec<usize> = (pointed.iter().copied())
-            .filter(|&i| i > 0 && !closing.contains(&read[i].id) && bullets(&read[i]) < FLOOR_POINTS as usize)
+            .filter(|&i| i > 0 && !closing.contains(&read[i].id) && points(i) < FLOOR_POINTS as usize)
             .filter(|&i| !read[i].drawn && !framing(i))
             .collect();
-        scaena_core::sort::by_key(&mut thin, |&i| (bullets(&read[i]), i));
+        scaena_core::sort::by_key(&mut thin, |&i| (points(i), i));
         thin.truncate(3);
         scaena_core::sort::by_key(&mut thin, |&i| i);
         if let Some(&first) = thin.first() {
@@ -3570,6 +3618,31 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A slide built by hand as a grid of cards makes a point a card (R1's dogfood 6): ridgeline's
+    /// recap and its plan, three cards each, are never named thin once another slide lists points,
+    /// while its cost, two cards, still is. A card's label, figure, and words are one card.
+    #[test]
+    fn a_grid_of_cards_built_by_hand_makes_a_point_a_card() {
+        let path = root().join("docs/examples/ridgeline.deck.json");
+        let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        // A slide that lists points, so balance has points to count.
+        deck["nodes"]["lesson-sub"]["text"] = "Steep streets need help\nE-bikes give it".into();
+        deck["nodes"]["lesson-sub"]["list"] = json!([{ "kind": "bullet" }, { "kind": "bullet" }]);
+        let h = of(&deck);
+        let thin = h.findings.iter().find(|f| f.kind == Kind::Thin).expect("a thin finding");
+        assert!(thin.says.starts_with("Slide 8 lists the fewest points"), "{}", thin.says);
+        for slide in ["10", "11"] {
+            assert!(!thin.says.contains(&format!("Slide {slide}")), "{}", thin.says);
+            assert!(!thin.says.contains(&format!(" {slide} ")), "{}", thin.says);
+        }
+        // The cards are counted for the finding alone: balance reads the bullets, as Vzestup's does.
+        let (read, _, set) =
+            readings(&Deck::from_value(&deck).unwrap(), &slides(&Deck::from_value(&deck).unwrap())).unwrap();
+        let at = |id: &str| read.iter().position(|s| s.id == id).unwrap();
+        assert_eq!((set[at("recap")], set[at("plan")], set[at("cost")]), (3, 3, 0));
+        assert_eq!(bullets(&read[at("recap")]), 0, "{}", read[at("recap")].body);
     }
 
     /// A deck whose slides state three or more figures offers the ask that compares them, as a model
