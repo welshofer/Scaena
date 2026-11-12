@@ -9567,7 +9567,8 @@ mod tests {
         assert!(m.fell[0].why.contains("no layout is called that") && m.fell[0].layout == m.layouts[1], "{:?}", m.fell);
         assert!(made(named("Bullet List")).fell.is_empty());
         // A picture asked for by Scaena's own name, with none to show, says how to give it one;
-        // a call to action asked for by name has not fallen back (agent dogfood 8).
+        // a call to action asked for by name is a closing, said as one where its items do not fit
+        // its place, never as a name no layout is called (agent dogfood 8).
         let mut pictured = named("Bullet List");
         pictured.layout_suggestion = "Image Left".into();
         let m = made(pictured);
@@ -9575,7 +9576,8 @@ mod tests {
         assert!(m.fell[0].why.contains("asks for a picture") && m.fell[0].why.contains("image_add"), "{:?}", m.fell);
         let mut cta = named("Bullet List");
         cta.layout_suggestion = "Call to Action".into();
-        assert!(made(cta).fell.is_empty());
+        let m = made(cta);
+        assert!(m.fell.iter().all(|f| f.why.contains("`closing` has no place")), "{:?}", m.fell);
     }
 
     /// Each figure and its unit stays on the slide, set once, at the lengths a model writes
