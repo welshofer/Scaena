@@ -55,6 +55,9 @@ struct DeckView: View {
     @State private var inserts: [Insert] = []
     /// The deck's data sources and their files: what Insert names a chart's or a table's data by.
     @State private var sources: [DataSource] = []
+    /// The bundle's sound files, which a movie may take under it: read again as the deck changes,
+    /// never as the window draws.
+    @State private var sounds: [String] = []
     /// The others selected with the node selected, children of the same container (PLAN 3.13).
     @State private var also: [String] = []
     /// The nodes the state shown has locked by their own lock: what Lock undoes.
@@ -669,7 +672,6 @@ struct DeckView: View {
             Button("Share as Movie…") { export(.movie(), sharing: true) }
             Button("Save as Movie…") { save(.movie()) }
             // With one of the bundle's sound files under it, as the CLI's `--audio` takes one.
-            let sounds = (try? editor.session.sounds()) ?? []
             if !sounds.isEmpty {
                 Menu("Share as Movie with Sound") {
                     ForEach(sounds, id: \.self) { sound in
@@ -722,7 +724,7 @@ struct DeckView: View {
             made.saveImages = { scale in save(slides(scaled: scale)) }
             made.saveHTML = { save(.html) }
             made.saveMovie = { save(.movie()) }
-            made.sounds = (try? editor.session.sounds()) ?? []
+            made.sounds = sounds
             made.saveMovieWith = { sound in save(.movie(sound: sound)) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
@@ -864,6 +866,7 @@ struct DeckView: View {
                 // What the Node menu offers, read again as the deck or the selection changes.
                 inserts = (try? editor.session.inserts()) ?? []
                 sources = (try? editor.session.dataSources()) ?? []
+                sounds = (try? editor.session.sounds()) ?? []
                 let boxes = shown.flatMap { try? editor.session.boxes(state: $0) } ?? []
                 ownLocks = Set(boxes.filter { $0.locked == $0.node }.map(\.node))
                 codes = Set(boxes.filter { $0.code != nil }.map(\.node))
