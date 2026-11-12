@@ -674,7 +674,8 @@ pub unsafe extern "C" fn scaena_picture(bytes: *const u8, len: usize) -> *mut c_
 /// written again; and, from the bundle's history, `versions`, each with what its change did
 /// and who made it in a person's words (`said`, `by`), `viewVersion {version}`, its states, and
 /// `versionSlides`, each as its slide list numbers it, `compareVersions {from, to?}`, and
-/// `restoreVersion {version, at?}`, `{restored, files}`. Handles and views (PLAN 3.16):
+/// `restoreVersion {version, slide?, at?}`, `{restored, files}`, with `slide` the version's slide
+/// that holds that state alone. Handles and views (PLAN 3.16):
 /// `outline {state, node}`, a shape's points and corner;
 /// `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
 /// point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
@@ -2362,7 +2363,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let (_, versions) = history_of(s)?;
             let version = scaena_ops::history::named(&versions, name).map_err(said)?.clone();
             let held = held(s, name)?;
-            let (restored, files) = s.restore_version(&held, version, None, user()).map_err(said)?;
+            // With `slide`, a state of the version, only the slide that holds it (dogfood 16).
+            let slide = optional("slide");
+            let (restored, files) = s.restore_version(&held, version, slide, user()).map_err(said)?;
             json!({ "restored": restored, "files": files })
         }
         // What Delete takes out (PLAN 2.34, 2.42): `nodes`, or one `node`, in one patch.
