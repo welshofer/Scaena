@@ -14876,6 +14876,31 @@ mod tests {
         assert_eq!(firsts(&after), [written.states[0].clone()]);
     }
 
+    /// A cover written in place of `deck_create`'s blank slide, which no beat of the spine planned
+    /// tells, gets a beat where it plays, first, not after the last beat planned, and one named
+    /// as the slide is, the result naming that beat (agent dogfood 8).
+    #[test]
+    fn a_slide_written_in_place_of_the_first_gets_its_beat_first() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["spine"] = json!({ "sections": [
+            { "id": "why", "title": "Why", "beats": [{ "id": "stakes", "claim": "The stakes are high", "states": [] }] },
+            { "id": "ask", "title": "Ask", "beats": [{ "id": "ask", "claim": "Fund the pilot", "states": [] }] },
+        ] });
+        let place = Place::Replace("start".into());
+        let written = slide_into(&doc, &theme, slides[0].clone(), &place, None, BTreeMap::new(), &no_files()).unwrap();
+        let written = named_as(&doc, &place, written, "cover").unwrap();
+        assert_eq!(written.beat, "cover");
+        let after = patched(&doc, &written.patch);
+        let beats = |s: usize| -> Vec<&str> {
+            (after["spine"]["sections"][s]["beats"].as_array().unwrap().iter())
+                .map(|b| b["id"].as_str().unwrap())
+                .collect()
+        };
+        assert_eq!((beats(0), beats(1)), (vec!["cover", "stakes"], vec!["ask"]));
+        assert_eq!(after["spine"]["sections"][0]["beats"][0]["states"], json!(written.states));
+    }
+
     /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
     /// outline settled for the slide's beat (not the spine's, the old headline), the sources it
     /// credits, named only, and the rows of the data it keeps, told apart (lift-up 10-25b FUNC-1).
