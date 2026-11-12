@@ -4377,7 +4377,10 @@ fn layout_for(
         "ranking",
         "manifesto",
     ];
-    let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") {
+    // A bare closing headed by its beat's claim sets all its own lines under the claim, on one line
+    // of the support, however many they are (W1 dogfood 13).
+    let claimed = wanted == "closing" && bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty());
+    let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") || claimed {
         true => wanted,
         false if sequential.contains(&identity) => "numbered",
         false => "bullets",
@@ -4395,7 +4398,7 @@ fn layout_for(
 /// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
 /// ATTR-3).
 fn bare(title: &str) -> bool {
-    const BARE: [&str; 24] = [
+    const BARE: [&str; 32] = [
         "thank you",
         "thanks",
         "thank you for listening",
@@ -4408,6 +4411,14 @@ fn bare(title: &str) -> bool {
         "merci",
         "gracias",
         "danke",
+        "vielen dank",
+        "danke schön",
+        "dankeschön",
+        "merci beaucoup",
+        "muchas gracias",
+        "grazie mille",
+        "muito obrigado",
+        "muito obrigada",
         "grazie",
         "obrigado",
         "obrigada",
@@ -11309,6 +11320,21 @@ mod tests {
         n.slides.last_mut().unwrap().key_bullets = vec!["Questions?".into()];
         n.outline.as_mut().unwrap().beats[5].claim = "Free fares bring the riders back.".into();
         has(&close(&n).1, "statement", "Free fares bring the riders back.");
+        // In a deck whose asks are not read, a thanks with more lines than the closing's one
+        // place still closes on the claim, every line of it under the claim, never a list that
+        // drops it (W1 dogfood 13).
+        n.brief.language = Some("German".into());
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Vielen Dank".into();
+        last.key_bullets = vec!["Fragen?".into(), "route9@example.gov".into()];
+        let (layout, said) = close(&n);
+        assert_eq!(layout, "closing", "{said:#?}");
+        has(&said, "statement", "Free fares bring the riders back.");
+        has(&said, "support", "Vielen Dank \u{b7} Fragen? \u{b7} route9@example.gov");
+        n.brief.language = None;
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Thank you".into();
+        last.key_bullets = vec!["Questions?".into()];
         n.outline = None;
         let (layout, said) = close(&n);
         assert_eq!(layout, "closing");
