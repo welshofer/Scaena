@@ -126,13 +126,21 @@ pub fn told(doc: &DeckDoc) -> Result<Vec<Told>, OpsError> {
         None => None,
     };
     for (i, version) in versions.into_iter().enumerate() {
-        let said = scaena_core::words::change(version.message.as_deref().unwrap_or_default());
+        let mut said = scaena_core::words::change(version.message.as_deref().unwrap_or_default());
         let by = scaena_core::words::author(version.author.as_deref().unwrap_or_default());
         let mut changed = Vec::new();
         if i >= first {
             let (deck, _) = then(doc, &version)?;
             if let Some(was) = &before {
-                changed = touched(was, &deck)?;
+                let summary;
+                (changed, summary) = touched(was, &deck)?;
+                // A patch that changed nothing but what slides say of themselves, their notes or
+                // their advance, says so, never "A slide changed".
+                if let Some(summary) =
+                    summary.filter(|_| version.message.as_deref().is_some_and(|m| m.starts_with("patch: ")))
+                {
+                    said = summary;
+                }
             }
             before = Some(deck);
         }
@@ -141,47 +149,179 @@ pub fn told(doc: &DeckDoc) -> Result<Vec<Told>, OpsError> {
     Ok(out)
 }
 
-/// What changed from `was` to `is`, as an editor names it: each slide added or taken away, and
-/// each object changed on a slide, by what it shows there, "Slide 3: “Revenue doubled”"; each once,
-/// [`NAMED`] at most, "and N more" past them.
-fn touched(was: &Deck, is: &Deck) -> Result<Vec<String>, OpsError> {
+/// What changed from `was` to `is`, as an editor names it (R1's agent dogfood 6): each slide added,
+/// taken away, or written again in its place; each object changed on a slide, by what it shows
+/// there, "Slide 3: “Revenue doubled”"; and what else a slide changed, its own or its beat's,
+/// each with every slide it changed on, "Presenter Notes on Slide 1, Slide 2, and Slide 4" and
+/// "Advance on Slide 9". The spine is named only for what no beat's slides tell. Each once,
+/// [`NAMED`] at most, "and N more" past them; and, where it changed nothing but such fields, a
+/// sentence that says so for the version's `said`.
+fn touched(was: &Deck, is: &Deck) -> Result<(Vec<String>, Option<String>), OpsError> {
     let (states, deck) = compare(was, is)?;
     let snaps = scaena_core::resolve_states(is).context("tracking the later version")?;
     let mut said: Vec<String> = Vec::new();
-    let mut push = |what: String| {
+    let push = |said: &mut Vec<String>, what: String| {
         if !said.contains(&what) {
             said.push(what);
         }
     };
+    // Each field a slide changed, by its label, with the slides it changed on, in the deck's order.
+    let mut fields: Vec<(String, Vec<String>)> = Vec::new();
+    let mut on = |label: String, slide: String| match fields.iter_mut().find(|(l, _)| *l == label) {
+        Some((_, slides)) if slides.contains(&slide) => {}
+        Some((_, slides)) => slides.push(slide),
+        None => fields.push((label, vec![slide])),
+    };
+    let added: Vec<String> = states
+        .iter()
+        .filter(|(_, c)| matches!(c, StateChange::Added(_)))
+        .map(|(id, _)| scaena_core::words::slide(is, id))
+        .collect();
+    let removed: Vec<String> = states
+        .iter()
+        .filter(|(_, c)| matches!(c, StateChange::Removed(_)))
+        .map(|(id, _)| scaena_core::words::slide(was, id))
+        .collect();
+    let mut others = false;
     for (state, change) in &states {
         match change {
-            StateChange::Added(_) => push(format!("{} added", scaena_core::words::slide(is, state))),
-            StateChange::Removed(_) => push(format!("{} taken away", scaena_core::words::slide(was, state))),
+            // A slide taken away and one added where it stood: the slide written again.
+            StateChange::Added(_) => {
+                let slide = scaena_core::words::slide(is, state);
+                if removed.contains(&slide) {
+                    push(&mut said, format!("{slide} written again"));
+                } else {
+                    push(&mut said, format!("{slide} added"));
+                }
+                others = true;
+            }
+            StateChange::Removed(_) => {
+                let slide = scaena_core::words::slide(was, state);
+                if !added.contains(&slide) {
+                    push(&mut said, format!("{slide} taken away"));
+                }
+                others = true;
+            }
             StateChange::Changed(changed) => {
                 let slide = scaena_core::words::slide(is, state);
                 let shown = snaps.iter().find(|s| s.state_id == *state).map(|s| with_overrides(is, s).nodes);
-                if changed.nodes.is_empty() {
-                    push(slide.clone());
+                for field in changed.fields.keys() {
+                    on(scaena_core::words::label(field), slide.clone());
                 }
                 for id in changed.nodes.keys() {
                     let object = match &shown {
                         Some(shown) if is.nodes.contains_key(id) => scaena_core::words::object_in(is, shown, id),
                         _ => scaena_core::words::kind(was.nodes.get(id).map(|n| n.node_type)).to_string(),
                     };
-                    push(format!("{slide}: \u{201c}{object}\u{201d}"));
+                    push(&mut said, format!("{slide}: \u{201c}{object}\u{201d}"));
+                    others = true;
                 }
             }
         }
     }
+    // A beat's own fields, its notes and its claim among them, on each slide it tells.
+    let mut spine = false;
     for field in deck.keys() {
-        push(format!("the deck's {}", scaena_core::words::label(field).to_lowercase()));
+        if field == "spine" {
+            let (told, rest) = beats(was, is);
+            for (label, state) in told {
+                if is.states.iter().any(|s| s.id == state) {
+                    // A beat's field is its slide's, whichever of its steps the beat names.
+                    let slide = scaena_core::words::slide(is, &state);
+                    on(label, slide.split(", step ").next().unwrap_or(&slide).to_string());
+                }
+            }
+            spine = rest;
+            continue;
+        }
+        push(&mut said, format!("the deck's {}", scaena_core::words::label(field).to_lowercase()));
+        others = true;
+    }
+    if spine {
+        push(&mut said, "the deck's spine".into());
+        others = true;
+    }
+    let summary = (!others && !fields.is_empty()).then(|| {
+        let each: Vec<String> = fields
+            .iter()
+            .map(|(label, slides)| match slides.len() {
+                1 => format!("{label} changed on {}", slides[0]),
+                n => format!("{label} changed on {n} slides"),
+            })
+            .collect();
+        each.join("; ")
+    });
+    let order = scaena_core::words::slides(is);
+    for (label, mut slides) in fields {
+        scaena_core::sort::by_key(&mut slides, |slide| order.iter().position(|o| o == slide));
+        push(&mut said, format!("{label} on {}", and(&slides)));
     }
     if said.len() > NAMED {
         let more = said.len() - NAMED;
         said.truncate(NAMED);
         said.push(format!("and {more} more"));
     }
-    Ok(said)
+    Ok((said, summary))
+}
+
+/// `items` in a sentence: "a", "a and b", "a, b, and c".
+fn and(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+    }
+}
+
+/// What changed in the spine's beats from `was` to `is`, as a slide's: each field of a beat both
+/// have that changed, its label with each state the beat tells in `is`, "Presenter Notes" for its
+/// notes; and whether anything else changed, a beat or a section added, taken away, moved, or
+/// retitled, or the states a beat tells.
+fn beats(was: &Deck, is: &Deck) -> (Vec<(String, String)>, bool) {
+    let all = |deck: &Deck| -> Vec<scaena_core::document::Beat> {
+        deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| s.beats.iter().cloned()).collect()
+    };
+    let (then, now) = (all(was), all(is));
+    let mut told = Vec::new();
+    for beat in &now {
+        let Some(old) = then.iter().find(|b| b.id == beat.id) else { continue };
+        let mut changed = Vec::new();
+        if old.notes != beat.notes {
+            changed.push(scaena_core::words::label("notes"));
+        }
+        if old.claim != beat.claim {
+            changed.push("Claim".to_string());
+        }
+        if old.duration != beat.duration {
+            changed.push("Time".to_string());
+        }
+        if old.evidence != beat.evidence {
+            changed.push("Evidence".to_string());
+        }
+        if old.media != beat.media {
+            changed.push("Plan".to_string());
+        }
+        for label in changed {
+            told.extend(beat.states.iter().map(|state| (label.clone(), state.clone())));
+        }
+    }
+    // The spine with each beat's own fields taken away: what changed of it but those.
+    let bare = |deck: &Deck| -> Option<Value> {
+        let mut spine = serde_json::to_value(deck.spine.as_ref()?).ok()?;
+        for section in spine.get_mut("sections")?.as_array_mut()? {
+            for beat in section.get_mut("beats").and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Some(beat) = beat.as_object_mut() {
+                    for field in ["claim", "notes", "duration", "evidence", "media"] {
+                        beat.remove(field);
+                    }
+                }
+            }
+        }
+        Some(spine)
+    };
+    let rest = bare(was) != bare(is) || told.is_empty();
+    (told, rest)
 }
 
 /// The version of `versions` that `name` names: its number as listed (`3`, or `#3`), its id, or
@@ -642,4 +782,57 @@ pub fn history(b: &Bundle, ask: &Ask) -> Result<History, OpsError> {
         _ => return Err(OpsError::new("compare one version with the deck as it is now, or two versions")),
     };
     Ok(History { compared: Some(compared), ..History::default() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ridgeline() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/ridgeline.deck.json");
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn deck(v: &Value) -> Deck {
+        Deck::from_json(&v.to_string()).unwrap()
+    }
+
+    /// R1's agent dogfood 6: ten slides' notes set in one patch, a slide's hold, and a slide written
+    /// again each say what changed, and on every slide, never "A slide changed — Slide 3".
+    #[test]
+    fn a_version_says_what_it_changed_on_every_slide() {
+        let was = ridgeline();
+        // Notes on ten slides: two of their own, the rest on their beats, as `set_state` writes them.
+        let mut notes = was.clone();
+        notes["states"][2]["notes"] = "Say the total.".into();
+        notes["states"][5]["notes"] = "Say sixfold.".into();
+        for (section, beat) in [(1, 0), (1, 1), (2, 0), (2, 1), (3, 0), (3, 1), (4, 0), (4, 1)] {
+            notes["spine"]["sections"][section]["beats"][beat]["notes"] = "Say it plainly.".into();
+        }
+        let (changed, summary) = touched(&deck(&was), &deck(&notes)).unwrap();
+        assert_eq!(changed.len(), 1, "{changed:?}");
+        let said = &changed[0];
+        assert!(said.starts_with("Presenter Notes on Slide 2, "), "{said}");
+        for slide in 2..=11 {
+            assert!(said.contains(&format!("Slide {slide},")) || said.ends_with(&format!("Slide {slide}")), "{said}");
+        }
+        assert!(!said.contains("spine"), "{said}");
+        assert_eq!(summary.as_deref(), Some("Presenter Notes changed on 10 slides"));
+
+        // A hold.
+        let mut hold = was.clone();
+        hold["states"][8]["hold"] = 9000.0.into();
+        let (changed, summary) = touched(&deck(&was), &deck(&hold)).unwrap();
+        assert_eq!(changed, ["Advance on Slide 9"]);
+        assert_eq!(summary.as_deref(), Some("Advance changed on Slide 9"));
+
+        // A slide written again in its place: taken away and added under another id.
+        let mut again = was.clone();
+        again["states"][9]["id"] = "recap-2".into();
+        again["spine"]["sections"][4]["beats"][0]["states"] = serde_json::json!(["recap-2"]);
+        let (changed, summary) = touched(&deck(&was), &deck(&again)).unwrap();
+        assert_eq!(changed.first().map(String::as_str), Some("Slide 10 written again"), "{changed:?}");
+        assert!(!changed.iter().any(|c| c.contains("added") || c.contains("taken away")), "{changed:?}");
+        assert_eq!(summary, None, "a slide written again says what wrote it");
+    }
 }
