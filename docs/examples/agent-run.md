@@ -397,3 +397,61 @@ The agent guessed in two places:
 
 - **Which slides to cut.** Health's list misled it; #1161 answers that.
 - **How to bring one slide back.** It rebuilt the patch by hand; #1172 answers that.
+
+## A seventh run: a pitch built by hand, its spine first (agent dogfood 8)
+
+On 2026-11-12, an agent with nothing but the scaena MCP server built a 10-minute seed pitch from nothing, with no `deck_generate`. It ran on main at 7cc0a108.
+
+**What it was given**
+- **The brief.** Seep, acoustic sensors that find water-main leaks, pitched to a climate fund for a $3M seed.
+- **A CSV.** A pilot city's water lost each month, 2025.
+- **One photo.** A sensor.
+
+**The path it took**
+1. `deck_create`.
+2. The `brief` op, with `minutes: 10` and no length.
+3. `data_attach` for the CSV.
+4. `spine_update` with six claims written first, across problem, solution, proof, and ask.
+5. `slide_write` over the blank slide for the cover, then a `slide_write` with `beat` for each claim.
+6. `state_start` with `claim` for the head-to-head of what a burst costs against a leak found early.
+7. `image_add` for the photo.
+8. `deck_lint` and `deck_health` until nothing it could act on was left.
+9. `deck_export` as a PDF with notes, and as HTML.
+
+**Calls.** It took 26 calls in all:
+- 4 to set the deck up: `deck_create`, the brief, the data, and the spine;
+- 7 for slides;
+- 2 for the photo;
+- 8 patches to repair and finish, 2 of them refused;
+- 3 of lint and health;
+- 2 exports.
+
+Lint was 0 after the last slide. Health went from 71 to 74 and stopped asking for anything the agent could act on but its own words.
+
+**What it found**
+
+| What the agent met | Fix |
+|---|---|
+| W429 said the beat for a burst main's cost was untold: "Start a slide for it (`state_start` with its claim)". Doing so made a second beat, `cost-2`, with the same claim, and left `cost` untold. So W429 traded for W425, and the spine needed a JSON Patch. | #1181: a claim a planned beat already makes joins that beat. W429's hint names `slide_write` with that beat. |
+| The cover, written over `deck_create`'s blank slide, got a beat of its own at the spine's end, after the ask. Each later slide given a `beat` stood before it, and the PDF would have told the cover last. The beat was named `cover-they-burst`, and the result named another. | #1182: the beat goes where its slide plays (first, here) and is named as the slide. |
+| Health paced the 10-minute brief as "a talk with no length asked for … about 18" slides, pacing 45. | #1143, already open on Jay's word, reads the minutes as 5–10 slides. |
+| Health asked slide 6 for intensity 0.78, the most its words carry, and the next read found its words "flatter than it was written to be". 0.7776 had been rounded past the gap. | #1186: a plan is rounded toward the words it is held to. No score moves. |
+| The PDF with notes printed the sensors slide's beat's notes, not the slide's own. The slide builds by bullet, `slide_write` keeps its notes on its first step, and the page is its last. | #1187: a page prints the notes its steps keep before its beat's. |
+
+**Routed, not fixed yet**
+- **The cover's notes budget was 1,427 words.** The budget divides the slot by the slides written so far, not by the beats the spine plans.
+- **`set_state` with an unknown `layout`** got no "did you mean". E102 listed the theme's first 24 of 181 layouts.
+- **`image_add` answers with the JSON Patch,** where `deck_patch` answers with a summary.
+- **`fell` doesn't map the library's names.** "Image Left" and "Call to Action" fell to bullets, and `fell`'s list of names offers neither.
+- **The chart's credit says "Source: losses",** the id the CSV was attached by.
+- **The HTML export** needs a scaena built after `just web`, and this one wasn't, which it said.
+
+**What held**
+- **`slide_write` with `beat`.** It put each slide where the spine planned it, and the pilot's chart bound to the CSV by its `sourceId`, three figures quoted.
+- **`image_add`.** It filled the picture's place once `set_state` gave the slide a layout with one.
+- **The PDF with notes** followed the spine, cover first, once the spine was right.
+
+The agent guessed in three places:
+- **`replace_text` against `set_text`.** It was refused with its shape.
+- **Layout names.** "Image Left", "Call to Action", and "image-left" were guesses.
+- **How to put a duplicated beat right.** It rebuilt the spine by hand; #1181 answers that.
