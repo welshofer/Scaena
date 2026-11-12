@@ -425,7 +425,8 @@ export function prompting(
   };
 
   $<HTMLButtonElement>("#prompting-add-beat").onclick = () => {
-    const li = beatRow({ name: "", claim: "", slides: 0 });
+    // One slide, the least a beat takes and what the total counts it as (W1 dogfood 14).
+    const li = beatRow({ name: "", claim: "", slides: 1 });
     beats.append(li);
     relabel();
     totalled();
