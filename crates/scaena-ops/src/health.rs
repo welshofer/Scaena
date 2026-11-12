@@ -387,11 +387,14 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
         let mut points = 0;
         // Code is shown, as a picture is, not said: its lines are no points and its words no
         // words of the talk, a signature's parameters no list, its numbers no figures a source
-        // must stand behind, and its keywords no tone (agent dogfood 5).
+        // must stand behind, and its keywords no tone; coherence alone reads its identifiers,
+        // which carry a talk across as words do (agent dogfood 5).
         let mut coded = snaps[last].layout.as_deref().is_some_and(|l| CODE_LAYOUTS.contains(&l));
+        let mut code: Vec<String> = Vec::new();
         for &(_, props) in &texts {
             if props.get("code").is_some_and(Value::is_object) {
                 coded = true;
+                code.push(words(props));
                 continue;
             }
             let said = words(props);
@@ -439,6 +442,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<(Vec<SlideForHealth>, Vec<u
             title,
             body: lines.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n"),
             notes: notes.join("\n"),
+            code: code.join("\n"),
             narrative_meta: beat.and_then(declared),
             // A slide of code makes its one point by the code it shows, unless it lists points
             // beside it; either way it shows something.
@@ -1208,7 +1212,7 @@ fn written(text: &str) -> std::collections::BTreeSet<String> {
 /// where either says nothing past a short headline, the pair reads as following, as Vzestup's
 /// overlap gives it ½.
 fn apart(a: &SlideForHealth, b: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {} {}", s.title, s.body, s.code)));
     let (wa, wb) = (words(a), words(b));
     !wa.is_empty() && !wb.is_empty() && wa.is_disjoint(&wb)
 }
@@ -1229,7 +1233,7 @@ fn singular(words: std::collections::BTreeSet<String>) -> std::collections::BTre
 /// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over;
 /// so does its plural.
 fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {} {}", s.title, s.body, s.code)));
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
     let opened = singular(written(opening(&next.notes)));
     carried.iter().any(|w| opened.contains(w))
@@ -4627,7 +4631,7 @@ mod tests {
     /// words none the talk says, so a signature's five parameters are no list of one under a
     /// headline that counts five, its lines no dense slide, and its numbers no figures a source
     /// must stand behind (agent dogfood 5). The slide is left out of the points a slide makes on
-    /// average, and shows something.
+    /// average, and shows something; coherence alone reads its code.
     #[test]
     fn a_slide_of_code_makes_no_points_and_says_no_words() {
         let code = "fn render(deck: &Deck, theme: &Theme, state: &str, t: f64, view: Size) -> List {\n    \
@@ -4649,6 +4653,8 @@ mod tests {
         assert_eq!(read[i].id, "render-takes-five-inputs-and", "{:#?}", read[i]);
         assert!(read[i].drawn && read[i].one_idea, "{:#?}", read[i]);
         assert!(!read[i].body.contains("fn render"), "{}", read[i].body);
+        // Coherence alone reads it: its identifiers carry the talk to the next slide.
+        assert!(read[i].code.starts_with("fn render(deck: &Deck"), "{}", read[i].code);
         assert_eq!(most[i], 0);
         let h = of(&made);
         let on = |f: &&Finding| f.slide == i + 1;

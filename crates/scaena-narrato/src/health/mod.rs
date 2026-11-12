@@ -55,6 +55,11 @@ pub struct SlideForHealth {
     /// (Scaena's, not Vzestup's; ADR-0032, Jay's call, 2026-10-25).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub drawn: bool,
+    /// The code it shows, which coherence alone reads, beside its title and body: a code slide's
+    /// identifiers carry a talk across as its words do (Scaena's, not Vzestup's; ADR-0032). Its
+    /// body leaves code out, so no other measure reads it as words (agent dogfood 5).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub code: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub narrative_meta: Option<NarrativeMeta>,
 }
