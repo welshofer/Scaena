@@ -8,8 +8,10 @@ import Network
 /// `Remote.tries` of them the code is made anew, those pairing are let go, and no remote pairs for
 /// a while, longer each time up to `Remote.longest`, a join shortening no wait, so the code cannot
 /// be guessed online either (lift-up SEC-5). The wait is bounded and the new code is shown only in
-/// the editor, so whoever reads it there pairs once the wait is over. Its work is done on the main
-/// queue.
+/// the editor, so whoever reads it there pairs once the wait is over. Its listener, each pairing,
+/// and each channel are worked on a queue of their own (`Core`), so a presenter whose main actor is
+/// busy laying a slide out still pairs a remote within its ten seconds; what it hears it hands on
+/// here, on the main actor, in turn.
 @MainActor
 public final class RemoteServer {
     /// The code a remote joins with: shown where the audience does not see it, in the editor. Made
@@ -31,6 +33,90 @@ public final class RemoteServer {
     /// How many wrong codes have been tried since the code was made, as it changes.
     public var tried: (Int) -> Void = { _ in }
 
+    private let core: PresenterCore
+
+    /// Listen with `code`, offered by Bonjour as `name` on the local network; with no name, only to
+    /// one who knows the port; with `loopback`, only on this machine, as a test listens. After
+    /// `Remote.tries` wrong codes, no remote pairs for `cooldown` seconds, twice that the next time,
+    /// and so on up to `Remote.longest`.
+    public init(name: String?, code: String = Remote.code(), loopback: Bool = false, cooldown: Double = 5) throws {
+        self.code = code
+        core = try PresenterCore(name: name, code: code, loopback: loopback, cooldown: cooldown)
+        // What the core hears, handed on here in the order it heard it.
+        core.start { [weak self] said in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.apply(said) }
+            }
+        }
+    }
+
+    /// Tell every remote where the show is, and each that joins from now.
+    public func tell(_ place: RemotePlace) {
+        core.work.async { [core] in core.tell(place) }
+    }
+
+    /// Stop listening, and let every remote go.
+    public func stop() {
+        core.work.async { [core] in core.stop() }
+        joined(0)
+    }
+
+    /// The wait, s, the code last made anew set before a remote pairs: what a test reads.
+    var waited: Double { core.work.sync { core.waited } }
+
+    /// The remotes paired, joined or not yet.
+    var paired: Int { core.work.sync { core.paired } }
+
+    /// A pairing whose hellos have passed with `keys`, as a hello heard leaves one: what a test
+    /// hands proofs to in the order it chooses, which the loopback cannot pin.
+    func pairing(_ connection: NWConnection, keys: Pairing.Keys) -> Int {
+        core.work.sync { core.pairing(connection, keys: keys) }
+    }
+
+    /// The proof `body` heard on pairing `id`, as the network hands one on: what it makes known,
+    /// handed on here before this returns, so a test reads it at once.
+    func heard(_ id: Int, proof body: Data?) {
+        apply(core.work.sync { core.heard(id, proof: body, telling: false) })
+    }
+
+    /// What the core heard, handed on.
+    private func apply(_ said: [PresenterCore.Said]) {
+        for one in said {
+            switch one {
+            case .port(let port): self.port = port
+            case .failed(let why):
+                port = nil
+                failed(why)
+            case .joined(let count): joined(count)
+            case .command(let command): self.command(command)
+            case .slide(let number): slide(number)
+            case .recoded(let code):
+                self.code = code
+                recoded(code)
+            case .tried(let count): tried(count)
+            }
+        }
+    }
+}
+
+/// The presenter's work off the main actor: the listener, each remote's pairing and channel,
+/// the wrong codes counted, and the code made anew, every one of them touched on `work`
+/// alone. What it makes known it hands on in turn, as `Said`.
+final class PresenterCore: @unchecked Sendable {
+    /// What the core makes known.
+    enum Said: Sendable {
+        case port(UInt16?)
+        case failed(String)
+        case joined(Int)
+        case command(RemoteCommand)
+        case slide(Int)
+        case recoded(String)
+        case tried(Int)
+    }
+
+    /// The queue all of this is worked on.
+    let work = DispatchQueue(label: "ScaenaRemote.RemoteServer")
+    private var code: String
     /// The code's point, worked out as the code is made: what each hello raises (`Pairing.base`).
     private var base: P256.KeyAgreement.PublicKey
     private let listener: NWListener
@@ -42,66 +128,83 @@ public final class RemoteServer {
     private var place: RemotePlace?
     /// Wrong codes tried since the code was made.
     private var wrong = 0
-    /// How often the code was made anew since the server began: each wait before pairing goes on
-    /// doubles, up to `Remote.longest`. A join leaves it, so a remote joined buys no shorter waits.
+    /// How often the code was made anew since the server began: each wait before pairing goes
+    /// on doubles, up to `Remote.longest`. A join leaves it, so a remote joined buys no shorter
+    /// waits.
     private var rotations = 0
     /// No remote pairs until then, after the code was made anew.
     private var cooling: ContinuousClock.Instant?
-    /// The wait, s, the code last made anew set before a remote pairs: what a test reads.
+    /// The wait, s, the code last made anew set before a remote pairs.
     private(set) var waited: Double = 0
     /// When the hellos of the last second came: no more than `Remote.hellos` are worked out a
-    /// second, so no one in range keeps the main actor raising points before any pairs.
+    /// second, so no one in range keeps this queue raising points before any pairs.
     private var hellos: [ContinuousClock.Instant] = []
     /// The first such wait, seconds.
     private let cooldown: Double
+    /// Where what it makes known goes, and what waits to go there.
+    private var hand: @Sendable ([Said]) -> Void = { _ in }
+    private var said: [Said] = []
 
-    /// Listen with `code`, offered by Bonjour as `name` on the local network; with no name, only to
-    /// one who knows the port; with `loopback`, only on this machine, as a test listens. After
-    /// `Remote.tries` wrong codes, no remote pairs for `cooldown` seconds, twice that the next time,
-    /// and so on up to `Remote.longest`.
-    public init(name: String?, code: String = Remote.code(), loopback: Bool = false, cooldown: Double = 5) throws {
+    init(name: String?, code: String, loopback: Bool, cooldown: Double) throws {
         self.code = code
         base = try Pairing.base(code)
         self.cooldown = cooldown
         listener = try NWListener(using: Remote.parameters(loopback: loopback))
         if let name { listener.service = NWListener.Service(name: name, type: Remote.service) }
-        listener.newConnectionHandler = { [weak self] connection in
-            MainActor.assumeIsolated { self?.join(connection) }
-        }
-        listener.stateUpdateHandler = { [weak self] state in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                switch state {
-                case .ready:
-                    self.port = self.listener.port?.rawValue
-                case .failed(let error):
-                    self.port = nil
-                    self.failed("\(error)")
-                default:
-                    break
-                }
-            }
-        }
-        listener.start(queue: .main)
     }
 
-    /// Tell every remote where the show is, and each that joins from now.
-    public func tell(_ place: RemotePlace) {
+    /// Listen, handing what it makes known to `hand`.
+    func start(_ hand: @escaping @Sendable ([Said]) -> Void) {
+        work.async { [self] in
+            self.hand = hand
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.join(connection)
+                self?.flush()
+            }
+            listener.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .ready: self.say(.port(self.listener.port?.rawValue))
+                case .failed(let error): self.say(.failed("\(error)"))
+                default: break
+                }
+                self.flush()
+            }
+            listener.start(queue: work)
+        }
+    }
+
+    private func say(_ one: Said) { said.append(one) }
+
+    /// What it made known, handed on.
+    private func flush() {
+        guard !said.isEmpty else { return }
+        let them = said
+        said = []
+        hand(them)
+    }
+
+    /// What it made known, taken to be handed on by the caller.
+    private func taken() -> [Said] {
+        let them = said
+        said = []
+        return them
+    }
+
+    func tell(_ place: RemotePlace) {
         self.place = place
         for remote in remotes.values where remote.paired {
             tell(place, to: remote)
         }
     }
 
-    /// Stop listening, and let every remote go.
-    public func stop() {
+    func stop() {
         listener.cancel()
         for remote in remotes.values {
-            remote.timeout?.cancel()
             remote.connection.cancel()
         }
         remotes = [:]
-        joined(0)
+        said = []
     }
 
     /// One remote's connection: pairing, then paired.
@@ -111,8 +214,6 @@ public final class RemoteServer {
         var keys: Pairing.Keys?
         /// The channel, once paired.
         var sealed: Sealed?
-        /// Given up on a pairing that does not finish.
-        var timeout: Task<Void, Never>?
         var paired: Bool { sealed != nil }
 
         init(_ connection: NWConnection) {
@@ -135,34 +236,32 @@ public final class RemoteServer {
         let joining = Joining(connection)
         remotes[id] = joining
         connection.stateUpdateHandler = { [weak self] state in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                switch state {
-                case .ready:
-                    self.hear(id)
-                case .failed, .cancelled:
-                    self.remotes[id]?.timeout?.cancel()
-                    self.remotes[id] = nil
-                    self.joined(self.count)
-                default:
-                    break
-                }
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.hear(id)
+            case .failed, .cancelled:
+                self.remotes[id] = nil
+                self.say(.joined(self.count))
+            default:
+                break
             }
+            self.flush()
         }
         // A pairing that is not done in ten seconds is let go: one that sends no proof is no try.
-        joining.timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled, let self, let joining = self.remotes[id], !joining.paired else { return }
+        work.asyncAfter(deadline: .now() + 10) { [weak self, weak joining] in
+            guard let self, let joining, self.remotes[id] === joining, !joining.paired else { return }
             joining.connection.cancel()
         }
-        connection.start(queue: .main)
+        connection.start(queue: work)
     }
 
     /// The remote's hello: answer it with this end's, and hear its proof.
     private func hear(_ id: Int) {
         guard let joining = remotes[id] else { return }
         joining.connection.receiveFrame(largest: Remote.small) { [weak self] body in
-            MainActor.assumeIsolated { self?.heard(id, hello: body) }
+            self?.heard(id, hello: body)
+            self?.flush()
         }
     }
 
@@ -187,12 +286,11 @@ public final class RemoteServer {
         joining.keys = keys
         joining.connection.send(frame: answer)
         joining.connection.receiveFrame(largest: Remote.small) { [weak self] body in
-            MainActor.assumeIsolated { self?.heard(id, proof: body) }
+            _ = self?.heard(id, proof: body, telling: true)
         }
     }
 
-    /// A pairing whose hellos have passed with `keys`, as `heard(_:hello:)` leaves one: what a test
-    /// hands proofs to in the order it chooses, which the loopback cannot pin.
+    /// A pairing whose hellos have passed with `keys`, as `heard(_:hello:)` leaves one.
     func pairing(_ connection: NWConnection, keys: Pairing.Keys) -> Int {
         numbered += 1
         let id = numbered
@@ -205,7 +303,15 @@ public final class RemoteServer {
     /// The remotes paired, joined or not yet.
     var paired: Int { remotes.values.filter(\.paired).count }
 
-    func heard(_ id: Int, proof body: Data?) {
+    /// The proof `body` heard on pairing `id`: what it makes known, handed on where
+    /// `telling`, else given back with all that waited to be.
+    func heard(_ id: Int, proof body: Data?, telling: Bool) -> [Said] {
+        defer { if telling { flush() } }
+        proved(id, body)
+        return telling ? [] : taken()
+    }
+
+    private func proved(_ id: Int, _ body: Data?) {
         guard let joining = remotes[id], let keys = joining.keys else { return }
         guard let body, let proof = try? JSONDecoder().decode(Pairing.Proof.self, from: body) else {
             joining.connection.cancel()
@@ -222,21 +328,21 @@ public final class RemoteServer {
         }
         joining.connection.send(frame: own)
         joining.sealed = Sealed(keys: keys, side: .presenter)
-        joining.timeout?.cancel()
         joining.keys = nil
-        // A join leaves the wrong codes counted, and the waits as long: they are counted since the
-        // code was made, and the waits since the server began, so a join, or a connection made to
-        // join and dropped, buys no more tries at the code and no shorter wait after it is made
-        // anew (lift-up SEC-5).
-        joined(count)
+        // A join leaves the wrong codes counted, and the waits as long: they are counted since
+        // the code was made, and the waits since the server began, so a join, or a connection
+        // made to join and dropped, buys no more tries at the code and no shorter wait after it
+        // is made anew (lift-up SEC-5).
+        say(.joined(count))
         if let place { tell(place, to: joining) }
         hearCommands(id)
     }
 
     /// A wrong code: the remote is let go, and after `Remote.tries` the code is made anew, those
-    /// pairing let go, and no remote pairs for a while, longer each time. Each let go is dropped
-    /// with its keys at once, not when its connection says it is cancelled: a proof already on its
-    /// way, its keys made under the old code, then finds nothing, is no try, and never pairs.
+    /// pairing let go, and no remote pairs for a while, longer each time. Each let go is
+    /// dropped with its keys at once, not when its connection says it is cancelled: a proof
+    /// already on its way, its keys made under the old code, then finds nothing, is no try,
+    /// and never pairs.
     private func wrongly(_ joining: Joining) {
         joining.keys = nil
         joining.connection.cancel()
@@ -248,11 +354,11 @@ public final class RemoteServer {
             cooling = .now + .seconds(waited)
             for (id, remote) in remotes where !remote.paired {
                 remote.keys = nil
-                remote.timeout?.cancel()
                 remotes[id] = nil
                 remote.connection.cancel()
             }
-            // The new code's point, worked out now rather than as a remote joins: every code has one.
+            // The new code's point, worked out now rather than as a remote joins: every code
+            // has one.
             var next = Remote.code()
             var made = try? Pairing.base(next)
             while made == nil {
@@ -261,27 +367,26 @@ public final class RemoteServer {
             }
             code = next
             if let made { base = made }
-            recoded(code)
+            say(.recoded(code))
         }
-        tried(wrong)
+        say(.tried(wrong))
     }
 
     /// Each command the remote sends, sealed, in turn; let go at the first that is not.
     private func hearCommands(_ id: Int) {
         guard let joining = remotes[id] else { return }
         joining.connection.receiveFrame(largest: Remote.small) { [weak self] frame in
-            MainActor.assumeIsolated {
-                guard let self, let joining = self.remotes[id] else { return }
-                guard let frame, let sealed = joining.sealed, let body = try? sealed.open(frame),
-                    let message = try? JSONDecoder().decode(RemoteMessage.self, from: body)
-                else {
-                    joining.connection.cancel()
-                    return
-                }
-                if let command = message.command { self.command(command) }
-                if let number = message.slide, number > 0 { self.slide(number) }
-                self.hearCommands(id)
+            guard let self, let joining = self.remotes[id] else { return }
+            guard let frame, let sealed = joining.sealed, let body = try? sealed.open(frame),
+                let message = try? JSONDecoder().decode(RemoteMessage.self, from: body)
+            else {
+                joining.connection.cancel()
+                return
             }
+            if let command = message.command { self.say(.command(command)) }
+            if let number = message.slide, number > 0 { self.say(.slide(number)) }
+            self.flush()
+            self.hearCommands(id)
         }
     }
 

@@ -121,6 +121,28 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     server.stop()
 }
 
+/// A remote joins while the main actor is busy, as a test run's or a presenter's laying a slide out
+/// keeps it: the pairing is worked on the remote's and the presenter's own queues, so held here
+/// for longer than the remote's patience by work that does not let go, the main actor finds it
+/// joined once it is free, and the presenter counting it. Where the pairing waited on the main
+/// actor, its patience ran out first, and the remote was lost.
+@MainActor @Test func aRemoteJoinsWhileTheMainActorIsBusy() async throws {
+    let (server, heard) = try await presenter("48210937")
+    let port = try #require(server.port)
+    let remote = RemoteClient(here(port), code: "48210937", seconds: 2)
+    // Work that holds the main actor past the remote's patience, letting nothing else run on it.
+    let held = Date().addingTimeInterval(3)
+    var spun = 0
+    while Date() < held { spun &+= 1 }
+    #expect(spun > 0)
+    #expect(await waited(2) { remote.status == .joined }, "it joined while the main actor was held: \(remote.status)")
+    #expect(await waited(2) { heard.joined == 1 }, "and the presenter counts it")
+    remote.send(.on)
+    #expect(await waited { heard.asked == [.on] }, "the presenter hears what it asks")
+    remote.leave()
+    server.stop()
+}
+
 /// The remote sees what the room sees (lift-up FUNC-5): a black or white screen, the end of the
 /// show, and the presenter's timer, paused where it is; and it asks for them, and for a slide by
 /// its number, as the presenter's keys do.
