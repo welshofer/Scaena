@@ -1729,7 +1729,8 @@ struct CanvasSelection: View {
 
     #if DEBUG
     /// The main actor held for `-busyPress MS` milliseconds as a press begins, where a UI test
-    /// launches the app so, as a loaded runner holds it once a deck opens (lift-up 20261110).
+    /// launches the app so, as a loaded runner holds it once a deck opens (lift-up 20261110). Debug
+    /// builds only, as `-softwareKeyboard` is: a release build reads no flag.
     private static func busy() {
         let ms = UserDefaults.standard.integer(forKey: "busyPress")
         if ms > 0 { Thread.sleep(forTimeInterval: Double(ms) / 1000) }
