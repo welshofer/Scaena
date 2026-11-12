@@ -77,6 +77,10 @@ pub struct Change {
 pub struct Figured {
     pub what: String,
     pub why: String,
+    /// What let it go: none for words that write the slide's figures otherwise, as every record
+    /// before this reads; `layout`, a layout the slide may not take (W1 dogfood 12).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 impl Change {
@@ -260,7 +264,7 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
             }
             if !crate::same_figures(was, &now) {
                 let what = format!("the {field} \u{201c}{now}\u{201d}");
-                figured.push(Figured { what, why: crate::unlike_figures(was, &now) });
+                figured.push(Figured { what, why: crate::unlike_figures(was, &now), by: None });
                 return None;
             }
             Some(now)
@@ -268,7 +272,22 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
         let title = words("title", "title", &s.title, title_longest(&s.title, s.room));
         let subtitle =
             words("subtitle", "subtitle", &s.subtitle, longest(&s.subtitle)).filter(|_| !s.subtitle.is_empty());
-        let layout = Some(said("layout")).filter(|l| s.options.iter().any(|o| &o.id == l));
+        let asked_layout = said("layout");
+        let layout = Some(asked_layout.clone()).filter(|l| s.options.iter().any(|o| &o.id == l));
+        // A layout the slide was not offered is let go, and said (W1 dogfood 12): a numbered list
+        // for points the builder found have no order would say they have one.
+        if layout.is_none() && !asked_layout.is_empty() && asked_layout != s.layout.id {
+            let (what, why) = match asked_layout.as_str() {
+                "numbered" if s.layout.id == "bullets" => (
+                    "a numbered list".to_string(),
+                    "its points have no order, which numbers would say they have".to_string(),
+                ),
+                other => {
+                    (format!("the layout \u{201c}{other}\u{201d}"), "it is not one the slide may take".to_string())
+                }
+            };
+            figured.push(Figured { what, why, by: Some("layout".into()) });
+        }
         let bullets = asked
             .get("bullets")
             .and_then(Value::as_array)
@@ -287,7 +306,7 @@ pub fn read(text: &str, seen: &[Seen]) -> Result<Vec<Change>, String> {
                 };
                 let quoted: Vec<String> = all.iter().map(|b| format!("\u{201c}{b}\u{201d}")).collect();
                 let what = format!("the points {}", quoted.join(", "));
-                figured.push(Figured { what, why: crate::unlike_figures(was, now) });
+                figured.push(Figured { what, why: crate::unlike_figures(was, now), by: None });
                 false
             });
         let change = Change { slide: number, layout, title, subtitle, bullets, why: said("why"), figured };
@@ -462,12 +481,39 @@ mod tests {
             {"slide": 1, "layout": "bullets", "title": "", "subtitle": "", "bullets": [], "why": "Not one of its layouts."},
             {"slide": 9, "layout": "", "title": "No such slide", "subtitle": "", "bullets": [], "why": ""}
         ]}"#;
-        let read = read(answer, &seen()).unwrap();
+        let all = read(answer, &seen()).unwrap();
+        let read: Vec<&Change> = all.iter().filter(|c| c.changes()).collect();
         assert_eq!(read.len(), 1, "{read:#?}");
+        // A layout the slide was not offered is let go, and said (W1 dogfood 12).
+        let let_go: Vec<(usize, &str, Option<&str>)> = (all.iter())
+            .flat_map(|c| c.figured.iter().map(move |f| (c.slide, f.what.as_str(), f.by.as_deref())))
+            .collect();
+        assert_eq!(let_go, [(1, "the layout \u{201c}bullets\u{201d}", Some("layout"))]);
         assert_eq!(read[0].layout.as_deref(), Some("numbered-cards"));
         assert_eq!(read[0].title.as_deref(), Some("The Path to Net Zero"));
         assert_eq!((read[0].subtitle.as_ref(), read[0].bullets.as_ref()), (None, None));
         assert!(super::read("no json", &seen()).is_err());
+    }
+
+    /// A numbered list asked for points drawn as bullets, which were not offered one since they
+    /// have no order, is let go and said why (W1 dogfood 12).
+    #[test]
+    fn a_numbered_list_for_points_with_no_order_is_let_go_and_said() {
+        let mut s = seen();
+        s[1].layout = Choice { id: "bullets".into(), name: "Bullets".into(), draws: "points".into() };
+        s[1].options.retain(|o| o.id != "numbered");
+        let answer = r#"{"slides": [{"slide": 2, "layout": "numbered", "title": "", "subtitle": "", "bullets": [], "why": "Three alike in a row."}]}"#;
+        let read = read(answer, &s).unwrap();
+        assert_eq!(read.len(), 1, "{read:#?}");
+        assert!(!read[0].changes(), "{read:#?}");
+        assert_eq!(
+            read[0].figured,
+            [Figured {
+                what: "a numbered list".into(),
+                why: "its points have no order, which numbers would say they have".into(),
+                by: Some("layout".into()),
+            }]
+        );
     }
 
     /// A title that writes the slide's figures otherwise is let go and said, beside what else the
@@ -486,7 +532,8 @@ mod tests {
             dropped[0].figured,
             vec![Figured {
                 what: "the title \u{201c}Sunday visits\u{201d}".into(),
-                why: "it drops 2,475, which the slide wrote".into()
+                why: "it drops 2,475, which the slide wrote".into(),
+                by: None
             }]
         );
         assert!(!dropped[0].changes());

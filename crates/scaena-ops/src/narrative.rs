@@ -1638,7 +1638,13 @@ fn others(
             });
         }
     }
-    wanted.extend(if ordered { ["numbered", "bullets"] } else { ["bullets", "numbered"] });
+    // A numbered list says its points have an order: offered only where they do, or where the
+    // writer asked for one, never for points the builder found have none (W1 dogfood 12).
+    if ordered || identity == "numbered" {
+        wanted.extend(["numbered", "bullets"]);
+    } else {
+        wanted.push("bullets");
+    }
     let mut out: Vec<String> = Vec::new();
     for l in wanted {
         if l != own && theme.layouts.contains_key(l) && holds(theme, l, n) && !out.iter().any(|o| o == l) {
@@ -1908,12 +1914,11 @@ pub fn figures_let_go(changes: &mut Vec<Change>) -> Vec<Refused> {
     let mut said = Vec::new();
     for change in changes.iter_mut() {
         let slide = change.slide;
-        let by = || Some("figures".to_string());
         said.extend(std::mem::take(&mut change.figured).into_iter().map(|f| Refused {
             slide,
             what: f.what,
             why: f.why,
-            by: by(),
+            by: Some(f.by.unwrap_or_else(|| "figures".to_string())),
         }));
     }
     changes.retain(Change::changes);
@@ -10982,6 +10987,7 @@ mod tests {
             figured: vec![scaena_narrato::look::Figured {
                 what: what.into(),
                 why: "it drops 12, which the slide wrote".into(),
+                by: None,
             }],
             ..Change::default()
         };
@@ -12379,6 +12385,40 @@ mod tests {
             assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
         }
         assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2\n</data>"));
+    }
+
+    /// The look offers a numbered list only for points in an order, or that their writer
+    /// numbered: never for points the builder set as bullets for having none (W1 dogfood 12).
+    #[test]
+    fn the_look_numbers_no_points_that_have_no_order() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = serde_json::json!({
+            "executiveSummary": "Compost pays.",
+            "slides": [
+                { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Residents want it", "subtitle": "", "layoutSuggestion": "Bullet List", "keyBullets": [
+                    "72% of surveyed households would separate scraps",
+                    "41% already compost at home or at a drop-off",
+                    "Top worry: smell and pests, named by 38%"] },
+                { "slideTitle": "How it works", "subtitle": "", "layoutSuggestion": "Numbered", "keyBullets": [
+                    "Each home gets a green cart", "Scraps go in loose or in paper bags",
+                    "Carts are picked up weekly with trash"] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let narrative = narrative(&written.executive_summary, written.slides);
+        let pictures = Pictures::new();
+        let layouts = deck(&narrative, &theme, &pictures).unwrap().layouts;
+        let seen = seeing(&narrative, &theme, &pictures, &layouts);
+        let offered = |k: usize| seen[k].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(seen[1].layout.id, "bullets");
+        assert!(!offered(1).contains(&"numbered"), "{:?}", offered(1));
+        // Points their writer numbered keep the list that numbers them, and may take the one
+        // that does not.
+        assert_eq!(seen[2].layout.id, "numbered");
+        assert!(offered(2).contains(&"bullets"), "{:?}", offered(2));
     }
 
     #[test]
