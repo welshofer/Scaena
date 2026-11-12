@@ -426,4 +426,34 @@ final class TouchTests: XCTestCase {
             wait(5) { abs(canvas.frame.minY - before.minY) < 1 && abs(canvas.frame.height - before.height) < 1 },
             "the canvas does not stand where it stood: \(before) → \(canvas.frame)")
     }
+
+    /// A long press held while the main actor is too busy to ask for the menu as it is held still
+    /// offers it, as it ends: launched with `-busyPress 1000`, the app holds the main actor a
+    /// second as each press begins, as a loaded runner held it once B1 opened on #1099's and
+    /// #1125's runs, where the menu waited past the 1.2 s press and the press only selected
+    /// (lift-up 20261110).
+    @MainActor
+    func testALongPressHeldWhileTheAppIsBusyOffersTheMenu() throws {
+        let app = launched(arguments: ["-busyPress", "1000"])
+        try openB1(in: app)
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'canvas'")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "no canvas: \(app.debugDescription)")
+        let title = canvas.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH 'Scaena'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "no title on the canvas: \(app.debugDescription)")
+        settle()
+        let asks = app.descendants(matching: .any).matching(identifier: "canvas-menu-asks").firstMatch
+        XCTAssertTrue(asks.waitForExistence(timeout: 5), "the canvas shows no count of its long presses")
+        let before = menuAsks(in: app)
+        title.press(forDuration: 1.2)
+        guard wait(5, { self.menuAsks(in: app) > before }) else {
+            let last = app.descendants(matching: .any).matching(identifier: "canvas-last-press").firstMatch
+            keep(app, as: "busy-no-menu")
+            let why = last.value as? String ?? "nothing"
+            throw Unseen(description: "a press held while the app was busy asked for no menu: \(why)")
+        }
+        let copy = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Copy'")).firstMatch
+        XCTAssertTrue(paged(to: copy, in: app), "the menu asked shows no Copy: \(app.debugDescription)")
+        keep(app, as: "busy-menu")
+    }
 }

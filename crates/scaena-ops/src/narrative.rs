@@ -1550,8 +1550,12 @@ pub fn rooms(write: &Write) -> Vec<Option<usize>> {
             .map(|states| {
                 let state = &deck.states[states[0]].id;
                 // The place the slide's title is set in, by the slot that takes it.
+                // A number's claim is what the number means, not the slide's title, which its
+                // layout draws nowhere: no room is told for it (W1 dogfood 12).
+                let numbered = deck.nodes.contains_key(&format!("{state}-number"));
                 let id = ["header", "title", "headline", "statement", "claim"]
                     .iter()
+                    .filter(|slot| !(numbered && **slot == "claim"))
                     .map(|slot| format!("{state}-{slot}"))
                     .find(|id| deck.nodes.contains_key(id))?;
                 let req = scaena_engine::FrameRequest {
@@ -2005,6 +2009,28 @@ pub fn adopt(
     made.fallback = before.fallback;
     made.pictures = before.pictures;
     made.unpictured = before.unpictured;
+    // A title the slide's layout draws nowhere is no change a person would see (a big number
+    // shows its figure and what it means): not said as kept (W1 dogfood 12).
+    let mut kept = kept;
+    let slides = write.deck.slides();
+    for change in &mut kept {
+        let Some(title) = change.title.as_deref().map(letters) else { continue };
+        let state = (change.slide.checked_sub(1).and_then(|i| slides.get(i)))
+            .and_then(|states| states.first())
+            .map(|k| write.deck.states[*k].id.clone());
+        let drawn = state.is_some_and(|state| {
+            let ours = format!("{state}-");
+            (write.deck.nodes.iter()).any(|(id, n)| {
+                id.starts_with(&ours)
+                    && letters(&said_by(&json!({ "text": n.props.get("text"), "runs": n.props.get("runs") })))
+                        .contains(&title)
+            })
+        });
+        if !drawn {
+            change.title = None;
+        }
+    }
+    kept.retain(Change::changes);
     made.looked = kept;
     if !worse.is_empty() {
         made.unlooked = Some(as_made(worse));
@@ -7796,7 +7822,10 @@ fn chart_node(
     if let Some(t) = y_title {
         y["title"] = json!(t);
     }
-    if kind == "bar" {
+    // Bars from zero, where every one stands above it; a deficit's run below it, the axis taking
+    // them in (W1 dogfood 12).
+    let below = chart.series.iter().flat_map(|s| s.values.iter().flatten()).any(|v| *v < 0.0);
+    if kind == "bar" && !below {
         y["domain"] = json!([0, null]);
     }
     let mut node = json!({
@@ -11146,6 +11175,47 @@ mod tests {
     /// What the look's reading let go for writing a slide's figures otherwise is kept beside
     /// what else is refused, in the report and in `meta.narrative.refused`, and said as no
     /// slide lint found worse (W1 dogfood 9); what else the answer asks stands.
+    /// A big number draws its figure and what it means, never the slide's title: the look is told
+    /// no room for that title, and a title it rewrites there is not said as kept, as no one would
+    /// see it (W1 dogfood 12).
+    #[test]
+    fn a_title_its_layout_draws_nowhere_is_given_no_room_and_no_credit() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = serde_json::json!({
+            "executiveSummary": "Compost pays.",
+            "slides": [
+                { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Payback", "subtitle": "", "layoutSuggestion": "Big Number",
+                  "keyBullets": ["3 years", "until avoided fees repay the carts"] },
+                { "slideTitle": "Risks", "subtitle": "", "layoutSuggestion": "Bullet List", "keyBullets": [
+                    "Contamination above 5%: cart tags and a second notice",
+                    "Low sign-up: door-to-door visits on low blocks"] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let write = write.unwrap();
+        assert_eq!(made.layouts[1], "big-number");
+        let rooms = rooms(&write);
+        assert_eq!(rooms[1], None, "{rooms:?}");
+        assert!(rooms[2].is_some(), "a headline's room is told: {rooms:?}");
+        let title = |slide: usize, title: &str| Change {
+            slide,
+            title: Some(title.into()),
+            why: "A topic.".into(),
+            ..Change::default()
+        };
+        let changes = vec![title(2, "The carts pay for themselves"), title(3, "Each risk has a plan")];
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, _) = looked(shown, changes, (made, write), Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        let said: Vec<(usize, Option<&str>)> = made.looked.iter().map(|c| (c.slide, c.title.as_deref())).collect();
+        assert_eq!(said, [(3, Some("Each risk has a plan"))]);
+    }
+
     #[test]
     fn a_look_that_writes_a_figure_otherwise_is_said_let_go() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -11709,6 +11779,10 @@ mod tests {
         // Several series with no subtitle keep their unit alone: it is all that says the scale.
         let several = json!([{ "name": "Asked", "values": [1, 2, 3] }, { "name": "Granted", "values": [1, 2, 2] }]);
         assert_eq!(budget(several)["y"]["title"], "$");
+        // Bars from zero where every one stands above it; a deficit's run below it, the axis not
+        // held at zero (W1 dogfood 12).
+        assert_eq!(budget(json!([{ "values": [120, 140, 180] }]))["y"]["domain"], json!([0, null]));
+        assert!(budget(json!([{ "values": [2.4, -0.4, -1.3] }]))["y"].get("domain").is_none());
     }
 
     /// A series is named as a whole word: "US" is not in "business", nor "EU" in "neutral".

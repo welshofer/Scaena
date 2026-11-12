@@ -1065,8 +1065,8 @@ pub struct StateStart {
     /// each by its name; `deck_read` with `theme` gives them all, in its `layouts`). Without it, a blank slide.
     #[serde(default)]
     pub layout: Option<String>,
-    /// The one sentence the slide tells: it starts a beat of its own for it, just after the beat
-    /// of the state it follows. Without it, the slide joins that beat.
+    /// The one sentence the slide tells: its headline says it, and it starts a beat of its own for
+    /// it, just after the beat of the state it follows. Without it, the slide joins that beat.
     #[serde(default)]
     pub claim: Option<String>,
     /// The new state's id, and its nodes' after it (`pricing-header`). Without it, the layout's

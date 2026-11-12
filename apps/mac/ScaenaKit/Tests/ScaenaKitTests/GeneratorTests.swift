@@ -694,6 +694,50 @@ private actor Once {
     #expect(report.unbound == [Generated.Unbound(slide: 3, source: "visits", why: "w")])
 }
 
+/// A layout asked and not taken, and a bullet a chart's layout sets nowhere, are said in the
+/// window's lines as the browser's dialog and the CLI say them (W1's dogfood 10); the report's
+/// `fell` and `unset` decode.
+@Test func aLayoutNotTakenAndABulletLeftOffAreSaid() throws {
+    #expect(
+        GeneratingStep.fell(slide: 4, asked: "Timeline", why: "it holds three dates").words
+            == "Slide 4 could not be set as \u{201c}Timeline\u{201d} asks: it holds three dates")
+    #expect(
+        GeneratingStep.unset(slide: 6, words: "Up 12% since March").words
+            == "Slide 6 shows its chart without \u{201c}Up 12% since March\u{201d}: its layout has no place for it")
+    let json = #"""
+        {"created":{"created":true,"errors":0},"arc":"Problem-Solution","layouts":["title"],
+         "fell":[{"slide":4,"asked":"Timeline","layout":"bullets","why":"w"}],
+         "unset":[{"slide":6,"words":"Up 12%","layout":"line-chart"}]}
+        """#
+    let report = try JSONDecoder().decode(Generated.self, from: Data(json.utf8))
+    #expect(report.fell == [Generated.Fell(slide: 4, asked: "Timeline", layout: "bullets", why: "w")])
+    #expect(report.unset == [Generated.Unset(slide: 6, words: "Up 12%", layout: "line-chart")])
+    let none = #"{"created":{"created":true,"errors":0},"arc":"Problem-Solution","layouts":["title"]}"#
+    let quiet = try JSONDecoder().decode(Generated.self, from: Data(none.utf8))
+    #expect(quiet.fell == nil && quiet.unset == nil, "a report that says neither still decodes")
+}
+
+/// Minutes given and no length chosen ask the length the minutes take, as the browser's Minutes
+/// and `scaena generate --minutes` do (W1's dogfood 10); a length the person chose stays theirs,
+/// and the minutes go to the brief either way.
+@Test func theMinutesAskTheLengthUnlessOneWasChosen() throws {
+    #expect(Brief.minutes(typed: "20") == 20)
+    #expect(Brief.minutes(typed: " 12.6 ") == 13)
+    #expect(Brief.minutes(typed: "900") == 600, "held to 600")
+    #expect(Brief.minutes(typed: "") == nil)
+    #expect(Brief.minutes(typed: "0") == nil)
+    #expect(Brief.minutes(typed: "soon") == nil)
+    #expect(Brief.length(shown: "10-20", chosen: false, minutes: 20) == nil, "the default gives way")
+    #expect(Brief.length(shown: "10-20", chosen: true, minutes: 20) == "10-20", "a chosen length stays")
+    #expect(Brief.length(shown: "10-20", chosen: false, minutes: nil) == "10-20")
+    let sent = try JSONSerialization.jsonObject(
+        with: JSONEncoder().encode(Brief(topic: "Why the river floods", length: nil, minutes: 20))) as? [String: Any]
+    #expect(sent?["minutes"] as? Int == 20)
+    #expect(sent?["length"] == nil, "no length sent, so the minutes ask theirs")
+    let unset = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Brief(topic: "t"))) as? [String: Any]
+    #expect(unset?["minutes"] == nil, "a brief with no minutes sends none")
+}
+
 /// A deck made, or not, is said by a notification while the person is in another app, its title
 /// naming the topic short enough to read (lift-up 20261110 ATTR-4).
 @Test func aDeckMadeOrNotIsSaidByItsTopic() {
