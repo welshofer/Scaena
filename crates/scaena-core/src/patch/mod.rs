@@ -520,7 +520,8 @@ pub enum SemanticOp {
     /// joined to that slide's place for words, or put in its notes where it has none, its notes
     /// after that slide's, its beat's claim in that beat's notes, and its states taken out as
     /// `remove_slide` takes them. The operations make it, laying the slide out to find words that
-    /// would run past their place (`scaena_ops::states::folding`), so it stands alone in its
+    /// would run past their place, which go into the notes instead (`scaena_ops::states::folding`),
+    /// so it stands alone in its
     /// patch; this crate alone refuses it.
     FoldSlide {
         #[schemars(with = "Id")]

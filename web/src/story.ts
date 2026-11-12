@@ -19,7 +19,7 @@
 //   change.
 // - It is read again whenever the deck changes while the tab is shown, the last answer winning.
 import { observing } from "./life";
-import type { CiteChoice, Finding, FoldsTo, Health, HealthFinding } from "./protocol";
+import type { CiteChoice, Finding, Folded, FoldsTo, Health, HealthFinding } from "./protocol";
 import { foldLabel } from "./protocol";
 import type { Stage } from "./stage";
 
@@ -397,6 +397,37 @@ function cappedSaid(h: Health): string {
 
 /** The panel in `into`, over `stage`. */
 export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor) {
+  // A fold's button says beforehand what the fold does, as the fold itself lays it out: into the
+  // slide's notes where its words would run past their place, or why it cannot be (W1's dogfood
+  // 16). The label from the deck's slots stands until the fold answers.
+  // Each fold's dry run asked once for the deck as it stands: the Story reads again once edits
+  // stop, and a dry run lays the deck out, so a row read again asks nothing anew (W1's review).
+  let asked: { source: string; folds: Map<string, Promise<Folded>> } = { source: "", folds: new Map() };
+  const dryRun = (state: string, into?: string): Promise<Folded> => {
+    const source = editor.source();
+    if (asked.source !== source) asked = { source, folds: new Map() };
+    const key = `${state}\u0000${into ?? ""}`;
+    let fold = asked.folds.get(key);
+    if (!fold) {
+      fold = stage.folding(source, state, into);
+      asked.folds.set(key, fold);
+    }
+    return fold;
+  };
+  const foldSaid = (button: HTMLButtonElement, before: string, state: string, into?: string) => {
+    void dryRun(state, into).then(
+      (folded) => {
+        if (!button.isConnected) return;
+        if (folded.refused) {
+          button.disabled = true;
+          button.title = folded.refused;
+        } else {
+          button.textContent = foldLabel(before, folded.to);
+        }
+      },
+      () => {},
+    );
+  };
   const score = into.querySelector<HTMLElement>("[data-score]")!;
   // A slide the cap names shows it (W1's dogfood 5): the score's line is drawn anew as it changes,
   // so its buttons are heard here.
@@ -671,6 +702,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = foldLabel(`slide ${at}`, undefined);
       button.addEventListener("click", () => void editor.fold(state, into));
       actions.append(button);
+      foldSaid(button, `slide ${at}`, state, into);
     }
     // A slide that says again what the one before said, or adds least to it, offers to fold into it,
     // as its to-do says (editor dogfood 6).
@@ -681,6 +713,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.textContent = foldLabel(`slide ${slide - 1}`, editor.foldsTo(state));
       button.addEventListener("click", () => void editor.fold(state));
       actions.append(button);
+      foldSaid(button, `slide ${slide - 1}`, state);
     }
     // A slide lint finds broken offers what its marks on the canvas offer: each fix lint has, and
     // the slide shown with its first problem's mark open, where the fix or the words are

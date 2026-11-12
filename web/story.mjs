@@ -43,6 +43,8 @@
 //   by its topic, types in the text that heads the slide, its words selected (editor dogfood 6).
 //   There, the slide that says again what the one before said offers "Fold into slide N's notes",
 //   that slide a big number with no place for words, which folds it into them, said so.
+//   On B1, slide 4 retitled to say slide 3 again offers "Fold into slide 3's notes", its words
+//   too many for slide 3's place, by the fold's own dry run, and folds there, said so (W1 dogfood 16).
 // - What an edit answered is said: the plan set for its place answers slide 2's two findings,
 //   said after the edit in the status and beside the score (editor dogfood 6); and on B1, slide
 //   4's words cut answer its finding read at the slide's last step.
@@ -882,6 +884,39 @@ try {
     await page.waitForFunction(() => document.querySelector("#story [data-answered]")?.textContent, null, { timeout: 10000 }).catch(() => {});
     const said = await page.evaluate(() => `${document.querySelector("#status").textContent} | ${document.querySelector("#story [data-answered]")?.textContent ?? ""}`);
     check(said.includes("slide 4's points"), `and the edit is said to answer it, on its built slide: ${said}`);
+    await page.close();
+  })();
+
+  // A fold whose words would run past the place they join goes to that slide's notes instead, and
+  // its button says so before it is pressed, by the fold's own dry run (W1 dogfood 16): B1's slide
+  // 4 retitled to say slide 3 again, its 97 words too many for slide 3's body.
+  await (async () => {
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&bundle=/tests/bench/b1.scaena`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    const source = await page.evaluate(() => window.scaena.source());
+    const again = source
+      .replace('beat belief-2 "Identity is the primitive."', 'beat belief-2 "The slide was a mistake we inherited."')
+      .replace('headline "Identity is the primitive."', 'headline "The slide was a mistake we inherited."');
+    check(again.split("a mistake we inherited.\"").length === 3, "slide 4's claim and headline are found in the source");
+    await page.evaluate((s) => window.scaena.type(s), again);
+    await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "story" && f.slide === 4), null, { timeout: 120000 }).catch(() => {});
+    await page.click("#story [data-more] summary").catch(() => {});
+    const foldIt = page.locator('#story [data-findings] li[data-slide="4"] button[data-fold]').first();
+    await page
+      .waitForFunction(() => document.querySelector('#story [data-findings] li[data-slide="4"] button[data-fold]')?.textContent?.endsWith("'s notes"), null, { timeout: 30000 })
+      .catch(() => {});
+    check(
+      (await foldIt.count()) === 1 && (await foldIt.textContent()) === "Fold into slide 3's notes",
+      `its row offers the fold into slide 3's notes, where its words would run past slide 3's place: ${await foldIt.textContent().catch(() => "")}`,
+    );
+    const was = await page.evaluate(() => window.scaena.source());
+    await foldIt.click().catch((e) => failures.push(`no fold to press: ${e.message}`));
+    await page.waitForFunction((s) => window.scaena.source() !== s, was, { timeout: 30000 }).catch(() => {});
+    const status = await page.locator("#status").textContent();
+    check(status.startsWith("Folded slide 4 into slide 3's notes"), `pressed, it folds, said so, never refused: ${status}`);
     await page.close();
   })();
 
