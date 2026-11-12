@@ -4,7 +4,7 @@
 // asks to the assistant, its Set and Edit fields, and by hand; rehearsed against the brief's
 // minutes; presented with the presenter view; and exported as a PDF with notes.
 // Run from the repository's root, after `just web`:
-//   node docs/examples/dogfood-17/walk.mjs [OUTDIR] [STAGES]   STAGES: make,story,rehearse,present,export
+//   node docs/examples/dogfood-17/walk.mjs [OUTDIR] [STAGES]   STAGES: make,story,rehearse,present,export,bundle
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -337,6 +337,14 @@ try {
   for (const l of said(h)) note("  ", l);
   await writeFile(`${out}/01-story.txt`, await page.evaluate(() => document.querySelector("#story")?.innerText ?? ""));
   await writeFile(`${out}/01-health.json`, JSON.stringify(h, null, 1));
+  /** The bundle as the editor has it, downloaded as a `.scaena` into OUTDIR, named `name`. */
+  const downloadBundle = async (name) => {
+    const [download] = await Promise.all([page.waitForEvent("download", { timeout: 180000 }), page.click("#file-open").then(() => page.click("#download"))]);
+    await writeFile(`${out}/${name}.scaena`, await readFile(await download.path()));
+    note("downloaded:", `${name}.scaena`, download.suggestedFilename());
+  };
+  if (stages.has("bundle")) await downloadBundle("made");
+
   // 2. The Story's findings worked down, as a person would: a fix where one is offered, a field
   //    typed by hand where the row offers one, else the assistant asked.
   if (stages.has("story")) {
@@ -417,6 +425,7 @@ try {
     await writeFile(`${out}/02-deck.scn`, await page.evaluate(() => window.scaena.source()));
     await writeFile(`${out}/02-story.txt`, await page.evaluate(() => document.querySelector("#story")?.innerText ?? ""));
     await page.screenshot({ path: `${out}/02-story.png` });
+    if (stages.has("bundle")) await downloadBundle("worked");
   }
   // 3. Rehearsed from the first slide, a few seconds a state, against the brief's 12 minutes.
   if (stages.has("rehearse")) {

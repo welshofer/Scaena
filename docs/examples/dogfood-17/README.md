@@ -34,6 +34,22 @@ The talk is "Riverton's street trees: we are losing shade faster than we plant i
 4. **Presented:** Play, then the presenter view from the player, on through five states.
 5. **Exported:** Export…, PDF, Include the presenter's notes.
 
+## The deck
+
+`bundle/` is the bundle as the editor downloaded it after the walk's run, its fonts subset by the save:
+
+- `deck.json`: the deck as made, before the Story was worked.
+- `deck.worked.json`: the deck after the Story was worked.
+- `themes/dusk.theme.json`: Dusk as the bundle holds it.
+- `data/canopy.csv` and `fonts/`.
+
+`scaena health docs/examples/dogfood-17/bundle` reads the deck as made: 84, with eight findings. With `deck.worked.json` in its place it reads 86, with two. The two decks differ in six values:
+
+- slide 5's and slide 7's planned intensity (0.5 to 0.73, and 0.5 to 0.75);
+- slide 6's notes, a bridge before them;
+- slide 3's and slide 4's headlines;
+- the close's statement.
+
 ## Findings, worst first
 
 1. **Working the Story barely moves the score.** Nine findings were worked, and the score went from 84 to 86.
