@@ -240,6 +240,46 @@ fn w315_passes_bars_below_zero_and_finds_values_past_a_bound() {
     assert_eq!(w315["measure"]["off"], true);
 }
 
+/// A chart's contrast finding says how many of its labels of the kind fail, beside the worst
+/// (#1145's follow-up): its four category labels in the theme's `line`, on the dark surface, are one
+/// finding naming the worst and counting four; one label alone says no count.
+#[test]
+fn a_charts_contrast_finding_counts_the_labels_that_fail() {
+    let chart = serde_json::json!({ "c": {
+        "type": "chart", "kind": "bar", "data": "@sales", "x": { "field": "q" }, "y": { "field": "v" },
+        "alt": "Sales by quarter.", "at": { "in": "main" }
+    }});
+    let dir = bundle("chart-count", &deck(sales(), chart), |t| {
+        t["type"]["roles"]["chart"]["color"] = serde_json::json!("line");
+    });
+    let (_, found) = lint(&dir);
+    let ticks =
+        contrast(&found).into_iter().find(|f| f["measure"]["part"] == "category label").expect("the ticks fail");
+    assert_eq!(ticks["measure"]["failing"], 4, "{ticks:#}");
+    let said = ticks["message"].as_str().unwrap();
+    assert!(said.ends_with("; 4 of its category labels fail"), "{said}");
+    assert!(said.contains(&format!("`{}`", ticks["measure"]["label"].as_str().unwrap())), "the worst is named: {said}");
+    // One label of its kind failing says no count, as before.
+    let dir = bundle(
+        "chart-count-one",
+        &deck(
+            sales(),
+            serde_json::json!({ "c": {
+                "type": "chart", "kind": "bar", "data": "@sales", "x": { "field": "q" }, "y": { "field": "v" },
+                "annotations": [{ "kind": "rule", "at": { "y": 11 }, "text": "Plan" }],
+                "alt": "Sales by quarter against the plan.", "at": { "in": "main" }
+            }}),
+        ),
+        |t| {
+            t["charts"]["annotation"] = serde_json::json!({ "color": "line" });
+        },
+    );
+    let (_, found) = lint(&dir);
+    let note = contrast(&found).into_iter().find(|f| f["measure"]["part"] == "annotation").expect("the note fails");
+    assert_eq!(note["measure"]["failing"], 1);
+    assert!(!note["message"].as_str().unwrap().contains(" of its "), "{note:#}");
+}
+
 /// W204's fix holds a code text's lines in focus to the lines it has (PLAN 2.140): lines 2 to 6 of
 /// four become 2 to 4, written where the focus lives.
 #[test]
