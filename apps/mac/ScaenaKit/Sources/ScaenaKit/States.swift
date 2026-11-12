@@ -20,6 +20,14 @@ public struct Folded: Decodable, Sendable {
     public let to: FoldsTo
 }
 
+/// A fold the Story offers into an earlier slide than the one before (R1's #1161): that slide's
+/// first state, what the button is called, and its number, from 1.
+public struct EarlierFold: Equatable, Sendable {
+    public let into: String
+    public let label: String
+    public let slide: Int
+}
+
 /// Where a slide's words go, folded into the slide before it: that slide's place for words, or its
 /// notes where it has none, a big number's or a title's (editor dogfood 6).
 public enum FoldsTo: String, Decodable, Sendable {
@@ -51,8 +59,12 @@ extension ScaenaSession {
     /// The patch that folds the slide `state` is on into the slide before it (editor dogfood 6):
     /// its words joined to that slide's place for words, or its notes where it has none, its notes
     /// after that slide's, its beat's claim in the previous beat's notes; or why it cannot be.
-    public func folding(_ state: String) throws -> Folded {
-        try call("folding", ["state": .string(state)])
+    /// With `into`, a state of an earlier slide, it folds into that slide in place of the one
+    /// before it, the slides between left as they were (R1's #1161).
+    public func folding(_ state: String, into: String? = nil) throws -> Folded {
+        var args: [String: JSONValue] = ["state": .string(state)]
+        if let into { args["into"] = .string(into) }
+        return try call("folding", .object(args))
     }
 
     /// The patch that starts a slide in `layout`, one of the theme's, after the slide of `state`,
@@ -292,6 +304,23 @@ public struct Slide: Identifiable, Equatable, Sendable {
         let slides = Slide.of(slots)
         guard let i = slides.firstIndex(where: { $0.states.contains(state) }), i > 0 else { return nil }
         return FoldsTo.label("Slide \(i)", slots.first { $0.state == state }?.foldsTo)
+    }
+
+    /// The earlier slides `findings`, a slide's row of the Story, offer to fold it into, each once,
+    /// as the browser's row offers them for a slide that says again what that one said (R1's
+    /// #1161): "Fold Into Slide 4". None for a finding whose `into` is on no slide, or on its own
+    /// slide or the one just before it, which the fold into the slide before it offers.
+    public static func earlier(_ findings: [Health.Finding], in slots: [ScaenaSession.Slot]) -> [EarlierFold] {
+        let slides = Slide.of(slots)
+        var folds: [EarlierFold] = []
+        for finding in findings {
+            guard let into = finding.into, !folds.contains(where: { $0.into == into }),
+                let at = slides.firstIndex(where: { $0.states.contains(into) }),
+                let from = slides.firstIndex(where: { $0.states.contains(finding.state) }), at + 1 < from
+            else { continue }
+            folds.append(EarlierFold(into: into, label: FoldsTo.label("Slide \(at + 1)", nil), slide: at + 1))
+        }
+        return folds
     }
 
     /// The slides of `slots`, in the order the timeline plays them.
