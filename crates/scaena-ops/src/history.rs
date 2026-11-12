@@ -794,7 +794,20 @@ pub fn restoring_slide(b: &Bundle, name: &str, slide: &str) -> Result<(Restored,
     let all = listed(&doc);
     let version = named(&all, name)?.clone();
     let (was, held) = then(&doc, &version)?;
-    let (deck, files) = slide_back(&b.deck, &was, &held, slide, version.n)?;
+    slide_restored(b, version, &was, &held, slide)
+}
+
+/// The slide of `was`, version `version`'s deck, that holds `slide` put back into the bundle's
+/// deck with `held`, the files it was drawn from, as [`restoring_slide`] puts it back: what a
+/// client that reads the history itself (the browser's) restores one slide by.
+pub fn slide_restored(
+    b: &Bundle,
+    version: Version,
+    was: &Deck,
+    held: &BTreeMap<String, Vec<u8>>,
+    slide: &str,
+) -> Result<(Restored, Option<Write>), OpsError> {
+    let (deck, files) = slide_back(&b.deck, was, held, slide, version.n)?;
     let said = put_back(&deck, slide);
     let (mut restored, write_it) = restored(b, version, deck, files)?;
     restored.slide = said;
