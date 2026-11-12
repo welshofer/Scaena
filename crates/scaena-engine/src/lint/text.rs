@@ -913,7 +913,7 @@ impl Rule for W312ChartTextSize {
 }
 
 /// `a`, `a and b`, `a, b, and c`.
-fn series(items: &[String]) -> String {
+pub(super) fn series(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [a] => a.clone(),

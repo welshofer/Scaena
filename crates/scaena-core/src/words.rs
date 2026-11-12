@@ -749,6 +749,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W312", "Some of the chart's text is too small to read."),
     ("W313", "The chart is too small to read."),
     ("W314", "A credit here can't be read."),
+    ("W315", "Some of the chart's text is drawn outside it."),
     ("W410", "The picture has no description for people who can't see it."),
     ("W427", "A figure here no longer matches its data."),
     ("W428", "What this shows has gone out of date."),
