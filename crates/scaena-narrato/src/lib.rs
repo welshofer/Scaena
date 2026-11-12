@@ -87,10 +87,33 @@ pub fn same_figures(was: &str, now: &str) -> bool {
     sorted(was) == sorted(now)
 }
 
+/// Whether `now` writes every figure `was` does, each as often, and adds only figures `also`
+/// writes: a slide's title rewritten to state a figure its own words give (W1 dogfood 13).
+pub fn figures_from(was: &str, now: &str, also: &str) -> bool {
+    let mut gained = figures(now);
+    for f in figures(was) {
+        match gained.iter().position(|g| *g == f) {
+            Some(at) => {
+                gained.remove(at);
+            }
+            None => return false,
+        }
+    }
+    let also = figures(also);
+    gained.iter().all(|g| also.contains(g))
+}
+
 /// Why `now` does not write the figures `was` does, in a person's words (W1 dogfood 9): "it
 /// writes 3.4 where the slide wrote 3,400", "it drops 2,475, which the slide wrote", "it adds
 /// 40, which the slide did not write". Each figure as `was` or `now` writes it.
 pub fn unlike_figures(was: &str, now: &str) -> String {
+    unlike_figures_from(was, now, "")
+}
+
+/// Why `now` does not write the figures `was` does, where it may also add any `also` writes
+/// ([`figures_from`]): only a figure neither writes is said as added.
+pub fn unlike_figures_from(was: &str, now: &str, also: &str) -> String {
+    let also = figures(also);
     let written = |text: &str| -> Vec<(String, f64)> {
         text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
             .map(|w| w.trim_matches(['.', ',']))
@@ -105,6 +128,9 @@ pub fn unlike_figures(was: &str, now: &str) -> String {
         }
         None => true,
     });
+    if lost.is_empty() {
+        gained.retain(|(_, n)| !also.contains(n));
+    }
     let said = |figures: &[(String, f64)]| -> String {
         let words: Vec<&str> = figures.iter().map(|(w, _)| w.as_str()).collect();
         match words.as_slice() {
