@@ -12876,7 +12876,8 @@ mod tests {
         assert!(node.get("maxSize").is_none(), "{node:#}");
         assert!(made.created.findings.iter().all(|f| f.code != "E100" || f.node.as_deref() != Some(id)));
         // Longer than its place takes at its role's least size, it is said by its slide, for the
-        // person to shorten, never rewritten (W1 dogfood 13).
+        // person to shorten, never rewritten (W1 dogfood 13): on slide 2, and on the bare close
+        // the claim heads, slide 3, alike.
         let lines = (made.created.findings.iter())
             .find(|f| f.code == "W202" && f.node.as_deref() == Some(id))
             .and_then(|f| f.measure.as_ref()?["lines"].as_u64())
@@ -12885,7 +12886,7 @@ mod tests {
             made.overlong.as_deref(),
             Some(
                 format!(
-                    "slide 2's settled claim stands as written, in {lines} lines where its place takes 3: shorten it in the outline to fit"
+                    "the settled claims on slides 2 and 3 stand as written, each in {lines} lines where its place takes 3: shorten them in the outline to fit"
                 )
                 .as_str()
             )
