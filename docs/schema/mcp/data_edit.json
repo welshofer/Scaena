@@ -117,7 +117,8 @@
       "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "errors": { "type": "integer", "minimum": 0 },
       "refused": { "type": "boolean" },
-      "quoted": { "type": "array", "items": { "type": "string" } }
+      "quoted": { "type": "array", "items": { "type": "string" } },
+      "unquoted": { "type": "array", "items": { "type": "string" } }
     }
   }
 }

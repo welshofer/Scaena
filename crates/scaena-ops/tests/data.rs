@@ -143,6 +143,35 @@ fn a_figure_that_quotes_the_data_is_set_again_with_its_claim() {
     assert!(set.added.iter().all(|f| f.code != "W427"), "{:?}", set.added);
 }
 
+/// A quote that names its row by index keeps to that row as rows are added before it or taken
+/// away (R1's agent dogfood 10: a month added at the top of a sheet set "Burn fell to $290K in
+/// April", March's burn), and one on a row taken away quotes no more, its words as they were.
+#[test]
+fn a_figure_quoted_by_its_rows_index_keeps_to_its_row() {
+    let dir = revenue("quote-index");
+    let path = dir.join("deck.json");
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let quote = json!({ "data": "@q3", "row": 10, "column": "revenue", "format": "$.1f" });
+    deck["states"][1]["props"]["title"]["runs"] = json!([{ "text": "Pro hit " }, { "text": "$19.4", "quote": quote }]);
+    deck["states"][1]["props"]["title"].as_object_mut().unwrap().shift_remove("text");
+    std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let read = || -> Value { serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap() };
+    let run = |deck: &Value| deck["states"][1]["props"]["title"]["runs"][1].clone();
+    // A row added at the top: the quote names row 11, and the figure is Pro's as it was.
+    let row = json!({ "quarter": "2025-Q3", "product": "Pro", "revenue": 1 });
+    let added = edit(&dir, "q3", json!([{ "op": "add", "row": 0, "values": row }]), false).unwrap();
+    assert!(added.edited && added.quoted.is_empty() && added.unquoted.is_empty(), "{added:?}");
+    assert_eq!((run(&read())["quote"]["row"].clone(), run(&read())["text"].clone()), (json!(11), json!("$19.4")));
+    // Taken away again, and a row added after it: row 10 again, untouched by the second.
+    let back = edit(&dir, "q3", json!([{ "op": "remove", "row": 0 }, { "op": "add", "values": row }]), false).unwrap();
+    assert!(back.edited, "{back:?}");
+    assert_eq!(run(&read())["quote"]["row"], json!(10));
+    // Its own row taken away: the words stay, quoting nothing, and the result says so.
+    let gone = edit(&dir, "q3", json!([{ "op": "remove", "row": 10 }]), false).unwrap();
+    assert_eq!(gone.unquoted, ["title"], "{gone:?}");
+    assert_eq!(run(&read()), json!({ "text": "$19.4" }));
+}
+
 #[test]
 fn notes_and_descriptions_that_say_a_figure_follow_it() {
     // PLAN 2.90: where the quoted figure shows (`revenue`), its notes, the beat's notes, and the

@@ -52,6 +52,10 @@ pub struct DataEdited {
     /// written in the deck in the same change, with each claim that held the old figure.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quoted: Vec<String>,
+    /// The texts that quoted, by its index, a row the edits took away, by node id, each once:
+    /// their words stay as they were last set, and quote nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unquoted: Vec<String>,
 }
 
 /// Make `req.edits` in source `req.source`, all or none, and write the file it is, or the deck
@@ -85,8 +89,19 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     let file = declared.source.as_str().map(String::from);
     let mut deck = b.deck.clone();
     let mut view = View::of(b);
+    let mut unquoted: Vec<String> = Vec::new();
     for (i, edit) in req.edits.iter().enumerate() {
         let at = |message: String| OpsError { message, plan: None, op: Some(i) };
+        // A quote that names its row by index keeps to that row as rows are added before it or
+        // taken away (R1's agent dogfood 10: a month added at the top of a sheet set "Burn fell
+        // to $290K in April", March's figure); one on the row taken away quotes no more.
+        if matches!(edit, RowEdit::Add { .. } | RowEdit::Remove { .. }) {
+            let rows = sheet(&deck, &Texts(&view), name).map(|s| s.rows.len()).unwrap_or(0);
+            let mut doc = deck.to_value()?;
+            if keep_rows(&mut doc, name, edit, rows, &mut unquoted) {
+                deck = Deck::from_value(&doc).map_err(at)?;
+            }
+        }
         match scaena_core::data::edit::edit(&deck, &Texts(&view), name, edit).map_err(at)? {
             Edited::File { path, bytes } => view = view.with(path, bytes),
             Edited::Inline(ops) => {
@@ -131,6 +146,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
             errors,
             refused: false,
             quoted: vec![],
+            unquoted: vec![],
         };
         return Ok((edited, None));
     }
@@ -160,6 +176,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
         errors: errors(&after),
         refused,
         quoted: if refused { vec![] } else { quoted },
+        unquoted: if refused { vec![] } else { unquoted },
     };
     if refused {
         return Ok((edited, None));
@@ -170,6 +187,51 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
         made.files.insert(path, bytes);
     }
     Ok((edited, Some(made)))
+}
+
+/// Each quote of source `name` in `doc` that names its row by index, kept to that row as `edit`
+/// adds a row or takes one away from the `rows` there are: an index at or past a row added moves
+/// down one, past a row taken away up one, and one counted from the end is counted from the top.
+/// A quote of the row taken away is taken off its run, whose words stay, and its node is said in
+/// `unquoted`. Whether `doc` changed.
+fn keep_rows(doc: &mut serde_json::Value, name: &str, edit: &RowEdit, rows: usize, unquoted: &mut Vec<String>) -> bool {
+    let source = format!("@{name}");
+    let moves: Vec<(String, String, i64)> = scaena_core::quotes::quoted(doc)
+        .into_iter()
+        .filter(|q| q.run["quote"]["data"].as_str() == Some(source.as_str()))
+        .filter_map(|q| q.run["quote"]["row"].as_i64().map(|i| (q.path.clone(), q.node.to_string(), i)))
+        .collect();
+    let mut changed = false;
+    for (path, node, i) in moves {
+        let at = if i < 0 { rows as i64 + i } else { i };
+        if at < 0 || at >= rows as i64 {
+            continue;
+        }
+        let now = match edit {
+            RowEdit::Add { row, .. } => Some(if at >= row.map_or(rows, |r| r.min(rows)) as i64 { at + 1 } else { at }),
+            RowEdit::Remove { row } if at == *row as i64 => None,
+            RowEdit::Remove { row } => Some(if at > *row as i64 { at - 1 } else { at }),
+            RowEdit::Set { .. } => continue,
+        };
+        let Some(run) = doc.pointer_mut(&path).and_then(serde_json::Value::as_object_mut) else { continue };
+        match now {
+            Some(now) if now == i => {}
+            Some(now) => {
+                run.get_mut("quote")
+                    .and_then(serde_json::Value::as_object_mut)
+                    .map(|q| q.insert("row".into(), now.into()));
+                changed = true;
+            }
+            None => {
+                run.remove("quote");
+                if !unquoted.contains(&node) {
+                    unquoted.push(node);
+                }
+                changed = true;
+            }
+        }
+    }
+    changed
 }
 
 /// What `edits` do, as the history says it: `rev of row 3`, `a row added`, `row 2 taken away`,
