@@ -155,10 +155,17 @@ fn fell_back(narrative: &Narrative, chosen: &[String]) -> Vec<Fell> {
             "it names a chart but gives no `chartData` to draw".to_string()
         } else if matches!(identity, "bar-chart" | "line-chart") && slide.chart_data.is_none() {
             "it is a chart but gives no `chartData` to draw".to_string()
+        } else if matches!(layouts::structural(name), "image" | "image-text") && !pictures_in(layout) {
+            // A picture asked for that the slide has none of (agent dogfood 8): its words are set
+            // as they read, and `image_add` gives it one once its layout holds one.
+            "it asks for a picture, and the slide has none: it was set as its items read. Give it a layout \
+             that holds one (`set_state` with `layout`, such as `photo-left` or `bullets-photo`), then put \
+             the picture there with `image_add`"
+                .to_string()
         } else if !chart_named(name) && !layouts::known(name) && !taken_as(name, layout) {
             "no layout is called that; it was set as its items read. Layouts known by name include `Title`, \
-             `Bullet List`, `Big Number`, `Bar Chart`, `Line Chart`, `Two Column`, `Quote`, `Timeline`, \
-             `Section Header`, and `Closing`"
+             `Bullet List`, `Big Number`, `Bar Chart`, `Line Chart`, `Two Column`, `Image + Text`, `Quote`, \
+             `Timeline`, `Section Header`, and `Closing`"
                 .to_string()
         } else {
             continue;
@@ -166,6 +173,12 @@ fn fell_back(narrative: &Narrative, chosen: &[String]) -> Vec<Fell> {
         fell.push(Fell { slide: i + 1, asked: name.to_string(), layout: layout.clone(), why });
     }
     fell
+}
+
+/// Whether a theme layout `layout` holds a picture, by the names the library gives them: a photo's
+/// layouts, the art beside words, and a cover split by one.
+fn pictures_in(layout: &str) -> bool {
+    layout.contains("photo") || layout.starts_with("art-") || layout == "title-split" || layout == "poster"
 }
 
 /// A picture made for a slide (PLAN G.10): the path the bundle keeps it at, and what it shows,
@@ -9630,6 +9643,18 @@ mod tests {
         assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
         assert!(m.fell[0].why.contains("no layout is called that") && m.fell[0].layout == m.layouts[1], "{:?}", m.fell);
         assert!(made(named("Bullet List")).fell.is_empty());
+        // A picture asked for by Scaena's own name, with none to show, says how to give it one;
+        // a call to action asked for by name is a closing, said as one where its items do not fit
+        // its place, never as a name no layout is called (agent dogfood 8).
+        let mut pictured = named("Bullet List");
+        pictured.layout_suggestion = "Image Left".into();
+        let m = made(pictured);
+        assert_eq!(m.fell.len(), 1, "{:?}", m.fell);
+        assert!(m.fell[0].why.contains("asks for a picture") && m.fell[0].why.contains("image_add"), "{:?}", m.fell);
+        let mut cta = named("Bullet List");
+        cta.layout_suggestion = "Call to Action".into();
+        let m = made(cta);
+        assert!(m.fell.iter().all(|f| f.why.contains("`closing` has no place")), "{:?}", m.fell);
     }
 
     /// Each figure and its unit stays on the slide, set once, at the lengths a model writes
@@ -14922,6 +14947,33 @@ mod tests {
             .filter(|t| t.contains("Source"))
             .collect();
         assert_eq!(said, ["Source: losses.csv"], "{:#}", after["nodes"]);
+    }
+
+    /// The first slide written to a planned spine shares the talk's slot with the beats no slide
+    /// tells yet, a slide each, not given all of it (agent dogfood 8: a cover written first to a
+    /// spine of seven was budgeted 1,427 words of ten minutes).
+    #[test]
+    fn a_slide_written_to_a_planned_spine_is_budgeted_its_share_of_the_slot() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["meta"]["narrative"] = json!({ "brief": { "topic": "Leaks", "minutes": 10 } });
+        let beat = |id: &str, claim: &str| json!({ "id": id, "claim": claim, "states": [] });
+        let planned = (1..6).map(|k| beat(&format!("b{k}"), &format!("Claim number {k} is said here."))).collect();
+        let mut beats = vec![beat("stakes", "The stakes are high")];
+        beats.extend::<Vec<Value>>(planned);
+        doc["spine"] = json!({ "sections": [{ "id": "why", "title": "Why", "beats": beats }] });
+        let budget = |doc: &Value| {
+            let written =
+                slide_into(doc, &theme, slides[0].clone(), &Place::End, Some("stakes"), BTreeMap::new(), &no_files())
+                    .unwrap();
+            let deck = Deck::from_value(&patched(doc, &written.patch)).unwrap();
+            budgeted(&deck).unwrap().budgets
+        };
+        let shared = budget(&doc);
+        assert_eq!(shared.len(), 1, "a budget for the slide written alone: {shared:?}");
+        doc["spine"]["sections"][0]["beats"].as_array_mut().unwrap().truncate(1);
+        let alone = budget(&doc)[0].words;
+        assert!(shared[0].words * 4 < alone, "{} of {alone} words", shared[0].words);
     }
 
     /// A cover written in place of `deck_create`'s blank slide, which no beat of the spine planned

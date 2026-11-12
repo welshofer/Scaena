@@ -811,6 +811,19 @@ fn moved(slides: &[SlideForHealth]) -> Vec<(usize, usize, usize)> {
         .collect()
 }
 
+/// A plan `asked` for a slide whose words read `words`, to two places, rounded toward the words:
+/// a plan held to the most its words carry stays within it once written (agent dogfood 8: 0.7776
+/// written as 0.78 read 0.2524 from its words, past the gap, and the fix's plan was found flat).
+fn held(asked: f64, words: Option<f64>) -> f64 {
+    let hundredths = asked * 100.0;
+    let rounded = match words {
+        Some(w) if asked > w => hundredths.floor(),
+        Some(w) if asked < w => hundredths.ceil(),
+        _ => hundredths.round(),
+    };
+    rounded / 100.0
+}
+
 /// The slides a brief's length asks for (`meta.narrative.brief.length`): `16-25 slides` from 16 to
 /// 25, `41+ slides` 41 or more.
 fn asked(length: &str) -> Option<(usize, Option<usize>)> {
@@ -2205,7 +2218,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     ),
                 };
                 // The plan asked, written where the slide's plan is, for the person to take.
-                let value = (asked * 100.0).round() / 100.0;
+                let value = held(asked, words);
                 let fix = reach.then(|| at(&d.slide_id, "intensity")).flatten().map(|path| Fix {
                     says: format!("Plan it at {}", level(value)),
                     patch: vec![json!({ "op": "replace", "path": path, "value": value })],
@@ -2223,7 +2236,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     }
                     _ => calls,
                 };
-                let value = (asked * 100.0).round() / 100.0;
+                let value = held(asked, slides_read.get(i).and_then(|r| r.read));
                 let fix = slides[i].beat.map(|(si, bj, b)| {
                     let base = format!("/spine/sections/{si}/beats/{bj}");
                     let op = match b.media.as_ref() {
@@ -4141,6 +4154,23 @@ mod tests {
         assert!(lasting(16.5 * 60.0).is_empty(), "16.5 minutes is not long");
         let long = lasting(16.6 * 60.0);
         assert!(long.len() == 1 && long[0].contains("past the 15 minutes its brief asks"), "{long:?}");
+    }
+
+    /// A plan written to two places is rounded toward the words it is held to, so a plan held to
+    /// the most they carry is found within it (agent dogfood 8: 0.7776 written as 0.78, 0.2524
+    /// from words that read 0.5276, asked the slide's words to carry it).
+    #[test]
+    fn a_plan_held_to_its_words_stays_within_them_once_written() {
+        assert_eq!(held(0.5276 + INTENSITY_GAP_THRESHOLD, Some(0.5276)), 0.77);
+        assert_eq!(held(0.4724 - INTENSITY_GAP_THRESHOLD, Some(0.4724)), 0.23);
+        assert_eq!((held(0.5, None), held(0.914, Some(0.67)), held(0.6, Some(0.6))), (0.5, 0.91, 0.6));
+        for k in 0..=1000 {
+            let w = f64::from(k) / 1000.0;
+            for asked in [w + INTENSITY_GAP_THRESHOLD, w - INTENSITY_GAP_THRESHOLD] {
+                let asked = asked.clamp(0.0, 1.0);
+                assert!((held(asked, Some(w)) - w).abs() <= INTENSITY_GAP_THRESHOLD + 1e-9, "{asked} for {w}");
+            }
+        }
     }
 
     /// The talk's time beside the count (lift-up FUNC-1): its beats' durations, or their states'
