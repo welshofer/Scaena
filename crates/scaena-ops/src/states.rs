@@ -959,6 +959,67 @@ fn folded_words(
     Ok(lines)
 }
 
+/// The steps a fold adds where slide `prev` builds `target` in by bullet (PLAN 2.129): its last
+/// step held to the paragraphs it drew of `written` before the fold, then a step for each of the
+/// `added` paragraphs folded in after them, the last drawing the text whole, each the slide's,
+/// named after it as a build's steps are, in the beat of the step it follows. None where no step
+/// of the slide before its last draws part of the text, or its last does not draw it whole.
+fn built_in(
+    deck: &Deck,
+    snaps: &[scaena_core::Snapshot],
+    prev: &[usize],
+    target: &str,
+    shown: &scaena_core::document::Props,
+    added: usize,
+) -> Result<Vec<Value>, OpsError> {
+    let part = |k: usize| snaps.get(k).and_then(|s| s.nodes.get(target)).is_some_and(|p| p.contains_key("paragraphs"));
+    let Some(&last) = prev.last() else { return Ok(Vec::new()) };
+    // The text as the slide's last step draws it: whole, its `paragraphs` none, or through its last.
+    let had = scaena_core::builds::count(shown);
+    let whole = (snaps.get(last).and_then(|s| s.nodes.get(target)))
+        .and_then(|p| p.get("paragraphs"))
+        .is_none_or(|p| p.is_null() || p.get(1).and_then(Value::as_u64).is_some_and(|end| end as usize >= had));
+    let earlier = &prev[..prev.len() - 1];
+    if added == 0 || !earlier.iter().any(|&k| part(k)) || !whole {
+        return Ok(Vec::new());
+    }
+    let esc = |s: &str| s.replace('~', "~0").replace('/', "~1");
+    // The paragraphs the text had, as the format counts them from 1; those folded in follow them.
+    // The last step's own props of the text, held to those it drew.
+    let doc = deck.to_value()?;
+    let mut own = doc["states"][last]["props"][target].as_object().cloned().unwrap_or_default();
+    own.insert("paragraphs".into(), json!([1, had.max(1)]));
+    let mut ops = vec![match doc["states"][last]["props"].is_object() {
+        true => json!({ "op": "add", "path": format!("/states/{last}/props/{}", esc(target)), "value": own }),
+        false => json!({ "op": "add", "path": format!("/states/{last}/props"), "value": { target: own } }),
+    }];
+    let slide = deck.slide_of(&deck.states[last]).to_string();
+    let base = match slide.rsplit_once('-') {
+        Some((stem, n)) if !stem.is_empty() && !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => stem,
+        _ => slide.as_str(),
+    };
+    let mut taken: Vec<String> = deck.states.iter().map(|s| s.id.clone()).collect();
+    let beat = (deck.spine.iter().flat_map(|s| s.sections.iter()).enumerate())
+        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+        .find(|(_, _, b)| b.states.iter().any(|id| *id == deck.states[last].id));
+    for k in 1..=added {
+        let id = (2..).map(|n| format!("{base}-{n}")).find(|id| !taken.contains(id)).expect("some number is free");
+        taken.push(id.clone());
+        let drawn = if k == added { Value::Null } else { json!([1, had + k]) };
+        let mut props = serde_json::Map::new();
+        props.insert(target.to_string(), json!({ "paragraphs": drawn }));
+        ops.push(json!({
+            "op": "add",
+            "path": format!("/states/{}", last + k),
+            "value": { "id": id, "slide": slide, "props": props },
+        }));
+        if let Some((s, b, _)) = beat {
+            ops.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}/states/-"), "value": id }));
+        }
+    }
+    Ok(ops)
+}
+
 /// The patch that folds the slide of `state` into the slide before it (editor dogfood 6), as a
 /// Story row and the slides' menu offer it where a slide says again what the one before said, or
 /// adds least to it: the folded slide's headline, then each other text it shows at its last step,
@@ -1039,6 +1100,10 @@ pub fn folding(b: &Bundle, state: &str, into: Option<&str>) -> Result<Folded, Op
         let text = if written.trim().is_empty() { joined.clone() } else { format!("\n{joined}") };
         let shown = &deck.states[*prev.last().unwrap_or(&prev[0])].id;
         patch.push(json!({ "op": "replace_text", "node": target, "from": at, "to": at, "text": text, "state": shown }));
+        // Where the slide builds its words in by bullet, each paragraph folded in comes on a click
+        // of its own after the build's last, as the build brings in its own, never all at once on
+        // its last step (R1's agent dogfood 9).
+        patch.extend(built_in(deck, &snaps, prev, target, props, lines.len())?);
     }
     // Notes, each after what is there with a blank line: the folded slide's after the previous
     // slide's, where they live (its first state's own, else its beat's), and the claim of a beat
@@ -1227,6 +1292,49 @@ mod tests {
         assert!(kept.evidence.iter().all(|e| !e.contains("Identity")), "and is no source");
         // The slide after it shows what it showed.
         assert_eq!(shown(&deck, "belief-3-line", "body"), shown(&b.deck, "belief-3-line", "body"));
+    }
+
+    /// A slide folded into one built by bullet brings each of its paragraphs in on a click of its
+    /// own after the build's last (R1's agent dogfood 9: a Spanish deck's steps went 1, 2, then 7),
+    /// the build's last step drawing what it drew before, the steps the slide's and its beat's.
+    #[test]
+    fn a_fold_into_a_slide_built_by_bullet_adds_a_step_for_each_paragraph() {
+        let mut b = short();
+        let i = b.deck.state_index("belief-1-why").unwrap();
+        // Built as By Bullet leaves it: the body's first paragraph, then the whole of it.
+        let two = json!({ "text": "Frames were the mistake.\nName it once.", "paragraphs": [1, 1] });
+        b.deck.states[i].props.insert("body".into(), serde_json::from_value(two).unwrap());
+        let j = b.deck.state_index("belief-1-line").unwrap();
+        b.deck.states[j].props.insert("body".into(), serde_json::from_value(json!({ "paragraphs": null })).unwrap());
+        let steps = |deck: &Deck| -> Vec<(String, Option<Value>)> {
+            let slide = deck.slides().into_iter().find(|s| deck.states[s[0]].id == "belief-1").unwrap();
+            (slide.into_iter().map(|k| &deck.states[k]))
+                .map(|s| (s.id.clone(), s.props.get("body").and_then(|p| p.get("paragraphs")).cloned()))
+                .collect()
+        };
+        let built = steps(&b.deck);
+        let drawn: Vec<_> = built.iter().filter_map(|(_, p)| p.clone()).collect();
+        assert!(drawn.len() >= 2, "the build's steps say what they draw: {built:?}");
+        let folded = folding(&b, "belief-2-why", None).unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        let deck = applied(&b, &folded.patch);
+        let after = steps(&deck);
+        let words = shown(&deck, after.last().map(|(id, _)| id.as_str()).unwrap(), "body");
+        let added = words.split('\n').count() - 2;
+        assert_eq!(after.len(), built.len() + added, "a step for each paragraph folded in: {after:?}");
+        // Each step after the build draws one paragraph more than the one before it, the last all.
+        let ends: Vec<Option<u64>> =
+            after.iter().map(|(_, p)| p.as_ref().and_then(|p| p.get(1)).and_then(Value::as_u64)).collect();
+        let tail = &ends[built.len() - 1..];
+        for pair in tail.windows(2) {
+            if let [Some(a), Some(b)] = pair {
+                assert_eq!(*b, a + 1, "{after:?}");
+            }
+        }
+        assert_eq!(ends.last(), Some(&None), "the last draws the text whole: {after:?}");
+        let beat = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats)).find(|b| b.id == "belief-1");
+        let told = beat.unwrap().states.clone();
+        assert!(after.iter().all(|(id, _)| told.contains(id)), "the beat tells every step: {told:?}");
     }
 
     /// A slide folded into one no beat tells keeps its beat's claim (W1's review of #1175): the
