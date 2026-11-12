@@ -12,6 +12,8 @@
 //!
 //! W304: a place a slide's layout keeps for a picture or a figure, left empty at rest.
 //!
+//! W305: a text that still says the words its slot's prompt started it with.
+//!
 //! W311: a shader painted behind a chart or a table, where they overlap.
 //!
 //! W313: a chart squashed below a legible plot.
@@ -386,6 +388,72 @@ impl Rule for W304EmptyPlace {
                     .at(format!("/states/{}", state.index))
                     .measure(json!({ "slot": b.name, "layout": name, "rect": b.rect, "figure": figure }))
                     .hint("Choose a layout that waits for none, or put a picture or a figure in its place."),
+                );
+            }
+        }
+        out
+    }
+}
+
+/// W305: a text that still says the words its layout's slot started it with, the theme's own
+/// `prompt` for that slot ("Your name · the date"), word for word, on a slide whose other words
+/// are written: words to type over, left as they were, which the room would read (W1 dogfood
+/// 16). A slide that says nothing but its prompts is still being written and is not judged, as
+/// W304 leaves it. Only a slot's own prompt is matched, so a person's words are never found. One
+/// finding per text and state, in the deck's own format, where the words are the same in every
+/// format; no fix, since only the person knows what to say.
+pub struct W305PromptLeft;
+
+impl Rule for W305PromptLeft {
+    fn code(&self) -> &'static str {
+        "W305"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let mut out = Vec::new();
+        if cx.format.is_some() {
+            return out;
+        }
+        for state in cx.states {
+            let Some(name) = state.snapshot.layout.as_deref() else { continue };
+            let Some(slots) = cx.theme.slots(name) else { continue };
+            // Each text the state shows, and the prompt of the slot it is placed in, where it is.
+            let shown = (state.snapshot.nodes.iter()).filter(|(id, p)| {
+                (cx.deck.nodes.get(id.as_str())).is_some_and(|n| n.node_type == scaena_core::document::NodeType::Text)
+                    && p.get("visible").and_then(Value::as_bool) != Some(false)
+                    && p.get("opacity").and_then(Value::as_f64) != Some(0.0)
+                    && p.get("semantic").and_then(Value::as_str) != Some("decoration")
+            });
+            let prompted: Vec<(&String, &str, String)> = shown
+                .clone()
+                .filter_map(|(id, p)| {
+                    let slot = p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str()?;
+                    let (said, _) = slots.get(slot)?.prompt.as_ref()?.text()?;
+                    (!said.trim().is_empty() && p.get("text").and_then(Value::as_str) == Some(said.as_str()))
+                        .then_some((id, slot, said))
+                })
+                .collect();
+            // Words of the person's own on the slide: a text that says something, and not its prompt.
+            let written = shown.clone().any(|(id, p)| {
+                !prompted.iter().any(|(p, _, _)| *p == id) && !scaena_core::reading::words(p).trim().is_empty()
+            });
+            if !written {
+                continue;
+            }
+            for (id, slot, said) in prompted {
+                out.push(
+                    cx.finding(
+                        self.code(),
+                        self.severity(),
+                        state,
+                        format!("`{id}` still says its slot's prompt, \u{201c}{said}\u{201d}, from layout `{name}`"),
+                    )
+                    .node(id.clone())
+                    .at(cx.node_path(id))
+                    .measure(json!({ "slot": slot, "layout": name, "prompt": said }))
+                    .hint("Type the slide's own words over it, or delete it."),
                 );
             }
         }

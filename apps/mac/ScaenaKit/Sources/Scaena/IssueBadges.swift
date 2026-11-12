@@ -21,6 +21,7 @@ enum Issues {
         case "W231": "Its font has no italic, so it's set upright."
         case "W232": "Its font has no bold, so it's set in its own weight."
         case "W303": "The slide's number or footer is drawn over it."
+        case "W305": "It still says the words its layout started it with."
         case "W310": "Some of the chart's labels overlap."
         case "W311": "A background effect is behind this chart."
         case "W312": "Some of the chart's text is too small to read."
