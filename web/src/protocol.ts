@@ -2106,7 +2106,9 @@ export interface DataSource {
 export type RowEdit =
   | { op: "set"; row: number; column: string; value: string }
   | { op: "add"; row?: number; values?: Record<string, string> }
-  | { op: "remove"; row: number };
+  | { op: "remove"; row: number }
+  /** A column named anew, through the file and every reader of it in the deck. */
+  | { op: "rename"; column: string; to: string };
 
 /** What `data_edit` did (SPEC §7.2). */
 export interface DataEdited {

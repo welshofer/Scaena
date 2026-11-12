@@ -111,6 +111,12 @@ fn rows_written_inline_are_the_decks() {
     let after: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(after["data"]["goals"]["source"]["inline"], json!([{ "year": "2026", "target": 95 }]));
     assert_eq!(set.sheet.rows, [["2026", "95"]]);
+    // A column renamed is renamed in each row, and in the schema, its place kept.
+    let renamed = edit(&dir, "goals", json!([{ "op": "rename", "column": "target", "to": "goal" }]), false).unwrap();
+    assert!(renamed.edited, "{renamed:?}");
+    let after: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(after["data"]["goals"]["source"]["inline"], json!([{ "year": "2026", "goal": 95 }]));
+    assert_eq!(after["data"]["goals"]["schema"], json!({ "goal": "number" }));
 }
 
 #[test]
@@ -251,4 +257,36 @@ fn lint_judges_a_forecasts_date_only_when_handed_one() {
         (f.node.as_deref(), f.state.as_deref(), f.refresh.as_deref(), f.fix.is_none()),
         (Some("week"), Some("week"), Some("boston"), true)
     );
+}
+
+#[test]
+fn a_column_renamed_is_renamed_through_the_deck() {
+    // R1's dogfood 10, F7: a header renamed in its file left every chart that read it E103. A
+    // rename names it anew in the file's header, the schema, the chart, its transform, and the
+    // quote, in one edit, every other byte of the file as it was.
+    let dir = revenue("rename");
+    let path = dir.join("deck.json");
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let quote = json!({ "data": "@q3", "row": { "quarter": "2026-Q3", "product": "Pro" }, "column": "revenue", "format": "$.1f" });
+    deck["states"][1]["props"]["title"]["runs"] = json!([{ "text": "Pro hit " }, { "text": "$19.4", "quote": quote }]);
+    deck["states"][1]["props"]["title"].as_object_mut().unwrap().shift_remove("text");
+    deck["nodes"]["rev"]["dataTransform"] = json!([{ "filter": "revenue > 0" }]);
+    std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let was = csv(&dir);
+    let renamed =
+        edit(&dir, "q3", json!([{ "op": "rename", "column": "revenue", "to": "revenue_musd" }]), false).unwrap();
+    assert!(renamed.edited && !renamed.refused, "{renamed:?}");
+    assert!(renamed.added.iter().all(|f| f.code != "E103"), "{:?}", renamed.added);
+    assert_eq!(csv(&dir), was.replacen("revenue", "revenue_musd", 1), "the header alone");
+    let deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(deck["data"]["q3"]["schema"]["revenue_musd"], json!("number"));
+    assert!(deck["data"]["q3"]["schema"].get("revenue").is_none());
+    assert_eq!(deck["nodes"]["rev"]["y"]["field"], json!("revenue_musd"));
+    assert_eq!(deck["nodes"]["rev"]["dataTransform"], json!([{ "filter": "revenue_musd > 0" }]));
+    assert_eq!(deck["states"][1]["props"]["title"]["runs"][1]["quote"]["column"], json!("revenue_musd"));
+    // A name the source has already, or a column it has not, is refused, naming why.
+    let taken = edit(&dir, "q3", json!([{ "op": "rename", "column": "product", "to": "quarter" }]), false);
+    assert!(taken.unwrap_err().message.contains("has a column `quarter` already"));
+    let none = edit(&dir, "q3", json!([{ "op": "rename", "column": "revenue", "to": "r" }]), false);
+    assert!(none.unwrap_err().message.contains("has no column `revenue`"));
 }

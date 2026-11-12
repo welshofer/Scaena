@@ -123,6 +123,14 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
                 deck = Deck::from_value(&doc).map_err(at)?;
             }
         }
+        // A column renamed is renamed through the deck in the same edit: the source's schema,
+        // its rows written inline, and every chart, table, transform, and quote that reads it.
+        if let RowEdit::Rename { column, to } = edit {
+            let mut doc = deck.to_value()?;
+            let ops = scaena_core::data::rename::renaming(&doc, name, column, to).map_err(at)?;
+            scaena_core::patch::apply(&mut doc, &ops).map_err(|e| at(e.to_string()))?;
+            deck = Deck::from_value(&doc).map_err(at)?;
+        }
     }
     // Each figure a run quotes, set again from the data as the edits leave it (ADR-0019).
     let doc = deck.to_value()?;
@@ -294,6 +302,7 @@ fn said(edits: &[RowEdit]) -> String {
         [RowEdit::Add { row: Some(row), .. }] => format!("a row added at {row}"),
         [RowEdit::Add { row: None, .. }] => "a row added".into(),
         [RowEdit::Remove { row }] => format!("row {row} taken away"),
+        [RowEdit::Rename { column, to }] => format!("{column} renamed {to}"),
         edits => format!("{} edits", edits.len()),
     }
 }

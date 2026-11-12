@@ -40,6 +40,17 @@
             "properties": { "row": { "type": "integer", "minimum": 0 }, "op": { "type": "string", "const": "remove" } },
             "additionalProperties": false,
             "required": ["op", "row"]
+          },
+          {
+            "description": "Column `column` named `to`: its header in the file, or its key in each row written inline,\nand, in the same edit, the source's `schema` and `parse` for it and every chart's, table's,\nquote's, and transform's reading of it (`data::rename`, R1's dogfood 10).",
+            "type": "object",
+            "properties": {
+              "column": { "type": "string" },
+              "to": { "type": "string" },
+              "op": { "type": "string", "const": "rename" }
+            },
+            "additionalProperties": false,
+            "required": ["op", "column", "to"]
           }
         ]
       }
