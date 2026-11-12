@@ -2716,7 +2716,7 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         };
         said.push((slide, how));
     }
-    said.sort_by_key(|(n, _)| *n);
+    scaena_core::sort::by_key(&mut said, |(n, _)| *n);
     Ok(match said.as_slice() {
         [] => None,
         [(slide, how)] => {
