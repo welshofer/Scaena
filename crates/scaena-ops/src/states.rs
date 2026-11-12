@@ -226,10 +226,11 @@ fn told(slot: &str, s: &Slot, layout: &str, theme: &Theme, node: &mut Value, cla
     }
 }
 
-/// `added`, a slide [`starting`] made, telling `claim` in a beat of its own (dogfood 3): the beat
-/// just after the one that tells the state the slide follows, in that section, else last; and
-/// not in that beat, which would then make two claims. Its headline says the claim. Refused in a
-/// deck with no spine.
+/// `added`, a slide [`starting`] made, telling `claim`: in the beat the spine planned that makes
+/// it already, the one telling no slide yet first (agent dogfood 8); else in a beat of its own
+/// (dogfood 3), just after the one that tells the state the slide follows, in that section, else
+/// last, and not in that beat, which would then make two claims. Its headline says the claim.
+/// Refused in a deck with no spine.
 pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedState, OpsError> {
     let spine = deck.spine.as_ref().filter(|s| !s.sections.is_empty()).ok_or_else(|| {
         OpsError::new(
@@ -240,6 +241,20 @@ pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedS
         added.patch.first_mut().and_then(Value::as_object_mut).ok_or_else(|| OpsError::new("no slide added"))?;
     first.remove("beat");
     let after = first.get("after").and_then(Value::as_str).unwrap_or_default().to_string();
+    // A beat the spine planned that makes this claim already is the one the slide tells (agent
+    // dogfood 8: W429 asks for a slide with its claim, which a beat of its own would make twice).
+    let same = |c: &str| c.trim().eq_ignore_ascii_case(claim.trim());
+    let planned = (spine.sections.iter().enumerate())
+        .flat_map(|(s, section)| section.beats.iter().enumerate().map(move |(b, beat)| (s, b, beat)))
+        .filter(|(_, _, beat)| same(&beat.claim))
+        .min_by_key(|(_, _, beat)| !beat.states.is_empty());
+    if let Some((s, b, beat)) = planned {
+        let states: Vec<&str> = beat.states.iter().map(String::as_str).chain([added.id.as_str()]).collect();
+        let path = format!("/spine/sections/{s}/beats/{b}/states");
+        added.patch.push(json!({ "op": "add", "path": path, "value": states }));
+        headlined(&mut added, claim);
+        return Ok(added);
+    }
     let told = spine
         .sections
         .iter()
@@ -254,14 +269,18 @@ pub fn claimed(deck: &Deck, mut added: AddedState, claim: &str) -> Result<AddedS
         .expect("some number is free");
     let beat = json!({ "id": id, "claim": claim, "states": [added.id] });
     added.patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}"), "value": beat }));
-    // The headline the slide was started with says the claim, in place of the words to type over
-    // that tell what goes there (agent dogfood 6: "What this slide says" under a claim given).
+    headlined(&mut added, claim);
+    Ok(added)
+}
+
+/// The headline `added` was started with says `claim`, in place of the words to type over that
+/// tell what goes there (agent dogfood 6: "What this slide says" under a claim given).
+fn headlined(added: &mut AddedState, claim: &str) {
     let headline = (added.patch.iter_mut())
         .find(|op| op["op"] == "add_node" && op["node"]["semantic"] == "claim" && op["node"]["text"].is_string());
     if let Some(op) = headline {
         op["node"]["text"] = json!(claim.trim());
     }
-    Ok(added)
 }
 
 /// A slide started and written into the bundle (`state_start`, `scaena start`): the new state's
@@ -1465,6 +1484,30 @@ mod tests {
         bare.spine = None;
         let started = starting(&bare, &theme, "revenue", Some("bullets")).unwrap();
         assert!(claimed(&bare, started, "Pro will lead.").is_err());
+    }
+
+    /// A slide started with the claim of a beat the spine planned, as W429 asks, tells it in that
+    /// beat, not in a second one making the claim again (agent dogfood 8).
+    #[test]
+    fn a_slide_started_with_a_planned_beats_claim_tells_it_in_that_beat() {
+        let mut deck = revenue();
+        let mut doc = deck.to_value().unwrap();
+        let planned = json!({ "id": "lead", "claim": "Pro will lead next year.", "states": [] });
+        doc["spine"]["sections"][1]["beats"].as_array_mut().unwrap().push(planned);
+        deck = Deck::from_value(&doc).unwrap();
+        assert!(scaena_core::lint::check(&deck, None).iter().any(|f| f.code == "W429"));
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        let started = claimed(&deck, started, " pro will lead next year.").unwrap();
+        let doc = scaena_core::patch::compile(&doc, &started.patch, &NoFiles).unwrap().doc;
+        let beats: Vec<(&str, &Value)> = (doc["spine"]["sections"][1]["beats"].as_array().unwrap().iter())
+            .map(|b| (b["id"].as_str().unwrap(), &b["states"]))
+            .collect();
+        assert_eq!(beats, [("doubled", &json!(["revenue", "mix"])), ("lead", &json!(["bullets"]))]);
+        let found = scaena_core::lint::check(&Deck::from_value(&doc).unwrap(), None);
+        assert!(!found.iter().any(|f| ["W425", "W426", "W429"].contains(&f.code.as_str())), "{found:#?}");
     }
 
     /// What waits on a slide (PLAN 3.30): a slide started in `art-left` waits for its picture,
