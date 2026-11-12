@@ -3146,6 +3146,23 @@ fn assemble(
     ))
 }
 
+/// The columns a layout's name asks for by their count, "Three Column" or "four-columns": three
+/// or four, the counts the library sets across; any other name none.
+fn columns_asked(name: &str) -> Option<usize> {
+    let name = name.trim().to_lowercase().replace('-', " ");
+    let count = name.strip_suffix(" columns").or_else(|| name.strip_suffix(" column"))?;
+    match count.trim() {
+        "three" | "3" => Some(3),
+        "four" | "4" => Some(4),
+        _ => None,
+    }
+}
+
+/// The theme's layout that sets `n` items across, three or four.
+fn across(n: usize) -> &'static str {
+    if n == 3 { "three-columns" } else { "four-columns" }
+}
+
 /// `planned` with no three slides in a row on one of the theme's layouts (lift-up ATTR-2):
 /// Narrato breaks its runs by its own names, which several of come to one of the theme's
 /// (`body`, `image-text`, and `callout` each to `bullets`), so a run is broken again once each
@@ -4117,6 +4134,11 @@ fn layout_for(
         "bar-chart" if chart => "bar-chart",
         "line-chart" if chart => "line-chart",
         "bar-chart" | "line-chart" => "bullets",
+        // A slide asked for by its count of columns, its items as many: as many across, labelled
+        // or not (R1's agent dogfood 5).
+        "two-column" if columns_asked(&slide.layout_suggestion) == Some(n) && theme.layouts.contains_key(across(n)) => {
+            across(n)
+        }
         "two-column" if n == 3 && labelled => "three-columns",
         "two-column" if n == 4 && labelled => "quadrants",
         // Two sides in code too long to stand side by side: one above the other.
@@ -10421,6 +10443,86 @@ mod tests {
         let chosen: BTreeMap<usize, String> = [(2, "bullets".to_string())].into();
         let kept = deck_as(&n, &theme, &Pictures::new(), &chosen).unwrap();
         assert_eq!(kept.layouts[1..4], ["bullets", "bullets", "bullets"], "{:?}", kept.layouts);
+    }
+
+    /// A slide asked for by its columns, "Three Column", is set side by side as its items run, not
+    /// fallen to a numbered list as a name Narrato's table did not know (R1's agent dogfood 5).
+    #[test]
+    fn a_slide_asked_by_its_columns_sets_them_side_by_side() {
+        let columns = |title: &str, layout: &str, bullets: &[&str]| {
+            serde_json::json!({ "slideTitle": title, "subtitle": "", "layoutSuggestion": layout,
+              "keyBullets": bullets, "beatIndex": 1, "beatName": "Problem" })
+        };
+        // Two such slides a deck, a quote between, so Narrato's variety pass leaves each as it is.
+        let made = |first: serde_json::Value, second: serde_json::Value| {
+            let text = serde_json::json!({
+                "executiveSummary": "Proof is the product.",
+                "slides": [
+                    { "slideTitle": "Proof is the product", "subtitle": "A talk", "layoutSuggestion": "Title",
+                      "keyBullets": [], "beatIndex": 0, "beatName": "Hook" },
+                    first,
+                    { "slideTitle": "\"We pay twice for one proof.\"", "subtitle": "A shipper",
+                      "layoutSuggestion": "Quote", "keyBullets": [], "beatIndex": 1, "beatName": "Problem" },
+                    second,
+                    { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [],
+                      "beatIndex": 2, "beatName": "Close" },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
+            let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+            let made = deck(&n, &theme, &Pictures::new()).unwrap();
+            assert!(made.fell.iter().all(|f| ![1, 3].contains(&f.slide)), "{:?}", made.fell);
+            assert!(made.unset.iter().all(|u| ![1, 3].contains(&u.slide)), "{:?}", made.unset);
+            [made.layouts[1].clone(), made.layouts[3].clone()]
+        };
+        let labelled = made(
+            columns(
+                "Why green freight stalls",
+                "Three Column",
+                &["Verification: weeks per container", "Offsets: no one sees the ledger", "Shippers: they pay twice"],
+            ),
+            columns(
+                "Who the ledger serves",
+                "Four Columns",
+                &[
+                    "Ports: they clear the cargo",
+                    "Carriers: they move it",
+                    "Shippers: they pay for it",
+                    "Auditors: they check it",
+                ],
+            ),
+        );
+        assert_eq!(labelled, ["three-columns", "four-columns"]);
+        // An agent that asks for three columns of three points means three across, labelled or not.
+        let unlabelled = made(
+            columns(
+                "What the ledger proves",
+                "Three Column",
+                &[
+                    "Each container is weighed at the port",
+                    "Each offset is matched to a voyage",
+                    "Each shipper sees what it paid for",
+                ],
+            ),
+            columns(
+                "Who checks it",
+                "four-columns",
+                &[
+                    "The port weighs each container",
+                    "The carrier logs each voyage",
+                    "The shipper reads each ledger",
+                    "The auditor signs each year",
+                ],
+            ),
+        );
+        assert_eq!(unlabelled, ["three-columns", "four-columns"]);
+        // "Two Column" asks no count of its own: its items are set as they were.
+        assert_eq!(
+            ["Two Column", "Two Columns", "Three Columns", "four-column", "Five Columns"].map(columns_asked),
+            [None, None, Some(3), Some(4), None]
+        );
     }
 
     #[test]
