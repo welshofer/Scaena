@@ -375,6 +375,13 @@ public final class DeckEditor {
         drawn += 1
     }
 
+    /// Draw frames at rest in the theme `ops` would make, nothing made: a theme color held in its
+    /// picker (lift-up ATTR-5). None: the theme as it is.
+    public func show(theme ops: [JSONValue]?) {
+        try? session.themePreviewing(ops)
+        drawn += 1
+    }
+
     /// Lay frames out in `format` from now on, one of the deck's formats, or on its own canvas
     /// where none (PLAN 2.62, 3.16): the canvas, its boxes and targets, and what lint says holds
     /// there follow it. A gesture there moves a node with a layout of its own there alone (PLAN

@@ -2021,6 +2021,14 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             s.preview(ops.as_deref()).map_err(said)?;
             Value::Null
         }
+        // The theme the deck names drawn as `ops`, RFC 6902 operations on it, would edit it, with
+        // nothing made, validated, or linted: a color held in its picker (lift-up ATTR-5). None
+        // draws the theme as it is.
+        "themePreviewing" => {
+            let ops = patch_of(args.get("ops"), method)?;
+            s.theme_previewing(ops.as_deref()).map_err(said)?;
+            Value::Null
+        }
         "reach" => {
             let ops = patch_of(args.get("ops"), method)?.ok_or_else(|| said(format!("{method}: `ops` is a patch")))?;
             json!(s.reach(&ops).map_err(said)?)

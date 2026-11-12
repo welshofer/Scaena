@@ -910,6 +910,24 @@ async fn a_tool_that_stops_says_why() {
     client.cancel().await.unwrap();
 }
 
+/// A render's `out` and an export's make the folder they go in where there is none, under the
+/// server's folder (agent dogfood 7: `out: "r/vs.png"` failed where an export's would not).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_render_and_an_export_make_the_folder_they_go_in() {
+    let here = scratch("folders");
+    let server = scaena_mcp::Scaena::default().with_dir(here.clone());
+    let client = serve(server, ClientConfig::default(), ClientLifecycleMode::Initialize).await;
+    let deck = path(&Path::new(EXAMPLES).join("revenue.deck.json"));
+    let png = here.join("renders/revenue.png");
+    let rendered = call(&client, "deck_render", json!({ "bundle": deck, "state": "revenue", "out": path(&png) })).await;
+    assert_ne!(rendered.is_error, Some(true), "{}", text(&rendered));
+    assert!(std::fs::read(&png).unwrap().starts_with(b"\x89PNG"));
+    let pdf = here.join("out/deck.pdf");
+    ok(&client, "deck_export", json!({ "bundle": deck, "format": "pdf", "out": path(&pdf) })).await;
+    assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
+    client.cancel().await.unwrap();
+}
+
 /// A tool writes `out` only under the server's folder or the bundle's (lift-up SEC-1).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_tool_writes_only_under_its_folder_or_beside_the_bundle() {
