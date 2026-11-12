@@ -298,6 +298,7 @@ pub fn export_watched(b: &Bundle, req: &Request, progress: &Progress) -> Result<
                     "a {format_name} export writes a video: give it `out`, a file's path (--out FILE)"
                 ))
             })?;
+            folder_for(out)?;
             let mut exported = export_video(b, codec, req, out, progress)?;
             exported.out = shown;
             Ok(exported)
@@ -419,8 +420,20 @@ fn bundle_name(b: &Bundle) -> String {
     if name.is_empty() { "deck".into() } else { name.to_string() }
 }
 
+/// `bytes` written to `path`, the folder it names made where it is not yet, as the spine's and the
+/// images' folders are made (agent dogfood 6: a PDF into `out/` said only "No such file or
+/// directory").
 fn write(path: &Path, bytes: &[u8]) -> Result<(), OpsError> {
+    folder_for(path)?;
     std::fs::write(path, bytes).map_err(|e| OpsError::new(format!("writing {}: {e}", path.display())))
+}
+
+/// The folder a file `path` goes in, made where it is not yet.
+fn folder_for(path: &Path) -> Result<(), OpsError> {
+    match path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        Some(dir) => std::fs::create_dir_all(dir).map_err(|e| OpsError::new(format!("making {}: {e}", dir.display()))),
+        None => Ok(()),
+    }
 }
 
 /// `id`, a `what` of the deck, as the name of a file an export writes: refused unless it is an
@@ -1041,7 +1054,7 @@ fn export_video(
 
 #[cfg(test)]
 mod tests {
-    use super::{Reel, Request, pdf_pages, unnoted};
+    use super::{Reel, Request, pdf_pages, unnoted, write};
     use scaena_core::timeline::Timeline;
     use serde_json::{Value, json};
 
@@ -1074,6 +1087,17 @@ mod tests {
         assert_eq!(left["states"][0].get("notes"), None);
         // Dropped unless they are asked for (Jay's call, 2026-10-25).
         assert!(!Request::default().notes, "a single file leaves the notes out unless asked");
+    }
+
+    /// A file an export writes goes in its folder made where it is not yet, as the spine's and
+    /// the images' do (agent dogfood 6).
+    #[test]
+    fn a_file_is_written_into_a_folder_made_for_it() {
+        let root = std::env::temp_dir().join(format!("scaena-export-folder-{}", std::process::id()));
+        let out = root.join("out/pdfs/deck.pdf");
+        write(&out, b"%PDF").unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"%PDF");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
