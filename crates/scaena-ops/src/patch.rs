@@ -105,6 +105,11 @@ pub struct Summary {
     pub beats_moved: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub beats_changed: Vec<String>,
+    /// Each field of the brief (`meta.narrative.brief`) the patch set, took away, or changed, by
+    /// its name as the deck writes it (`desiredOutcomes`), so a `brief` op says what it took
+    /// (agent dogfood 7: one answered `{}`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub brief: Vec<String>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -187,7 +192,22 @@ pub fn summary(before: &Deck, after: &Deck) -> Summary {
             .filter(|(id, beat)| told.iter().any(|(t, was)| t == id && was != beat))
             .map(|(id, _)| id.clone())
             .collect(),
+        brief: briefed(before, after),
     }
+}
+
+/// The fields of the brief that differ from `before` to `after`, in the order `after` writes them,
+/// then those `after` took away.
+fn briefed(before: &Deck, after: &Deck) -> Vec<String> {
+    let brief = |d: &Deck| {
+        let meta = serde_json::to_value(&d.meta).unwrap_or_default();
+        meta.pointer("/narrative/brief").and_then(Value::as_object).cloned().unwrap_or_default()
+    };
+    let (was, is) = (brief(before), brief(after));
+    let mut changed: Vec<String> =
+        (is.iter()).filter(|(k, v)| was.get(*k) != Some(v)).map(|(k, _)| k.clone()).collect();
+    changed.extend(was.keys().filter(|k| !is.contains_key(*k)).cloned());
+    changed
 }
 
 /// Of the ids in both `was` and `is`, those that moved among the rest: each outside the longest
@@ -547,6 +567,22 @@ mod tests {
         // The title slide, which Dusk leaves them off, draws them when it asks.
         let show = json!([{ "op": "set_state", "id": "intro", "prop": "furniture", "value": true }]);
         assert_eq!(states(&numbered, show), ["intro"]);
+    }
+
+    /// A `brief` op is said by the fields of the brief it set (agent dogfood 7: its summary was
+    /// `{}`, and nothing said it took).
+    #[test]
+    fn a_brief_op_is_reported_by_the_fields_it_set() {
+        let b = crate::open(std::path::Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+        let ops = json!([{ "op": "brief", "audience": "The board", "desiredOutcomes": "Fund the pilot" }]);
+        let set = reported(&b, &ops, true, false).unwrap();
+        assert_eq!(set.summary.brief, ["audience", "desiredOutcomes"], "{:?}", set.summary);
+        let (_, made) = patching(&b, &ops, None).unwrap();
+        let briefed = Bundle { deck: made.unwrap().deck, ..b.clone() };
+        let again = json!([{ "op": "brief", "audience": "The board", "desiredOutcomes": "Fund the pilot now" }]);
+        assert_eq!(reported(&briefed, &again, true, false).unwrap().summary.brief, ["desiredOutcomes"]);
+        let cut = reported(&b, &json!([{ "op": "remove_slide", "slide": "revenue" }]), true, false).unwrap();
+        assert!(cut.summary.brief.is_empty());
     }
 
     /// A structural patch is said by its ops and what they changed, not the arrays it compiles to

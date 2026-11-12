@@ -525,6 +525,7 @@ pub fn slide(deck: &Deck, state: &str) -> String {
 const OPS: &[(&str, &str)] = &[
     ("add_node", "an object added"),
     ("remove_node", "an object deleted"),
+    ("delete_node", "an object deleted"),
     ("rename_node", "an object renamed"),
     ("set_prop", "an object changed"),
     ("set_text", "words changed"),
@@ -550,6 +551,8 @@ const OPS: &[(&str, &str)] = &[
     ("move_slide", "a slide moved"),
     ("remove_slide", "a slide deleted"),
     ("retheme", "the theme changed"),
+    ("furnish", "the slide numbers and footer set"),
+    ("brief", "the brief changed"),
 ];
 
 /// What a change the deck's history keeps did, from the message it was recorded with, as a
