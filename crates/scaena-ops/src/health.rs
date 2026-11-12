@@ -7,7 +7,8 @@
 //!
 //! A slide is read as its spine tells it: its headline the beat's claim, its words what its last
 //! state shows (each item of a layout's set, or each item of a list, a point of its own), its
-//! notes as the presenter reads them (each state's own, else its beat's), and what the narrative
+//! notes as the presenter reads them (each state's own, else its slide's earlier step's, else its
+//! beat's), and what the narrative
 //! declared of it the beat's `media.narrato`. Pure arithmetic over the deck: no layout, no call. What the words read is a
 //! designed prior, not a calibrated model, so each finding asks a person to look, and a gap
 //! between the words and the plan is the words' to close: the one fix offered is the beat a
@@ -460,7 +461,8 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
                 None => lines.push((item, if item.is_some() { format!("\u{2022} {said}") } else { said.to_string() })),
             }
         }
-        // Its notes as the presenter reads them, each state's own else its beat's (SPEC §2.6), so
+        // Its notes as the presenter reads them, each state's own, else its slide's earlier step's, else
+        // its beat's (SPEC §2.6), so
         // what health judges is what the editor's Notes field shows (editor dogfood 3).
         let mut notes: Vec<&str> = Vec::new();
         let read = slide.states.iter().filter_map(|k| scaena_core::spine::notes(deck, &deck.states[*k].id));
@@ -973,8 +975,8 @@ fn talk(deck: &Deck, slides: &[Slide]) -> Option<(f64, Vec<Beaten>, bool)> {
                     None => return None,
                 };
                 timed |= (beat.duration.is_some() && !estimated) || (!holds.is_empty() && held > 0.0);
-                // Its notes as the presenter reads them, each once: each state's own, else the
-                // beat's (SPEC §2.6).
+                // Its notes as the presenter reads them, each once: each state's own, else its
+                // slide's earlier step's, else the beat's (SPEC §2.6).
                 let mut read: Vec<&str> = Vec::new();
                 for note in beat.states.iter().filter_map(|s| scaena_core::spine::notes(deck, s)) {
                     if !read.contains(&note) {

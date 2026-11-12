@@ -104,7 +104,7 @@ Errors:
    - `diff --from a --to b` confirms that a build changes only what it should.
 8. **Edit with patches.**
    - Once a deck exists, change it with ops (SPEC §7.3, `docs/schema/patch.schema.json`; `docs/examples/revenue.patch.json` is one). Dry-run first: the result says what the patch changed in the slides and the story (`summary`), what lint finds that it did not (`added`) and finds no more (`removed`), and each beat whose claim its slide no longer says (`restated`); `verbose: true` returns the JSON Patch it compiled to.
-   - A slide's own ops: `move_slide`, `remove_slide`, and `duplicate_slide` move, take away, and copy a slide with its steps and its beat; `set_state` sets a state's layout, transition, hold, and notes; `place`, `choose`, and `replace_text` place a node, set a property where its value lives, and change words, keeping their runs.
+   - A slide's own ops: `move_slide`, `remove_slide`, and `duplicate_slide` move, take away, and copy a slide with its steps and its beat; `set_state` sets a state's layout, transition, hold, and notes (a build step with none of its own reads on from its slide's earlier step, and its notes are written there; give each step notes of its own with `"fork": true`); `place`, `choose`, and `replace_text` place a node, set a property where its value lives, and change words, keeping their runs.
    - Prefer the semantic ops:
      - `set_prop` and `set_text` with a `state` change what that state shows.
      - `choose` changes one property where it lives, as a person does in the editor's inspector: `inspect --state <id> --choices <node>` (`deck_inspect` with `choices`) lists what the theme offers for each property, the value shown, and where it lives.
