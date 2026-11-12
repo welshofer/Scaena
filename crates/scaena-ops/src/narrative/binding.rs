@@ -33,13 +33,39 @@ fn stem(name: &str) -> String {
 /// The words of a series' or a column's name that say what it measures, its unit's aside, as
 /// quoting reads a column's (agent dogfood 2): "On time" and `on_time_pct` alike, `ontime`. A
 /// currency's letters before its sign are its unit too: "Receita (R$ mi)" measures "Receita"
-/// (W1's dogfood 11).
+/// (W1's dogfood 11). What it is measured per is its unit too, "je Tonne" as `_t`, and a German
+/// name's umlauts are read as a file's name writes them: "Gebühr je Tonne" measures `gebuehr`,
+/// as `gebuehr_eur_t` does (W1 dogfood 13).
 fn measured(name: &str) -> String {
+    const PER: [&str; 5] = ["je", "pro", "per", "par", "por"];
+    const MASSES: [&str; 2] = ["t", "kg"];
     let name = ["R$", "r$", "US$", "us$"].iter().fold(name.to_string(), |n, sign| n.replace(sign, " brl "));
-    (name.split(|c: char| !c.is_alphanumeric()))
-        .map(str::to_lowercase)
-        .filter(|w| !w.is_empty() && !super::quoting::UNITS.contains(&w.as_str()))
-        .collect()
+    let name = (name.to_lowercase().chars()).fold(String::new(), |mut out, c| {
+        match c {
+            '\u{e4}' => out.push_str("ae"),
+            '\u{f6}' => out.push_str("oe"),
+            '\u{fc}' => out.push_str("ue"),
+            '\u{df}' => out.push_str("ss"),
+            c => out.push(c),
+        }
+        out
+    });
+    let words: Vec<&str> = name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let mut out = String::new();
+    let mut at = 0;
+    while at < words.len() {
+        let w = words[at];
+        // "je Tonne", "per capita": the word after it is what it is measured per.
+        if PER.contains(&w) && at + 1 < words.len() && at > 0 {
+            at += 2;
+            continue;
+        }
+        if !super::quoting::UNITS.contains(&w) && !(MASSES.contains(&w) && at > 0) {
+            out.push_str(w);
+        }
+        at += 1;
+    }
+    out
 }
 
 /// The deck's data source `named` names: by its id, else by the file it is read from.
@@ -674,7 +700,33 @@ mod tests {
             assert_eq!(node["y"]["field"], json!(column), "{series}");
         }
         assert_eq!(measured("umsatz_teur"), "umsatz");
+        assert_eq!(measured("Gebühr je Tonne"), "gebuehr");
+        assert_eq!(measured("gebuehr_eur_t"), "gebuehr");
+        assert_eq!(measured("Restmüll (t)"), "restmuell");
         assert_eq!(measured("Umsatz (Mio. EUR)"), "umsatz");
+    }
+
+    /// W1 dogfood 13: a German file writes its umlauts out and its unit per tonne as `_t`, and a
+    /// slide's "Gebühr je Tonne" binds to `gebuehr_eur_t`, never left on its own rows.
+    #[test]
+    fn a_german_series_per_tonne_binds_to_its_column_written_without_umlauts() {
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["data"]["abfall"] = json!({ "source": "data/abfall.csv", "schema": {
+            "jahr": "number", "restmuell_t": "number", "gebuehr_eur_t": "number"
+        } });
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        let csv = "jahr,restmuell_t,gebuehr_eur_t\n2021,182000,48\n2022,186500,52\n2023,189000,57\n2024,191500,63\n2025,194000,71\n";
+        let files = BTreeMap::from([("data/abfall.csv".to_string(), csv.as_bytes().to_vec())]);
+        for (series, values, column) in [
+            ("Gebühr je Tonne", [48.0, 52.0, 57.0, 63.0, 71.0], "gebuehr_eur_t"),
+            ("Restmüll", [182000.0, 186500.0, 189000.0, 191500.0, 194000.0], "restmuell_t"),
+        ] {
+            let (mut node, mut chart) = by_year("line", series, &values);
+            chart.source_id = Some("abfall".into());
+            let bound = bind(&mut node, &chart, &deck, &files, "abfall");
+            assert!(bound.is_ok(), "{series}: {bound:?}");
+            assert_eq!(node["y"]["field"], json!(column), "{series}");
+        }
     }
 
     /// W1's dogfood 11: a Brazilian sheet's columns carry the real and its magnitude in their
