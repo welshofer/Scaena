@@ -2737,8 +2737,9 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
     // none of its own that opens the first beat naming it has its beat's written, as a made deck
     // writes them, so the notes edited are those the presenter reads (editor dogfood 3).
     // A step with none of its own reads on from the nearest earlier step of its slide that has
-    // some (agent dogfood 8), so the notes edited there are that step's, never a copy of them.
-    if name == "notes" && !old.contains_key("notes") {
+    // some (agent dogfood 8), so the notes edited there are that step's, never a copy of them;
+    // `fork` gives the step notes of its own (W1's review of #1211).
+    if name == "notes" && !fork && !old.contains_key("notes") {
         let slide = |s: &Value| s.get("slide").and_then(Value::as_str).unwrap_or(id_of(s)).to_string();
         let own = slide(state);
         let before = d.states()[..at].iter().enumerate().rev().take_while(|(_, s)| slide(s) == own);
