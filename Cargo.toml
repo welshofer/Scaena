@@ -275,9 +275,11 @@ opt-level = 2
 # not split a run of text into runs shaped apart, so kerning holds across it (ADR-0004 finding
 # 21, vendor/parley/SCAENA.md). skera 0.7.0 with one change, until it is upstream: its repacker
 # weighs a 32-bit offset in 64 bits on every target, so the browser's subsetter resolves what the
-# CLI's does (ADR-0004 finding 24, vendor/skera/SCAENA.md). skrifa 0.44.0 with one change: every
+# CLI's does (ADR-0004 finding 24, vendor/skera/SCAENA.md). skrifa 0.44.0 with two changes: every
 # pen draws a glyph through one instance of its scalers, which the browser's editor module
-# otherwise carries once for each of six pens (PLAN 2.146, vendor/skrifa/SCAENA.md). vello_shaders
+# otherwise carries once for each of six pens (PLAN 2.146), and its hinters are compiled out
+# unless its `hinting` feature is asked for, since no draw in Scaena hints (ADR-0004 finding 30,
+# vendor/skrifa/SCAENA.md). vello_shaders
 # 0.10.0 with one change: the WGSL it embeds has no comments, indentation, or blank lines, 36.7 KB
 # less of the editor's module gzipped (vendor/vello_shaders/SCAENA.md).
 [patch.crates-io]
