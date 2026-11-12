@@ -2732,9 +2732,27 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
     };
     let state = &d.states()[at];
     let old = state.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(state)))?;
-    // The notes a presenter reads are the state's own, else its beat's (SPEC §2.6): a state with
+    // The notes a presenter reads are the state's own, else its slide's earlier step's, else its
+    // beat's (SPEC §2.6): a state with
     // none of its own that opens the first beat naming it has its beat's written, as a made deck
     // writes them, so the notes edited are those the presenter reads (editor dogfood 3).
+    // A step with none of its own reads on from the nearest earlier step of its slide that has
+    // some (agent dogfood 8), so the notes edited there are that step's, never a copy of them.
+    if name == "notes" && !old.contains_key("notes") {
+        let slide = |s: &Value| s.get("slide").and_then(Value::as_str).unwrap_or(id_of(s)).to_string();
+        let own = slide(state);
+        let before = d.states()[..at].iter().enumerate().rev().take_while(|(_, s)| slide(s) == own);
+        let read = before.filter(|(_, s)| s.get("notes").and_then(Value::as_str).is_some_and(|n| !n.trim().is_empty()));
+        if let Some((from, s)) = read.into_iter().next() {
+            let old = s.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(s)))?;
+            let mut new = old.clone();
+            match value {
+                Value::Null => drop(new.shift_remove("notes")),
+                v => drop(new.insert("notes".into(), v.clone())),
+            }
+            return Ok(diff(&format!("/states/{from}"), old, &new));
+        }
+    }
     if name == "notes" && !old.contains_key("notes") {
         let id = id_of(state);
         let first = d.beats().find(|(_, _, b)| {

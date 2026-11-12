@@ -2794,8 +2794,9 @@ impl Session {
         Ok(scaena_core::reading::html(&self.deck, &*self.files, snap, &list))
     }
 
-    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
-    /// beat that names it, else empty; as written, and as the blocks they read as, lines, a
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the nearest
+    /// earlier step of its slide that has some, else those of the first beat that names it, else
+    /// empty; as written, and as the blocks they read as, lines, a
     /// list, or a table (`scaena_core::notes`). What the browser's presenter view, the Mac's and
     /// the iPad's, the remote, and a rehearsal show.
     pub fn notes(&self, state: &str) -> Result<scaena_core::notes::Notes, Error> {

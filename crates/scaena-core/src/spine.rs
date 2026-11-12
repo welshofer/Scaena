@@ -59,7 +59,8 @@ pub struct SpineState {
     pub id: String,
     /// The slide it builds (SPEC §2.2).
     pub slide: String,
-    /// What a presenter reads for it (SPEC §2.6, [`notes`]): its own notes, else its beat's.
+    /// What a presenter reads for it (SPEC §2.6, [`notes`]): its own notes, else its slide's
+    /// earlier step's, else its beat's.
     /// None where nothing is written on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
@@ -164,16 +165,32 @@ pub fn paced(deck: &Deck, timeline: &Timeline, pace: Pace) -> Timeline {
 }
 
 /// The notes a presenter reads for `state` (SPEC §2.6): the state's own, else those of the
-/// first beat, in spine order, that names it; none for a state the deck lacks. A generated deck
-/// writes its speaker notes on the beats (PLAN G.2), and a state's own, where it has them, say
-/// more about that step than the beat's.
+/// nearest earlier step of its slide that has notes of its own, else those of the first beat, in
+/// spine order, that names it; none for a state the deck lacks. A generated deck writes its
+/// speaker notes on the beats (PLAN G.2), and a state's own, where it has them, say more about
+/// that step than the beat's; a slide written by hand keeps its notes on its first state, which
+/// its build's later steps read on from, never a blank presenter view (agent dogfood 8).
 pub fn notes<'a>(deck: &'a Deck, state: &str) -> Option<&'a str> {
-    let own = deck.states.iter().find(|s| s.id == state)?;
-    if let Some(notes) = own.notes.as_deref() {
-        return Some(notes);
+    let k = deck.states.iter().position(|s| s.id == state)?;
+    if let Some(from) = notes_from(deck, k) {
+        return deck.states[from].notes.as_deref();
     }
     let mut beats = deck.spine.iter().flat_map(|s| s.sections.iter()).flat_map(|s| s.beats.iter());
     Some(beats.find(|b| b.states.iter().any(|s| s == state)).and_then(|b| b.notes.as_deref()).unwrap_or(""))
+}
+
+/// The index of the state whose own notes the state at `k` reads (SPEC §2.6): its own, where it
+/// has them, else the nearest earlier step of its slide with notes of its own, which are not
+/// blank; none where it reads its beat's. What `set_state` writes a step's notes to, so an edit
+/// edits the notes the presenter reads, never a copy of them.
+pub fn notes_from(deck: &Deck, k: usize) -> Option<usize> {
+    let state = deck.states.get(k)?;
+    if state.notes.is_some() {
+        return Some(k);
+    }
+    let slide = deck.slide_of(state);
+    let before = deck.states[..k].iter().enumerate().rev().take_while(|(_, s)| deck.slide_of(s) == slide);
+    before.filter(|(_, s)| s.notes.as_deref().is_some_and(|n| !n.trim().is_empty())).map(|(i, _)| i).next()
 }
 
 /// `deck`'s spine projection, placed on `timeline` when it is given, paced by `pace` ([`paced`]):
@@ -256,6 +273,32 @@ mod tests {
         deck.spine.as_mut().unwrap().sections[0].beats[1].states.clear();
         assert_eq!(notes(&deck, "b"), Some(""));
         assert_eq!(notes(&deck, "gone"), None);
+    }
+
+    /// A slide written by hand keeps its notes on its first state, and each step of its build
+    /// reads on from them: where its beat has none, a presenter view was blank on every step after
+    /// the first, and where its beat has others, they stood in for the slide's (agent dogfood 8, the
+    /// pitch and d5 decks). A step's own still win, and the next slide reads nothing of these.
+    #[test]
+    fn a_build_step_reads_on_from_its_slides_notes() {
+        let mut deck = deck();
+        deck.states[0].notes = Some("Each sensor clamps on and listens.".into());
+        // The pitch deck: its beat has no notes, so the step read none.
+        assert_eq!(notes(&deck, "a2"), Some("Each sensor clamps on and listens."));
+        assert_eq!(notes_from(&deck, 1), Some(0));
+        // The d5 deck: its beat has notes of its own, which stood in for the slide's.
+        deck.spine.as_mut().unwrap().sections[0].beats[0].notes = Some("The beat's summary.".into());
+        assert_eq!(notes(&deck, "a2"), Some("Each sensor clamps on and listens."));
+        // A step's own win; a blank first state's are no notes to read on from.
+        deck.states[1].notes = Some("Now the third bullet.".into());
+        assert_eq!((notes(&deck, "a2"), notes_from(&deck, 1)), (Some("Now the third bullet."), Some(1)));
+        deck.states[1].notes = None;
+        deck.states[0].notes = Some("  ".into());
+        assert_eq!((notes(&deck, "a2"), notes_from(&deck, 1)), (Some("The beat's summary."), None));
+        // Another slide reads nothing of the slide before it.
+        deck.states[0].notes = Some("Each sensor clamps on and listens.".into());
+        deck.states[2].notes = None;
+        assert_eq!(notes(&deck, "b"), Some(""));
     }
 
     #[test]
