@@ -240,16 +240,20 @@ fn w315_passes_bars_below_zero_and_finds_values_past_a_bound() {
     assert_eq!(w315["measure"]["off"], true);
 }
 
+/// A bar chart of `sales` in the lint bundle's main slot.
+fn chart_of_sales() -> Value {
+    serde_json::json!({ "c": {
+        "type": "chart", "kind": "bar", "data": "@sales", "x": { "field": "q" }, "y": { "field": "v" },
+        "alt": "Sales by quarter.", "at": { "in": "main" }
+    }})
+}
+
 /// A chart's contrast finding says how many of its labels of the kind fail, beside the worst
 /// (#1145's follow-up): its four category labels in the theme's `line`, on the dark surface, are one
 /// finding naming the worst and counting four; one label alone says no count.
 #[test]
 fn a_charts_contrast_finding_counts_the_labels_that_fail() {
-    let chart = serde_json::json!({ "c": {
-        "type": "chart", "kind": "bar", "data": "@sales", "x": { "field": "q" }, "y": { "field": "v" },
-        "alt": "Sales by quarter.", "at": { "in": "main" }
-    }});
-    let dir = bundle("chart-count", &deck(sales(), chart), |t| {
+    let dir = bundle("chart-count", &deck(sales(), chart_of_sales()), |t| {
         t["type"]["roles"]["chart"]["color"] = serde_json::json!("line");
     });
     let (_, found) = lint(&dir);
@@ -259,6 +263,25 @@ fn a_charts_contrast_finding_counts_the_labels_that_fail() {
     let said = ticks["message"].as_str().unwrap();
     assert!(said.ends_with("; 4 of its category labels fail"), "{said}");
     assert!(said.contains(&format!("`{}`", ticks["measure"]["label"].as_str().unwrap())), "the worst is named: {said}");
+    // Across states the places of a chart's labels shift: a second state without Q1 sets Q2, Q3, and
+    // Q4 a place earlier. Each label is counted once, in the state with the most failing, never
+    // again where it moved: four, not seven.
+    let mut shifted = deck(sales(), chart_of_sales());
+    let rest: Vec<Value> =
+        [("Q2", 12), ("Q3", 15), ("Q4", 9)].iter().map(|(q, v)| serde_json::json!({ "q": q, "v": v })).collect();
+    shifted["data"]["later"] = serde_json::json!({ "source": { "inline": rest }, "schema": { "v": "number" } });
+    shifted["states"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({ "id": "b", "props": { "c": { "data": "@later" } } }));
+    let dir = bundle("chart-count-shifted", &shifted, |t| {
+        t["type"]["roles"]["chart"]["color"] = serde_json::json!("line");
+    });
+    let (_, found) = lint(&dir);
+    let ticks =
+        contrast(&found).into_iter().find(|f| f["measure"]["part"] == "category label").expect("the ticks fail");
+    assert_eq!(ticks["measure"]["states"].as_array().map(Vec::len), Some(2), "{ticks:#}");
+    assert_eq!(ticks["measure"]["failing"], 4, "each label counted once: {ticks:#}");
     // One label of its kind failing says no count, as before.
     let dir = bundle(
         "chart-count-one",

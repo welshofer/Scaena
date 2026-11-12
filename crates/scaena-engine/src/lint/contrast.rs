@@ -484,9 +484,11 @@ struct Worst {
     /// Whether it is code that stands on no card (PLAN 2.136).
     bare: bool,
     states: Vec<String>,
-    /// In a chart, each of its labels of this kind that fails in some state, by its place among
-    /// the chart's texts and its words: how many the finding says fail, beside the worst.
-    labels: BTreeSet<(usize, String)>,
+    /// In a chart, the most of its labels of this kind that fail in one state: how many the
+    /// finding says fail, beside the worst. Counted a state at a time, where a label's place among
+    /// the chart's texts tells it apart; a category added or taken away moves the places after it
+    /// from one state to the next, so places are never compared across states.
+    failing: usize,
 }
 
 /// A run of a node's own text that read too faintly, as lint read it: what lies under its
@@ -535,7 +537,7 @@ impl Pass {
             return Ok(());
         }
         let mut failed: BTreeSet<&Subject> = BTreeSet::new();
-        let mut labels: BTreeMap<&Subject, BTreeSet<(usize, String)>> = BTreeMap::new();
+        let mut labels: BTreeMap<&Subject, BTreeSet<usize>> = BTreeMap::new();
         // Where the text's glyphs are: the same at every time, painted once.
         let mut ink: Option<Pixels> = None;
         for t in times(state) {
@@ -552,8 +554,8 @@ impl Pass {
                     continue;
                 }
                 failed.insert(&run.subject);
-                if let Some(said) = &run.said {
-                    labels.entry(&run.subject).or_default().insert((run.label, said.clone()));
+                if run.said.is_some() {
+                    labels.entry(&run.subject).or_default().insert(run.label);
                 }
                 // A node's own text, which a color of the theme can fix (PLAN 2.82); the slide's
                 // furniture is the theme's to color, and so is code, each token in its kind's color.
@@ -576,12 +578,12 @@ impl Pass {
                     code: run.code,
                     bare: run.bare,
                     states: Vec::new(),
-                    labels: BTreeSet::new(),
+                    failing: 0,
                 };
                 match worst.get_mut(&run.subject) {
                     Some(w) if r < w.ratio => {
-                        let (states, labels) = (std::mem::take(&mut w.states), std::mem::take(&mut w.labels));
-                        *w = Worst { states, labels, ..reading }
+                        let (states, failing) = (std::mem::take(&mut w.states), w.failing);
+                        *w = Worst { states, failing, ..reading }
                     }
                     Some(_) => {}
                     None => {
@@ -595,7 +597,7 @@ impl Pass {
             if !w.states.contains(&state.snapshot.state_id) {
                 w.states.push(state.snapshot.state_id.clone());
             }
-            w.labels.extend(labels.remove(subject).unwrap_or_default());
+            w.failing = w.failing.max(labels.remove(subject).map_or(0, |l| l.len()));
         }
         Ok(())
     }
@@ -606,7 +608,7 @@ impl Pass {
         let hex = |c: [u8; 3]| format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2]);
         worst
         .into_iter()
-        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, bare, states, labels })| {
+        .map(|((node, part), Worst { ratio: r, said, needs, index, background: bg, text: fg, size, code: coded, bare, states, failing })| {
             let (code, class) = if needs > 3.0 { ("E110", "body") } else { ("E111", "display") };
             let fg = hex(fg.map(|c| (c * 255.0).round() as u8));
             let reads = format!("{r:.2}:1 contrast with what is behind it; {class} text needs {needs}:1");
@@ -640,7 +642,7 @@ impl Pass {
                 // Beside the worst, how many of its labels of the kind fail (#1145's follow-up): a
                 // chart's deficit bars can cover three category labels, each its own reading.
                 Some(part) => {
-                    let more = match labels.len() {
+                    let more = match failing {
                         0 | 1 => String::new(),
                         n => format!("; {n} of its {}s fail", part.name()),
                     };
@@ -673,7 +675,7 @@ impl Pass {
                 Some(part) => {
                     measure["part"] = part.name().into();
                     measure["label"] = said.into();
-                    measure["failing"] = labels.len().into();
+                    measure["failing"] = failing.into();
                     "Set the chart's text in a color that reads against what is behind it (the theme's `charts` roles, its palette for series names, `charts.annotation.dimmed` for text a highlight dims), or change what is behind it."
                 }
             };
