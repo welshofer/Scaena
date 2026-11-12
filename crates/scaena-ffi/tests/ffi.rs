@@ -1887,6 +1887,20 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     let restored = call(s, "restoreVersion", json!({ "version": "1", "at": "2026-10-08T12:10:00Z" }));
     assert_eq!(restored["restored"]["applied"], true, "{restored}");
     assert!(!call(s, "source", Value::Null).as_str().unwrap().contains("anew"));
+    // One slide of it put back (dogfood 16): the first belief's headline, its slide's own, as the
+    // version had it, the cover's title typed since kept, and the slide named by its number.
+    let typed = json!([
+        { "op": "replace_text", "node": "title", "state": "cover", "from": 6, "to": 6, "text": " anew" },
+        { "op": "replace_text", "node": "headline", "state": "belief-1", "from": 0, "to": 0, "text": "Now: " },
+    ]);
+    assert_eq!(call(s, "typed", json!({ "ops": typed })), true);
+    save(s, "2026-10-08T12:12:00Z");
+    let slide = call(s, "restoreVersion", json!({ "version": "1", "slide": "belief-1", "at": "2026-10-08T12:15:00Z" }));
+    assert_eq!(slide["restored"]["applied"], true, "{slide}");
+    assert!(slide["restored"]["slide"].as_str().is_some_and(|said| said.starts_with("Slide 3")), "{slide}");
+    let source = call(s, "source", Value::Null);
+    let source = source.as_str().unwrap();
+    assert!(source.contains("Scaena anew") && !source.contains("Now: The slide"), "{source}");
     let unknown = answered(s, "viewVersion", &json!({ "version": "9" }));
     assert!(unknown["error"]["message"].as_str().is_some_and(|m| m.contains("no version")), "{unknown}");
     unsafe { scaena_session_free(s) };
