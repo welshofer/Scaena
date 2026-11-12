@@ -2186,9 +2186,9 @@ struct DeckView: View {
                 // the canvas takes the keyboard, as a key pressed over a text selected begins it.
                 Task { @MainActor in _ = typing?.enterOver(head, in: state) }
             },
-            fold: { state in
+            fold: { state, into in
                 if typing?.typing == true { typing?.leave() }
-                foldSlide(state)
+                foldSlide(state, into: into)
             },
             field: { state, field in
                 // The slide, nothing on it selected, under the Format tab, where the inspector
@@ -2257,12 +2257,15 @@ struct DeckView: View {
         }
     }
 
-    /// The slide `state` is on folded into the slide before it (editor dogfood 6): one step to undo,
-    /// that slide shown at its last step, where the words joined, and what it did said; or why it
-    /// cannot be, said, nothing made.
-    private func foldSlide(_ state: String) {
+    /// The slide `state` is on folded into the slide before it (editor dogfood 6), or into the
+    /// earlier slide `into` is on where given (R1's #1161): one step to undo, that slide shown at
+    /// its last step, where the words joined, and what it did said; or why it cannot be, said,
+    /// nothing made.
+    private func foldSlide(_ state: String) { foldSlide(state, into: nil) }
+
+    private func foldSlide(_ state: String, into: String?) {
         perform {
-            let folded = try editor.session.folding(state)
+            let folded = try editor.session.folding(state, into: into)
             if let refused = folded.refused {
                 said = refused
                 return

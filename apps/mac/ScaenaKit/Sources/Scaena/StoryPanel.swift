@@ -216,6 +216,8 @@ struct StoryPanel: View {
         let first = run[0]
         // The slide as it reads now, never only its beat's claim (editor dogfood 4).
         let title = health.headline(of: first.slide, state: first.state, in: editor.slots)
+        // The earlier slides a slide said again may fold into, beside the slide before it.
+        let earlier = Slide.earlier(run, in: editor.slots)
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // Its kind by a symbol and in words beside its colour, never by colour alone
@@ -276,12 +278,19 @@ struct StoryPanel: View {
                         .disabled(asLastRead)
                         .accessibilityIdentifier("story-edit-headline")
                 }
+                // A slide that says again what an earlier one said offers to fold into that one,
+                // beside the cut its to-do names (R1's #1161), as the browser's Story row does.
+                ForEach(earlier, id: \.into) { fold in
+                    Button(fold.label) { edits.fold(first.state, fold.into) }
+                        .disabled(asLastRead)
+                        .accessibilityIdentifier("story-fold-\(fold.slide)")
+                }
                 // A slide that says again what the one before said, or adds least to it, offers to
                 // fold into it, as its to-do says (editor dogfood 6), as the browser's Story row does.
-                if run.contains(where: { $0.kind == "story" || $0.kind == "pacing" }),
+                if run.contains(where: { ($0.kind == "story" && earlier.isEmpty) || $0.kind == "pacing" }),
                     let label = Slide.folding(first.state, in: editor.slots)
                 {
-                    Button(label) { edits.fold(first.state) }
+                    Button(label) { edits.fold(first.state, nil) }
                         .disabled(asLastRead)
                         .accessibilityIdentifier("story-fold")
                 }
