@@ -3196,7 +3196,12 @@ mod tests {
         assert_ne!(own, tall, "9:16 lays the state out otherwise");
         let mut opened = s.snapshot().session().unwrap();
         assert_eq!(opened.png("images", 320).unwrap(), tall, "the snapshot exports in 9:16");
+        // A movie, with sound or without, draws its frames on the session it is made on: in 9:16.
+        let frame = |s: &mut Session| s.movie_frame(10, 0, 160, None).unwrap().digest;
+        let tall_frame = frame(&mut s);
+        assert_eq!(frame(&mut opened), tall_frame, "the snapshot's movie is in 9:16 too");
         s.set_format(None).unwrap();
+        assert_ne!(frame(&mut s), tall_frame, "and its frames are 9:16's own");
         let mut opened = s.snapshot().session().unwrap();
         assert_eq!(opened.png("images", 320).unwrap(), own, "and on the deck's own canvas where it shows that");
     }
