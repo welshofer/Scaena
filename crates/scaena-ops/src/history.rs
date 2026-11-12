@@ -492,14 +492,27 @@ fn spine_changed(was: &Deck, is: &Deck) -> (Value, Value) {
         let all = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats);
         all.filter_map(|b| Some((b.id.clone(), serde_json::to_value(b).ok()?))).collect()
     };
+    // Each section as it stands, its beats by their ids: its id, its title, and any field it
+    // carries beside them.
     let outline = |deck: &Deck| -> Value {
         let sections = deck.spine.iter().flat_map(|s| &s.sections);
         sections
             .map(|s| {
+                let mut section = serde_json::to_value(s).unwrap_or_default();
                 let beats: Vec<Value> = s.beats.iter().map(|b| Value::from(b.id.clone())).collect();
-                serde_json::json!({ "id": s.id, "title": s.title, "beats": beats })
+                if let Some(section) = section.as_object_mut() {
+                    section.insert("beats".into(), Value::from(beats));
+                }
+                section
             })
             .collect()
+    };
+    // The spine's own fields beside its sections.
+    let own = |deck: &Deck| -> serde_json::Map<String, Value> {
+        let mut fields = deck.spine.as_ref().and_then(|s| serde_json::to_value(s).ok());
+        let mut fields = fields.as_mut().and_then(Value::as_object_mut).map(std::mem::take).unwrap_or_default();
+        fields.remove("sections");
+        fields
     };
     let (then, now) = (beats(was), beats(is));
     let (mut after, mut before) = (serde_json::Map::new(), serde_json::Map::new());
@@ -535,7 +548,14 @@ fn spine_changed(was: &Deck, is: &Deck) -> (Value, Value) {
         later.insert("sections".into(), to);
         earlier.insert("sections".into(), from);
     }
-    if was.spine.is_none() || is.spine.is_none() {
+    let (then_own, now_own) = (own(was), own(is));
+    let fields = changes(&then_own, &now_own);
+    let had = had(&then_own, fields.keys());
+    later.extend(fields);
+    earlier.extend(had);
+    // A spine missing on one side, or changed in what none of the above says, is given whole:
+    // a comparison never shows a spine that changed as `{}`.
+    if was.spine.is_none() || is.spine.is_none() || later.is_empty() {
         let whole = |d: &Deck| d.spine.as_ref().map_or(Value::Null, |s| serde_json::to_value(s).unwrap_or_default());
         return (whole(is), whole(was));
     }
@@ -792,5 +812,14 @@ mod tests {
         assert_eq!(after["sections"][2]["beats"][0], "hilltop-stalled");
         assert_eq!(before["sections"][1]["beats"][1], "hilltop-stalled");
         assert!(after.to_string().len() < 700, "{} bytes: {after}", after.to_string().len());
+
+        // Only a section's own field changed, no beat's: the outline says it, never `{}`.
+        let mut retitled = was.clone();
+        retitled["spine"]["sections"][2]["title"] = "Hills".into();
+        let (after, before) = spine_changed(&deck(&was), &deck(&retitled));
+        assert_eq!(after.get("beats"), None, "{after}");
+        assert_eq!(after["sections"][2]["title"], "Hills");
+        assert_eq!(before["sections"][2]["title"], "E-bikes");
+        assert_eq!(after["sections"][2]["beats"], serde_json::json!(["ebikes", "lesson"]));
     }
 }
