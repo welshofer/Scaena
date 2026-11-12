@@ -1943,7 +1943,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         }
-        if s.body.trim().is_empty() && s.notes.trim().is_empty() {
+        // A slide that draws a chart, a picture, or a table shows something past its headline, and
+        // what it lacks is its notes alone (W1 dogfood 16: a chart dropped on a blank slide was
+        // said to say nothing past a headline it did not have).
+        if s.body.trim().is_empty() && s.notes.trim().is_empty() && !s.drawn {
             // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
             // it lacks is the notes, never more on the slide.
             let (says, ask) = if s.one_idea {
@@ -2689,7 +2692,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         }
-        if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
+        if (!s.body.trim().is_empty() || s.drawn) && s.notes.trim().is_empty() {
             unnoted.push(i);
         }
         if reads_aloud(s) {
@@ -3997,6 +4000,36 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A slide that draws a chart and says nothing in words is asked for its notes, never said to
+    /// say nothing past its headline (W1 dogfood 16: a chart dropped on a blank slide was).
+    #[test]
+    fn a_slide_that_draws_a_chart_is_asked_for_notes_alone() {
+        let mut deck: Value = serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        for st in deck["states"].as_array_mut().unwrap() {
+            // The revenue slide shows its chart alone: no headline, no note, no notes.
+            if st["id"] == "revenue" || st["id"] == "mix" {
+                st.as_object_mut().unwrap().remove("notes");
+                st["props"].as_object_mut().unwrap().remove("note");
+                st["props"].as_object_mut().unwrap().remove("title");
+            }
+            if st["id"] == "revenue" {
+                st["remove"] = json!(["subtitle", "bg", "title"]);
+            }
+            if st["id"] == "close" {
+                st["props"]["title"] = json!({});
+            }
+        }
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        let h = of(&deck);
+        assert!(h.findings.iter().all(|f| !(f.kind == Kind::Empty && f.slide == 2)), "{:#?}", h.findings);
+        let noted = h.findings.iter().find(|f| f.kind == Kind::Notes && f.says.ends_with("no notes for you."));
+        assert!(noted.is_some_and(|f| f.says.contains("2")), "{:#?}", h.findings);
     }
 
     /// A slide built by hand as a grid of cards makes a point a card (R1's dogfood 6): ridgeline's
