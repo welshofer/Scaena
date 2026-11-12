@@ -14796,6 +14796,33 @@ mod tests {
         assert_eq!(firsts(&after), [written.states[0].clone()]);
     }
 
+    /// The first slide written to a planned spine shares the talk's slot with the beats no slide
+    /// tells yet, a slide each, not given all of it (agent dogfood 8: a cover written first to a
+    /// spine of seven was budgeted 1,427 words of ten minutes).
+    #[test]
+    fn a_slide_written_to_a_planned_spine_is_budgeted_its_share_of_the_slot() {
+        let (doc, theme, slides) = made_of(&[0]);
+        let mut doc = blank(&doc);
+        doc["meta"]["narrative"] = json!({ "brief": { "topic": "Leaks", "minutes": 10 } });
+        let beat = |id: &str, claim: &str| json!({ "id": id, "claim": claim, "states": [] });
+        let planned = (1..6).map(|k| beat(&format!("b{k}"), &format!("Claim number {k} is said here."))).collect();
+        let mut beats = vec![beat("stakes", "The stakes are high")];
+        beats.extend::<Vec<Value>>(planned);
+        doc["spine"] = json!({ "sections": [{ "id": "why", "title": "Why", "beats": beats }] });
+        let budget = |doc: &Value| {
+            let written =
+                slide_into(doc, &theme, slides[0].clone(), &Place::End, Some("stakes"), BTreeMap::new(), &no_files())
+                    .unwrap();
+            let deck = Deck::from_value(&patched(doc, &written.patch)).unwrap();
+            budgeted(&deck).unwrap().budgets
+        };
+        let shared = budget(&doc);
+        assert_eq!(shared.len(), 1, "a budget for the slide written alone: {shared:?}");
+        doc["spine"]["sections"][0]["beats"].as_array_mut().unwrap().truncate(1);
+        let alone = budget(&doc)[0].words;
+        assert!(shared[0].words * 4 < alone, "{} of {alone} words", shared[0].words);
+    }
+
     /// A slide written for a grounded deck is asked with the deck's one idea, the claim its
     /// outline settled for the slide's beat (not the spine's, the old headline), the sources it
     /// credits, named only, and the rows of the data it keeps, told apart (lift-up 10-25b FUNC-1).
