@@ -664,11 +664,15 @@ struct DeckView: View {
             Divider()
             Button("Share All Slides as PNGs…") { export(allSlides, sharing: true) }
             Button("Save All Slides as PNGs…") { save(allSlides) }
+            // The deck as it plays, as a movie (lift-up 20261031 FUNC-2).
+            Divider()
+            Button("Share as Movie…") { export(.movie, sharing: true) }
+            Button("Save as Movie…") { save(.movie) }
         } label: {
             Label("Share", systemImage: "square.and.arrow.up")
         }
         .accessibilityLabel("Share")
-        .help("The deck as a PDF, with or without your notes, this slide as a picture, or every slide as pictures")
+        .help("The deck as a PDF, with or without your notes, this slide as a picture, every slide as pictures, or the deck as a movie")
         .disabled(editor.slots.isEmpty)
     }
 
@@ -703,6 +707,7 @@ struct DeckView: View {
             made.saveNotes = { save(.notes) }
             made.saveImages = { scale in save(slides(scaled: scale)) }
             made.saveHTML = { save(.html) }
+            made.saveMovie = { save(.movie) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {

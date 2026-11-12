@@ -795,6 +795,57 @@ pub unsafe extern "C" fn scaena_pixels(
     }
 }
 
+/// Frame `k` of the deck's movie of `fps` frames a second (lift-up 20261031 FUNC-2), painted by
+/// the CPU painter `width` pixels wide, the height keeping the canvas's aspect, as the browser's
+/// `movieFrame` paints it: the global timeline as `scaena export --format mp4` plays it, each
+/// state's cue then its hold, paced by the beats. `*digest` is set to its drawing's digest, a
+/// string to free. Where it is `before`'s, the frame the caller has already, nothing is painted:
+/// null bytes, `*error` left null. Null bytes where it cannot be made, `*error` then saying why.
+///
+/// # Safety
+/// `session` is a live handle; `before` null or a NUL-terminated string; `digest` and `error`
+/// null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_movie_frame(
+    session: *mut ScaenaSession,
+    fps: u32,
+    k: u64,
+    width: u32,
+    before: *const c_char,
+    digest: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> ScaenaPixels {
+    let painted = guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        let before = unsafe { maybe_text(before, "before") }?;
+        if !(1..=120).contains(&fps) {
+            return Err(said("movieFrame: `fps` is a number of frames a second, 1 to 120"));
+        }
+        if !(2..=16384).contains(&width) {
+            return Err(said("movieFrame: `width` is a number of pixels, 2 to 16384"));
+        }
+        session.0.movie_frame(fps, k, width, before).map_err(said)
+    });
+    match painted {
+        Ok(frame) => {
+            if !digest.is_null() {
+                // SAFETY: the caller gives null or a writable pointer.
+                unsafe { *digest = c_string(frame.digest) };
+            }
+            match frame.raster {
+                Some(raster) => {
+                    ScaenaPixels { bytes: ScaenaBytes::of(raster.rgba), width: raster.width, height: raster.height }
+                }
+                None => ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 },
+            }
+        }
+        Err(failure) => {
+            unsafe { report(error, failure) };
+            ScaenaPixels { bytes: ScaenaBytes::NONE, width: 0, height: 0 }
+        }
+    }
+}
+
 /// `state` at rest on the deck's own canvas, painted by the CPU painter as wide as the PNG `png`
 /// (`len` bytes), and held to it by SPEC §13.5's metric (`scaena_paint::diff`), the one the torture
 /// goldens and the web player's painters are held by: what gate 4 holds the iPad's pixels to the
@@ -1814,6 +1865,14 @@ fn held(s: &Session, name: &str) -> Result<scaena_session::versions::Held, Failu
     Ok(held)
 }
 
+/// A movie's frames a second in `args`: `fps`, 1 to 120.
+fn fps(args: &Value, method: &str) -> Result<u32, Failure> {
+    (args.get("fps").and_then(Value::as_u64))
+        .and_then(|f| u32::try_from(f).ok())
+        .filter(|f| (1..=120).contains(f))
+        .ok_or_else(|| said(format!("{method}: `fps` is a number of frames a second, 1 to 120")))
+}
+
 /// The session's answer to `method`, as `Player` gives it a page.
 fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
     let arg = |key: &str| {
@@ -1852,6 +1911,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
         "digest" => json!(s.digest(arg("state")?).map_err(said)?),
+        // The deck as a movie of `fps` frames a second (lift-up 20261031 FUNC-2): `{frames, fps,
+        // durationMs}`, refused where it would run 0 ms or past a day, as the CLI's is.
+        "movie" => s.movie(fps(args, method)?).map_err(said)?,
         "reading" => json!(s.reading(arg("state")?).map_err(said)?),
         "notes" => value(serde_json::to_value(s.notes(arg("state")?).map_err(said)?))?,
         "reads" => value(serde_json::to_value(s.reads(arg("state")?).map_err(said)?))?,
@@ -1957,6 +2019,14 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "preview" => {
             let ops = patch_of(args.get("ops"), method)?;
             s.preview(ops.as_deref()).map_err(said)?;
+            Value::Null
+        }
+        // The theme the deck names drawn as `ops`, RFC 6902 operations on it, would edit it, with
+        // nothing made, validated, or linted: a color held in its picker (lift-up ATTR-5). None
+        // draws the theme as it is.
+        "themePreviewing" => {
+            let ops = patch_of(args.get("ops"), method)?;
+            s.theme_previewing(ops.as_deref()).map_err(said)?;
             Value::Null
         }
         "reach" => {

@@ -347,3 +347,53 @@ On 2026-11-11, an agent with nothing but the scaena MCP server made a technical 
 - **Sources.** Each source is kept in `meta.narrative.sources` with its address, and the docs page's `sourceRef` was cited.
 - **Refusals that said why.** A `deck_patch` that made a text code and kept its `list` was E106, which says why.
 - **Health's other findings,** the arc's two bends and the turns, read as true.
+
+## A sixth run: a deck revised from a reviewer's notes (agent dogfood 7)
+
+On 2026-11-12, an agent with nothing but the scaena MCP server revised a deck to answer a reviewer. It ran on main at 9c56bf98.
+
+**The deck.** The pitch made by `deck_generate` from `tests/fixtures/dogfood/pitch.slides.json`, with three faults put in:
+
+- **A repeat.** Slide 6 says slide 4's accessorials again, with slide 5 between them.
+- **A dragging middle.** Slides 10–12 are three bullet slides that tell slide 8's How It Works again, a step each.
+- **A vague ask.** The ask (17) is "Join us as we transform freight audit", with no amount.
+
+Its brief is twelve minutes, so 5–10 slides; the deck has 18.
+
+**What the agent was handed:** "The middle drags, the ask is unclear, and slide 6 says the same as slide 4."
+
+**The tools it used:**
+
+- `deck_health` and `deck_read` to find the faults;
+- `slide_write` with `replace` and `id` to write slide 6 and the ask again;
+- `deck_patch` for `restated`'s fixes, `remove_slide`, `set_state`, and `brief`;
+- `deck_history` to compare, and to take a cut back;
+- `deck_render` to look;
+- `deck_export` of a PDF with notes (15 pages).
+
+**What it found**
+
+| What the agent met | Fix |
+|---|---|
+| Health named none of the reviewer's faults. Its cut, "slides 2, 3, 4, 8, 9, 11, 16 and 17 add least … Fold them in, or cut them", named the hook, the $9B big number, the accessorial chart, How It Works, and the ask. It read each slide against the slide just before it, so a coherent talk's best-joined slides were named for cutting. Its repeat finding read only neighbours, so slide 6 (two after 4) and 10–12 (two after 8) went unseen. The agent found slide 6 and the ask only by the `claim` warnings on slides 5–6 and 15–18. | #1161: a repeat is read against the nearest earlier slide that makes a point, unless the later writes a figure of its own. The cut names the slides an earlier slide said most of, never a cover, divider, agenda, close, or ask. On the faulted deck: "Slide 6 says again what slide 4 said", "Slide 11 says again what slide 8 said", and a cut of 4, 6, 10–15. No score moves on the nine decks compared. |
+| After a bad cut (slide 3, as the old cut named it) and a notes edit after it, `restore` could only take the whole deck back, the notes edit with it. Bringing the slide back alone took five JSON Patch ops rebuilt from `at`'s deck: its state, three nodes, its beat, and the section's index. | #1172: `restore` with `slide` puts back one slide as the version held it, with its steps, the objects it alone shows, its data, and its beat. Every edit made since stays, and a dry run names it "Slide 3: …". |
+| The dragging run could only be cut. The editors' Fold Into Slide N was no op or tool. | #1175: `fold_slide`, alone in its patch, folds as the editors' Fold does, `folded.says` saying what goes where beforehand. |
+| `deck_render` with `out: "r/vs.png"` failed: "No such file or directory". | #1163: a render makes its folder, as an export does since #1140. |
+| A `brief` op answered `summary: {}`, and the history said it as "An edit". Three slides cut were "A slide deleted". | #1167: the summary lists the brief's fields changed, and the history says every op and counts a run of one (`remove_slide ×3`, "3 slides deleted"). |
+
+**Routed, not fixed here**
+
+- **Health didn't move.** It read 83 on the faulted deck and 83 on the revised one, through every step.
+- **Why.** Cutting the three padded slides took pacing from 60 to 75 and balance from 98 to 87 ("1.8 points each"): balance rewards three bullets of filler. The coordinator took it to Jay.
+
+**What held**
+
+- **`slide_write`'s `replace`.** With an `id`, it wrote slide 6 and the ask again in their beats. Its `restated` gave the `replace` that sets each beat's claim to the new headline, which `deck_patch` takes as `ops`.
+- **The cut.** `remove_slide` took the three dragging slides with their beats.
+- **The history.** `deck_history`'s `compare` showed the cut slide and its beat as they were.
+- **The look.** The renders agreed with lint.
+
+The agent guessed in two places:
+
+- **Which slides to cut.** Health's list misled it; #1161 answers that.
+- **How to bring one slide back.** It rebuilt the patch by hand; #1172 answers that.

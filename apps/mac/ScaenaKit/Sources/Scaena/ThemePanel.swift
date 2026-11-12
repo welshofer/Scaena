@@ -51,9 +51,12 @@ struct ThemePanel: View {
             Section("Colors") {
                 ForEach(entries(theme?["tokens"]?["color"])) { entry in
                     let name = Words.name(entry.key, of: "color", theme: nil)
-                    ColorRow(key: entry.key, name: name, uses: uses(entry.key), value: entry.value.string ?? "") { value in
-                        let path = "/tokens/color/\(escaped(entry.key))"
-                        return edit([put(path, .string(value), over: entry.value)], "\(name) Color")
+                    let path = "/tokens/color/\(escaped(entry.key))"
+                    ColorRow(
+                        key: entry.key, name: name, uses: uses(entry.key), value: entry.value.string ?? "",
+                        preview: { held in editor.show(theme: held.map { [put(path, .string($0), over: entry.value)] }) }
+                    ) { value in
+                        edit([put(path, .string(value), over: entry.value)], "\(name) Color")
                     }
                 }
             }
@@ -233,8 +236,9 @@ private struct ThemeEntry: Identifiable {
 
 /// A color: its swatch, which picks one, and its value as the theme writes it, in a field that
 /// takes any the theme reads (`#rrggbb[aa]`, `oklch(…)`). What is typed is set on Return or when
-/// the field is left, and Escape puts it back; a swatch dragged is set once it rests. One refused
-/// shows the color as it was.
+/// the field is left, and Escape puts it back; a swatch dragged shows on the slide as it moves,
+/// drawn in the theme it would make with nothing written (lift-up ATTR-5), and is set once it
+/// rests. One refused shows the color as it was.
 private struct ColorRow: View {
     /// The color's name in the theme: what a test finds its field by.
     let key: String
@@ -244,6 +248,8 @@ private struct ColorRow: View {
     /// Accent`.
     let uses: String?
     let value: String
+    /// Draw the slide as the color held would make it, nothing written; none, as it is.
+    let preview: (String?) -> Void
     /// Set the color: whether it was.
     let set: (String) -> Bool
     @State private var typed = ""
@@ -300,7 +306,15 @@ private struct ColorRow: View {
         .onChange(of: focused) { _, now in
             if now { selectWhole($focused) } else { commit() }
         }
-        .onDisappear(perform: commit)
+        .onDisappear {
+            // A color held and not yet set is let go: the slide drawn as the theme is.
+            if settling != nil {
+                settling?.cancel()
+                settling = nil
+                preview(nil)
+            }
+            commit()
+        }
     }
 
     /// What is typed, set where it is another color than the one shown; nothing typed shows the
@@ -325,18 +339,26 @@ private struct ColorRow: View {
         focused = false
     }
 
-    /// The swatch: the value as a color, where it is a hex color; a color picked, its hex, once the
-    /// picker rests.
+    /// The swatch: the value as a color, where it is a hex color; a color picked shown on the slide
+    /// as it moves, each move the newest, and set as its hex once the picker rests. Set or refused,
+    /// the preview goes: the deck drawn as it now is.
     private var swatch: Binding<Color> {
         Binding(
             get: { ThemeLook.hex(value) ?? .clear },
             set: { picked in
-                guard let hex = ThemeLook.hex(picked), hex.lowercased() != value.lowercased() else { return }
+                guard let hex = ThemeLook.hex(picked) else { return }
                 settling?.cancel()
+                guard hex.lowercased() != value.lowercased() else {
+                    settling = nil
+                    preview(nil)
+                    return
+                }
+                preview(hex)
                 settling = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
-                    _ = set(hex)
+                    settling = nil
+                    if !set(hex) { preview(nil) }
                 }
             })
     }

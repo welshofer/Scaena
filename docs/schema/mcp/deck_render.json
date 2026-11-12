@@ -37,7 +37,7 @@
       },
       "painter": { "$ref": "#/$defs/Painter", "default": "cpu" },
       "out": {
-        "description": "Also write the PNG here: under the server's working directory or the bundle's folder.",
+        "description": "Also write the PNG here: under the server's working directory or the bundle's folder,\nmaking the folder it goes in where there is none.",
         "type": ["string", "null"],
         "default": null
       }
