@@ -947,6 +947,7 @@ try {
     const count = await page.evaluate(() => new Set(window.scaena.last().slots.map((s) => s.slide)).size);
     const head = await page.evaluate((st) => window.scaena.last().slots.find((s) => s.state === st)?.headline, again?.state);
     const was = await page.evaluate(() => window.scaena.source());
+    const readBefore = await page.evaluate(() => window.scaena.story.health());
     await foldIt.click().catch((e) => failures.push(`no fold to press: ${e.message}`));
     await page.waitForFunction((s) => window.scaena.source() !== s, was, { timeout: 30000 }).catch(() => {});
     await page.waitForFunction((n) => new Set(window.scaena.last().slots.map((s) => s.slide)).size === n - 1, count, { timeout: 30000 }).catch(() => {});
@@ -955,6 +956,22 @@ try {
     check(
       (await page.evaluate(() => new Set(window.scaena.last().slots.map((s) => s.slide)).size)) === count - 1 && status.startsWith(`Folded slide ${again?.slide} into slide ${again?.slide - 1}'s notes`),
       `pressed, slide ${again?.slide} folds into the notes of the slide before: ${status}`,
+    );
+    // What the fold answered is said of the findings that went, each by the slide it stood on, not
+    // of those that only moved up a slide with every slide after the one folded (W1 dogfood 14).
+    await page.waitForFunction((b) => window.scaena.story.health() && window.scaena.story.health() !== b && JSON.stringify(window.scaena.story.health()) !== JSON.stringify(b), readBefore, { timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    const readAfter = await page.evaluate(() => window.scaena.story.health());
+    const told = (await page.evaluate(() => document.querySelector("#story > p[data-answered]")?.textContent ?? "")) || "";
+    const placed = (h) => h.findings.map((f) => ({ kind: f.kind, slide: f.slide, on: h.slides[f.slide - 1]?.state }));
+    const stands = new Set(placed(readAfter).map((f) => `${f.kind} ${f.on}`));
+    const kept = new Set(readAfter.slides.map((s) => s.state));
+    const gone = placed(readBefore).filter((f) => kept.has(f.on) && !stands.has(`${f.kind} ${f.on}`));
+    const saidSlides = [...told.matchAll(/slide (\d+)'s/g)].map((m) => Number(m[1])).sort((a, b) => a - b);
+    const goneSlides = [...new Set(gone.map((f) => f.slide))].sort((a, b) => a - b);
+    check(
+      saidSlides.join() === goneSlides.join(),
+      `what the fold answered names the slides whose findings went, by where they stood: said ${JSON.stringify(told)}, gone ${JSON.stringify(gone)}`,
     );
     // Notes of more than a line are a block under `notes """`: the headline one of its lines.
     const lines = after.split("\n");

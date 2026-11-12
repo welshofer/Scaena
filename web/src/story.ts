@@ -254,17 +254,20 @@ export function slidesShown(text: string, h: Health): (string | HTMLButtonElemen
 }
 
 /** Where a finding's row stood when last drawn, and where each stands now: a finding is told by
- * its kind and slide, or, where the deck had and has one finding of its kind, by the kind alone,
- * as pacing's, whose slide moves to the shortest beat as notes are deepened (editor dogfood 6). */
-function places(findings: HealthFinding[]) {
+ * its kind and its slide, the slide by its state, which a slide folded, moved, or taken away before
+ * it leaves as it was, where its number moves (W1 dogfood 14); or, where the deck had and has one
+ * finding of its kind, by the kind alone, as pacing's, whose slide moves to the shortest beat as
+ * notes are deepened (editor dogfood 6). */
+function places(h: Health) {
   const kinds = new Map<string, number>();
-  for (const f of findings) kinds.set(f.kind, (kinds.get(f.kind) ?? 0) + 1);
+  for (const f of h.findings) kinds.set(f.kind, (kinds.get(f.kind) ?? 0) + 1);
   const alone = (f: HealthFinding) => kinds.get(f.kind) === 1;
+  const on = (f: HealthFinding) => `${f.kind} ${h.slides[f.slide - 1]?.state ?? f.slide}`;
   return {
     /** Where `f` stood in `stood`, else none. */
-    at: (stood: Map<string, number>, f: HealthFinding) => stood.get(`${f.kind} ${f.slide}`) ?? (alone(f) ? stood.get(f.kind) : undefined),
+    at: (stood: Map<string, number>, f: HealthFinding) => stood.get(on(f)) ?? (alone(f) ? stood.get(f.kind) : undefined),
     /** The keys `f` is found by at the next read, standing at `i`. */
-    keys: (f: HealthFinding) => (alone(f) ? [`${f.kind} ${f.slide}`, f.kind] : [`${f.kind} ${f.slide}`]),
+    keys: (f: HealthFinding) => (alone(f) ? [on(f), f.kind] : [on(f)]),
   };
 }
 
@@ -282,8 +285,8 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
  * was read at, its slide's last for most (#982): what an edit answered. A slide taken away, or
  * another deck opened, answers nothing. */
 export function answered(before: Health, after: Health, states: Iterable<string>): HealthFinding[] {
-  const was = places(before.findings);
-  const now = places(after.findings);
+  const was = places(before);
+  const now = places(after);
   const found = new Map(after.findings.flatMap((f) => now.keys(f).map((k) => [k, 0] as const)));
   const has = new Set(states);
   return before.findings.filter((f) => has.has(f.state) && was.at(found, f) === undefined);
@@ -540,7 +543,7 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
     const choosing = list.querySelector<HTMLElement>("[data-citing]:not([hidden])");
     const citing = choosing?.closest<HTMLElement>("li[data-slide]")?.dataset.slide;
     const picked = choosing?.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.source : undefined;
-    const place = places(h.findings);
+    const place = places(h);
     const at = (run: HealthFinding[]) => Math.min(...run.map((f) => place.at(stood, f) ?? Infinity));
     const runs = bySlide(open)
       .map((run, i) => ({ run, i, at: at(run) }))

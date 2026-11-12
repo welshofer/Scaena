@@ -34,10 +34,11 @@ enum Exporting {
         /// was planned for it, which anyone who opens the file can read: asked for each time, as
         /// the browser's Export… asks (lift-up 20261025 SEC-3).
         case htmlNotes
-        /// The deck as it plays, as a movie: each state's cue then its hold, at the canvas's size
-        /// and 30 frames a second, titled as the deck is, a chapter for each beat, and the bundle's
-        /// sound file at `sound` under it where one is chosen.
-        case movie(sound: String? = nil)
+        /// The deck as it plays, as a movie: each state's cue then its hold, `width` pixels wide
+        /// (the canvas's where none is given) in the canvas's proportions, at `fps` frames a
+        /// second, titled as the deck is, a chapter for each beat, and the bundle's sound file at
+        /// `sound` under it where one is chosen.
+        case movie(sound: String? = nil, width: Int? = nil, fps: Int = MovieSize.fps)
 
         var type: UTType {
             switch self {
@@ -60,7 +61,9 @@ enum Exporting {
         case .slides(let width): .slides(width: width, name: title(of: editor))
         case .html: .html(name: title(of: editor))
         case .htmlNotes: .html(name: title(of: editor), notes: true)
-        case .movie(let sound): .movie(title: ((try? editor.session.title()) ?? nil) ?? title(of: editor), sound: sound)
+        case .movie(let sound, let width, let fps):
+            .movie(
+                title: ((try? editor.session.title()) ?? nil) ?? title(of: editor), sound: sound, width: width, fps: fps)
         }
     }
 

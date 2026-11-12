@@ -83,6 +83,10 @@ struct DeckView: View {
     /// Where a picture made goes, while Make a Picture's sheet asks what it shows (PLAN 2.107),
     /// and the deck's theme, its JSON, whose palette colors it.
     @State private var picturing: PictureTarget?
+    /// A movie asked for, its width and frames a second asked before it is made.
+    @State private var movieAsked: MovieAsked?
+    /// The movie the sheet chose, made once the sheet is put away: shared, or saved.
+    @State private var movieChosen: (kind: Exporting.Kind, sharing: Bool)?
     @State private var picturingTheme = ""
     /// Where a map goes, while Insert › Map…'s sheet asks where it is of (PLAN O.1d).
     @State private var mapping: MapTarget?
@@ -672,18 +676,18 @@ struct DeckView: View {
             Button("Save All Slides as PNGs…") { save(allSlides) }
             // The deck as it plays, as a movie (lift-up 20261031 FUNC-2).
             Divider()
-            Button("Share as Movie…") { export(.movie(), sharing: true) }
-            Button("Save as Movie…") { save(.movie()) }
+            Button("Share as Movie…") { movieAsked = MovieAsked(sound: nil, sharing: true) }
+            Button("Save as Movie…") { movieAsked = MovieAsked(sound: nil, sharing: false) }
             // With one of the bundle's sound files under it, as the CLI's `--audio` takes one.
             if !sounds.isEmpty {
                 Menu("Share as Movie with Sound") {
                     ForEach(sounds, id: \.self) { sound in
-                        Button(Exporting.soundName(sound)) { export(.movie(sound: sound), sharing: true) }
+                        Button(Exporting.soundName(sound)) { movieAsked = MovieAsked(sound: sound, sharing: true) }
                     }
                 }
                 Menu("Save as Movie with Sound") {
                     ForEach(sounds, id: \.self) { sound in
-                        Button(Exporting.soundName(sound)) { save(.movie(sound: sound)) }
+                        Button(Exporting.soundName(sound)) { movieAsked = MovieAsked(sound: sound, sharing: false) }
                     }
                 }
             }
@@ -727,9 +731,9 @@ struct DeckView: View {
             made.saveImages = { scale in save(slides(scaled: scale)) }
             made.saveHTML = { save(.html) }
             made.saveHTMLNotes = { save(.htmlNotes) }
-            made.saveMovie = { save(.movie()) }
+            made.saveMovie = { movieAsked = MovieAsked(sound: nil, sharing: false) }
             made.sounds = sounds
-            made.saveMovieWith = { sound in save(.movie(sound: sound)) }
+            made.saveMovieWith = { sound in movieAsked = MovieAsked(sound: sound, sharing: false) }
         }
         // The Slide menu acts on the slide shown, as the slide list's menu acts on its slide.
         if let shown, rehearsal == nil, let slide = editor.slots.first(where: { $0.state == shown })?.slide {
@@ -1025,6 +1029,14 @@ struct DeckView: View {
                         return
                     }
                     perform { try document.make(ops, undo: undo) }
+                }
+            }
+            // The movie's width and frames a second, asked first; made once the sheet is put away,
+            // so the sheet that says it is being made is the only one shown.
+            .sheet(item: $movieAsked, onDismiss: madeMovieAsked) { asked in
+                MovieSheet(asked: asked, canvas: (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)) {
+                    width, fps in
+                    movieChosen = (Exporting.Kind.movie(sound: asked.sound, width: width, fps: fps), asked.sharing)
                 }
             }
             .sheet(item: $picturing) { target in
@@ -1417,6 +1429,14 @@ struct DeckView: View {
             return
         }
         exportNow(kind, sharing: sharing)
+    }
+
+    /// The movie the sheet chose, shared or saved, once the sheet is put away; none where it was
+    /// cancelled.
+    private func madeMovieAsked() {
+        guard let chosen = movieChosen else { return }
+        movieChosen = nil
+        if chosen.sharing { export(chosen.kind, sharing: true) } else { save(chosen.kind) }
     }
 
     /// Write `kind` and share it, or show it in Quick Look, nothing asked.

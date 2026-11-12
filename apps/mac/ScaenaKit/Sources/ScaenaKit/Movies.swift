@@ -91,29 +91,62 @@ final class Stopping: Sendable {
     var asked: Bool { stopped.withLock { $0 } }
 }
 
-/// The session's movie written to a file: H.264 in an MPEG-4 file, `fps` frames a second, as wide
-/// as the canvas, made even as H.264 asks, the deck's `title` its title; a chapter for each beat as
-/// it plays, as the CLI's video carries them, and a sound track under it where one is given.
-enum MovieWriter {
-    /// The frames a second a movie the editors export plays at, as the browser's Export… and the
-    /// CLI's default make one.
-    static let fps = 30
+/// A movie's size and pace as the export sheet asks them, as the browser's Export… does: a width in
+/// pixels, the height following the canvas's proportions, and 24, 30, or 60 frames a second.
+public enum MovieSize {
+    /// The frames a second a movie plays at unless another is asked, as the browser's Export… and
+    /// the CLI's default make one.
+    public static let fps = 30
+    /// The frames a second the sheet offers, as the browser's Export… offers them.
+    public static let rates = [24, 30, 60]
+    /// The widths a movie may be, in pixels, as the browser's Export… takes them: H.264 draws two at
+    /// the least, and the browser's field goes to 8192.
+    public static let widths = 2...8192
 
+    /// What was typed as a width: a whole number of pixels within `widths`; none for any other.
+    public static func width(_ typed: String) -> Int? {
+        guard let read = FieldNumber.read(typed), read == read.rounded(), widths.contains(Int(read)) else { return nil }
+        return Int(read)
+    }
+
+    /// The pixels a movie `width` wide of a canvas `canvas` is, as H.264 writes it: the width made
+    /// even, and the height the canvas's proportions give it, its last row dropped where odd, as
+    /// the writer makes it from the painter's frame.
+    public static func pixels(width: Int, canvas: CGSize) -> (width: Int, height: Int) {
+        let even = max(2, width & ~1)
+        guard canvas.width > 0 else { return (even, 2) }
+        let high = Int((canvas.height * Double(even) / canvas.width).rounded())
+        return (even, max(2, high & ~1))
+    }
+}
+
+/// The session's movie written to a file: H.264 in an MPEG-4 file, `fps` frames a second, `width`
+/// pixels wide or as wide as the canvas, made even as H.264 asks, the deck's `title` its title; a
+/// chapter for each beat as it plays, as the CLI's video carries them, and a sound track under it
+/// where one is given.
+enum MovieWriter {
     /// `session`'s movie written to `url`, its first `seconds` alone where given, with `sound`, a
     /// sound file's bytes and its name, under it as AAC, cut where the deck's timeline ends; stopped
     /// between frames once `stopping` is asked, the file then taken away.
     static func write(
         _ session: ScaenaSession, to url: URL, title: String?, seconds: Double? = nil,
-        sound: (data: Data, name: String)? = nil, stopping: Stopping
+        sound: (data: Data, name: String)? = nil, width asked: Int? = nil, fps: Int = MovieSize.fps,
+        stopping: Stopping
     ) throws {
+        if let asked, !MovieSize.widths.contains(asked) {
+            throw ScaenaError(message: "A movie is 2 to 8192 pixels wide, not \(asked)")
+        }
+        guard MovieSize.rates.contains(fps) else {
+            throw ScaenaError(message: "A movie plays at 24, 30, or 60 frames a second, not \(fps)")
+        }
         let movie = try session.movie(fps: fps)
         var frames = movie.frames
         if let seconds { frames = min(frames, max(1, Int((seconds * Double(fps)).rounded()))) }
         let end = CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(fps))
         let canvas = try session.canvasSize()
-        // H.264 draws an even number of pixels each way: the canvas's width made even, and its
-        // height as the painter paints it, its last row dropped where odd.
-        let width = max(2, Int(canvas.width) & ~1)
+        // H.264 draws an even number of pixels each way: the width asked, else the canvas's, made
+        // even, and its height as the painter paints it, its last row dropped where odd.
+        let width = max(2, (asked ?? Int(canvas.width)) & ~1)
         try? FileManager.default.removeItem(at: url)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         if let title, !title.isEmpty {
