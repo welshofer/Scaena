@@ -3158,7 +3158,12 @@ fn assemble(
         // a French talk: the model's name for the beat, or the headline, stands in for it (W1's
         // dogfood 10: "Existing Approaches" over "Approches existantes").
         if last_beat != Some(beat) {
-            let arcs = |n: &str| names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n));
+            // Narrato echoes a beat whole, "Problem: Define core challenge and stakes", and its
+            // name is what comes before the colon (W1 dogfood 13).
+            let arcs = |n: &str| {
+                let n = n.split(':').next().unwrap_or(n).trim();
+                names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n))
+            };
             let outlined = narrative.outline.is_some()
                 && (english
                     || names
@@ -4459,7 +4464,10 @@ fn layout_for(
         "ranking",
         "manifesto",
     ];
-    let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") {
+    // A bare closing headed by its beat's claim sets all its own lines under the claim, on one line
+    // of the support, however many they are (W1 dogfood 13).
+    let claimed = wanted == "closing" && bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty());
+    let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") || claimed {
         true => wanted,
         false if sequential.contains(&identity) => "numbered",
         false => "bullets",
@@ -4477,7 +4485,7 @@ fn layout_for(
 /// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
 /// ATTR-3).
 fn bare(title: &str) -> bool {
-    const BARE: [&str; 24] = [
+    const BARE: [&str; 32] = [
         "thank you",
         "thanks",
         "thank you for listening",
@@ -4490,6 +4498,14 @@ fn bare(title: &str) -> bool {
         "merci",
         "gracias",
         "danke",
+        "vielen dank",
+        "danke schön",
+        "dankeschön",
+        "merci beaucoup",
+        "muchas gracias",
+        "grazie mille",
+        "muito obrigado",
+        "muito obrigada",
         "grazie",
         "obrigado",
         "obrigada",
@@ -7056,7 +7072,16 @@ fn linked(text: &str, bare: bool) -> Option<Vec<Value>> {
         let end = (word.char_indices().rev())
             .find(|(_, c)| c.is_alphanumeric() || *c == '/')
             .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
-        let Some(href) = href(&word[start..end], bare) else {
+        // An address that ends a word with no space before it, after a label in a script that
+        // sets none ("お問い合わせ：library@midori.jp") or a colon ("Contacto:agua@valdemar.es"): the
+        // address characters that end it (W2's health read).
+        let tail = (word[..end].char_indices().rev())
+            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || "._%+-@/".contains(c)))
+            .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
+        let found = href(&word[start..end], bare).map(|h| (start, h));
+        let Some((start, href)) =
+            found.or_else(|| (tail > start).then(|| href(&word[tail..end], bare)).flatten().map(|h| (tail, h)))
+        else {
             plain.push_str(piece);
             continue;
         };
@@ -11398,6 +11423,21 @@ mod tests {
         n.slides.last_mut().unwrap().key_bullets = vec!["Questions?".into()];
         n.outline.as_mut().unwrap().beats[5].claim = "Free fares bring the riders back.".into();
         has(&close(&n).1, "statement", "Free fares bring the riders back.");
+        // In a deck whose asks are not read, a thanks with more lines than the closing's one
+        // place still closes on the claim, every line of it under the claim, never a list that
+        // drops it (W1 dogfood 13).
+        n.brief.language = Some("German".into());
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Vielen Dank".into();
+        last.key_bullets = vec!["Fragen?".into(), "route9@example.gov".into()];
+        let (layout, said) = close(&n);
+        assert_eq!(layout, "closing", "{said:#?}");
+        has(&said, "statement", "Free fares bring the riders back.");
+        has(&said, "support", "Vielen Dank \u{b7} Fragen? \u{b7} route9@example.gov");
+        n.brief.language = None;
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Thank you".into();
+        last.key_bullets = vec!["Questions?".into()];
         n.outline = None;
         let (layout, said) = close(&n);
         assert_eq!(layout, "closing");
@@ -12221,6 +12261,20 @@ mod tests {
         {
             assert_eq!(linked(plain, true), None, "{plain}");
         }
+        // An address after a label with no space before it: a full-width colon, as Japanese writes
+        // one, or a colon (W2's health read).
+        assert_eq!(
+            linked("採決：12月10日\nお問い合わせ：library@midori.jp", true),
+            Some(vec![
+                json!({ "text": "採決：12月10日\nお問い合わせ：" }),
+                json!({ "text": "library@midori.jp", "link": { "href": "mailto:library@midori.jp" } }),
+            ])
+        );
+        assert_eq!(
+            linked("Contacto:agua@valdemar.es", true).unwrap()[1],
+            json!({ "text": "agua@valdemar.es", "link": { "href": "mailto:agua@valdemar.es" } })
+        );
+        assert_eq!(linked("お問い合わせ：図書館まで", true), None);
         // A heading's bare domain names a firm; an address with `www.` or a scheme links anywhere.
         assert_eq!(linked("Booking.com books more nights", false), None);
         assert_eq!(linked("Sign up at relay.app", false), None);
@@ -13285,6 +13339,20 @@ mod tests {
         let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
         assert_eq!(titles, [headline(0).as_str(), headline(1).as_str(), names[2], headline(4).as_str()]);
         assert!(titles.iter().zip(&names).all(|(t, n)| t != n || *t == names[2]), "{titles:?} {names:?}");
+        // Echoed whole, its description after the colon, it is the arc's all the same
+        // (W1 dogfood 13: "Problem: Define core challenge and stakes" titling a German section).
+        let arc = scaena_narrato::arcs::arc("Problem\u{2013}Solution");
+        assert!(arc.beats[1].contains(':'), "{:?}", arc.beats);
+        let whole: Vec<Slide> = (picked.iter().cloned())
+            .map(|mut s| {
+                s.beat_name = s.beat_index.map(|b| arc.beats[b].clone());
+                s
+            })
+            .collect();
+        let made = deck(&narrative(&summary, whole), &theme, &Pictures::new()).unwrap();
+        let spine = made.deck["spine"]["sections"].as_array().unwrap();
+        let echoed: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
+        assert_eq!(echoed, titles);
     }
 
     #[test]

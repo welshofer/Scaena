@@ -1589,6 +1589,36 @@ fn a_slide_folds_into_the_one_before_it() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A theme color held in its picker (`themePreviewing`), and an image's adjustment held on its
+/// slider (`preview` of its `choose`), each draw the slide otherwise with nothing made, as the
+/// browser's previews do (lift-up ATTR-5, 20261110 ATTR-5): the deck's source as it was, and the
+/// frame as it was once each is let go.
+#[test]
+fn a_theme_color_and_an_adjustment_held_show_before_they_are_chosen() {
+    let s = open(B1);
+    let source = call(s, "source", Value::Null);
+    let rest = call(s, "digest", json!({ "state": "cover" }));
+    let paper = [json!({ "op": "replace", "path": "/tokens/color/paper", "value": "#204060" })];
+    call(s, "themePreviewing", json!({ "ops": paper }));
+    assert_ne!(call(s, "digest", json!({ "state": "cover" })), rest, "the paper held is drawn");
+    assert_eq!(call(s, "source", Value::Null), source, "nothing is made");
+    call(s, "themePreviewing", json!({ "ops": null }));
+    assert_eq!(call(s, "digest", json!({ "state": "cover" })), rest);
+    unsafe { scaena_session_free(s) };
+
+    let s = open(TORTURE);
+    let source = call(s, "source", Value::Null);
+    let rest = call(s, "digest", json!({ "state": "images" }));
+    let warmer =
+        json!([{ "op": "choose", "node": "image-cover", "prop": "adjust/warmth", "value": 0.6, "state": "images" }]);
+    call(s, "preview", json!({ "ops": warmer }));
+    assert_ne!(call(s, "digest", json!({ "state": "images" })), rest, "the warmth held is drawn");
+    assert_eq!(call(s, "source", Value::Null), source, "nothing is made");
+    call(s, "preview", json!({ "ops": null }));
+    assert_eq!(call(s, "digest", json!({ "state": "images" })), rest);
+    unsafe { scaena_session_free(s) };
+}
+
 /// States and slides (PLAN 3.14), as the browser's strip, light table, rehearsal, and cue make
 /// them (PLAN 2.35, 2.97, 2.63, 2.44): a step and a slide added after the state shown, a state
 /// renamed, moved, and removed; a slide moved, copied, and taken out; a hold kept; and a motion
