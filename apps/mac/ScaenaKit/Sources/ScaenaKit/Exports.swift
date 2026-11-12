@@ -4,13 +4,16 @@ import Foundation
 /// presenter's notes under each slide as `--notes` writes it; a state at rest as a PNG this many
 /// pixels wide; or every slide once its steps have played as PNGs in one zip, each named by its
 /// number after `name`; or the deck as one HTML file that plays offline, named `name`, as
-/// `--format html` writes it (lift-up 20261031 FUNC-3).
+/// `--format html` writes it (lift-up 20261031 FUNC-3); or the deck as a movie, H.264 in an
+/// MPEG-4 file at the canvas's size and 30 frames a second, titled `title`, its first `seconds`
+/// alone where given, as the browser's Export… makes one (lift-up 20261031 FUNC-2).
 public enum Export: Sendable, Equatable {
     case pdf
     case notes
     case png(state: String, width: Int)
     case slides(width: Int, name: String)
     case html(name: String)
+    case movie(title: String, seconds: Double? = nil)
 }
 
 extension ScaenaSession.Snapshot {
@@ -21,18 +24,29 @@ extension ScaenaSession.Snapshot {
     /// throws without starting it, so Cancel on the sheet costs nothing, and one cancelled
     /// meanwhile throws, its bytes dropped. The work runs on a `Thread` of its own, outside the
     /// task tree, where no `Task.checkCancellation()` sees the caller's cancel: these two checks
-    /// on either side of it are the cancel's only readings.
+    /// on either side of it are the cancel's only readings, but for a movie, which reads it
+    /// between its frames too, so Cancel stops a long one where it is.
     public func exported(_ export: Export) async throws -> Data {
         try Task.checkCancellation()
-        let data = try await OffMain(label: "ScaenaKit.export").run { () -> Data in
-            let session = try self.opened()
-            switch export {
-            case .pdf: return try session.pdf()
-            case .notes: return try session.pdf(notes: true)
-            case .png(let state, let width): return try session.png(state, width: width)
-            case .slides(let width, let name): return try session.slides(width: width, name: name)
-            case .html(let name): return try session.html(name: name)
+        let stopping = Stopping()
+        let data = try await withTaskCancellationHandler {
+            try await OffMain(label: "ScaenaKit.export").run { () -> Data in
+                let session = try self.opened()
+                switch export {
+                case .pdf: return try session.pdf()
+                case .notes: return try session.pdf(notes: true)
+                case .png(let state, let width): return try session.png(state, width: width)
+                case .slides(let width, let name): return try session.slides(width: width, name: name)
+                case .html(let name): return try session.html(name: name)
+                case .movie(let title, let seconds):
+                    let url = FileManager.default.temporaryDirectory.appending(path: "Scaena-\(UUID().uuidString).mp4")
+                    defer { try? FileManager.default.removeItem(at: url) }
+                    try MovieWriter.write(session, to: url, title: title, seconds: seconds, stopping: stopping)
+                    return try Data(contentsOf: url)
+                }
             }
+        } onCancel: {
+            stopping.stop()
         }
         try Task.checkCancellation()
         return data

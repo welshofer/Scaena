@@ -1125,6 +1125,10 @@ pub struct SlideWrite {
     /// beat of the slide it takes the place of.
     #[serde(default)]
     pub beat: Option<String>,
+    /// The slide's state's id, and its nodes' after it (`proposal-header`), where the slide would
+    /// be named after its headline (agent dogfood 6): refused where the deck has it already.
+    #[serde(default)]
+    pub id: Option<String>,
     /// Say what would change, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
@@ -1959,7 +1963,8 @@ impl Scaena {
             };
             let icons = scaena_ops::narrative::icons_found(&slide.icons);
             let b = open_by(&a.bundle, author)?;
-            scaena_ops::narrative::slide_write(&b, slide, &place, a.beat.as_deref(), icons, a.dry_run, a.verbose)
+            let (beat, id) = (a.beat.as_deref(), a.id.as_deref());
+            scaena_ops::narrative::slide_write(&b, slide, &place, beat, icons, id, a.dry_run, a.verbose)
         })
         .await
         .map(Json)

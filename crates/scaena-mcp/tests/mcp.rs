@@ -563,6 +563,32 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     assert_eq!(restated["claim"], one["slideTitle"], "{again:#}");
     assert!(restated["says"].as_str().is_some_and(|s| !s.is_empty()), "{again:#}");
     assert_eq!(restated["fix"][1]["value"], restated["says"], "{again:#}");
+    // Named as asked (agent dogfood 6), its nodes after it, in place of a slide that keeps its own
+    // name; a name the deck holds elsewhere, or no id, is refused.
+    let named = ok(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&made_dir), "slide": slides["slides"][20], "replace": state, "id": "proposal",
+                "dry_run": true }),
+    )
+    .await;
+    assert_eq!(named["slide"][0], "proposal", "{named:#}");
+    assert!(named["errors"] == 0 && named["states"].as_array().is_some(), "{named:#}");
+    let kept = ok(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&made_dir), "slide": slides["slides"][20], "replace": state, "id": state,
+                "dry_run": true }),
+    )
+    .await;
+    assert_eq!(kept["slide"][0], json!(state), "{kept:#}");
+    let taken =
+        call(&client, "slide_write", json!({ "bundle": path(&made_dir), "slide": one, "after": first, "id": first }))
+            .await;
+    assert!(text(&taken).contains("the deck has") && text(&taken).contains("already"), "{}", text(&taken));
+    let bad =
+        call(&client, "slide_write", json!({ "bundle": path(&made_dir), "slide": one, "id": "Proposal 2" })).await;
+    assert!(text(&bad).contains("is no id"), "{}", text(&bad));
     let both = call(
         &client,
         "slide_write",
@@ -570,6 +596,19 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     )
     .await;
     assert!(text(&both).contains("not both"), "{}", text(&both));
+    // Written so, its state and its nodes are named after the id, none after the headline.
+    ok(
+        &client,
+        "slide_write",
+        json!({ "bundle": path(&made_dir), "slide": slides["slides"][20], "replace": state,
+                                       "id": "proposal" }),
+    )
+    .await;
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(made_dir.join("deck.json")).unwrap()).unwrap();
+    assert!(d["states"].as_array().unwrap().iter().any(|s| s["id"] == "proposal"), "{:#}", d["states"]);
+    let nodes: Vec<&String> = d["nodes"].as_object().unwrap().keys().collect();
+    assert!(nodes.iter().any(|n| n.starts_with("proposal-")), "{nodes:?}");
+    assert!(!nodes.iter().any(|n| n.starts_with(&format!("{state}-"))), "{nodes:?}");
     // A place taken, and an arc Narrato lacks, are refused before anything is made.
     let taken = call(&client, "deck_generate", json!({ "bundle": path(&made_dir), "slides": slides })).await;
     assert!(text(&taken).contains("not an empty directory"), "{}", text(&taken));

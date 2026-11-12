@@ -394,6 +394,8 @@ struct SlideWrite {
     #[serde(default)]
     beat: Option<String>,
     #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
     dry_run: bool,
     #[serde(default)]
     verbose: bool,
@@ -756,7 +758,8 @@ impl Session {
         };
         let icons = scaena_ops::narrative::icons_found(&slide.icons);
         let b = self.bundle();
-        let (mut written, write) = scaena_ops::narrative::slide_writing(&b, slide, &place, a.beat.as_deref(), icons)?;
+        let (beat, id) = (a.beat.as_deref(), a.id.as_deref());
+        let (mut written, write) = scaena_ops::narrative::slide_writing_as(&b, slide, &place, beat, icons, id)?;
         written.patched.applied &= !a.dry_run;
         let edited = self.write(write.filter(|_| !a.dry_run), by)?;
         Ok(Called { edited, ..Called::of(written.verbose(a.verbose))? })

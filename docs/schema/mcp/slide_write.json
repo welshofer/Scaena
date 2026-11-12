@@ -27,6 +27,11 @@
         "type": ["string", "null"],
         "default": null
       },
+      "id": {
+        "description": "The slide's state's id, and its nodes' after it (`proposal-header`), where the slide would\nbe named after its headline (agent dogfood 6): refused where the deck has it already.",
+        "type": ["string", "null"],
+        "default": null
+      },
       "dry_run": { "description": "Say what would change, and write nothing.", "type": "boolean", "default": false },
       "verbose": {
         "description": "The patch compiled to JSON Patch too (`patch`), which a slide makes long: every state of\nthe deck, as `deck_patch`'s `verbose` gives it.",

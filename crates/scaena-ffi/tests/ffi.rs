@@ -2351,3 +2351,48 @@ fn a_state_is_held_to_its_golden_raster() {
     assert!(reply.contains("\"error\""), "{reply}");
     unsafe { scaena_session_free(s) };
 }
+
+#[test]
+fn the_decks_movie_is_painted_frame_by_frame_as_the_browsers_is() {
+    // Lift-up 20261031 FUNC-2, for the Mac and the iPad: the movie's length, and each frame the
+    // session's, with a frame that draws as the one before painted no more.
+    let s = open(B1);
+    let movie = call(s, "movie", json!({ "fps": 30 }));
+    let frames = movie["frames"].as_u64().unwrap();
+    assert!(frames > 30 && movie["fps"] == json!(30) && movie["durationMs"].as_f64().unwrap() > 1000.0, "{movie}");
+    assert!(answered(s, "movie", &json!({ "fps": 0 }))["error"]["message"].as_str().unwrap().contains("`fps`"));
+
+    let frame = |k: u64, before: Option<&str>| {
+        let before = before.map(c);
+        let (mut digest, mut error) = (null_mut(), null_mut());
+        let painted = unsafe {
+            scaena_movie_frame(
+                s,
+                30,
+                k,
+                320,
+                before.as_ref().map_or(std::ptr::null(), |b| b.as_ptr()),
+                &mut digest,
+                &mut error,
+            )
+        };
+        let digest = (!digest.is_null()).then(|| took(digest));
+        let pixels =
+            if painted.bytes.data.is_null() && error.is_null() { None } else { Some(pixels_of(painted, error)) };
+        (digest, pixels)
+    };
+    let (digest, pixels) = frame(0, None);
+    let (width, height, rgba) = pixels.unwrap().unwrap();
+    assert_eq!((width, height, rgba.len()), (320, 180, 320 * 180 * 4));
+    // The same frame again, given its own digest: nothing painted, the digest said.
+    let digest = digest.unwrap();
+    let (again, unpainted) = frame(0, Some(&digest));
+    assert_eq!((again.as_deref(), unpainted.is_none()), (Some(digest.as_str()), true));
+    // Past the last frame, and a width it cannot paint: each an error that says why.
+    let (_, past) = frame(frames, None);
+    assert!(past.unwrap().unwrap_err().contains(&format!("{frames} frames")));
+    let (mut d, mut error) = (null_mut(), null_mut());
+    let narrow = unsafe { scaena_movie_frame(s, 30, 0, 1, std::ptr::null(), &mut d, &mut error) };
+    assert!(pixels_of(narrow, error).unwrap_err().contains("`width`"));
+    unsafe { scaena_session_free(s) };
+}
