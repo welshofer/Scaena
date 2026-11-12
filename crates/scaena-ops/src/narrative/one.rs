@@ -601,11 +601,103 @@ pub fn slide_writing(
     beat: Option<&str>,
     icons: BTreeMap<String, Icon>,
 ) -> Result<(SlideWritten, Option<Write>), OpsError> {
+    slide_writing_as(b, slide, place, beat, icons, None)
+}
+
+/// [`slide_writing`], the slide named `id` where one is given ([`named_as`]).
+pub fn slide_writing_as(
+    b: &Bundle,
+    slide: Slide,
+    place: &Place,
+    beat: Option<&str>,
+    icons: BTreeMap<String, Icon>,
+    id: Option<&str>,
+) -> Result<(SlideWritten, Option<Write>), OpsError> {
     let theme = crate::theme(b)?;
     let doc = b.deck.to_value().context("the deck")?;
     let none = View { base: &b.files, pending: BTreeMap::new() };
-    let written = slide_into(&doc, &theme, slide, place, beat, icons, &scaena_core::data::Texts(&none))?;
+    let mut written = slide_into(&doc, &theme, slide, place, beat, icons, &scaena_core::data::Texts(&none))?;
+    if let Some(id) = id {
+        written = named_as(&doc, place, written, id)?;
+    }
     slide_polishing(b, written)
+}
+
+/// `written` with its slide named `id` (agent dogfood 6): its states, its first named `id` and each
+/// step after it `id-…` as built, and the nodes it adds, each named after `id` where it was named
+/// after the state, everywhere the patch names them. Refused where `id` is no id, or the deck has
+/// a state or a node by that name or after it, as one the slide makes would collide, but for the
+/// slide it is written in place of and the nodes it takes away.
+pub fn named_as(doc: &Value, place: &Place, mut written: Written, id: &str) -> Result<Written, OpsError> {
+    if !scaena_core::ids::is_valid_id(id) {
+        return Err(OpsError::new(format!(
+            "`id`: `{id}` is no id: lowercase letters, digits, `-` and `_`, starting with a letter"
+        )));
+    }
+    let Some(old) = written.states.first().cloned() else { return Ok(written) };
+    if old == id {
+        return Ok(written);
+    }
+    // What the patch takes away is free to name again: the states of a slide it is written in
+    // place of, which keeps its name where `id` is that slide's, and the nodes that slide alone
+    // shows, which `remove_slide` takes with it.
+    fn slide_of(s: &Value) -> &str {
+        s["slide"].as_str().or_else(|| s["id"].as_str()).unwrap_or_default()
+    }
+    let all = doc["states"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let shown = |s: &Value| s["props"].as_object().into_iter().flat_map(|p| p.keys().cloned()).collect::<Vec<_>>();
+    let (replaced, alone): (Vec<&str>, Vec<String>) = match place {
+        Place::Replace(state) => {
+            let slide = all.iter().find(|s| s["id"] == state.as_str()).map(slide_of).unwrap_or_default();
+            let (its, others): (Vec<&Value>, Vec<&Value>) = all.iter().partition(|s| slide_of(s) == slide);
+            let elsewhere: Vec<String> = others.iter().flat_map(|s| shown(s)).collect();
+            let alone = its.iter().flat_map(|s| shown(s)).filter(|n| !elsewhere.contains(n)).collect();
+            (its.iter().filter_map(|s| s["id"].as_str()).collect(), alone)
+        }
+        _ => (Vec::new(), Vec::new()),
+    };
+    let free = |name: &str| replaced.contains(&name) || alone.iter().any(|r| r == name);
+    let taken = |name: &str| !free(name) && (name == id || name.starts_with(&format!("{id}-")));
+    let states = doc["states"].as_array().into_iter().flatten().filter_map(|s| s["id"].as_str());
+    let nodes = doc["nodes"].as_object().into_iter().flat_map(|n| n.keys().map(String::as_str));
+    if let Some(name) = states.chain(nodes).find(|n| taken(n)) {
+        return Err(OpsError::new(format!("`id`: the deck has `{name}` already; name the slide otherwise")));
+    }
+    let rename = |name: &str| -> Option<String> {
+        if name == old {
+            Some(id.to_string())
+        } else {
+            name.strip_prefix(&format!("{old}-")).map(|rest| format!("{id}-{rest}"))
+        }
+    };
+    let renamed = |s: &str| -> String {
+        match s.strip_prefix('/') {
+            Some(path) => {
+                let parts: Vec<String> = path.split('/').map(|p| rename(p).unwrap_or_else(|| p.to_string())).collect();
+                format!("/{}", parts.join("/"))
+            }
+            None => rename(s).unwrap_or_else(|| s.to_string()),
+        }
+    };
+    fn walk(v: &mut Value, renamed: &dyn Fn(&str) -> String) {
+        match v {
+            Value::String(s) => *s = renamed(s),
+            Value::Array(items) => items.iter_mut().for_each(|i| walk(i, renamed)),
+            Value::Object(map) => {
+                let old = std::mem::take(map);
+                for (k, mut v) in old {
+                    walk(&mut v, renamed);
+                    map.insert(renamed(&k), v);
+                }
+            }
+            _ => {}
+        }
+    }
+    for op in &mut written.patch {
+        walk(op, &renamed);
+    }
+    written.states = written.states.iter().map(|s| renamed(s)).collect();
+    Ok(written)
 }
 
 /// `written`, a slide [`slide_into`] built for the bundle's deck, made one patch checked as a
@@ -712,18 +804,20 @@ impl SlideWritten {
 }
 
 /// `slide` written into the bundle's deck where `place` says, in `beat` where one is named, as the
-/// deck's generator builds a slide (lift-up FUNC-1, M1), unless `dry_run`; refused, and nothing
-/// written, as a patch is.
+/// deck's generator builds a slide (lift-up FUNC-1, M1), named `id` where one is given, unless
+/// `dry_run`; refused, and nothing written, as a patch is.
+#[allow(clippy::too_many_arguments)]
 pub fn slide_write(
     b: &Bundle,
     slide: Slide,
     place: &Place,
     beat: Option<&str>,
     icons: BTreeMap<String, Icon>,
+    id: Option<&str>,
     dry_run: bool,
     verbose: bool,
 ) -> Result<SlideWritten, OpsError> {
-    let (mut out, write) = slide_writing(b, slide, place, beat, icons)?;
+    let (mut out, write) = slide_writing_as(b, slide, place, beat, icons, id)?;
     match write {
         Some(write) if !dry_run => crate::lint::write(b, write)?,
         _ => out.patched.applied &= !dry_run,

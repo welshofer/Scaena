@@ -41,7 +41,10 @@ use std::path::{Path, PathBuf};
 
 mod binding;
 mod one;
-pub use one::{Place, SlideWritten, Written, one_asked, slide_into, slide_polishing, slide_write, slide_writing};
+pub use one::{
+    Place, SlideWritten, Written, named_as, one_asked, slide_into, slide_polishing, slide_write, slide_writing,
+    slide_writing_as,
+};
 mod notes;
 
 /// One slide an agent hands over, as `slide_write` takes it: normalized as a model's slides are,
