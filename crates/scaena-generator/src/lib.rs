@@ -1019,6 +1019,12 @@ fn place(place: &str) -> Result<scaena_ops::narrative::Place, JsError> {
 /// Where a slide goes, from `{ "after" }`, `{ "replace" }`, or neither, and the beat of the spine it
 /// joins, from `{ "beat" }` (lift-up M1).
 fn placed(place: &str) -> Result<(scaena_ops::narrative::Place, Option<String>), JsError> {
+    placed_as(place).map(|(place, beat, _)| (place, beat))
+}
+
+/// [`placed`], with the id the slide is named, where one is given (agent dogfood 6).
+#[allow(clippy::type_complexity)]
+fn placed_as(place: &str) -> Result<(scaena_ops::narrative::Place, Option<String>, Option<String>), JsError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Named {
@@ -1028,6 +1034,8 @@ fn placed(place: &str) -> Result<(scaena_ops::narrative::Place, Option<String>),
         replace: Option<String>,
         #[serde(default)]
         beat: Option<String>,
+        #[serde(default)]
+        id: Option<String>,
     }
     let named: Named = serde_json::from_str(place).map_err(|e| error(format!("where the slide goes: {e}")))?;
     let place = match (named.after, named.replace) {
@@ -1036,7 +1044,7 @@ fn placed(place: &str) -> Result<(scaena_ops::narrative::Place, Option<String>),
         (None, Some(state)) => scaena_ops::narrative::Place::Replace(state),
         (None, None) => scaena_ops::narrative::Place::End,
     };
-    Ok((place, named.beat))
+    Ok((place, named.beat, named.id))
 }
 
 /// One slide written for a deck (lift-up FUNC-1), as Write This Slide Again… and Add a Slide
@@ -1072,7 +1080,8 @@ impl SlideWriting {
     /// `slide` (a slide as Narrato writes one, as `oneAnswered` reads it) built for `deck` in
     /// `theme` (its JSON) at `place`, as the deck's generator builds a slide, each icon its words
     /// name from `icons` (`{ word: { name, path, view } }`, as `giveIcons` takes them): the
-    /// `Written` the editor's module polishes, `{ patch, states, layout, beat, what }`.
+    /// `Written` the editor's module polishes, `{ patch, states, layout, beat, what }`, named as
+    /// the place's `id` says where it gives one.
     pub fn built(
         &self,
         deck: &str,
@@ -1088,10 +1097,13 @@ impl SlideWriting {
         let slide =
             scaena_ops::narrative::slide_from(&slide).map_err(|e| error(format!("the slide: {}", e.message)))?;
         let icons = serde_json::from_str(icons).map_err(|e| error(format!("the icons: {e}")))?;
-        let (place, beat) = placed(place_json)?;
-        let written =
+        let (place, beat, id) = placed_as(place_json)?;
+        let mut written =
             scaena_ops::narrative::slide_into(&doc, &theme, slide, &place, beat.as_deref(), icons, &self.files)
                 .map_err(error)?;
+        if let Some(id) = id {
+            written = scaena_ops::narrative::named_as(&doc, &place, written, &id).map_err(error)?;
+        }
         serde_json::to_string(&written).map_err(error)
     }
 }
