@@ -1019,6 +1019,10 @@ pub struct ImageAdd {
     /// Say what it would put where, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
+    /// The patch compiled to JSON Patch too (`patch`), and the ops it was made of (`ops`), as
+    /// `deck_patch`'s `verbose` gives them.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1735,8 +1739,8 @@ impl Scaena {
         shot, a chart drawn elsewhere), copied into the bundle's `assets/` named by its content, one past 8192 px a \
         side made smaller first. It goes in the image `into` names, in place of what it showed; else in the state's \
         first empty place for a picture; else as a new image at `at` ([x, y, width, height], canvas units), kept to its \
-        slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is; `dry_run` \
-        writes nothing.")]
+        slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is, reported as \
+        `deck_patch` reports one (`summary`, and the JSON Patch only with `verbose`); `dry_run` writes nothing.")]
     async fn image_add(
         &self,
         Parameters(a): Parameters<ImageAdd>,
@@ -1751,9 +1755,10 @@ impl Scaena {
             if a.dry_run {
                 let (mut added, _) = scaena_ops::pictures::adding(b, &bytes, &a.picture)?;
                 added.patched.applied = false;
-                return Ok(added);
+                added.report.applied = false;
+                return Ok(added.verbose(a.verbose));
             }
-            scaena_ops::pictures::add(b, &bytes, &a.picture)
+            scaena_ops::pictures::add(b, &bytes, &a.picture).map(|added| added.verbose(a.verbose))
         })
         .await
         .map(Json)

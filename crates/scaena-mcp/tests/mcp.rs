@@ -193,6 +193,9 @@ async fn an_agent_puts_a_picture_it_is_handed_on_a_slide() {
     let added = ok(&client, "image_add", asked).await;
     assert_eq!(added["applied"], true, "{added:#}");
     assert_eq!(added["node"], "picture");
+    // Reported as deck_patch reports a patch: its summary, the JSON Patch only with `verbose`
+    // (agent dogfood 8).
+    assert!(added["summary"].is_object() && added.get("patch").is_none(), "{added:#}");
     let src = added["src"].as_str().unwrap().to_string();
     assert!(src.starts_with("assets/") && dir.join(&src).is_file(), "{added:#}");
     // Too large to take as it is: made smaller, its proportions kept, as a PNG.
@@ -202,6 +205,9 @@ async fn an_agent_puts_a_picture_it_is_handed_on_a_slide() {
     let dry = json!({ "bundle": bundle, "file": path(&big), "into": "picture", "dry_run": true });
     let tried = ok(&client, "image_add", dry).await;
     assert_eq!(tried["applied"], false, "{tried:#}");
+    let verbose = json!({ "bundle": bundle, "file": path(&big), "into": "picture", "dry_run": true, "verbose": true });
+    let told = ok(&client, "image_add", verbose).await;
+    assert!(told["patch"].as_array().is_some_and(|p| !p.is_empty()), "{told:#}");
     assert!(!dir.join(tried["src"].as_str().unwrap()).exists(), "a dry run writes nothing");
     let put = ok(&client, "image_add", json!({ "bundle": bundle, "file": path(&big), "into": "picture" })).await;
     assert_eq!(

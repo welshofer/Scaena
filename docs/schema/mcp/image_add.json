@@ -1,6 +1,6 @@
 {
   "name": "image_add",
-  "description": "Put a picture the user hands you on a slide: a PNG or JPEG `file` (a logo, a product shot, a chart drawn elsewhere), copied into the bundle's `assets/` named by its content, one past 8192 px a side made smaller first. It goes in the image `into` names, in place of what it showed; else in the state's first empty place for a picture; else as a new image at `at` ([x, y, width, height], canvas units), kept to its slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is; `dry_run` writes nothing.",
+  "description": "Put a picture the user hands you on a slide: a PNG or JPEG `file` (a logo, a product shot, a chart drawn elsewhere), copied into the bundle's `assets/` named by its content, one past 8192 px a side made smaller first. It goes in the image `into` names, in place of what it showed; else in the state's first empty place for a picture; else as a new image at `at` ([x, y, width, height], canvas units), kept to its slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is, reported as `deck_patch` reports one (`summary`, and the JSON Patch only with `verbose`); `dry_run` writes nothing.",
   "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": ["bundle", "file"],
@@ -36,12 +36,42 @@
         "description": "Say what it would put where, and write nothing.",
         "type": "boolean",
         "default": false
+      },
+      "verbose": {
+        "description": "The patch compiled to JSON Patch too (`patch`), and the ops it was made of (`ops`), as\n`deck_patch`'s `verbose` gives them.",
+        "type": "boolean",
+        "default": false
       }
     }
   },
   "outputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
+      "Summary": {
+        "type": "object",
+        "properties": {
+          "json_patch": { "type": "integer", "minimum": 0 },
+          "slides_added": { "type": "array", "items": { "type": "string" } },
+          "slides_removed": { "type": "array", "items": { "type": "string" } },
+          "slides_moved": { "type": "array", "items": { "type": "string" } },
+          "beats_added": { "type": "array", "items": { "type": "string" } },
+          "beats_removed": { "type": "array", "items": { "type": "string" } },
+          "beats_moved": { "type": "array", "items": { "type": "string" } },
+          "beats_changed": { "type": "array", "items": { "type": "string" } },
+          "brief": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": [
+          "json_patch",
+          "slides_added",
+          "slides_removed",
+          "slides_moved",
+          "beats_added",
+          "beats_removed",
+          "beats_moved",
+          "beats_changed",
+          "brief"
+        ]
+      },
       "JsonOp": {
         "oneOf": [
           {
@@ -139,14 +169,16 @@
       },
       "FoldsTo": { "type": "string", "enum": ["place", "notes"] }
     },
-    "required": ["node", "src", "said", "applied", "patch", "added", "removed", "errors", "states"],
+    "required": ["node", "src", "said", "applied", "summary", "added", "removed", "errors", "states", "restated"],
     "type": "object",
     "properties": {
       "node": { "type": "string" },
       "src": { "type": "string" },
       "said": { "type": "string" },
       "applied": { "type": "boolean" },
-      "patch": { "type": "array", "items": { "$ref": "#/$defs/JsonOp" } },
+      "ops": { "type": ["array", "null"], "items": true },
+      "summary": { "$ref": "#/$defs/Summary" },
+      "patch": { "type": ["array", "null"], "items": { "$ref": "#/$defs/JsonOp" } },
       "added": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "errors": { "type": "integer", "minimum": 0 },

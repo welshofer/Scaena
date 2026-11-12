@@ -67,16 +67,19 @@ enum Exporting {
         }
     }
 
-    /// What the window says while `kind` is made (lift-up PERF-3).
-    static func making(_ kind: Kind) -> String {
-        switch kind {
+    /// What the window says while `kind` is made (lift-up PERF-3): in `format`, the one shown,
+    /// where `kind` is drawn in it, as the browser's Export… says it ("in 9:16"). A PDF and a single
+    /// file are the deck on its own canvas, whatever is shown.
+    static func making(_ kind: Kind, in format: String? = nil) -> String {
+        let shown = format.map { " in \($0)" } ?? ""
+        return switch kind {
         case .pdf: "Making the PDF…"
         case .notes: "Making the PDF with the notes…"
-        case .png: "Making the PNG…"
-        case .slides: "Making a PNG of every slide…"
+        case .png: "Making the PNG\(shown)…"
+        case .slides: "Making a PNG of every slide\(shown)…"
         case .html: "Making the HTML file…"
         case .htmlNotes: "Making the HTML file with the notes…"
-        case .movie: "Making the movie…"
+        case .movie: "Making the movie\(shown)…"
         }
     }
 

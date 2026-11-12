@@ -469,7 +469,11 @@ impl LoadedTheme {
         let mut out = Vec::new();
         let mut need = |defined: bool, what: &str, name: &str, path: String| {
             if !defined {
-                out.push(self.finding("E102", format!("{what} `{name}` is not in the theme{}", self.has(what)), &path));
+                out.push(self.finding(
+                    "E102",
+                    format!("{what} `{name}` is not in the theme{}", self.has(what, name)),
+                    &path,
+                ));
             }
         };
         for (name, color) in &t.tokens.roles {
@@ -679,7 +683,7 @@ impl LoadedTheme {
 
     /// What the theme has of the kind `what` names, for a finding about a name it lacks:
     /// `, which has a, b, c`, or `, which has none`. Long lists end in their count.
-    fn has(&self, what: &str) -> String {
+    fn has(&self, what: &str, name: &str) -> String {
         let of = match what {
             "text role" => Vocabulary::TextRole,
             "layout" => Vocabulary::Layout,
@@ -697,11 +701,46 @@ impl LoadedTheme {
         };
         let names = self.theme.names(of);
         const SHOWN: usize = 24;
-        match names.len() {
+        let has = match names.len() {
             0 => ", which has none".into(),
             n if n > SHOWN => format!(", which has {}, … ({n} in all)", names[..SHOWN].join(", ")),
             _ => format!(", which has {}", names.join(", ")),
+        };
+        match near(name, names.iter().map(|n| n.as_ref())) {
+            near if near.is_empty() => has,
+            near => format!("{has}; did you mean {near}?"),
         }
+    }
+}
+
+/// The names among `known` that `name` may have meant, as `` `a` `` or `` `a` or `b` ``, at most
+/// three, else none: those a few edits from it, else those that share the most of its words
+/// (split at `-`, `_`, and spaces), a picture's words standing for each other (agent dogfood 8:
+/// `image-left` meant `photo-left` or `art-left`).
+fn near<'k>(name: &str, known: impl Iterator<Item = &'k str>) -> String {
+    let known: Vec<&str> = known.collect();
+    let most_edits = 3.min(name.chars().count() / 2).max(1);
+    let mut chosen: Vec<&str> =
+        known.iter().copied().filter(|k| crate::model::check::distance(name, k) <= most_edits).collect();
+    if chosen.is_empty() {
+        const PICTURE: [&str; 5] = ["image", "picture", "photo", "art", "img"];
+        let words = |s: &str| -> Vec<String> {
+            (s.split(['-', '_', ' ']).filter(|w| !w.is_empty()))
+                .map(|w| if PICTURE.contains(&w) { "photo".to_string() } else { w.to_lowercase() })
+                .collect()
+        };
+        let asked = words(name);
+        let shared = |k: &str| words(k).iter().filter(|w| asked.contains(w)).count();
+        let most = known.iter().map(|k| shared(k)).max().unwrap_or(0);
+        if most >= 2.min(asked.len()).max(1) {
+            chosen = known.iter().filter(|k| shared(k) == most).copied().collect();
+        }
+    }
+    let quoted: Vec<String> = chosen.iter().take(3).map(|k| format!("`{k}`")).collect();
+    match quoted.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
     }
 }
 
@@ -2355,7 +2394,7 @@ impl Names<'_> {
         if defined {
             return;
         }
-        let message = format!("{what} `{name}` is not in the theme{}", self.theme.has(what));
+        let message = format!("{what} `{name}` is not in the theme{}", self.theme.has(what, name));
         let mut finding = Finding::new("E102", Severity::Error, message).at(path);
         if let Some(state) = state {
             finding = finding.state(state);
@@ -2639,6 +2678,18 @@ mod tests {
 
     fn example() -> Deck {
         Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap()
+    }
+
+    /// A name the theme lacks is offered the ones meant (agent dogfood 8): a few edits from it,
+    /// else those sharing the most of its words, a picture's words alike; else none.
+    #[test]
+    fn a_name_the_theme_lacks_is_offered_the_ones_meant() {
+        let layouts = ["title", "bullets-photo", "photo-left", "art-left", "photo-right", "call-to-action"];
+        assert_eq!(near("titel", layouts.into_iter()), "`title`");
+        assert_eq!(near("image-left", layouts.into_iter()), "`photo-left` or `art-left`");
+        assert_eq!(near("call-action", layouts.into_iter()), "`call-to-action`");
+        assert_eq!(near("slide", ["fade", "rise", "grow"].into_iter()), "");
+        assert_eq!(near("sunset", ["ambient"].into_iter()), "");
     }
 
     #[test]
