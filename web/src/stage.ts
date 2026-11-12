@@ -1061,7 +1061,8 @@ export class Stage {
     return this.request<"words">({ type: "words", id: ++this.asked, state }).then(({ words }) => words);
   }
 
-  /** The notes a presenter reads for `state` (SPEC §2.6): its own, else its first beat's, as
+  /** The notes a presenter reads for `state` (SPEC §2.6): its own, else its slide's earlier
+   * step's, else its first beat's, as
    * written and as the blocks a speaker reads; what a rehearsal shows beside the slide. */
   notes(state: string): Promise<SpeakerNotes> {
     return this.request<"notes">({ type: "notes", id: ++this.asked, state }).then(({ notes }) => notes);

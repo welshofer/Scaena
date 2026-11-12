@@ -260,6 +260,36 @@ pub struct Generated {
     /// Each change the model asked that lint found its slide worse for, not kept (lift-up USE-4).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub refused: Vec<Refused>,
+    /// Each slide by its number from 1, with the beat that tells it and its states' ids, the
+    /// first its own: the ids a later call names it by, never guessed from its beat's (agent
+    /// dogfood 9: a beat's id is its whole headline, its state's a few words of it).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub slides: Vec<Told>,
+}
+
+/// A slide of a deck made, by the ids a later call names it by (agent dogfood 9).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct Told {
+    /// Its number, from 1.
+    pub slide: usize,
+    /// The beat that tells it, by its id; none where no beat does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beat: Option<String>,
+    /// Its states' ids, in order: its own first, then each step of its build.
+    pub states: Vec<String>,
+}
+
+/// Each slide of `deck` by its ids ([`Told`]).
+pub fn slides_told(deck: &Deck) -> Vec<Told> {
+    let beats: Vec<&scaena_core::document::Beat> =
+        deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).collect();
+    (deck.slides().iter().enumerate())
+        .map(|(k, slide)| {
+            let states: Vec<String> = slide.iter().map(|&i| deck.states[i].id.clone()).collect();
+            let beat = beats.iter().find(|b| b.states.iter().any(|s| states.contains(s))).map(|b| b.id.clone());
+            Told { slide: k + 1, beat, states }
+        })
+        .collect()
 }
 
 /// How many figures a deck's slides write quote one of its data sources, so a data edit sets
@@ -1376,6 +1406,7 @@ pub fn from_slides(
             made.quoted = Quoted::of(counts);
         }
         made.notes = budgeted(&write.deck).ok();
+        made.slides = slides_told(&write.deck);
         crate::create::make(dir, write)?;
     }
     Ok(made)
@@ -2653,6 +2684,7 @@ pub fn making(
         links: Vec::new(),
         refused: Vec::new(),
         notes: None,
+        slides: Vec::new(),
     };
     let Some(mut write) = write else { return Ok((made, None)) };
     let nothing = scaena_store::Files::Zip(Default::default());
@@ -2699,6 +2731,7 @@ pub fn making(
     write.deck = settled.deck;
     made.links = links(&write.deck);
     made.overlong = claims_long(&write.deck, &made.created.findings)?;
+    made.slides = slides_told(&write.deck);
     Ok((made, Some(write)))
 }
 
@@ -4496,7 +4529,10 @@ fn layout_for(
     ];
     // A bare closing headed by its beat's claim sets all its own lines under the claim, on one line
     // of the support, however many they are (W1 dogfood 13).
-    let claimed = wanted == "closing" && bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty());
+    // So does a closing that says its ask and only thanks the room under it ("Thank you",
+    // "Questions?"), in any language, never a list of its thanks (agent dogfood 9).
+    let claimed = wanted == "closing"
+        && ((bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty())) || thanked(slide));
     let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") || claimed {
         true => wanted,
         false if sequential.contains(&identity) => "numbered",
@@ -4509,6 +4545,15 @@ fn layout_for(
         .or_else(|| theme.layouts.keys().next().map(String::as_str))
         .unwrap_or("bullets")
         .to_string()
+}
+
+/// Whether a closing says something in its title and only thanks the room or opens the floor under
+/// it, every line of it ("Approve the pilot" over "Thank you", "Questions?"; agent dogfood 9).
+fn thanked(slide: &Slide) -> bool {
+    !bare(&slide.slide_title)
+        && !slide.slide_title.trim().is_empty()
+        && !slide.key_bullets.is_empty()
+        && slide.key_bullets.iter().all(|b| bare(b))
 }
 
 /// Whether a closing's title only thanks the room or opens the floor ("Thank you", "Questions?",
@@ -4549,7 +4594,9 @@ fn bare(title: &str) -> bool {
         "谢谢",
         "감사합니다",
     ];
-    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim().to_lowercase();
+    // Spanish opens a question or a cry with its own mark ("¿Preguntas?", "¡Gracias!").
+    let t = title.trim().trim_end_matches(['!', '?', '.', '！', '？', '。']).trim_start_matches(['¿', '¡']);
+    let t = t.trim().to_lowercase();
     !t.is_empty() && BARE.contains(&t.as_str())
 }
 
@@ -5555,8 +5602,23 @@ fn attributed(who: &str) -> String {
     format!("\u{2014} {}", who.trim().trim_start_matches(['\u{2014}', '\u{2013}', '-']).trim())
 }
 
+/// The quotation marks [`unquoted`] takes off a quote's ends: English's, German's, French's, and
+/// the corner brackets of Japanese and Chinese.
+const QUOTE_MARKS: [char; 13] = [
+    '"', '\'', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\u{201e}', '\u{ab}', '\u{bb}', '\u{300c}', '\u{300d}',
+    '\u{300e}', '\u{300f}',
+];
+
 fn unquoted(text: &str) -> String {
-    text.trim().trim_matches(['"', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\'']).trim().to_string()
+    text.trim().trim_matches(QUOTE_MARKS).trim().to_string()
+}
+
+/// Whether `text` stands wholly in quotation marks: it opens with one and closes with one.
+fn in_marks(text: &str) -> bool {
+    const OPEN: [char; 6] = ['"', '\u{201c}', '\u{201e}', '\u{ab}', '\u{300c}', '\u{300e}'];
+    const CLOSE: [char; 6] = ['"', '\u{201d}', '\u{201c}', '\u{bb}', '\u{300d}', '\u{300f}'];
+    let text = text.trim();
+    text.chars().count() > 2 && text.starts_with(OPEN) && text.ends_with(CLOSE)
 }
 
 /// `"words" — who`: the words its writer marked, and who said them, where the words stand in
@@ -5712,6 +5774,11 @@ impl Slots<'_> {
     /// claim (W1's dogfood 8): a deck ends on what it asks, not on "Thank you".
     fn claimed_close(&self) -> bool {
         self.layout == "closing" && bare(&self.slide.slide_title) && self.claim.is_some()
+    }
+
+    /// Whether the slide is a closing that says its ask and only thanks the room under it.
+    fn thanked_close(&self) -> bool {
+        self.layout == "closing" && thanked(self.slide)
     }
 
     /// A bare closing's own words, under the claim that heads it: "Thank you · Questions?".
@@ -5952,6 +6019,14 @@ impl Slots<'_> {
     }
 
     /// Whether a place in the layout sets a headline.
+    /// Whether the slide's title is a quote, wholly in its marks, and its one item, in none,
+    /// says who said it: the words a quote's place sets are the title's.
+    fn quote_titled(&self) -> bool {
+        self.items.len() == 1
+            && self.title().is_some_and(|t| in_marks(&t))
+            && self.item(0).is_some_and(|i| !in_marks(&i.whole) && signed(&i.whole).is_none())
+    }
+
     fn headed(&self) -> bool {
         self.template().is_some_and(|l| l.slots.values().any(|s| s.role.as_deref() == Some("headline")))
     }
@@ -6066,6 +6141,14 @@ impl Slots<'_> {
             // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8).
             "statement" if self.claimed_close() => self.claim.map(str::to_string),
             "support" if self.claimed_close() => Some(self.thanks()),
+            // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
+            "support" if self.thanked_close() => {
+                let said: Vec<&str> = std::iter::once(self.slide.subtitle.trim())
+                    .chain(self.items.iter().map(|i| i.whole.trim()))
+                    .filter(|w| !w.is_empty())
+                    .collect();
+                Some(said.join(" \u{b7} "))
+            }
             "header" | "title" | "statement" | "claim" | "ask" | "question" | "term" | "headline" | "point"
             | "name" | "thanks" | "top" => self.title(),
             "subtitle" | "support" | "dek" | "follow" | "talk" | "lede" | "role" => {
@@ -6086,6 +6169,10 @@ impl Slots<'_> {
             // A quote in its marks, so that it never reads as the presenter's own words.
             // A quote its writer marked and signed in one item, `"…" — who`, set in its marks
             // once, and signed in the place for who said it (agent dogfood).
+            // A quote its writer set as the slide's title, in its marks, over who said it as the one
+            // item: the title the words and the item who (W1 dogfood 15).
+            "quote" if self.quote_titled() => self.title().map(|t| quoted(&t, self.lang)),
+            "who" if self.quote_titled() => self.item(0).map(|i| attributed(&i.whole)),
             "quote" => (self.item(0))
                 .map(|i| quoted(&signed(&i.whole).map_or_else(|| i.whole.clone(), |(words, _)| words), self.lang))
                 .or_else(|| self.title()),
@@ -10383,6 +10470,42 @@ mod tests {
         has(&testimonials, "first-note", "\u{2014} VP Supply Chain, national grocer");
     }
 
+    /// A quote its writer set as the slide's title, in its marks, over who said it as its one
+    /// point, is set as the quote, signed by who said it, never the name in marks with the words
+    /// lost (W1 dogfood 15).
+    #[test]
+    fn a_quote_written_as_the_title_is_the_quote_and_its_point_who_said_it() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |title: &str, points: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "Quote").unwrap().clone();
+            slide.slide_title = title.into();
+            slide.subtitle = String::new();
+            slide.key_bullets = points.iter().map(|p| p.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            shown(&made.deck, &state)
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let quote = made("\u{201c}Here, nobody has to whisper\u{201d}", &["Hanako Sato, head librarian"]);
+        has(&quote, "quote", "\u{201c}Here, nobody has to whisper\u{201d}");
+        has(&quote, "who", "\u{2014} Hanako Sato, head librarian");
+        // In the corner brackets Japanese sets, set once in the deck's own marks.
+        let cornered = made("\u{300c}Here, nobody has to whisper\u{300d}", &["Hanako Sato"]);
+        has(&cornered, "quote", "\u{201c}Here, nobody has to whisper\u{201d}");
+        has(&cornered, "who", "\u{2014} Hanako Sato");
+        // A title that is no quote keeps the quote its point is.
+        let pointed = made("What the head librarian said", &["\u{201c}Here, nobody has to whisper\u{201d}"]);
+        has(&pointed, "quote", "\u{201c}Here, nobody has to whisper\u{201d}");
+    }
+
     /// Texts a slide sets side by side are one size where they shrink to fit, as where they grow:
     /// a team's credits, a FAQ's answers, each set at the size the one with the least room took.
     #[test]
@@ -11522,6 +11645,22 @@ mod tests {
         assert_eq!(layout, "closing", "{said:#?}");
         has(&said, "statement", "Free fares bring the riders back.");
         has(&said, "support", "Vielen Dank \u{b7} Fragen? \u{b7} route9@example.gov");
+        // A closing that says its ask, its thanks under it, keeps its closing too, in any
+        // language, the thanks on one line under the ask (agent dogfood 9: "Aprueben la
+        // ampliación" over "Gracias", "¿Preguntas?" was set as a list of the two).
+        for (lang, title, thanks) in [
+            (None, "Approve the pilot in this budget", ["Thank you", "Questions?"]),
+            (Some("Spanish"), "Aprueben la ampliación en el presupuesto de 2026", ["Gracias", "¿Preguntas?"]),
+        ] {
+            n.brief.language = lang.map(String::from);
+            let last = n.slides.last_mut().unwrap();
+            last.slide_title = title.into();
+            last.key_bullets = thanks.iter().map(|t| t.to_string()).collect();
+            let (layout, said) = close(&n);
+            assert_eq!(layout, "closing", "{said:#?}");
+            has(&said, "statement", title);
+            has(&said, "support", &thanks.join(" \u{b7} "));
+        }
         n.brief.language = None;
         let last = n.slides.last_mut().unwrap();
         last.slide_title = "Thank you".into();
@@ -14277,15 +14416,19 @@ mod tests {
         for slot in ["-number", "-callout"] {
             let (_, words, quote) = hero(slot);
             assert_eq!(words, "2,475", "{slot}");
-            // June's row, by its index: the months are dates, which name no row.
+            // June's row, by its month: a column of dates that tells the rows apart names them,
+            // so a month added before June leaves the quote on it (R1's agent dogfood 10).
             assert_eq!(
                 (quote["column"].as_str(), &quote["row"]),
-                (Some("sunday_visits"), &json!(5)),
+                (Some("sunday_visits"), &json!({ "month": "2026-06-01" })),
                 "{slot}: {quote}"
             );
         }
         // January's figure in the meaning, quoted before, still is.
-        assert!(quotes.iter().any(|(_, w, q)| w == "1,840" && q["row"] == 0), "{quotes:#?}");
+        assert!(
+            quotes.iter().any(|(_, w, q)| w == "1,840" && q["row"] == json!({ "month": "2026-01-01" })),
+            "{quotes:#?}"
+        );
         // The PDF's figures are in no cell: none quoted.
         assert!(!quotes.iter().any(|(_, w, _)| ["38%", "$3,400", "3,400", "20%"].contains(&w.as_str())), "{quotes:#?}");
         assert!(kept[0].quoted.unwrap() >= 3, "{kept:?}");

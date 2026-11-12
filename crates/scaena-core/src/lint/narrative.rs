@@ -199,7 +199,8 @@ fn role(cx: &Context, snap: &Snapshot, props: &Props) -> Option<String> {
 /// W423: a beat whose `evidence` names a data source or an asset that none of its states
 /// shows (a chart or table reading the source, an image of the asset). A figure from the
 /// data set as text is a literal that lint cannot trace to its source (finding 6), so a
-/// node marked `semantic: evidence` shows a data source too. URLs and the sources a deck was
+/// node marked `semantic: evidence` shows a data source too, as does a text that quotes one of
+/// its cells. URLs and the sources a deck was
 /// grounded in (`source:NAME`, narrative FUNC-3) are cited, not shown, and are not checked.
 struct W423EvidenceNotShown;
 impl Rule for W423EvidenceNotShown {
@@ -226,7 +227,14 @@ impl Rule for W423EvidenceNotShown {
                 };
                 let reads = |p: &Props| p.get(key).and_then(Value::as_str) == Some(cited);
                 let stands_in = |p: &Props| key == "data" && semantic(p) == Some("evidence");
-                let seen = shown.iter().any(|s| s.nodes.values().any(|p| reads(p) || stands_in(p)));
+                // A figure a text quotes from the source shows it too (R1's agent dogfood 10):
+                // it is the source's cell, set again from it at each edit (ADR-0019).
+                let quotes = |p: &Props| {
+                    key == "data"
+                        && (p.get("runs").and_then(Value::as_array).into_iter().flatten())
+                            .any(|r| r.pointer("/quote/data").and_then(Value::as_str) == Some(cited))
+                };
+                let seen = shown.iter().any(|s| s.nodes.values().any(|p| reads(p) || stands_in(p) || quotes(p)));
                 if !seen {
                     out.push(
                         Finding::new(

@@ -51,8 +51,8 @@ pub struct Notes {
     pub blocks: Vec<Block>,
 }
 
-/// The notes a presenter reads for `state` of `deck` (SPEC §2.6): its own, else its first beat's
-/// (`spine::notes`), read as blocks; none for a state the deck lacks.
+/// The notes a presenter reads for `state` of `deck` (SPEC §2.6): its own, else its slide's earlier
+/// step's, else its first beat's (`spine::notes`), read as blocks; none for a state the deck lacks.
 pub fn of(deck: &crate::document::Deck, state: &str) -> Option<Notes> {
     let text = crate::spine::notes(deck, state)?;
     Some(Notes { text: text.to_string(), blocks: read(text) })
