@@ -304,8 +304,8 @@ enum Cmd {
     /// A bundle's versions (PLAN 2.60, SPEC §8): each change its history keeps, by author and
     /// time, oldest first. `--at` prints the deck as it was just after one; `--diff` says what
     /// changed from one to another, or to the deck as it is now; `--restore` makes one the deck
-    /// again, with its data files as they were, one change, refused as a patch is where the deck
-    /// would not validate in the bundle as it is.
+    /// again, with its data files as they were, or with `--slide` puts back one slide of it, one
+    /// change, refused as a patch is where the deck would not validate in the bundle as it is.
     History {
         bundle: PathBuf,
         /// The deck as it was in this version: its number as listed, or its id.
@@ -320,6 +320,10 @@ enum Cmd {
         /// Make this version the deck again: its number as listed, or its id.
         #[arg(long, value_name = "VERSION")]
         restore: Option<String>,
+        /// With `--restore`, put back only the slide that holds this state, as the version held
+        /// it, with everything else as it is now (agent dogfood 7).
+        #[arg(long, value_name = "STATE", requires = "restore")]
+        slide: Option<String>,
         /// Say what restoring would change, and write nothing.
         #[arg(long, requires = "restore")]
         dry_run: bool,
@@ -904,12 +908,13 @@ fn run(cli: Cli) -> Result<ExitCode> {
             None => health(&bundle, verbose, cli.json),
         },
         Cmd::Icons { query, fill, limit } => icons(&query.join(" "), fill, limit, cli.json),
-        Cmd::History { bundle, at, scn, diff, restore, dry_run } => {
+        Cmd::History { bundle, at, scn, diff, restore, slide, dry_run } => {
             let ask = scaena_ops::history::Ask {
                 at,
                 scn,
                 compare: diff.unwrap_or_default(),
                 restore,
+                slide,
                 dry_run,
                 begin: false,
                 last: None,

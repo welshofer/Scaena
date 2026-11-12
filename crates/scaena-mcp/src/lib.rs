@@ -1800,7 +1800,9 @@ impl Scaena {
         changed, each with what it was before (`before`); with `restore`, that version made the deck again, with its data files and its theme as they \
         were: one change, refused as a patch is where the deck would not validate in the bundle as it is \
         (`dry_run` writes nothing). A version is named by its number, its id, or how far back from the latest it is: \
-        `restore: \"-1\"`, the version before the latest, undoes the last change. With `last`, only the last that \
+        `restore: \"-1\"`, the version before the latest, undoes the last change. With `restore` and `slide`, a \
+        state, only the slide that holds it is put back as that version held it, its steps, the objects it alone \
+        shows, its data, and its beat, and every edit made since stays. With `last`, only the last that \
         many versions are listed.")]
     async fn deck_history(
         &self,
