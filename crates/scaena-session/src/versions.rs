@@ -326,4 +326,28 @@ mod tests {
         let e = s.restore_version(&then, version(1), Some("nowhere"), user).unwrap_err();
         assert!(e.to_string().contains("no state `nowhere`"), "{e}");
     }
+
+    /// B1's cover put back (dogfood 16): its title, which the closing slide shows too, stays as it
+    /// is now, so the other slide shows what it showed, and the restore says so, by the title's
+    /// words and that slide's number; the subtitle, alike in both, goes unsaid.
+    #[test]
+    fn a_slide_put_back_says_what_it_kept_for_another_slide() {
+        let b1 = crate::store::tests::files("../../tests/bench/b1.scaena");
+        let then = Held { deck: String::from_utf8(b1["deck.json"].clone()).unwrap(), files: BTreeMap::new() };
+        let mut now: serde_json::Value = serde_json::from_slice(&b1["deck.json"]).unwrap();
+        now["nodes"]["title"]["text"] = "Scaena anew".into();
+        let mut files = b1.clone();
+        files.insert("deck.json".into(), now.to_string().into_bytes());
+        let mut s = Session::open(files).unwrap();
+        let close = scaena_core::words::slide(&s.deck, "close");
+
+        let user = Caller { author: "user", at: None };
+        let (restored, _) = s.restore_version(&then, version(1), Some("cover"), user).unwrap();
+        assert!(restored.applied, "{restored:?}");
+        assert_eq!(s.deck.nodes["title"].props["text"], "Scaena anew", "what the closing slide shows stays");
+        assert_eq!(
+            restored.kept,
+            [format!("\u{201c}Scaena anew\u{201d} kept as it is now, since {close} shows it too")]
+        );
+    }
 }

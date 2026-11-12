@@ -1666,7 +1666,10 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
           view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
         }
         const files = r.files.length ? `, with ${r.files.map((f) => f.replace(/^.*\//, "")).join(", ")}` : "";
-        say(`${what(r)}${files} · ⌘Z undoes it`);
+        // What the slide shows as it is now, for another slide's sake, said: else it reads as a
+        // restore that did nothing (dogfood 16).
+        const kept = r.kept?.length ? `. ${r.kept.join(". ")}` : "";
+        say(`${what(r)}${files}${kept} · ⌘Z undoes it`);
         return r;
       } catch (e) {
         say(`Not restored: ${said(e)}`);

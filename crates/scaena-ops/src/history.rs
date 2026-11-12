@@ -739,6 +739,12 @@ pub struct Restored {
     /// ("Slide 2: Revenue doubled"), so a dry run says which slide it brings back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slide: Option<String>,
+    /// With `slide`, each object the version had otherwise that the slide put back shows as it is
+    /// now, since another slide shows it too, said by its words and those slides: "“Scaena anew”
+    /// kept as it is now, since Slide 12 shows it too" (dogfood 16). A restore of one slide never
+    /// changes what another shows, and a person who sees the object unchanged is told why.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<String>,
     /// Refused: the version's deck would not validate in the bundle as it is now (in `added`).
     #[serde(skip)]
     pub refused: bool,
@@ -807,24 +813,28 @@ pub fn slide_restored(
     held: &BTreeMap<String, Vec<u8>>,
     slide: &str,
 ) -> Result<(Restored, Option<Write>), OpsError> {
-    let (deck, files) = slide_back(&b.deck, was, held, slide, version.n)?;
+    let (deck, files, kept) = slide_back(&b.deck, was, held, slide, version.n)?;
     let said = put_back(&deck, slide);
+    let kept = kept_said(&deck, slide, &kept);
     let (mut restored, write_it) = restored(b, version, deck, files)?;
     restored.slide = said;
+    restored.kept = kept;
     let id = restored.version.id.clone();
     let write_it = write_it.map(|w| Write { why: Why::new(format!("history --restore {id} --slide {slide}")), ..w });
     Ok((restored, write_it))
 }
 
-/// `now` with the slide of `was` that holds `state` put back ([`restoring_slide`]), and the
-/// files of `held` the data sources it brings back read.
+/// `now` with the slide of `was` that holds `state` put back ([`restoring_slide`]), the files of
+/// `held` the data sources it brings back read, and each node it shows that the version had
+/// otherwise and that stays as it is now, since another slide shows it, by id.
+#[allow(clippy::type_complexity)]
 fn slide_back(
     now: &Deck,
     was: &Deck,
     held: &BTreeMap<String, Vec<u8>>,
     state: &str,
     n: usize,
-) -> Result<(Deck, BTreeMap<String, Vec<u8>>), OpsError> {
+) -> Result<(Deck, BTreeMap<String, Vec<u8>>, Vec<String>), OpsError> {
     let slides = was.slides();
     let Some(k) = (slides.iter()).position(|s| s.iter().any(|&i| was.states[i].id == state)) else {
         let near = scaena_core::patch::nearest("states", state, was.states.iter().map(|s| s.id.as_str()));
@@ -856,10 +866,20 @@ fn slide_back(
     });
     // Its nodes: each the deck lacks, or shows on no other slide, as the version held it.
     let shown: Vec<&String> = back.iter().flat_map(|s| s.props.keys()).collect();
+    let mut kept: Vec<String> = Vec::new();
     for id in shown {
         let Some(node) = was.nodes.get(id) else { continue };
         let elsewhere =
             (deck.states.iter()).filter(|s| !ids.contains(&s.id.as_str())).any(|s| s.props.contains_key(id));
+        // Kept as it is now for the other slide's sake, where the version had it otherwise.
+        if elsewhere
+            && !kept.contains(id)
+            && (deck.nodes.get(id).map(serde_json::to_value).transpose().ok().flatten()
+                != serde_json::to_value(node).ok()
+                || deck.overrides.get(id) != was.overrides.get(id))
+        {
+            kept.push(id.clone());
+        }
         if !deck.nodes.contains_key(id) || !elsewhere {
             deck.nodes.insert(id.clone(), node.clone());
             match was.overrides.get(id) {
@@ -940,7 +960,57 @@ fn slide_back(
         }
         spine.sections.retain(|s| !s.beats.is_empty());
     }
-    Ok((deck, files))
+    Ok((deck, files, kept))
+}
+
+/// Each of `kept`, a node the slide that holds `state` shows in `deck` as it is now, said by its
+/// words there and the other slides that show it, by their numbers.
+fn kept_said(deck: &Deck, state: &str, kept: &[String]) -> Vec<String> {
+    let Ok(snaps) = scaena_core::tracking::resolve_states(deck) else { return Vec::new() };
+    let Some(at) = deck.states.iter().position(|s| s.id == state) else { return Vec::new() };
+    let ours = deck.slide_of(&deck.states[at]).to_string();
+    // Each slide's number, as a person counts them, by its first state's id.
+    let mut numbers: Vec<&str> = Vec::new();
+    for s in &deck.states {
+        let slide = deck.slide_of(s);
+        if numbers.last() != Some(&slide) {
+            numbers.push(slide);
+        }
+    }
+    let number = |slide: &str| numbers.iter().position(|s| *s == slide).map(|i| i + 1);
+    let mut out = Vec::new();
+    for id in kept {
+        let mut others: Vec<usize> = Vec::new();
+        for (s, snap) in deck.states.iter().zip(&snaps) {
+            let slide = deck.slide_of(s);
+            if slide != ours
+                && snap.nodes.contains_key(id)
+                && let Some(n) = number(slide)
+                && !others.contains(&n)
+            {
+                others.push(n);
+            }
+        }
+        let Some(shown) = snaps.get(at) else { continue };
+        let name = scaena_core::words::object_in(deck, &shown.nodes, id);
+        let named = if deck.nodes.get(id).map(|n| n.node_type) == Some(scaena_core::document::NodeType::Text) {
+            format!("\u{201c}{name}\u{201d}")
+        } else {
+            name
+        };
+        let (them, show) = match others.as_slice() {
+            [] => continue,
+            [one] => (format!("Slide {one}"), "shows"),
+            [first, rest @ ..] if rest.len() == 1 => (format!("Slides {first} and {}", rest[0]), "show"),
+            many => {
+                let (last, head) = many.split_last().unwrap_or((&0, &[]));
+                let head: Vec<String> = head.iter().map(usize::to_string).collect();
+                (format!("Slides {}, and {last}", head.join(", ")), "show")
+            }
+        };
+        out.push(format!("{named} kept as it is now, since {them} {show} it too"));
+    }
+    out
 }
 
 /// `kept`, a beat's states now, with `back`, the slide's states put back, each where `version`,
@@ -1060,6 +1130,7 @@ pub fn restored(
         refused,
         version,
         slide: None,
+        kept: Vec::new(),
     };
     let changes = text != b.deck.to_json()? || !restored.files.is_empty();
     let write_it = (!refused && changes).then(|| Write {

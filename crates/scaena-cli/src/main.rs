@@ -1788,6 +1788,9 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
         for file in &r.files {
             println!("  {file} as it was then");
         }
+        for kept in &r.kept {
+            println!("  {kept}");
+        }
         print_delta(&r.added, &r.removed);
     }
     Ok(code)

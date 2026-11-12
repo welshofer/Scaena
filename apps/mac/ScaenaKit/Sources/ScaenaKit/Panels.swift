@@ -357,9 +357,12 @@ public struct Restored: Decodable, Sendable {
     /// With a slide asked, the slide put back, by its number and headline in the deck it makes:
     /// "Slide 2: Revenue doubled" (dogfood 16).
     public let slide: String?
+    /// With a slide asked, each object it shows as it is now since another slide shows it too, in a
+    /// sentence: "“Scaena anew” kept as it is now, since Slide 12 shows it too" (dogfood 16).
+    public let kept: [String]
 
     private enum Keys: String, CodingKey { case restored, files }
-    private enum Inner: String, CodingKey { case applied, added, slide }
+    private enum Inner: String, CodingKey { case applied, added, slide, kept }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -370,6 +373,7 @@ public struct Restored: Decodable, Sendable {
         why = messages(found)
         files = try fields.decodeIfPresent([Rewritten].self, forKey: .files) ?? []
         slide = try restored.decodeIfPresent(String.self, forKey: .slide)
+        kept = try restored.decodeIfPresent([String].self, forKey: .kept) ?? []
     }
 }
 

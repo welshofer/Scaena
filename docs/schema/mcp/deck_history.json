@@ -174,7 +174,8 @@
           "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
           "errors": { "type": "integer", "minimum": 0 },
           "states": { "type": "array", "items": { "type": "string" } },
-          "slide": { "type": ["string", "null"] }
+          "slide": { "type": ["string", "null"] },
+          "kept": { "type": "array", "items": { "type": "string" } }
         },
         "required": ["version", "applied", "files", "added", "removed", "errors", "states"]
       },
