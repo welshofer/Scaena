@@ -5530,8 +5530,23 @@ fn attributed(who: &str) -> String {
     format!("\u{2014} {}", who.trim().trim_start_matches(['\u{2014}', '\u{2013}', '-']).trim())
 }
 
+/// The quotation marks [`unquoted`] takes off a quote's ends: English's, German's, French's, and
+/// the corner brackets of Japanese and Chinese.
+const QUOTE_MARKS: [char; 13] = [
+    '"', '\'', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\u{201e}', '\u{ab}', '\u{bb}', '\u{300c}', '\u{300d}',
+    '\u{300e}', '\u{300f}',
+];
+
 fn unquoted(text: &str) -> String {
-    text.trim().trim_matches(['"', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\'']).trim().to_string()
+    text.trim().trim_matches(QUOTE_MARKS).trim().to_string()
+}
+
+/// Whether `text` stands wholly in quotation marks: it opens with one and closes with one.
+fn in_marks(text: &str) -> bool {
+    const OPEN: [char; 6] = ['"', '\u{201c}', '\u{201e}', '\u{ab}', '\u{300c}', '\u{300e}'];
+    const CLOSE: [char; 6] = ['"', '\u{201d}', '\u{201c}', '\u{bb}', '\u{300d}', '\u{300f}'];
+    let text = text.trim();
+    text.chars().count() > 2 && text.starts_with(OPEN) && text.ends_with(CLOSE)
 }
 
 /// `"words" — who`: the words its writer marked, and who said them, where the words stand in
@@ -5926,6 +5941,14 @@ impl Slots<'_> {
     }
 
     /// Whether a place in the layout sets a headline.
+    /// Whether the slide's title is a quote, wholly in its marks, and its one item, in none,
+    /// says who said it: the words a quote's place sets are the title's.
+    fn quote_titled(&self) -> bool {
+        self.items.len() == 1
+            && self.title().is_some_and(|t| in_marks(&t))
+            && self.item(0).is_some_and(|i| !in_marks(&i.whole) && signed(&i.whole).is_none())
+    }
+
     fn headed(&self) -> bool {
         self.template().is_some_and(|l| l.slots.values().any(|s| s.role.as_deref() == Some("headline")))
     }
@@ -6060,6 +6083,10 @@ impl Slots<'_> {
             // A quote in its marks, so that it never reads as the presenter's own words.
             // A quote its writer marked and signed in one item, `"…" — who`, set in its marks
             // once, and signed in the place for who said it (agent dogfood).
+            // A quote its writer set as the slide's title, in its marks, over who said it as the one
+            // item: the title the words and the item who (W1 dogfood 15).
+            "quote" if self.quote_titled() => self.title().map(|t| quoted(&t, self.lang)),
+            "who" if self.quote_titled() => self.item(0).map(|i| attributed(&i.whole)),
             "quote" => (self.item(0))
                 .map(|i| quoted(&signed(&i.whole).map_or_else(|| i.whole.clone(), |(words, _)| words), self.lang))
                 .or_else(|| self.title()),
@@ -10343,6 +10370,42 @@ mod tests {
         let testimonials = made("Testimonials");
         has(&testimonials, "first", "\u{201c}We cut our freight emissions below zero in one quarter\u{201d}");
         has(&testimonials, "first-note", "\u{2014} VP Supply Chain, national grocer");
+    }
+
+    /// A quote its writer set as the slide's title, in its marks, over who said it as its one
+    /// point, is set as the quote, signed by who said it, never the name in marks with the words
+    /// lost (W1 dogfood 15).
+    #[test]
+    fn a_quote_written_as_the_title_is_the_quote_and_its_point_who_said_it() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |title: &str, points: &[&str]| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "Quote").unwrap().clone();
+            slide.slide_title = title.into();
+            slide.subtitle = String::new();
+            slide.key_bullets = points.iter().map(|p| p.to_string()).collect();
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            shown(&made.deck, &state)
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        let quote = made("\u{201c}Here, nobody has to whisper\u{201d}", &["Hanako Sato, head librarian"]);
+        has(&quote, "quote", "\u{201c}Here, nobody has to whisper\u{201d}");
+        has(&quote, "who", "\u{2014} Hanako Sato, head librarian");
+        // In the corner brackets Japanese sets, set once in the deck's own marks.
+        let cornered = made("\u{300c}Here, nobody has to whisper\u{300d}", &["Hanako Sato"]);
+        has(&cornered, "quote", "\u{201c}Here, nobody has to whisper\u{201d}");
+        has(&cornered, "who", "\u{2014} Hanako Sato");
+        // A title that is no quote keeps the quote its point is.
+        let pointed = made("What the head librarian said", &["\u{201c}Here, nobody has to whisper\u{201d}"]);
+        has(&pointed, "quote", "\u{201c}Here, nobody has to whisper\u{201d}");
     }
 
     /// Texts a slide sets side by side are one size where they shrink to fit, as where they grow:
