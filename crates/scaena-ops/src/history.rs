@@ -312,7 +312,10 @@ pub struct Compared {
     pub states: StateChanges,
     /// The deck's own fields that changed (its theme, canvas, formats, fonts, data sources,
     /// spine, …), each as the later version has it; null where it is gone. `order` is the
-    /// later version's states, where those both have run in another order.
+    /// later version's states, where those both have run in another order. The spine is said by
+    /// what changed of it, each beat's fields that changed by its id under `beats` and the
+    /// outline under `sections` where it changed; the fonts by the files added, `before`
+    /// holding those taken away.
     pub deck: Fields,
     /// Each of those as the earlier version had it; null where it had none.
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
@@ -462,8 +465,98 @@ pub fn diff(b: &Bundle, from: &str, to: Option<&str>) -> Result<Compared, OpsErr
     let files = differing((&then_deck, &then_files), (&now_deck, &now_files));
     let mut was = then_deck.to_value()?.as_object().cloned().unwrap_or_default();
     was.insert("order".into(), then_deck.states.iter().map(|s| Value::from(s.id.clone())).collect());
-    let before = had(&was, deck.keys());
+    let mut before = had(&was, deck.keys());
+    let mut deck = deck;
+    // The spine and the fonts by what changed of them, never each whole twice (R1's agent
+    // dogfood 6: 3 KB of ridgeline's 7.4 KB was its spine, before and after).
+    if deck.contains_key("spine") {
+        let (now, then) = spine_changed(&then_deck, &now_deck);
+        deck.insert("spine".into(), now);
+        before.insert("spine".into(), then);
+    }
+    if deck.contains_key("fonts") {
+        let (added, gone) = fonts_changed(&then_deck, &now_deck);
+        deck.insert("fonts".into(), added);
+        before.insert("fonts".into(), gone);
+    }
     Ok(Compared { from: earlier, to: later, states, deck, before, files })
+}
+
+/// What changed of the spine from `was` to `is`, as the later and the earlier versions have it:
+/// under `beats`, each beat by its id, with each of its fields that changed (its claim, its notes,
+/// the states it tells, …), a beat added whole and null for one taken away, each as the other
+/// version has it; and under `sections`, where a section was added, taken away, moved, retitled,
+/// or given other beats, each section's id, title, and beats' ids, the spine's outline.
+fn spine_changed(was: &Deck, is: &Deck) -> (Value, Value) {
+    let beats = |deck: &Deck| -> serde_json::Map<String, Value> {
+        let all = deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats);
+        all.filter_map(|b| Some((b.id.clone(), serde_json::to_value(b).ok()?))).collect()
+    };
+    let outline = |deck: &Deck| -> Value {
+        let sections = deck.spine.iter().flat_map(|s| &s.sections);
+        sections
+            .map(|s| {
+                let beats: Vec<Value> = s.beats.iter().map(|b| Value::from(b.id.clone())).collect();
+                serde_json::json!({ "id": s.id, "title": s.title, "beats": beats })
+            })
+            .collect()
+    };
+    let (then, now) = (beats(was), beats(is));
+    let (mut after, mut before) = (serde_json::Map::new(), serde_json::Map::new());
+    for (id, beat) in &now {
+        match then.get(id) {
+            None => {
+                after.insert(id.clone(), beat.clone());
+                before.insert(id.clone(), Value::Null);
+            }
+            Some(old) => {
+                let empty = serde_json::Map::new();
+                let (old, new) = (old.as_object().unwrap_or(&empty), beat.as_object().unwrap_or(&empty));
+                let fields = changes(old, new);
+                if !fields.is_empty() {
+                    let had = had(old, fields.keys());
+                    after.insert(id.clone(), Value::Object(fields.into_iter().collect()));
+                    before.insert(id.clone(), Value::Object(had.into_iter().collect()));
+                }
+            }
+        }
+    }
+    for (id, beat) in then.iter().filter(|(id, _)| !now.contains_key(*id)) {
+        after.insert(id.clone(), Value::Null);
+        before.insert(id.clone(), beat.clone());
+    }
+    let (mut later, mut earlier) = (serde_json::Map::new(), serde_json::Map::new());
+    if !after.is_empty() {
+        later.insert("beats".into(), Value::Object(after));
+        earlier.insert("beats".into(), Value::Object(before));
+    }
+    let (from, to) = (outline(was), outline(is));
+    if from != to {
+        later.insert("sections".into(), to);
+        earlier.insert("sections".into(), from);
+    }
+    if was.spine.is_none() || is.spine.is_none() {
+        let whole = |d: &Deck| d.spine.as_ref().map_or(Value::Null, |s| serde_json::to_value(s).unwrap_or_default());
+        return (whole(is), whole(was));
+    }
+    (Value::Object(later), Value::Object(earlier))
+}
+
+/// The fonts added from `was` to `is`, and those taken away, each by its file: a re-theme's
+/// fonts named, never every font's axes twice.
+fn fonts_changed(was: &Deck, is: &Deck) -> (Value, Value) {
+    let files = |deck: &Deck| -> Vec<Value> {
+        deck.to_value()
+            .ok()
+            .and_then(|v| v.get("fonts").cloned())
+            .and_then(|f| f.as_array().cloned())
+            .unwrap_or_default()
+    };
+    let (then, now) = (files(was), files(is));
+    let named = |font: &Value| font.get("file").cloned().unwrap_or_else(|| font.clone());
+    let added: Vec<Value> = now.iter().filter(|f| !then.contains(f)).map(named).collect();
+    let gone: Vec<Value> = then.iter().filter(|f| !now.contains(f)).map(named).collect();
+    (Value::from(added), Value::from(gone))
 }
 
 /// What restoring a version did, or would do: what `scaena history --restore` prints.
@@ -642,4 +735,62 @@ pub fn history(b: &Bundle, ask: &Ask) -> Result<History, OpsError> {
         _ => return Err(OpsError::new("compare one version with the deck as it is now, or two versions")),
     };
     Ok(History { compared: Some(compared), ..History::default() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ridgeline() -> Value {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/ridgeline.deck.json");
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn deck(v: &Value) -> Deck {
+        Deck::from_json(&v.to_string()).unwrap()
+    }
+
+    /// R1's agent dogfood 6: a comparison says what changed of the spine beat by beat, and of the
+    /// fonts by file, never either whole before and after.
+    #[test]
+    fn a_comparison_says_the_spine_by_its_beats_and_the_fonts_by_their_files() {
+        let was = ridgeline();
+        let mut is = was.clone();
+        is["spine"]["sections"][1]["beats"][0]["notes"] = "Say the growth.".into();
+        is["spine"]["sections"][1]["beats"][1]["claim"] = "Hilltop barely moved.".into();
+        is["fonts"][2]["file"] = "fonts/Other-VF.ttf".into();
+        let (after, before) = spine_changed(&deck(&was), &deck(&is));
+        assert_eq!(
+            after,
+            serde_json::json!({ "beats": {
+                "growth": { "notes": "Say the growth." },
+                "hilltop-stalled": { "claim": "Hilltop barely moved." },
+            }})
+        );
+        assert_eq!(
+            before,
+            serde_json::json!({ "beats": {
+                "growth": { "notes": null },
+                "hilltop-stalled": { "claim": "Hilltop, the steepest neighborhood, barely moved until June." },
+            }})
+        );
+        let (added, gone) = fonts_changed(&deck(&was), &deck(&is));
+        assert_eq!(added, serde_json::json!(["fonts/Other-VF.ttf"]));
+        assert_eq!(gone, serde_json::json!(["fonts/JetBrainsMono-VF.ttf"]));
+
+        // A beat moved to another section is the outline's, a beat taken away null.
+        let mut moved = was.clone();
+        let beat = moved["spine"]["sections"][1]["beats"].as_array_mut().unwrap().remove(1);
+        moved["spine"]["sections"][2]["beats"].as_array_mut().unwrap().insert(0, beat);
+        moved["spine"]["sections"][3]["beats"].as_array_mut().unwrap().remove(1);
+        let (after, before) = spine_changed(&deck(&was), &deck(&moved));
+        assert_eq!(after["beats"], serde_json::json!({ "setup": null }));
+        assert_eq!(
+            before["beats"]["setup"]["claim"],
+            "The $1.4 million set-up cost bought a system that now runs cheaply."
+        );
+        assert_eq!(after["sections"][2]["beats"][0], "hilltop-stalled");
+        assert_eq!(before["sections"][1]["beats"][1], "hilltop-stalled");
+        assert!(after.to_string().len() < 700, "{} bytes: {after}", after.to_string().len());
+    }
 }
