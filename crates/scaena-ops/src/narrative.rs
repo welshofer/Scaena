@@ -213,6 +213,10 @@ pub struct Generated {
     pub fitted: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unfitted: Option<String>,
+    /// Each settled claim kept in the person's words though it is longer than its place takes,
+    /// said by its slide, for the person to shorten (W1 dogfood 13): the fit never rewrites one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overlong: Option<String>,
     /// How many pictures were made for its slides (PLAN G.10).
     #[serde(skip_serializing_if = "is_zero")]
     pub pictures: usize,
@@ -2618,6 +2622,7 @@ pub fn making(
         fixed: Vec::new(),
         fitted: Vec::new(),
         unfitted: None,
+        overlong: None,
         pictures: 0,
         unpictured: Vec::new(),
         looked: Vec::new(),
@@ -2672,7 +2677,66 @@ pub fn making(
     made.created.findings = settled.findings;
     write.deck = settled.deck;
     made.links = links(&write.deck);
+    made.overlong = claims_long(&write.deck, &made.created.findings)?;
     Ok((made, Some(write)))
+}
+
+/// Each settled claim a slide keeps in the person's words, though it is longer than its place
+/// takes at its role's least size, said by its slide (W1 dogfood 13): the fit never rewrites it
+/// ([`overflowing`]), so the person is told to shorten it. None where every claim fits.
+fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsError> {
+    let doc = deck.to_value()?;
+    let settled: Vec<&str> = (doc["meta"]["narrative"]["outline"]["beats"].as_array().into_iter().flatten())
+        .filter_map(|b| b["claim"].as_str())
+        .collect();
+    let slides = deck.slides();
+    let mut said: Vec<(usize, String)> = Vec::new();
+    for f in findings.iter().filter(|f| matches!(f.code.as_str(), "E100" | "W202")) {
+        let Some(id) = f.node.as_deref() else { continue };
+        let Some(text) = doc["nodes"][id]["text"].as_str() else { continue };
+        if !settled.iter().any(|claim| says(claim, text)) {
+            continue;
+        }
+        let Some(slide) = (f.state.as_deref())
+            .and_then(|s| deck.state_index(s))
+            .and_then(|k| slides.iter().position(|states| states.contains(&k)))
+            .map(|n| n + 1)
+        else {
+            continue;
+        };
+        if said.iter().any(|(n, _)| *n == slide) {
+            continue;
+        }
+        let how = match (f.code.as_str(), f.measure.as_ref()) {
+            ("W202", Some(m)) => match (m["lines"].as_u64(), m["maxLines"].as_u64()) {
+                (Some(lines), Some(most)) => format!("in {lines} lines where its place takes {most}"),
+                _ => "in more lines than its place takes".to_string(),
+            },
+            _ => "past its place".to_string(),
+        };
+        said.push((slide, how));
+    }
+    said.sort_by_key(|(n, _)| *n);
+    Ok(match said.as_slice() {
+        [] => None,
+        [(slide, how)] => {
+            Some(format!("slide {slide}'s settled claim stands as written, {how}: shorten it in the outline to fit"))
+        }
+        // Each said alike: "the settled claims on slides 3, 5 and 7 stand as written, each in 4
+        // lines where its place takes 3".
+        [(_, how), rest @ ..] if rest.iter().all(|(_, h)| h == how) => {
+            let slides: Vec<String> = said.iter().map(|(n, _)| n.to_string()).collect();
+            Some(format!(
+                "the settled claims on slides {} stand as written, each {how}: shorten them in the outline to fit",
+                and_list(&slides)
+            ))
+        }
+        _ => {
+            let each: Vec<String> =
+                said.iter().map(|(n, how)| format!("slide {n}'s settled claim stands as written, {how}")).collect();
+            Some(format!("{}: shorten them in the outline to fit", each.join("; ")))
+        }
+    })
 }
 
 /// The theme's shader preset a made deck's cover and close stand on where no picture was made for
@@ -12757,6 +12821,21 @@ mod tests {
         assert_eq!(node["fit"], "shrink", "{node:#}");
         assert!(node.get("maxSize").is_none(), "{node:#}");
         assert!(made.created.findings.iter().all(|f| f.code != "E100" || f.node.as_deref() != Some(id)));
+        // Longer than its place takes at its role's least size, it is said by its slide, for the
+        // person to shorten, never rewritten (W1 dogfood 13).
+        let lines = (made.created.findings.iter())
+            .find(|f| f.code == "W202" && f.node.as_deref() == Some(id))
+            .and_then(|f| f.measure.as_ref()?["lines"].as_u64())
+            .expect("the claim sets in more lines than its place takes");
+        assert_eq!(
+            made.overlong.as_deref(),
+            Some(
+                format!(
+                    "slide 2's settled claim stands as written, in {lines} lines where its place takes 3: shorten it in the outline to fit"
+                )
+                .as_str()
+            )
+        );
         // Were it still to run past its place, the fit would be asked to rewrite another text,
         // never the claim.
         let mut long = Finding::new("E100", scaena_core::Severity::Error, "runs past its box");
