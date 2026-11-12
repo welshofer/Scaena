@@ -1080,25 +1080,37 @@ pub fn folding(b: &Bundle, state: &str, into: Option<&str>) -> Result<Folded, Op
     if target.is_none() {
         folded_notes = after(&joined, &folded_notes);
     }
+    // The notes of the slide it folds into's first state, where they are written there.
+    let first = &deck.states[prev[0]];
+    let mut first_notes: Option<String> = None;
     if !folded_notes.trim().is_empty() {
-        let first = &deck.states[prev[0]];
         match (&first.notes, beat_of(&first.id)) {
             (None, Some((s, b, beat))) => {
                 to_beat((*s, *b), beat.notes.as_deref().unwrap_or(""), &folded_notes, &mut beat_notes)
             }
-            (own, _) => patch.push(json!({
-                "op": "add", "path": format!("/states/{}/notes", prev[0]),
-                "value": after(own.as_deref().unwrap_or(""), &folded_notes)
-            })),
+            (own, _) => first_notes = Some(after(own.as_deref().unwrap_or(""), &folded_notes)),
         }
     }
-    if let Some((s, b, kept_in)) = beat_of(kept.last().unwrap_or(&kept[0])) {
-        for (_, _, beat) in &beats {
-            let alone = !beat.states.is_empty() && beat.states.iter().all(|s| gone.contains(s));
-            if alone && !beat.claim.trim().is_empty() {
-                to_beat((*s, *b), kept_in.notes.as_deref().unwrap_or(""), &beat.claim, &mut beat_notes);
+    // The claim of each beat the fold leaves with no slide: in the notes of the beat that tells
+    // the slide it folds into, else, where no beat tells it, that slide's own, so no claim is lost.
+    let told = beat_of(kept.last().unwrap_or(&kept[0]));
+    for (_, _, beat) in &beats {
+        let alone = !beat.states.is_empty() && beat.states.iter().all(|s| gone.contains(s));
+        if !alone || beat.claim.trim().is_empty() {
+            continue;
+        }
+        match told {
+            Some((s, b, kept_in)) => {
+                to_beat((*s, *b), kept_in.notes.as_deref().unwrap_or(""), &beat.claim, &mut beat_notes)
+            }
+            None => {
+                let was = first_notes.take().or_else(|| first.notes.clone()).unwrap_or_default();
+                first_notes = Some(after(&was, &beat.claim));
             }
         }
+    }
+    if let Some(notes) = first_notes {
+        patch.push(json!({ "op": "add", "path": format!("/states/{}/notes", prev[0]), "value": notes }));
     }
     for ((s, b), notes) in beat_notes {
         patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}/notes"), "value": notes }));
@@ -1215,6 +1227,33 @@ mod tests {
         assert!(kept.evidence.iter().all(|e| !e.contains("Identity")), "and is no source");
         // The slide after it shows what it showed.
         assert_eq!(shown(&deck, "belief-3-line", "body"), shown(&b.deck, "belief-3-line", "body"));
+    }
+
+    /// A slide folded into one no beat tells keeps its beat's claim (W1's review of #1175): the
+    /// beat goes with the slide, and its claim joins that slide's own notes, after the notes the
+    /// fold puts there, as it joins the notes of the beat that tells the slide where one does.
+    #[test]
+    fn a_fold_into_a_slide_no_beat_tells_keeps_the_claim_in_its_notes() {
+        let mut b = short();
+        for beat in b.deck.spine.iter_mut().flat_map(|s| s.sections.iter_mut()).flat_map(|s| s.beats.iter_mut()) {
+            beat.states.retain(|s| !s.starts_with("belief-1"));
+            if beat.id == "belief-2" {
+                beat.claim = "Naming beats framing every time.".into();
+            }
+        }
+        let two = b.deck.state_index("belief-2").unwrap();
+        b.deck.states[two].notes = Some("Name every node once.".into());
+        let folded = folding(&b, "belief-2", None).unwrap();
+        assert_eq!(folded.refused, None, "{folded:?}");
+        let deck = applied(&b, &folded.patch);
+        let one = deck.state_index("belief-1").unwrap();
+        assert_eq!(
+            deck.states[one].notes.as_deref(),
+            Some("Name every node once.\n\nNaming beats framing every time."),
+            "{:?}",
+            folded.patch
+        );
+        assert!(deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats).all(|beat| beat.id != "belief-2"));
     }
 
     /// Its notes follow the previous slide's, a blank line between, where they are read: the
