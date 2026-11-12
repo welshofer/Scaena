@@ -81,15 +81,12 @@ impl Rule for W210Density {
 }
 
 /// The words a text node shows: its `text`, or its runs' text read as one, so a word that
-/// runs split ("$" "48.2" "M", a quoted figure) is one word. A word is what whitespace separates
-/// (W210, and the reading W323 sizes a hold by).
+/// runs split ("$" "48.2" "M", a quoted figure) is one word, in the paragraphs it draws, so a
+/// build by bullet's first step counts its first bullet, not every bullet its last step draws
+/// (PLAN 2.129; agent dogfood 9). A word is what whitespace separates (W210, and the reading
+/// W323 sizes a hold by).
 pub fn words(props: &Props) -> usize {
-    match props.get("runs").and_then(Value::as_array) {
-        Some(runs) => runs.iter().filter_map(|r| r.get("text").and_then(Value::as_str)).collect::<String>(),
-        None => props.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
-    }
-    .split_whitespace()
-    .count()
+    crate::reading::drawn_words(props).split_whitespace().count()
 }
 
 /// How far `size × leading` may miss a whole number of grid lines and still count as
@@ -1065,6 +1062,22 @@ mod tests {
             { "text": "M" }
         ] }));
         assert_eq!((words(&text), words(&runs)), (5, 5));
+    }
+
+    /// A step of a build by bullet counts the words of the paragraphs it draws, not those its
+    /// later steps bring in (agent dogfood 9: every step of a folded slide was W210 at 47 words,
+    /// the first drawing one bullet of seven).
+    #[test]
+    fn a_build_step_counts_the_words_it_draws() {
+        let props = |v: Value| -> Props { serde_json::from_value(v).unwrap() };
+        let text = "Una estación cada 400 metros\nConectadas al carril bici\nAbiertas en 2026";
+        let step = |p: Value| words(&props(serde_json::json!({ "text": text, "paragraphs": p })));
+        assert_eq!((step(serde_json::json!([1, 1])), step(serde_json::json!([1, 2]))), (5, 9));
+        assert_eq!(step(serde_json::json!([1, 3])), 12);
+        assert_eq!(words(&props(serde_json::json!({ "text": text }))), 12, "with no `paragraphs`, all of them");
+        let runs = props(serde_json::json!({
+            "runs": [{ "text": "Uno dos\nTres " }, { "text": "cuatro\nCinco" }], "paragraphs": [2, 2] }));
+        assert_eq!(words(&runs), 2, "the second paragraph, across its runs");
     }
 
     /// W322's fixes applied one after another, as `lint --fix` applies them, a fix that fails
