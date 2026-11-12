@@ -32,6 +32,20 @@ import Testing
     }
 }
 
+/// An export made away from the window is drawn in the format the window shows, as the browser's
+/// Export… makes it ("in 9:16"): the snapshot's session lays out in it, so the PNG is the format's,
+/// and the deck's own canvas where that is shown.
+@Test func anExportIsMadeInTheFormatTheWindowShows() async throws {
+    let session = try ScaenaSession(directory: tortureDeck)
+    let own = try session.png("images", width: 320)
+    try session.setFormat("9:16")
+    let tall = try session.png("images", width: 320)
+    #expect(tall != own, "9:16 lays the state out otherwise")
+    #expect(try await session.snapshot().exported(.png(state: "images", width: 320)) == tall)
+    try session.setFormat(nil)
+    #expect(try await session.snapshot().exported(.png(state: "images", width: 320)) == own)
+}
+
 /// Whether any slide has notes, which the window asks before a PDF with the notes is made where
 /// none has, as the browser's Export… says (editor dogfood 2): B1 has none, the torture deck many.
 @Test func aDeckSaysWhetherAnySlideHasNotesBeforeAPDFWithThemIsMade() throws {
