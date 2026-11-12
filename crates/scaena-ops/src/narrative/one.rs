@@ -448,13 +448,28 @@ pub fn slide_into(
                 was["id"].as_str().unwrap_or_default().to_string()
             }
             _ => {
-                let after = match place {
-                    Place::End => sections.iter().enumerate().rev().find_map(|(s, section)| {
-                        section["beats"].as_array().filter(|b| !b.is_empty()).map(|b| (s, b.len() - 1))
-                    }),
-                    _ => previous.and_then(slide_beat),
-                };
-                add_beat(&mut patch, &sections, after, std::mem::take(&mut beat))
+                let beat = std::mem::take(&mut beat);
+                match place {
+                    Place::End => {
+                        let after = sections.iter().enumerate().rev().find_map(|(s, section)| {
+                            section["beats"].as_array().filter(|b| !b.is_empty()).map(|b| (s, b.len() - 1))
+                        });
+                        add_beat(&mut patch, &sections, after, beat)
+                    }
+                    // Where its slide plays (agent dogfood 8): after the beat of the nearest slide
+                    // before it that one tells, else before the beat of the nearest after it, else
+                    // first where it is the deck's first slide, else last.
+                    _ => {
+                        let later = index + usize::from(old.is_some());
+                        let before = (later..slides.len()).find_map(slide_beat);
+                        match ((0..index).rev().find_map(slide_beat), before) {
+                            (Some(after), _) => add_beat(&mut patch, &sections, Some(after), beat),
+                            (None, Some((s, b))) => put_beat(&mut patch, s, b, beat),
+                            (None, None) if index == 0 => put_beat(&mut patch, 0, 0, beat),
+                            (None, None) => add_beat(&mut patch, &sections, None, beat),
+                        }
+                    }
+                }
             }
         }
     };
@@ -663,8 +678,22 @@ pub fn named_as(doc: &Value, place: &Place, mut written: Written, id: &str) -> R
     if let Some(name) = states.chain(nodes).find(|n| taken(n)) {
         return Err(OpsError::new(format!("`id`: the deck has `{name}` already; name the slide otherwise")));
     }
+    // A beat the slide adds, named after its first state as built, is named `id` too, where no
+    // beat is (agent dogfood 8: `cover-they-burst`, and a result naming the beat it was built as).
+    let beats: Vec<&str> = (doc.pointer("/spine/sections").and_then(Value::as_array).into_iter().flatten())
+        .flat_map(|s| s["beats"].as_array().into_iter().flatten())
+        .filter_map(|b| b["id"].as_str())
+        .collect();
+    let beat_was = written.beat.clone();
+    let beat_now = (!beat_was.is_empty()
+        && !beats.contains(&beat_was.as_str())
+        && (beat_was == old || beat_was.starts_with(&format!("{old}-")))
+        && !beats.contains(&id))
+    .then(|| id.to_string());
     let rename = |name: &str| -> Option<String> {
-        if name == old {
+        if let Some(now) = beat_now.as_ref().filter(|_| name == beat_was) {
+            Some(now.clone())
+        } else if name == old {
             Some(id.to_string())
         } else {
             name.strip_prefix(&format!("{old}-")).map(|rest| format!("{id}-{rest}"))
@@ -697,6 +726,9 @@ pub fn named_as(doc: &Value, place: &Place, mut written: Written, id: &str) -> R
         walk(op, &renamed);
     }
     written.states = written.states.iter().map(|s| renamed(s)).collect();
+    if !beats.contains(&written.beat.as_str()) {
+        written.beat = renamed(&written.beat);
+    }
     Ok(written)
 }
 
@@ -987,6 +1019,13 @@ fn grounding(doc: &Value, deck: &Deck, files: &dyn SourceFiles) -> Option<String
 
 /// The ops that put `beat` after the beat at `after` (a section's index and a beat's in it), in
 /// that section; with none, at the end of the deck's last section. Its id.
+/// `beat` put in the spine at section `s`, before its beat `b`; its id.
+fn put_beat(patch: &mut Vec<Value>, s: usize, b: usize, beat: Value) -> String {
+    let id = beat["id"].as_str().unwrap_or_default().to_string();
+    patch.push(json!({ "op": "add", "path": format!("/spine/sections/{s}/beats/{b}"), "value": beat }));
+    id
+}
+
 fn add_beat(patch: &mut Vec<Value>, sections: &[Value], after: Option<(usize, usize)>, beat: Value) -> String {
     let id = beat["id"].as_str().unwrap_or_default().to_string();
     let path = match after {
