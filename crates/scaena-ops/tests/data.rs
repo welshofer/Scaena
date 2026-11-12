@@ -258,3 +258,39 @@ fn a_column_renamed_is_renamed_through_the_deck() {
     let none = edit(&dir, "q3", json!([{ "op": "rename", "column": "revenue", "to": "r" }]), false);
     assert!(none.unwrap_err().message.contains("has no column `revenue`"));
 }
+
+#[test]
+fn words_that_still_write_an_edited_cells_old_value_are_said_and_left() {
+    // R1's dogfood 10: a figure written in words, not quoted, is not set again by a data edit;
+    // the edit says where it still stands, by slide, and changes no word of it.
+    let dir = revenue("stale");
+    let path = dir.join("deck.json");
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    deck["states"][1]["notes"] = json!("Core opened at 18.2 in Q4.");
+    deck["spine"]["sections"][1]["beats"][0]["claim"] = json!("Core began at 18.2 and Pro drove the rest.");
+    deck["states"][3]["notes"] = json!("18.25 is another figure, and 118.2 another.");
+    std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let set = edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "revenue", "value": "18.5" }]), false).unwrap();
+    assert!(set.edited, "{set:?}");
+    let said: Vec<&str> = set.stale.iter().map(|s| s.said.as_str()).collect();
+    assert_eq!(said, ["Slide 2's notes still say 18.2", "Slide 2's claim still says 18.2"], "{:?}", set.stale);
+    assert_eq!((set.stale[0].was.as_str(), set.stale[0].now.as_str()), ("18.2", "18.5"));
+    // No word is changed.
+    let after: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(after["states"][1]["notes"], json!("Core opened at 18.2 in Q4."));
+    // A cell set to what it held, or a figure no word writes, says nothing.
+    let none = edit(&dir, "q3", json!([{ "op": "set", "row": 1, "column": "customers", "value": "999" }]), false);
+    assert!(none.unwrap().stale.is_empty());
+}
+
+#[test]
+fn a_number_is_found_with_its_thousands_grouped_too() {
+    let dir = revenue("stale-grouped");
+    let path = dir.join("deck.json");
+    let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    deck["states"][2]["notes"] = json!("We closed with 1,210 customers on Core.");
+    std::fs::write(&path, serde_json::to_string_pretty(&deck).unwrap()).unwrap();
+    let set = edit(&dir, "q3", json!([{ "op": "set", "row": 0, "column": "customers", "value": "1250" }]), false).unwrap();
+    let said: Vec<&str> = set.stale.iter().map(|s| s.said.as_str()).collect();
+    assert_eq!(said, ["Slide 2's notes still say 1,210"], "{:?}", set.stale);
+}

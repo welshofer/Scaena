@@ -115,7 +115,18 @@
         },
         "required": ["code", "severity", "message"]
       },
-      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "StillSaid": {
+        "type": "object",
+        "properties": {
+          "was": { "type": "string" },
+          "now": { "type": "string" },
+          "what": { "type": "string" },
+          "slides": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "said": { "type": "string" }
+        },
+        "required": ["was", "now", "what", "slides", "said"]
+      }
     },
     "required": ["edited", "source", "sheet", "added", "removed", "errors", "refused"],
     "type": "object",
@@ -128,7 +139,8 @@
       "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "errors": { "type": "integer", "minimum": 0 },
       "refused": { "type": "boolean" },
-      "quoted": { "type": "array", "items": { "type": "string" } }
+      "quoted": { "type": "array", "items": { "type": "string" } },
+      "stale": { "type": "array", "items": { "$ref": "#/$defs/StillSaid" } }
     }
   }
 }
