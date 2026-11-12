@@ -199,3 +199,46 @@ fn lint_and_layout_read_one_fit() {
     assert_eq!(said("words"), ["W203"]);
     assert_eq!(said("wraps"), ["E100"]);
 }
+
+/// A shrinking text in Japanese is set as large as keeps each phrase whole, as an English one is
+/// set as large as keeps each word on its line: W1 dogfood 15's closing, ありがとうございました set
+/// large, broke ありがとうご / ざいました, a phrase cut where it was too wide for its line, at a
+/// size where every line fit the box. Where no size within its floor keeps a phrase whole, it
+/// is set as large as it fits.
+#[test]
+fn a_shrinking_japanese_text_keeps_its_phrases_whole() {
+    let mut t: Value = serde_json::from_slice(&read("theme.json")).unwrap();
+    let families = t["type"]["families"].as_object_mut().unwrap();
+    families.insert("japanese".into(), json!({ "family": "Noto Sans JP", "file": "fonts/NotoSansJP-subset.ttf" }));
+    families["serif"]["fallback"] = json!(["japanese"]);
+    let theme = Theme::from_json(&t.to_string()).unwrap();
+    let set = |text: &str, width: f32| {
+        let d = deck(json!({ "n": { "type": "text", "role": "body", "fit": "shrink", "lang": "ja", "text": text,
+                                    "wrap": "greedy", "at": { "rect": [96, 100, width, 800] } } }));
+        let mut fonts = BundleFonts::new();
+        for font in &d.fonts {
+            fonts.register(&font.file, read(&font.file)).unwrap();
+        }
+        let jp = std::fs::read("../../tests/fixtures/scripts/NotoSansJP-subset.ttf").unwrap();
+        fonts.register("fonts/NotoSansJP-subset.ttf", jp).unwrap();
+        let data = DataFiles::new();
+        let req = FrameRequest { deck: &d, theme: &theme, data: &data, state: "t", t_ms: f64::INFINITY, format: None };
+        let placed = Engine::new(fonts).text_layout(&req, "n").unwrap();
+        let lines: Vec<String> =
+            placed.text.lines.iter().map(|l| placed.text.text[l.text.clone()].trim_end().to_string()).collect();
+        (placed, lines)
+    };
+    let text = "これは本当にうまくいくかもしれない";
+    // うまくいくかもしれない is eleven letters, each an em of the body's 40: at 8.5 em it is cut
+    // at the body's size, and shrinks until it stands on a line of its own.
+    let (shrunk, lines) = set(text, 8.5 * 40.0);
+    assert!(!shrunk.text.cut && !shrunk.overflow, "{lines:?} at {}", shrunk.scale);
+    assert!(shrunk.scale < 8.5 / 11.0 + 0.01, "{lines:?} at {}", shrunk.scale);
+    assert!(lines.iter().any(|l| l.ends_with("うまくいくかもしれない")), "{lines:?}");
+    // A break after a particle is no cut: 本当に / うまく… sets at the body's size where it fits.
+    let (whole, lines) = set(text, 11.5 * 40.0);
+    assert!(whole.scale == 1.0 && !whole.text.cut, "{lines:?} at {}", whole.scale);
+    // Too narrow for the phrase at its floor, half its size: as large as it fits, cut.
+    let (narrow, lines) = set(text, 4.0 * 40.0);
+    assert!(narrow.scale == 1.0 && narrow.text.cut && !narrow.overflow, "{lines:?} at {}", narrow.scale);
+}
