@@ -314,3 +314,17 @@ private func slots() throws -> [ScaenaSession.Slot] {
     let plain = #"{"state":"a","slide":"a","start":0,"span":0,"hold":0}"#
     #expect(try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(plain.utf8)).story == nil)
 }
+
+/// A brief that asks minutes (W1's dogfood 17): the presenter's pace and the rehearsal say its slot
+/// beside the beats' plan, as the browser says it, and with none they say the plan alone.
+@Test func thePaceAndTheRehearsalSayTheBriefsSlotBesideThePlan() throws {
+    let json = #"{"state":"mix","slide":"revenue","start":9000,"span":800,"hold":6000,"#
+        + #""story":{"claim":"Revenue doubled","planned":60,"before":75,"slot":"for a 12-minute slot"}}"#
+    let slot = try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(json.utf8))
+    let story = try #require(slot.story)
+    #expect(story.pace(elapsed: 77) == "On plan, for a 12-minute slot")
+    #expect(story.pace(elapsed: 155) == "1:20 behind, for a 12-minute slot")
+    #expect(Rehearsal(slots: [slot]).slot == "for a 12-minute slot")
+    let plain = #"{"state":"a","slide":"a","start":0,"span":0,"hold":0,"story":{"claim":"A","before":0}}"#
+    #expect(Rehearsal(slots: [try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(plain.utf8))]).slot == nil)
+}

@@ -202,7 +202,9 @@ struct RehearsedSheet: View {
         guard let plan = rehearsal.againstPlan else {
             return "\(readable(rehearsal.total())) in all. No slide rehearsed has a planned time, so times alone are shown."
         }
-        return "\(readable(plan.taken)) taken against a \(readable(plan.planned)) plan, "
+        // The brief's slot beside the beats' plan, where it asks minutes (W1's dogfood 17).
+        let given = rehearsal.slot.map { ", \($0)" } ?? ""
+        return "\(readable(plan.taken)) taken against a \(readable(plan.planned)) plan\(given), "
             + "\(signed(plan.taken - plan.planned)) · \(readable(rehearsal.total())) in all."
     }
 }

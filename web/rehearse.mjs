@@ -13,6 +13,8 @@
 // - Discard keeps nothing.
 // - A slide gone on from within its animation keeps its advance, never one of no time: the results
 //   say so before Keep, its row too, and Keep leaves it and says so (editor dogfood 4).
+// - A brief that asks minutes has its slot said beside the beats' plan: "for a 12-minute slot"
+//   (W1's dogfood 17).
 // - axe-core finds nothing against WCAG 2.1 AA with the bar shown, or the table.
 // Exits 1 on any failure.
 import { axeInto, launch, serve } from "./serve.mjs";
@@ -271,6 +273,27 @@ try {
   const after = await page.evaluate(() => window.scaena.last().slots.map((s) => s.hold));
   check(after[shownAt] === cuedHold && after[shownAt] !== 0, `Keep leaves its advance, never one of no time: ${after[shownAt]} (was ${cuedHold})`);
   check(/passed in its animation left as it was/.test(await page.textContent("#status")), `and says so: ${await page.textContent("#status")}`);
+
+  // A brief that asks 12 minutes (W1's dogfood 17): the run against the beats' plan says the
+  // brief's slot beside it, since the two can differ and the talk is given the brief's.
+  const plain = await source();
+  const described = 'description:"Reference deck: one morph, one build, one shader background, one spine."';
+  const briefed = plain.replace(described, `${described}\n  narrative:{brief: {minutes: 12}}`);
+  await page.evaluate((s) => window.scaena.type(s), briefed);
+  await page
+    .waitForFunction(() => window.scaena.last()?.valid && window.scaena.last().slots.some((s) => s.story?.slot), null, { timeout: 30000, polling: 100 })
+    .catch(() => {});
+  await page.selectOption("#state", "intro");
+  await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 5000 }).catch(() => {});
+  await rehearse();
+  await press("Escape", 1500);
+  await stopped();
+  const slotted = await page.textContent("#rehearsed [data-plan]");
+  check(
+    briefed !== plain && / planned for the 1 reached, for a 12-minute slot: \u2212\d/.test(slotted),
+    `the run against the beats' plan, beside the brief's 12-minute slot: ${slotted}`,
+  );
+  await page.locator("#rehearsed button[value=cancel]").click();
   await context.close();
 } catch (e) {
   failures.push(String(e));

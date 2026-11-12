@@ -192,6 +192,9 @@ public final class ScaenaSession {
             public var claim: String
             public var planned: Double? = nil
             public var before: Double
+            /// The slot the deck's brief asks, where it asks minutes, said beside the beats' plan:
+            /// `for a 12-minute slot` (W1's dogfood 17).
+            public var slot: String? = nil
 
             /// The section and the claim, as the presenter's view says where the talk is:
             /// `Growth · Revenue doubled`.
@@ -200,12 +203,14 @@ public final class ScaenaSession {
             }
 
             /// How a talk `elapsed` seconds in stands against this plan, as the browser's presenter
-            /// view says it: `On plan` within a few seconds of it, else `1:20 behind` or `0:45 ahead`.
+            /// view says it: `On plan` within a few seconds of it, else `1:20 behind` or `0:45 ahead`;
+            /// then the brief's slot, where it asks minutes: `On plan, for a 12-minute slot`.
             public func pace(elapsed: TimeInterval) -> String {
                 let off = Int((elapsed - before).rounded())
-                if abs(off) < 5 { return "On plan" }
+                let given = slot.map { ", \($0)" } ?? ""
+                if abs(off) < 5 { return "On plan" + given }
                 let s = abs(off)
-                return String(format: "%ld:%02ld %@", s / 60, s % 60, off > 0 ? "behind" : "ahead")
+                return String(format: "%ld:%02ld %@", s / 60, s % 60, off > 0 ? "behind" : "ahead") + given
             }
         }
     }
