@@ -907,7 +907,8 @@ pub struct DeckRender {
     pub size: Option<String>,
     #[serde(default)]
     pub painter: scaena_ops::render::Painter,
-    /// Also write the PNG here: under the server's working directory or the bundle's folder.
+    /// Also write the PNG here: under the server's working directory or the bundle's folder,
+    /// making the folder it goes in where there is none.
     #[serde(default)]
     pub out: Option<String>,
 }
@@ -1551,6 +1552,12 @@ impl Scaena {
         let frame = blocking(move || {
             let frame = scaena_ops::render::render(Path::new(&a.bundle), &req)?;
             if let Some(out) = &out {
+                // The folder it goes in made where there is none, as an export makes its own
+                // (agent dogfood 7: `out: "r/vs.png"` failed where `deck_export`'s would not).
+                if let Some(dir) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(dir)
+                        .map_err(|e| OpsError::new(format!("making {}: {e}", dir.display())))?;
+                }
                 std::fs::write(out, &frame.png)
                     .map_err(|e| OpsError::new(format!("writing {}: {e}", out.display())))?;
             }
