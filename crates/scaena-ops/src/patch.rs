@@ -375,8 +375,17 @@ fn made(
             }
         };
         if compiled.doc != doc {
-            let mut names: Vec<&str> = list.iter().filter_map(|op| op.get("op").and_then(Value::as_str)).collect();
-            names.dedup();
+            // Each op by its name, a run of one op by its name and how many (`remove_slide ×3`), so
+            // the history says three slides deleted, not one (agent dogfood 7).
+            let mut names: Vec<(&str, usize)> = Vec::new();
+            for name in list.iter().filter_map(|op| op.get("op").and_then(Value::as_str)) {
+                match names.last_mut() {
+                    Some((last, n)) if *last == name => *n += 1,
+                    _ => names.push((name, 1)),
+                }
+            }
+            let names: Vec<String> =
+                names.iter().map(|&(name, n)| if n > 1 { format!("{name} ×{n}") } else { name.to_string() }).collect();
             let mut why = Why::new(what.map_or_else(|| format!("patch: {}", names.join(", ")), String::from));
             for renamed in &compiled.renamed {
                 match renamed {

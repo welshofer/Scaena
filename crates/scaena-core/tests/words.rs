@@ -324,6 +324,10 @@ fn a_change_of_the_history_is_said_as_a_person_says_it() {
         assert_ne!(words::change(&format!("patch: {op}")), "An edit", "{op}");
     }
     assert_eq!(words::change("patch: brief"), "The brief changed");
+    // A run of one op is counted (agent dogfood 7: three slides cut were "A slide deleted").
+    assert_eq!(words::change("patch: remove_slide \u{d7}3"), "3 slides deleted");
+    assert_eq!(words::change("patch: add_node \u{d7}2, place, add_node"), "3 objects added, an object moved");
+    assert_eq!(words::change("patch: replace_text \u{d7}2"), "Words typed");
     assert_eq!(words::change(""), "A change");
     assert_eq!(words::change("history begins"), "The history begins");
     // A data source by its name in words, never the id the deck writes it with (PLAN 3.18).

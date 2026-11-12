@@ -555,6 +555,28 @@ const OPS: &[(&str, &str)] = &[
     ("brief", "the brief changed"),
 ];
 
+/// The ops each of which makes, takes away, or moves a thing of its own, a slide, a step, or an
+/// object, so a run of them is counted: two `place`s may move one object, two `remove_slide`s
+/// take two slides away.
+const COUNTED: &[&str] = &[
+    "add_node",
+    "remove_node",
+    "delete_node",
+    "rename_node",
+    "hide_node",
+    "show_node",
+    "group",
+    "ungroup",
+    "apply_preset",
+    "add_state",
+    "move_state",
+    "rename_state",
+    "remove_state",
+    "duplicate_slide",
+    "move_slide",
+    "remove_slide",
+];
+
 /// What a change the deck's history keeps did, from the message it was recorded with, as a
 /// person says it (PLAN 2.99): `patch: add_node, place` as An object added, an object moved; a
 /// theme taken by its name; a data source by its name in words, never the id the deck writes it
@@ -563,13 +585,21 @@ pub fn change(message: &str) -> String {
     let m = message.trim();
     let file = |path: &str| path.rsplit('/').next().unwrap_or(path).to_string();
     if let Some(ops) = m.strip_prefix("patch: ") {
-        let mut said: Vec<&str> = Vec::new();
+        // Each op once, by how many times the patch made it (`remove_slide ×3`, agent dogfood 7).
+        let mut said: Vec<(&str, usize)> = Vec::new();
         for op in ops.split(", ") {
+            let (op, n) = match op.split_once(" \u{d7}") {
+                Some((op, n)) => (op, n.parse().unwrap_or(1)),
+                None => (op, 1),
+            };
+            let n = if COUNTED.contains(&op) { n } else { 0 };
             let did = OPS.iter().find(|(name, _)| *name == op).map_or("an edit", |(_, did)| did);
-            if !said.contains(&did) {
-                said.push(did);
+            match said.iter_mut().find(|(d, _)| *d == did) {
+                Some((_, count)) => *count += n,
+                None => said.push((did, n.max(1))),
             }
         }
+        let said: Vec<String> = said.iter().map(|&(did, n)| counted(did, n)).collect();
         return sentence(&said.join(", "));
     }
     if let Some((how, rest)) = m.split_once(' ').filter(|(how, _)| matches!(*how, "undo" | "redo")) {
@@ -633,6 +663,16 @@ pub fn author(author: &str) -> String {
 }
 
 /// `words` begun with a capital.
+/// What an op did `n` times, as a person counts it: "a slide deleted" three times is "3 slides
+/// deleted"; a phrase with no article to count by ("words typed") says it once.
+fn counted(did: &str, n: usize) -> String {
+    let rest = did.strip_prefix("a ").or_else(|| did.strip_prefix("an "));
+    match rest.and_then(|r| r.split_once(' ')) {
+        Some((noun, after)) if n > 1 => format!("{n} {noun}s {after}"),
+        _ => did.to_string(),
+    }
+}
+
 fn sentence(words: &str) -> String {
     let mut chars = words.chars();
     chars.next().map_or_else(String::new, |first| first.to_uppercase().chain(chars).collect())
