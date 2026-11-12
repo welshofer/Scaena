@@ -39,7 +39,7 @@ Every step works through either surface. An MCP tool takes the same settings its
 | put a picture on a slide | copy it into the bundle's `assets/`, then `add_node` an image | `image_add`: a PNG or JPEG `file`, on a slide, in its empty place for a picture or a box, described by `alt` |
 | edit the theme | `scaena theme <bundle> --edit ops.json` | `theme_edit`: JSON Patch on the theme the deck names |
 | edit a data source's rows | `scaena data <bundle> <source> --edits edits.json` | `data_edit` |
-| read and restore versions (undo) | `scaena history <bundle>`, with `--at`, `--diff`, or `--restore` | `deck_history`, with `at`, `compare`, or `restore` |
+| read and restore versions (undo) | `scaena history <bundle>`, with `--at`, `--diff`, or `--restore` (`--slide STATE` for one slide) | `deck_history`, with `at`, `compare`, or `restore` (`slide` for one slide) |
 
 Errors:
 - Under `--json`, every command prints one JSON value, and an error is `{ "error": … }` (SPEC §7.1).
