@@ -1,0 +1,17 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 20 files
+  subset fonts/Fraunces-VF.ttf: 277 KB → 277 KB
+  subset fonts/Inter-VF.ttf: 464 KB → 353 KB
+  subset fonts/JetBrainsMono-VF.ttf: 149 KB → 130 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 321 KB → 321 KB
+  subset fonts/Inter-Italic-VF.ttf: 481 KB → 366 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 153 KB → 133 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-778e8ee27bcbd425.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-744bb5b7a199b885.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-0ceaef921fccd6b1.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-d78901d009daf77a.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-7d7c222450f58b2a.ttf
+the app's icon: AppIcon, 1024 px
+could not create image from display
