@@ -405,7 +405,7 @@ try {
       }
       await page.waitForFunction((s) => window.scaena.source() !== s, was, { timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(2000);
-      const offered = await page.evaluate(() => { const o = document.querySelector("#offering"); return o && !o.hidden ? o.textContent : ""; });
+      const offered = await page.evaluate(() => { const o = document.querySelector("#offer"); return o && !o.hidden ? o.textContent : ""; });
       let restated = "";
       if (offered && (await page.locator("#restate:not([hidden])").count())) {
         await page.click("#restate");
