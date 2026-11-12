@@ -1,6 +1,6 @@
 # Torture-deck fonts: provenance
 
-Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1) from [google/fonts](https://github.com/google/fonts) at commit `9710da1eacb3be272583c3224dcb70f9da6eadbb`. Do not edit by hand; rerun the script.
+Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1, uharfbuzz 0.57.0) from [google/fonts](https://github.com/google/fonts) at commit `9710da1eacb3be272583c3224dcb70f9da6eadbb`. Do not edit by hand; rerun the script.
 
 | Bundle file | Upstream path | Upstream sha256 | Subset sha256 | Upstream → subset | PLAN 0.2 role |
 |---|---|---|---|---|---|
@@ -11,6 +11,6 @@ Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1) from [google/fonts]
 | `NotoColorEmoji-COLRv1.ttf` | `ofl/notocoloremoji/NotoColorEmoji-Regular.ttf` | `4d82a18d8d95f60b…` | `24f1031339499bdd…` | 24739 KB → 28 KB | catalogue only: emoji |
 | `JetBrainsMono-VF.ttf` | `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` | `48715a42ec242c21…` | `448ca6a6f221712e…` | 182 KB → 107 KB | code, set as written (PLAN 2.131) |
 
-**Subset:** every character in `deck.json` ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC. All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
+**Subset:** every character the deck draws ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC, and each font's `KEPT` characters, which its committed subset carries, so a rebuild renumbers no glyph. A presenter's notes are part of no subset: they are never drawn. All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
 
 **Licenses:** SIL Open Font License 1.1, no Reserved Font Names; each `OFL-*.txt` beside the fonts is the upstream license file (sha256-pinned in the script).
