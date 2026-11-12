@@ -2995,6 +2995,19 @@ fn assemble(
         for item in items.iter().skip(1).filter(|item| charted && !set_in(item, &words)) {
             unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
         }
+        // And each item one of whose figures its layout draws nowhere, nor its notes say: a layout
+        // of names alone may leave a detail's figures off its cards (DF7-5), but never in silence
+        // (W1 dogfood 12).
+        let noted = letters(&slide.speaker_notes);
+        let unsaid = |item: &&Item| {
+            figures_in(&item.whole)
+                .iter()
+                .map(|f| letters(f))
+                .any(|f| !f.is_empty() && !words.iter().any(|w| w.contains(&f)) && !noted.contains(&f))
+        };
+        for item in items.iter().filter(|_| !charted).filter(unsaid) {
+            unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
+        }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
             running = Some((slide.slide_title.clone(), beat));
@@ -3448,12 +3461,13 @@ impl Item {
     }
 
     /// Its figure: the label that is one, else its detail where that is a figure alone, its unit
-    /// and magnitude with it ("34 M€", dogfood pass 11), else the first in its detail.
+    /// and magnitude with it ("34 M€", dogfood pass 11), else the one its detail is about
+    /// ([`meant`]).
     fn figure(&self) -> Option<String> {
         match &self.label {
             Some(label) if numeric(label) => Some(label.clone()),
             Some(_) if numeric(&self.detail) => Some(self.detail.trim().to_string()),
-            _ => figure(&self.detail),
+            _ => meant(&self.detail),
         }
     }
 
@@ -3595,6 +3609,24 @@ fn without_figure(text: &str) -> String {
     }
 }
 
+/// The figure `text` is about: its first, unless that is a year a clause dates something by
+/// ("curbside since 2011, 40% less landfilled food") and another figure follows, which the words
+/// are about (W1 dogfood 12).
+fn meant(text: &str) -> Option<String> {
+    let all = figures_in(text);
+    let dated = |f: &str| {
+        let year = f.len() == 4 && f.bytes().all(|b| b.is_ascii_digit()) && ("1800".."2200").contains(&f);
+        let before = text.find(f).map(|at| text[..at].trim_end()).unwrap_or_default();
+        let word = before.rsplit(|c: char| !c.is_alphabetic()).next().unwrap_or_default().to_lowercase();
+        const DATING: [&str; 15] = [
+            "since", "in", "from", "by", "until", "till", "through", "before", "after", "during", "seit", "depuis",
+            "desde", "dal", "sinds",
+        ];
+        year && DATING.contains(&word.as_str())
+    };
+    all.iter().find(|f| !dated(f)).or(all.first()).cloned()
+}
+
 /// The first figure in `text`: a number with its currency sign, its suffix, or its percent; a
 /// ratio or a range of two ("1 in 7", "3 of 4", "2\u{2013}3\u{d7}"); and a magnitude, a percent, or
 /// a currency a language sets after it, spaced or not ("48,6 Mio. \u{20ac}", "+18 %"). Never the
@@ -3667,10 +3699,16 @@ fn faithful(items: &[Item], drawn: &[&Value]) -> bool {
     };
     let all = texts.iter().map(|(_, t)| plain(t)).collect::<Vec<_>>().join("|");
     let shown = led.iter().all(|f| all.contains(f.as_str()));
+    // A layout that sets figures apart sets every one written: one that would take a figure from
+    // an item and leave its others ("Portland: curbside since 2011, 40% less landfilled food" as
+    // "2011" over "Portland") is no place for it (W1 dogfood 12). A layout of names alone may
+    // leave a detail's figures to the notes (DF7-5).
+    let figured = texts.iter().any(|(role, _)| figure_role(role));
+    let kept = !figured || written.iter().all(|f| all.contains(f.as_str()));
     let whole = (texts.iter().filter(|(role, _)| figure_role(role)))
         .filter_map(|(_, t)| figure(t).map(|f| plain(&f)))
         .all(|f| written.contains(&f) || !(names.contains(&f) || written.iter().any(|w| part(w, &f))));
-    shown && whole
+    shown && kept && whole
 }
 
 /// Every figure in `text`, in order, as [`figure`] reads the first.
@@ -8515,6 +8553,48 @@ mod tests {
         assert_eq!((i.label.as_deref(), i.detail.as_str()), (Some("Contact"), "equipe@exemple.fr"));
     }
 
+    /// A year a clause dates something by is not what an item is about where another figure
+    /// follows (W1 dogfood 12).
+    #[test]
+    fn an_items_figure_is_the_one_its_words_are_about() {
+        let figure = |text: &str| item(text).figure();
+        assert_eq!(figure("Portland: curbside since 2011, 40% less landfilled food").as_deref(), Some("40%"));
+        assert_eq!(figure("San Antonio: citywide since 2019, $3.2M saved a year").as_deref(), Some("$3.2M"));
+        // A year alone is the figure, and so is one the words are about.
+        assert_eq!(figure("Founded: in 2011").as_deref(), Some("2011"));
+        assert_eq!(figure("Launch: 2027, then 40 cities").as_deref(), Some("2027"));
+    }
+
+    /// A slide's items each written with more figures than one are never set as figures that
+    /// keep one and drop the rest: "40% less landfilled food" stays on the slide (W1 dogfood 12).
+    #[test]
+    fn no_item_loses_its_figures_to_a_scorecard() {
+        let text = serde_json::json!({
+            "executiveSummary": "Compost pays.",
+            "slides": [
+                { "slideTitle": "Compost pays", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Other cities", "subtitle": "", "layoutSuggestion": "Scorecard", "keyBullets": [
+                    "Portland: curbside since 2011, 40% less landfilled food",
+                    "Minneapolis: opt-in since 2015, 47% of homes signed up",
+                    "San Antonio: citywide since 2019, $3.2M saved a year"] },
+                { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let n = narrative(&written.executive_summary, written.slides);
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let words: String = (made.deck["nodes"].as_object().unwrap().values())
+            .filter_map(|n| n["text"].as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        for figure in ["2011", "40%", "2015", "47%", "2019", "$3.2M"] {
+            assert!(words.contains(figure), "{figure} is drawn on {}: {words}", made.layouts[1]);
+        }
+        assert!(words.contains("less landfilled food"), "{words}");
+    }
+
     #[test]
     fn an_item_reads_its_label_and_its_figure() {
         let i = item("\u{2022} $4.1M: Q3 revenue, up 12%");
@@ -10523,6 +10603,39 @@ mod tests {
             ["Two Column", "Two Columns", "Three Columns", "four-column", "Five Columns"].map(columns_asked),
             [None, None, Some(3), Some(4), None]
         );
+    }
+
+    /// A layout of names alone that leaves an item's figure off its cards says so in `unset`,
+    /// with the item's words, where the slide's notes do not say it (W1 dogfood 12).
+    #[test]
+    fn a_figure_no_place_sets_is_said() {
+        let made = |notes: &str| {
+            let text = serde_json::json!({
+                "executiveSummary": "A talk.",
+                "slides": [
+                    { "slideTitle": "A talk", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                    { "slideTitle": "Every line item made its own call to pricing",
+                      "subtitle": "How a checkout request flows today", "layoutSuggestion": "Architecture",
+                      "speakerNotes": notes,
+                      "keyBullets": ["Edge: CDN and API gateway", "Checkout service: Go, 40 pods",
+                        "Pricing service: one synchronous call per line item",
+                        "Postgres: one primary, two read replicas"] },
+                    { "slideTitle": "Thank you", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+                ]
+            })
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let n = narrative(&written.executive_summary, written.slides);
+            let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+            deck(&n, &theme, &Pictures::new()).unwrap()
+        };
+        let silent = made("");
+        assert_eq!(silent.layouts[1], "architecture");
+        let unset: Vec<(usize, &str)> = silent.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
+        assert_eq!(unset, [(2, "Checkout service: Go, 40 pods")]);
+        // Said in the slide's notes, it is not left out.
+        let noted = made("Checkout runs on Go, 40 pods behind the gateway.");
+        assert!(noted.unset.is_empty(), "{:?}", noted.unset);
     }
 
     #[test]
