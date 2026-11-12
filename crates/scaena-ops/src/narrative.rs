@@ -1790,10 +1790,18 @@ pub fn held(narrative: &Narrative, layouts: &[String], changes: Vec<Change>) -> 
         "a", "an", "the", "of", "for", "to", "in", "on", "and", "or", "at", "by", "with", "is", "are", "be", "we",
         "our", "it", "its", "this", "that",
     ];
+    // A German claim's own small words, which a title may drop as an English one drops "the"
+    // (W1 dogfood 13: "und", "des").
+    const GERMAN: [&str; 40] = [
+        "der", "die", "das", "des", "dem", "den", "ein", "eine", "einen", "einem", "einer", "eines", "und", "oder",
+        "im", "in", "ins", "am", "an", "zu", "zum", "zur", "mit", "von", "vom", "für", "auf", "aus", "bei", "ist",
+        "sind", "wird", "werden", "wir", "unser", "unsere", "unseren", "es", "sich", "als",
+    ];
+    let german = deck_lang(&narrative.brief).is_some_and(|l| l.split('-').next() == Some("de"));
     let words = |text: &str| -> Vec<String> {
         (text.split_whitespace())
             .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
-            .filter(|w| !w.is_empty() && !SLIGHT.contains(&w.as_str()))
+            .filter(|w| !w.is_empty() && !SLIGHT.contains(&w.as_str()) && !(german && GERMAN.contains(&w.as_str())))
             .collect()
     };
     let english = deck_lang(&narrative.brief).is_none_or(|l| l.split('-').next() == Some("en"));
@@ -11122,6 +11130,48 @@ mod tests {
         assert_eq!(*cited[1], json!(["@visits"]));
         assert_eq!(*cited[2], json!(["@other"]));
         assert!(cited[3].is_null());
+    }
+
+    /// In a German deck, a title that keeps every word of its beat's claim but its small words
+    /// ("und", "des") drops nothing of it, as an English one may drop "the" (W1 dogfood 13).
+    #[test]
+    fn a_german_title_may_drop_its_claims_small_words() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        n.brief.language = Some("German".into());
+        let claim = "Die Tonnen kosten wenig und sparen jedes Jahr des Wartens";
+        let beat = n.slides[5].beat_index.unwrap();
+        n.outline.as_mut().unwrap().beats[beat].claim = claim.into();
+        n.slides[5].slide_title = claim.into();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let before = (made, write.unwrap());
+        let change =
+            |title: &str| Change { slide: 6, title: Some(title.into()), why: "Kürzer.".into(), ..Change::default() };
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let tightened = "Tonnen kosten wenig, sparen jedes Jahr Wartens";
+        let (made, _) =
+            looked(shown, vec![change(tightened)], before.clone(), Path::new("dusk.theme.json"), &dusk(), &font)
+                .unwrap();
+        assert!(made.refused.is_empty(), "{:#?}", made.refused);
+        // A word of its own dropped is refused all the same, and said without the small ones.
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let (made, _) = looked(
+            shown,
+            vec![change("Die Tonnen kosten wenig")],
+            before,
+            Path::new("dusk.theme.json"),
+            &dusk(),
+            &font,
+        )
+        .unwrap();
+        let why: Vec<&str> = made.refused.iter().map(|r| r.why.as_str()).collect();
+        assert_eq!(
+            why,
+            [
+                "it drops \u{201c}sparen\u{201d}, \u{201c}jedes\u{201d}, \u{201c}jahr\u{201d} and \u{201c}wartens\u{201d} from the claim its beat settled"
+            ]
+        );
     }
 
     #[test]
