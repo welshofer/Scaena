@@ -621,6 +621,117 @@ impl Rule for W314Credit {
     }
 }
 
+/// W315: chart text drawn past its chart's box, above or below it, by more than half its own
+/// size, or off the canvas: a bar below a bound the author set, or a value under the plot's foot,
+/// draws where no one reads it as the chart's, or where nothing shows it. A chart keeps its text
+/// within its width itself, and E100 finds what it cuts off at its sides; nothing keeps it within
+/// its height. A letter's ink above the line it is set on, as a `$` rises over its caps, is half
+/// its size at most, and passes. One finding per chart, at the chart, naming each kind of its text
+/// so drawn, the furthest out first, and every state it is so in.
+pub struct W315ChartTextOut;
+
+/// A chart whose text is drawn out: each kind of it, furthest out, whether any of it is off the
+/// canvas, the text furthest out, the state it is furthest out in, and every state.
+struct Out {
+    parts: BTreeMap<crate::charts::ChartText, f32>,
+    off: bool,
+    worst: (f32, String),
+    first: usize,
+    states: Vec<String>,
+}
+
+impl Rule for W315ChartTextOut {
+    fn code(&self) -> &'static str {
+        "W315"
+    }
+    fn severity(&self) -> Severity {
+        Severity::Warning
+    }
+    fn check(&self, cx: &Cx) -> Vec<Finding> {
+        let canvas = [0.0, 0.0, cx.deck.canvas.width as f32, cx.deck.canvas.height as f32];
+        let mut out: BTreeMap<String, Out> = BTreeMap::new();
+        for state in cx.states {
+            for node in &state.scene.nodes {
+                let Content::Chart { chart, cell } = &node.content else { continue };
+                if node.opacity <= 0.0 {
+                    continue;
+                }
+                let map = state.scene.posed(&node.id, true);
+                if pose::invert(&map).is_none() {
+                    continue;
+                }
+                for (_, at, panel) in chart.each(*cell) {
+                    for (part, label) in panel.texts() {
+                        let t = &label.text;
+                        let size = t.runs.iter().map(|r| r.size).fold(0.0f32, f32::max);
+                        if t.lines.is_empty() || size <= 0.0 || label.opacity <= 0.0 {
+                            continue;
+                        }
+                        // Its ink, canvas units: across its lines, down from its first letters' top to
+                        // its last's foot.
+                        let left = t.lines.iter().map(|l| l.x).fold(f32::INFINITY, f32::min);
+                        let right = t.lines.iter().map(|l| l.x + l.width).fold(f32::NEG_INFINITY, f32::max);
+                        let (x, y) = (at[0] + label.origin[0], at[1] + label.origin[1]);
+                        let ink = [x + left, y + t.ink.0, right - left, t.ink.1 - t.ink.0];
+                        // Past the chart's own box, above or below, as laid out: the box turns with it.
+                        let past = (cell[1] - ink[1]).max(ink[1] + ink[3] - cell[1] - cell[3]);
+                        let drawn = pose::bounds(&map, ink);
+                        let off = !contains(canvas, drawn);
+                        if past <= size / 2.0 && !off {
+                            continue;
+                        }
+                        let entry = out.entry(node.id.clone()).or_insert_with(|| Out {
+                            parts: BTreeMap::new(),
+                            off: false,
+                            worst: (f32::NEG_INFINITY, String::new()),
+                            first: state.index,
+                            states: Vec::new(),
+                        });
+                        let furthest = entry.parts.entry(part).or_insert(past);
+                        *furthest = furthest.max(past);
+                        entry.off |= off;
+                        if past > entry.worst.0 {
+                            (entry.worst, entry.first) = ((past, t.text.clone()), state.index);
+                        }
+                        if !entry.states.contains(&state.snapshot.state_id) {
+                            entry.states.push(state.snapshot.state_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let cu = |v: f32| v.max(0.0).round();
+        out.into_iter()
+            .map(|(chart, Out { parts, off, worst, first, states })| {
+                let mut kinds: Vec<(crate::charts::ChartText, f32)> = parts.into_iter().collect();
+                scaena_core::sort::by(&mut kinds, |a, b| b.1.total_cmp(&a.1));
+                let names: Vec<String> = kinds.iter().map(|(p, _)| format!("{}s", p.name())).collect();
+                let (past, text) = worst;
+                let how = match off {
+                    true => format!("past its box, `{text}` {} cu out, and off the canvas", cu(past)),
+                    false => format!("past its box, `{text}` {} cu out", cu(past)),
+                };
+                cx.finding(
+                    self.code(),
+                    self.severity(),
+                    cx.laid(first),
+                    format!("chart `{chart}` draws its {} {how}", super::text::series(&names)),
+                )
+                .at(cx.node_path(&chart))
+                .node(chart.clone())
+                .measure(json!({
+                    "past": cu(past),
+                    "label": text,
+                    "off": off,
+                    "parts": kinds.iter().map(|(p, v)| json!({ "part": p.name(), "past": cu(*v) })).collect::<Vec<_>>(),
+                    "states": states,
+                }))
+                .hint("Let the value axis take in every value (a `domain` bound that cuts the data off), or give the chart more room.")
+            })
+            .collect()
+    }
+}
+
 /// I405: a text set larger than the body whose descenders take its ink within the theme's
 /// gutter of a text under it, on one level, that its baseline stands two gutters or more above: a
 /// big number's tail over its caption, never a title's over its subtitle or its paragraph. What collides is E101's; this is the room short of it. One

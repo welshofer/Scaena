@@ -57,6 +57,7 @@ pub fn rules() -> Vec<Box<dyn Rule>> {
         Box::new(text::W312ChartTextSize),
         Box::new(space::W313ChartSquashed),
         Box::new(space::W314Credit),
+        Box::new(space::W315ChartTextOut),
         Box::new(motion::W320Concurrent),
         Box::new(motion::W321Build),
         Box::new(motion::W323Skipped),
