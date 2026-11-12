@@ -3079,7 +3079,12 @@ fn assemble(
         // a French talk: the model's name for the beat, or the headline, stands in for it (W1's
         // dogfood 10: "Existing Approaches" over "Approches existantes").
         if last_beat != Some(beat) {
-            let arcs = |n: &str| names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n));
+            // Narrato echoes a beat whole, "Problem: Define core challenge and stakes", and its
+            // name is what comes before the colon (W1 dogfood 13).
+            let arcs = |n: &str| {
+                let n = n.split(':').next().unwrap_or(n).trim();
+                names.iter().chain(&arc_names).any(|arc| arc.eq_ignore_ascii_case(n))
+            };
             let outlined = narrative.outline.is_some()
                 && (english
                     || names
@@ -13133,6 +13138,20 @@ mod tests {
         let titles: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
         assert_eq!(titles, [headline(0).as_str(), headline(1).as_str(), names[2], headline(4).as_str()]);
         assert!(titles.iter().zip(&names).all(|(t, n)| t != n || *t == names[2]), "{titles:?} {names:?}");
+        // Echoed whole, its description after the colon, it is the arc's all the same
+        // (W1 dogfood 13: "Problem: Define core challenge and stakes" titling a German section).
+        let arc = scaena_narrato::arcs::arc("Problem\u{2013}Solution");
+        assert!(arc.beats[1].contains(':'), "{:?}", arc.beats);
+        let whole: Vec<Slide> = (picked.iter().cloned())
+            .map(|mut s| {
+                s.beat_name = s.beat_index.map(|b| arc.beats[b].clone());
+                s
+            })
+            .collect();
+        let made = deck(&narrative(&summary, whole), &theme, &Pictures::new()).unwrap();
+        let spine = made.deck["spine"]["sections"].as_array().unwrap();
+        let echoed: Vec<&str> = spine.iter().map(|s| s["title"].as_str().unwrap()).collect();
+        assert_eq!(echoed, titles);
     }
 
     #[test]
