@@ -169,6 +169,12 @@ pub fn starting_as(
     if let Some(layout) = layout {
         state["layout"] = json!(layout);
     }
+    // In a deck that runs on its own, its states held, the slide holds as the state it follows
+    // does, so it shows for some time (W323; agent dogfood 6).
+    let runs = deck.states.iter().any(|s| s.hold.is_some_and(|h| h > 0.0));
+    if let Some(hold) = deck.states[after].hold.filter(|h| runs && *h > 0.0) {
+        state["hold"] = json!(hold);
+    }
     let mut patch = vec![added(deck, after, state.clone())];
     let mut ids: Vec<String> = Vec::new();
     let mut nodes = Vec::new();
@@ -1312,7 +1318,8 @@ mod tests {
         assert_eq!(
             started.patch,
             [
-                json!({ "op": "add_state", "state": { "id": "bullets", "mode": "absolute", "layout": "bullets" }, "after": "mix", "beat": "doubled" }),
+                // The deck runs on its own, so the slide holds as `mix`, the state it follows, does.
+                json!({ "op": "add_state", "state": { "id": "bullets", "mode": "absolute", "layout": "bullets", "hold": 6000.0 }, "after": "mix", "beat": "doubled" }),
                 json!({ "op": "add_node", "id": "bullets-header", "state": "bullets", "node": {
                     "type": "text", "role": "headline", "text": "What this slide says", "at": { "in": "header" },
                     "semantic": "claim", "fit": "shrink" } }),
@@ -1332,7 +1339,7 @@ mod tests {
         assert_eq!(
             blank.patch,
             [
-                json!({ "op": "add_state", "state": { "id": "slide", "mode": "absolute" }, "after": "close", "beat": "thanks" })
+                json!({ "op": "add_state", "state": { "id": "slide", "mode": "absolute", "hold": 3000.0 }, "after": "close", "beat": "thanks" })
             ]
         );
         assert!(starting(&deck, &theme, "revenue", Some("nowhere")).is_err());
@@ -1375,6 +1382,28 @@ mod tests {
         let pictured = starting(&deck, &theme, "revenue", Some("art-left")).unwrap();
         assert_eq!(pictured.empty.len(), 1, "{:?}", pictured.empty);
         assert!(!pictured.filled.iter().any(|f| f.slot == pictured.empty[0].slot));
+    }
+
+    /// A slide started in a deck that runs on its own holds as the state it follows does, so it
+    /// shows for some time (W323); in a deck presented by clicks, it holds as they do, for none
+    /// (agent dogfood 6).
+    #[test]
+    fn a_slide_started_in_a_deck_that_runs_holds_as_its_neighbour_does() {
+        let theme =
+            scaena_engine::theme::Theme::from_json(include_str!("../../../docs/examples/themes/dusk.theme.json"))
+                .unwrap();
+        let mut deck = revenue();
+        for state in &mut deck.states {
+            state.hold = Some(5500.0);
+        }
+        let started = starting(&deck, &theme, "revenue", Some("bullets")).unwrap();
+        assert_eq!(started.patch[0]["state"]["hold"], json!(5500.0), "{}", started.patch[0]);
+        let mut clicked = revenue();
+        for state in &mut clicked.states {
+            state.hold = None;
+        }
+        let started = starting(&clicked, &theme, "revenue", Some("bullets")).unwrap();
+        assert!(started.patch[0]["state"].get("hold").is_none(), "{}", started.patch[0]);
     }
 
     /// A slide started with a claim tells it in a beat of its own, just after the beat of the
