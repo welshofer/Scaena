@@ -143,6 +143,37 @@ private func tried(_ endpoint: NWEndpoint, _ parameters: NWParameters, _ seconds
     server.stop()
 }
 
+/// What the presenter heard before it stopped, still on its way to the main actor, reaches nothing
+/// once it has: a remote's last command moves no show, and a remote that paired as it stopped is
+/// not counted joined. The main actor is held while a command and a pairing go through the
+/// presenter's own queue, so both are on their way when `stop()` is called.
+@MainActor @Test func nothingHeardReachesThePresenterOnceItStops() async throws {
+    let (server, heard) = try await presenter("48210937")
+    let port = try #require(server.port)
+    let remote = RemoteClient(here(port), code: "48210937")
+    guard await waited(10, { remote.status == .joined }) else {
+        Issue.record("the remote joins with the code: \(remote.status)")
+        remote.leave()
+        server.stop()
+        return
+    }
+    #expect(await waited { heard.joined == 1 })
+    // A command, and another remote pairing, heard on the presenter's queue while the main actor
+    // is held: what they say waits on the main queue.
+    remote.send(.on)
+    let second = RemoteClient(here(port), code: "48210937")
+    let held = Date().addingTimeInterval(1)
+    while Date() < held {}
+    server.stop()
+    #expect(heard.joined == 0)
+    // The main queue drains: none of it is heard.
+    try await Task.sleep(for: .milliseconds(500))
+    #expect(heard.asked.isEmpty, "a command heard before the stop moves no show: \(heard.asked)")
+    #expect(heard.joined == 0, "a remote paired as it stopped is not counted: \(heard.joined)")
+    remote.leave()
+    second.leave()
+}
+
 /// The remote sees what the room sees (lift-up FUNC-5): a black or white screen, the end of the
 /// show, and the presenter's timer, paused where it is; and it asks for them, and for a slide by
 /// its number, as the presenter's keys do.

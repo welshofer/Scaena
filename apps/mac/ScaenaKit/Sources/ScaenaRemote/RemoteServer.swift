@@ -34,6 +34,9 @@ public final class RemoteServer {
     public var tried: (Int) -> Void = { _ in }
 
     private let core: PresenterCore
+    /// Whether it was stopped: what the core heard before its stop, still on its way here, is
+    /// handed on to nothing, so no remote moves the show or is counted joined once Remote is off.
+    private var stopped = false
 
     /// Listen with `code`, offered by Bonjour as `name` on the local network; with no name, only to
     /// one who knows the port; with `loopback`, only on this machine, as a test listens. After
@@ -52,11 +55,14 @@ public final class RemoteServer {
 
     /// Tell every remote where the show is, and each that joins from now.
     public func tell(_ place: RemotePlace) {
+        guard !stopped else { return }
         core.work.async { [core] in core.tell(place) }
     }
 
-    /// Stop listening, and let every remote go.
+    /// Stop listening, and let every remote go: from now on, nothing the core heard reaches the
+    /// callbacks, as nothing did once the server stopped when it worked on the main actor.
     public func stop() {
+        stopped = true
         core.work.async { [core] in core.stop() }
         joined(0)
     }
@@ -81,6 +87,7 @@ public final class RemoteServer {
 
     /// What the core heard, handed on.
     private func apply(_ said: [PresenterCore.Said]) {
+        guard !stopped else { return }
         for one in said {
             switch one {
             case .port(let port): self.port = port
