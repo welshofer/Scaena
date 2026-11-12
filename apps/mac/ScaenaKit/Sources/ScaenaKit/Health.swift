@@ -59,6 +59,9 @@ public struct Health: Decodable, Sendable {
         public let field: String?
         /// Where the plan it asks about is written, `…/intensity`, for an `arc` finding (#999).
         public var path: String? = nil
+        /// The earlier slide a slide that says again what it said may be folded into, by its first
+        /// state: what a `story` finding of a repeat offers beside the cut (R1's #1161).
+        public var into: String? = nil
 
         /// The field of the Format tab its to-do names, as the browser's `fieldOf` reads it: by its
         /// `field`, else by where its `path` says its plan is written; none where it names neither

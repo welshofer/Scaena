@@ -485,7 +485,10 @@ pub fn nearest_in<'k>(owner: &str, whats: &str, id: &str, known: impl Iterator<I
     // by its letters: a slide's id guessed from its beat's, which runs on past it
     // (`…-todo-el-sur` for `…-todo-el`), means the slide, never its step `…-todo-el-2` (agent
     // dogfood 9).
-    let begun = |k: &str| id.starts_with(k) && k.chars().count() * 2 >= id.chars().count();
+    // So is one that runs on past it (`revenue-chart-2` for `revenue-chart`), which a typo of a
+    // step's or a copy's id means, beside a shorter id it begins with (W1's review of #1209):
+    // between those, the nearer by its letters.
+    let begun = |k: &str| (id.starts_with(k) && k.chars().count() * 2 >= id.chars().count()) || k.starts_with(id);
     let near = (known.iter())
         .map(|k| (!begun(k), crate::model::check::distance(id, k), *k))
         .filter(|(_, d, k)| {
@@ -2739,9 +2742,28 @@ fn set_state(d: &Doc, id: &str, prop: &str, value: &Value, fork: bool) -> Result
     };
     let state = &d.states()[at];
     let old = state.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(state)))?;
-    // The notes a presenter reads are the state's own, else its beat's (SPEC §2.6): a state with
+    // The notes a presenter reads are the state's own, else its slide's earlier step's, else its
+    // beat's (SPEC §2.6): a state with
     // none of its own that opens the first beat naming it has its beat's written, as a made deck
     // writes them, so the notes edited are those the presenter reads (editor dogfood 3).
+    // A step with none of its own reads on from the nearest earlier step of its slide that has
+    // some (agent dogfood 8), so the notes edited there are that step's, never a copy of them;
+    // `fork` gives the step notes of its own (W1's review of #1211).
+    if name == "notes" && !fork && !old.contains_key("notes") {
+        let slide = |s: &Value| s.get("slide").and_then(Value::as_str).unwrap_or(id_of(s)).to_string();
+        let own = slide(state);
+        let before = d.states()[..at].iter().enumerate().rev().take_while(|(_, s)| slide(s) == own);
+        let read = before.filter(|(_, s)| s.get("notes").and_then(Value::as_str).is_some_and(|n| !n.trim().is_empty()));
+        if let Some((from, s)) = read.into_iter().next() {
+            let old = s.as_object().ok_or_else(|| format!("state `{}` is not an object", id_of(s)))?;
+            let mut new = old.clone();
+            match value {
+                Value::Null => drop(new.shift_remove("notes")),
+                v => drop(new.insert("notes".into(), v.clone())),
+            }
+            return Ok(diff(&format!("/states/{from}"), old, &new));
+        }
+    }
     if name == "notes" && !old.contains_key("notes") {
         let id = id_of(state);
         let first = d.beats().find(|(_, _, b)| {
@@ -3322,6 +3344,14 @@ mod tests {
         // An id much shorter than the one asked is no prefix it means.
         let short = ["a", "abcdefgh-2"];
         assert_eq!(nearest("states", "abcdefgh-x", short.iter().copied()), "; did you mean `abcdefgh-2`?");
+        // One that runs on past the one asked is meant as much as one it begins with, the nearer
+        // by its letters winning (W1's review of #1209): never `revenue` for `revenue-chart`.
+        let nodes = ["revenue", "revenue-chart-2"];
+        assert_eq!(nearest("nodes", "revenue-chart", nodes.iter().copied()), "; did you mean `revenue-chart-2`?");
+        let nodes = ["title", "title-text-2"];
+        assert_eq!(nearest("nodes", "title-text", nodes.iter().copied()), "; did you mean `title-text-2`?");
+        let nodes = ["intr", "intro-2"];
+        assert_eq!(nearest("nodes", "intro", nodes.iter().copied()), "; did you mean `intr`?");
     }
 
     /// The patch schema takes each key of a transition that `set_state` sets (PLAN 2.111): what an

@@ -1615,11 +1615,14 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                 Some(_) => format!("/states/{i}/props/{}/{key}{rest}", esc(id)),
                 None => format!("/nodes/{}/{key}{rest}", esc(id)),
             };
-            let mut found = |code: &str, path: String, message: String| {
+            let mut found_fixed = |code: &str, path: String, message: String, fix: Option<Value>| {
                 if seen.insert((path.clone(), message.clone())) {
-                    out.push(
-                        Finding::new(code, Severity::Error, message).at(path).state(state.id.clone()).node(id.clone()),
-                    );
+                    let finding =
+                        Finding::new(code, Severity::Error, message).at(path).state(state.id.clone()).node(id.clone());
+                    out.push(match fix {
+                        Some(fix) => finding.fix(vec![fix]),
+                        None => finding,
+                    });
                 }
             };
             // The table the chart or table reads: the source, through its transform.
@@ -1634,7 +1637,12 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                 Some(Err(e)) => {
                     let rest: String = e.at.iter().map(|k| format!("/{}", esc(k))).collect();
                     let code = if e.data { "E103" } else { "E106" };
-                    found(code, here("dataTransform", &format!("/{}{rest}", e.step)), format!("`@{name}`: {e}"));
+                    found_fixed(
+                        code,
+                        here("dataTransform", &format!("/{}{rest}", e.step)),
+                        format!("`@{name}`: {e}"),
+                        None,
+                    );
                     continue;
                 }
             };
@@ -1647,11 +1655,22 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     table.columns.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
                 )
             };
+            // The column meant, where one is near the name a reader gives, as a renamed header
+            // leaves it (`revenue` for `revenue_eur`), and the patch that names it there: a column
+            // of the type the reader asks, and the one near it alone (R1's dogfood 10).
+            let meant = |field: &str, path: &str, fits: &dyn Fn(ColumnType) -> bool| {
+                let near = crate::patch::nearest("columns", field, table.columns.iter().map(String::as_str));
+                let name = near.strip_prefix("; did you mean `")?.strip_suffix("`?")?.to_string();
+                fits(column(&name)?).then(|| (near, json!({ "op": "replace", "path": path, "value": name })))
+            };
+            let any = |_: ColumnType| true;
             let key = props.get("key").and_then(Value::as_str);
             if let Some(key) = key
                 && column(key).is_none()
             {
-                found("E103", here("key", ""), missing(key));
+                let path = here("key", "");
+                let (near, fix) = meant(key, &path, &any).unzip();
+                found_fixed("E103", path, missing(key) + near.as_deref().unwrap_or(""), fix);
             }
             // What reads a field: a chart's channels, or a table's columns, each with the
             // key its path starts at, the rest of the path, and its name in a message.
@@ -1672,14 +1691,17 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                 let channel = channel.as_str();
                 let here = |rest: &str| here(key, &format!("{at}{rest}"));
                 let Some(field) = encoding.get("field").and_then(Value::as_str) else { continue };
-                let Some(kind) = column(field) else {
-                    found("E103", here("/field"), missing(field));
-                    continue;
-                };
                 let wants = match encoding.get("type").and_then(Value::as_str) {
                     Some("quantitative") => Some(ColumnType::Number),
                     Some("temporal") => Some(ColumnType::Date),
                     _ => None,
+                };
+                let Some(kind) = column(field) else {
+                    let path = here("/field");
+                    let fits = |t: ColumnType| wants.is_none_or(|w| w == t);
+                    let (near, fix) = meant(field, &path, &fits).unzip();
+                    found_fixed("E103", path, missing(field) + near.as_deref().unwrap_or(""), fix);
+                    continue;
                 };
                 if let Some(wants) = wants
                     && kind != wants
@@ -1690,7 +1712,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         article(kind.name()),
                         wants.name()
                     );
-                    found("E103", here("/type"), message);
+                    found_fixed("E103", here("/type"), message, None);
                 }
                 if let Some(spec) = encoding.get("format").and_then(Value::as_str) {
                     let parsed = match kind {
@@ -1701,12 +1723,12 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                                 "`{channel}.format` prints numbers and dates; `{field}` is {} column",
                                 article(kind.name())
                             );
-                            found("E103", here("/format"), message);
+                            found_fixed("E103", here("/format"), message, None);
                             continue;
                         }
                     };
                     if let Err(e) = parsed {
-                        found("E106", here("/format"), e.to_string());
+                        found_fixed("E106", here("/format"), e.to_string(), None);
                     }
                 }
             }
@@ -1748,7 +1770,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     }
                 };
                 if let Some((rest, message)) = message {
-                    found("E103", here("projected", rest), message);
+                    found_fixed("E103", here("projected", rest), message, None);
                 }
             }
             // A range's interval: each end a column of numbers (PLAN 1.30).
@@ -1764,7 +1786,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         article(kind.name())
                     ),
                 };
-                found("E103", here("interval", &format!("/{end}")), message);
+                found_fixed("E103", here("interval", &format!("/{end}")), message, None);
             }
             // A forecast's fields, each a column of its data, and each sky a WMO code Open-Meteo
             // documents (ADR-0030).
@@ -1773,7 +1795,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                 for (part, field) in fields.into_iter().flatten() {
                     let Some(field) = field.as_str() else { continue };
                     if column(field).is_none() {
-                        found("E103", here("weather", &format!("/fields/{part}")), missing(field));
+                        found_fixed("E103", here("weather", &format!("/fields/{part}")), missing(field), None);
                     }
                 }
                 let sky = fields.and_then(|f| f.get("sky")).and_then(Value::as_str);
@@ -1790,7 +1812,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                                 "{read}'s `{}` holds {code}, which is no WMO weather code Open-Meteo documents",
                                 sky.unwrap_or("sky")
                             );
-                            found("E103", path, message);
+                            found_fixed("E103", path, message, None);
                             break;
                         }
                     }
@@ -1801,7 +1823,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                     let message = format!(
                         "a weather chart keys its periods by a column of dates, `date` or `time`, which {read} lacks"
                     );
-                    found("E103", here("data", ""), message);
+                    found_fixed("E103", here("data", ""), message, None);
                 }
             }
             // Keys, which must be unique (SPEC §3.3, §3.7), made as rendering makes them. A
@@ -1825,7 +1847,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         keys_repeat(&repeated),
                         table.columns[c]
                     );
-                    found("E103", path, message);
+                    found_fixed("E103", path, message, None);
                 }
                 continue;
             }
@@ -1844,7 +1866,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         table.columns[x],
                         states.len()
                     );
-                    found("E103", here("x", "/field"), message);
+                    found_fixed("E103", here("x", "/field"), message, None);
                 }
             }
             // A slope keys its marks by series and state, not by a `key` field.
@@ -1895,7 +1917,12 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                         keys_repeat(&repeated),
                         by(base, own)
                     );
-                    found("E103", if key.is_some() { here("key", "") } else { here("x", "/field") }, message);
+                    found_fixed(
+                        "E103",
+                        if key.is_some() { here("key", "") } else { here("x", "/field") },
+                        message,
+                        None,
+                    );
                 }
             }
             // A chart's annotations name its categories (or x values) and series.
@@ -1952,12 +1979,17 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                             ),
                             _ => continue,
                         };
-                        found("E103", at("x"), message);
+                        found_fixed("E103", at("x"), message, None);
                     }
                 }
                 if let Some(place) = &note.at.series {
                     let Some(c) = series else {
-                        found("E106", at("series"), "`at.series` picks out a series, and the chart has none".into());
+                        found_fixed(
+                            "E106",
+                            at("series"),
+                            "`at.series` picks out a series, and the chart has none".into(),
+                            None,
+                        );
                         continue;
                     };
                     let names = distinct(c);
@@ -1968,7 +2000,7 @@ fn encodings(deck: &Deck, snapshots: &[Snapshot], files: &dyn BundleFiles) -> Ve
                             table.columns[c],
                             listed(&names)
                         );
-                        found("E103", at("series"), message);
+                        found_fixed("E103", at("series"), message, None);
                     }
                 }
             }

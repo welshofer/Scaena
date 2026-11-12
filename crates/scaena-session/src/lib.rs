@@ -2581,8 +2581,8 @@ impl Session {
     /// The patch that folds `state`'s slide into the slide before it (editor dogfood 6), as the
     /// Story's rows and the slides' menus offer it: its words joined to that slide's place for
     /// words, its notes after that slide's, its beat's claim in the previous beat's notes, and its
-    /// states taken out, one step to undo; or why it cannot be, in a person's words, laid out to
-    /// find words that would run past their place (`scaena_ops::states::folding`).
+    /// states taken out, one step to undo, its words in that slide's notes where, laid out, they would
+    /// run past their place; or why it cannot be, in a person's words (`scaena_ops::states::folding`).
     #[cfg(feature = "editor")]
     /// With `into`, a state of an earlier slide, it folds into that slide in place of the one
     /// before it, as a Story row offers where a slide says again what an earlier one said.
@@ -2794,8 +2794,9 @@ impl Session {
         Ok(scaena_core::reading::html(&self.deck, &*self.files, snap, &list))
     }
 
-    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
-    /// beat that names it, else empty; as written, and as the blocks they read as, lines, a
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the nearest
+    /// earlier step of its slide that has some, else those of the first beat that names it, else
+    /// empty; as written, and as the blocks they read as, lines, a
     /// list, or a table (`scaena_core::notes`). What the browser's presenter view, the Mac's and
     /// the iPad's, the remote, and a rehearsal show.
     pub fn notes(&self, state: &str) -> Result<scaena_core::notes::Notes, Error> {

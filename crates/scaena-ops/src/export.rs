@@ -647,29 +647,12 @@ fn document(
     Ok((bytes, pages))
 }
 
-/// The notes a page of the PDF prints for the slide whose `state` it draws, at its last: the
-/// state's own, else those of the nearest step of its slide before it that has its own, as a
-/// presenter reads them on through the slide's builds, else its beat's (agent dogfood 8: a slide
-/// written with its notes on its first state printed its beat's under its page).
-fn slide_notes(deck: &Deck, state: &str) -> Option<scaena_core::notes::Notes> {
-    let k = deck.states.iter().position(|s| s.id == state)?;
-    let slides = deck.slides();
-    let own = (slides.iter().find(|slide| slide.contains(&k)).into_iter().flatten())
-        .filter(|&&i| i <= k)
-        .rev()
-        .find_map(|&i| deck.states[i].notes.as_deref().filter(|n| !n.trim().is_empty()).map(|_| i));
-    match own {
-        Some(i) => scaena_core::notes::of(deck, &deck.states[i].id),
-        None => scaena_core::notes::of(deck, state),
-    }
-}
-
 /// The deck's PDF laid out, and the state each page draws (PLAN 2.54): its pages at rest, as
 /// [`pdf_pages`] orders them, and the bytes of the fonts and images they name. Drawn here, it is
 /// `export --format pdf`; in the browser, the editor's module lays it out and the PDF's own
 /// module draws it ([`scaena_export::pdf::prepared`]), the same bytes. With `notes`, each slide's
 /// page is the slide drawn smaller with the notes a presenter reads for it under it
-/// ([`scaena_core::notes::of`], set by the engine, [`scaena_engine::notes`]), notes too long for
+/// ([`scaena_core::notes::of_slide`], each step's in turn, set by the engine, [`scaena_engine::notes`]), notes too long for
 /// it going on to pages of their own: the state each draws is said once for each.
 pub fn pdf_laid_out(
     b: &Bundle,
@@ -693,7 +676,8 @@ pub fn pdf_laid_out(
     let mut pages = Vec::with_capacity(lists.len());
     for (state, list) in lists {
         let lists = if notes {
-            let said = slide_notes(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
+            // Each step's notes in turn, each once, under the slide its last step draws.
+            let said = scaena_core::notes::of_slide(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
             engine.notes_pages(&b.deck, &theme, &list, said.as_deref().unwrap_or(""))?
         } else {
             vec![list]
@@ -1071,7 +1055,7 @@ fn export_video(
 
 #[cfg(test)]
 mod tests {
-    use super::{Reel, Request, pdf_pages, slide_notes, unnoted, write};
+    use super::{Reel, Request, pdf_pages, unnoted, write};
     use scaena_core::timeline::Timeline;
     use serde_json::{Value, json};
 
@@ -1124,7 +1108,7 @@ mod tests {
             ] }] }
         }))
         .unwrap();
-        let said = |state: &str| slide_notes(&deck, state).map(|n| n.text);
+        let said = |state: &str| scaena_core::notes::of(&deck, state).map(|n| n.text);
         assert_eq!(said("a-3").as_deref(), Some("The slide's own."));
         assert_eq!(said("b-2").as_deref(), Some("The step's own."));
         assert_eq!(said("c").as_deref(), Some("Y's beat."));

@@ -12,6 +12,9 @@
 // - Restore makes it the deck again, with the data file it read, as one change: ⌘Z in the source
 //   puts the deck and the data file back as they were, ⇧⌘Z restores them again, and a save
 //   records the restore in the history, by the user.
+// - Restore This Slide puts back the slide shown alone, saying which before and after: a text only
+//   it shows as the version had it, the rest of the deck as it is now, one change ⌘Z takes back
+//   (dogfood 16).
 // - A version whose deck names a file the bundle no longer holds is refused, and says why.
 // - axe-core finds nothing against WCAG 2.1 AA with a version shown; a bundle that keeps no
 //   history says so, and Keep a history begins one with a save (PLAN 2.87).
@@ -180,6 +183,38 @@ try {
     await settled();
     return value;
   };
+  // Restore This Slide: the subtitle typed over, and slide 1 put back as version 1 had it, the
+  // rest of the deck as it is now: the title other slides show too keeps its words (dogfood 16).
+  const unslid = await source();
+  const typed = unslid.replace('"This quarter changed the shape of the business."', '"A subtitle typed over"');
+  await page.evaluate((s) => window.scaena.type(s), typed);
+  await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, typed, { timeout: 30000, polling: 50 }).catch(() => {});
+  await page.click(`#versions [data-id="${first.id}"]`);
+  await settled();
+  await page.selectOption("#versions [data-state]", "intro");
+  await settled();
+  const offers = await page.locator("#versions [data-restore-slide]").getAttribute("aria-description");
+  check(typed !== unslid && offers === "Puts back Slide 1 as version 1 drew it", `Restore This Slide says which slide it puts back: ${offers}`);
+  await page.click("#versions [data-restore-slide]");
+  await settled();
+  await page
+    .waitForFunction(() => window.scaena.last()?.valid && window.scaena.source().includes('"This quarter changed the shape of the business."'), null, { timeout: 60000 })
+    .catch(() => {});
+  const slid = await source();
+  check(
+    slid.includes('"This quarter changed the shape of the business."') && slid.includes("Revenue tripled") && /state outro/.test(slid),
+    "Restore This Slide puts back that slide's own text, the rest of the deck as it is now",
+  );
+  check(/^Slide 1(: [^·]+)? put back from version 1 · ⌘Z undoes it$/.test(await status()), `and says which slide: ${await status()}`);
+  const undoTo = async (to) => {
+    await page.locator(".cm-content").focus();
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, to, { timeout: 30000, polling: 50 }).catch(() => {});
+    return (await source()) === to;
+  };
+  check(await undoTo(typed), "⌘Z takes the slide put back away again");
+  check(await undoTo(unslid), "and a second ⌘Z the typing before it");
+
   const later = await source();
   check((await revenue("9")) === "9", "the data file as the deck reads it now: the edit's 9");
 

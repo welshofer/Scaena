@@ -353,6 +353,41 @@ impl Parser {
     }
 }
 
+/// `src` with each field it reads as `from` read as `to`, every other character as written: a
+/// name bare where `to` reads as one, else in backticks (R1's dogfood 10). A function's name, a
+/// word the language keeps, and text in quotes are not fields, and stay.
+pub fn renamed(src: &str, from: &str, to: &str) -> Result<String, ExprError> {
+    let tokens = tokens(src)?;
+    let chars: Vec<char> = src.chars().collect();
+    let bare = to.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+        && to.chars().all(|c| c.is_alphanumeric() || c == '_')
+        && !matches!(to, "true" | "false" | "null" | "in");
+    let written = if bare { to.to_string() } else { format!("`{to}`") };
+    // Each field read as `from`: where it starts, and how many characters it takes.
+    let mut spans = Vec::new();
+    for (k, (start, token)) in tokens.iter().enumerate() {
+        let called = matches!(tokens.get(k + 1), Some((_, Token::Op("("))));
+        match token {
+            Token::Field(name) if name == from => spans.push((*start, name.chars().count() + 2)),
+            Token::Name(name)
+                if name == from && !called && !matches!(name.as_str(), "true" | "false" | "null" | "in") =>
+            {
+                spans.push((*start, name.chars().count()))
+            }
+            _ => {}
+        }
+    }
+    let mut out = String::with_capacity(src.len() + 8);
+    let mut at = 0;
+    for (start, len) in spans {
+        out.extend(&chars[at..start]);
+        out.push_str(&written);
+        at = start + len;
+    }
+    out.extend(&chars[at..]);
+    Ok(out)
+}
+
 /// Parse `src`.
 pub fn parse(src: &str) -> Result<Expr, ExprError> {
     let tokens = tokens(src)?;

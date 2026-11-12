@@ -38,23 +38,7 @@ struct MovieSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(asked.sound.map { "Export a Movie with \(Exporting.soundName($0))" } ?? "Export a Movie")
                 .font(.headline)
-            LabeledContent("Width") {
-                HStack(spacing: 6) {
-                    TextField("Width", text: $typed)
-                        .textFieldStyle(.roundedBorder)
-                        .monospacedDigit()
-                        .frame(width: 88)
-                        .focused($focused)
-                        .onSubmit { go() }
-                        #if os(iOS)
-                            .keyboardType(.numberPad)
-                        #endif
-                        .accessibilityLabel("Width in pixels")
-                        .accessibilityIdentifier("movie-width")
-                    Text("pixels")
-                        .foregroundStyle(.secondary)
-                }
-            }
+            WidthRow(typed: $typed, focused: $focused, id: "movie-width", submit: go)
             Picker("Frames a Second", selection: $fps) {
                 ForEach(MovieSize.rates, id: \.self) { rate in Text("\(rate)").tag(rate) }
             }

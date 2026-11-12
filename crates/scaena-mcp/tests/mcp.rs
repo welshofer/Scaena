@@ -540,6 +540,18 @@ async fn an_agent_starts_a_slide_sets_a_background_and_builds_from_written_slide
     assert_eq!(made["arc"], "Problem–Solution", "{made:#}");
     assert_eq!(made["layouts"].as_array().unwrap().len(), 56, "{made:#}");
     let d: Value = serde_json::from_str(&std::fs::read_to_string(made_dir.join("deck.json")).unwrap()).unwrap();
+    // Each slide by the ids a later call names it by, its own state first, and the beat that
+    // tells it, so an agent never guesses one from a headline (agent dogfood 9).
+    let told = made["slides"].as_array().unwrap();
+    assert_eq!(told.len(), 56, "{made:#}");
+    assert_eq!((told[0]["slide"].clone(), told[0]["states"][0].clone()), (json!(1), d["states"][0]["id"].clone()));
+    let beats: Vec<Value> = (d["spine"]["sections"].as_array().unwrap().iter())
+        .flat_map(|s| s["beats"].as_array().unwrap().clone())
+        .collect();
+    for slide in told {
+        let beat = beats.iter().find(|b| b["id"] == slide["beat"]).unwrap_or_else(|| panic!("{slide:#}"));
+        assert!(beat["states"].as_array().unwrap().contains(&slide["states"][0]), "{slide:#} in {beat:#}");
+    }
     assert_eq!(d["theme"], "themes/ember.theme.json");
     assert_eq!(d["meta"]["narrative"]["generator"], "narrato");
     let health = ok(&client, "deck_health", json!({ "bundle": path(&made_dir) })).await;

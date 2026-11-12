@@ -7,6 +7,9 @@
 // - Restore makes it the deck again, with the data files it read, as one change by the user:
 //   refused, with why, where the deck would not validate in the bundle as it is. The source takes
 //   it as one change, which ⌘Z undoes with the data files, as any other edit.
+// - Restore This Slide puts back the slide shown alone, as `scaena history --restore --slide`
+//   does, with the data it reads, the rest of the deck as it is: one change, as Restore's is
+//   (dogfood 16).
 // - The versions are what the history holds: an edit is one once a save records it.
 import { listen, observing } from "./life";
 import type { Compared, Lexicon, NodeChange, Restored, StateChange, Version } from "./protocol";
@@ -18,8 +21,9 @@ export interface VersionsEditor {
   /** The state shown, by its id and its slot's index; none while the source does not compile. */
   shown(): { state: string; index: number } | undefined;
   source(): string;
-  /** Make `version` the deck again, as Restore does: what it did, said. */
-  restore(version: Version): Promise<Restored | undefined>;
+  /** Make `version` the deck again, as Restore does, or, with `slide`, a state of it, put back
+   * the slide that holds it, as Restore This Slide does: what it did, said. */
+  restore(version: Version, slide?: string): Promise<Restored | undefined>;
   /** Begin a history: save the bundle, the deck as saved its first version (PLAN 2.87). */
   keep(): Promise<void>;
   say(text: string): void;
@@ -166,6 +170,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   const why = detail.querySelector<HTMLElement>("[data-why]")!;
   const changed = detail.querySelector<HTMLUListElement>("[data-changes]")!;
   const restore = detail.querySelector<HTMLButtonElement>("[data-restore]")!;
+  const restoreSlide = detail.querySelector<HTMLButtonElement>("[data-restore-slide]")!;
   const keep = into.querySelector<HTMLButtonElement>("[data-keep]")!;
   /** The versions as the history last listed them, oldest first; null where it keeps none. */
   let versions: Version[] | null = [];
@@ -259,6 +264,8 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
       const slideOf = (s: string) => got.said[got.states.indexOf(s)] ?? s;
       states.replaceChildren(...got.states.map((s) => new Option(slideOf(s), s)));
       states.value = got.state;
+      // The slide it puts back, said before it is pressed, as the slide picker names it.
+      restoreSlide.setAttribute("aria-description", `Puts back ${slideOf(got.state)} as version ${v.n} drew it`);
       if (url) URL.revokeObjectURL(url);
       url = got.png && URL.createObjectURL(new Blob([got.png], { type: "image/png" }));
       depict(url, got.png ? `${slideOf(got.state)} as version ${v.n} drew it, at rest` : `Version ${v.n} is not drawn: ${got.why}`);
@@ -307,11 +314,12 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     }
   }
 
-  /** The version shown made the deck again, as one change. */
-  async function restoring() {
+  /** The version shown made the deck again, or with `slide` the slide of it that holds that
+   * state put back, as one change. */
+  async function restoring(slide?: string) {
     const v = by(chosen);
     if (!v) return;
-    const done = await editor.restore(v);
+    const done = await editor.restore(v, slide);
     if (done?.applied) await compared();
     return done;
   }
@@ -325,6 +333,7 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   });
   listen(against, "change", () => void settle(compared()));
   listen(restore, "click", () => void settle(restoring()));
+  listen(restoreSlide, "click", () => void settle(restoring(states.value || undefined)));
   // A history begun with a save, the deck as saved its first version (PLAN 2.87); listed then.
   listen(keep, "click", () => {
     keep.disabled = true;
@@ -353,6 +362,9 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
     },
     /** Restore the version shown, as its button does. */
     restore: () => settle(restoring()),
+    /** Put back the slide of the version shown that holds `state`, else the slide shown, as
+     * Restore This Slide does. */
+    restoreSlide: (state?: string) => settle(restoring(state ?? (states.value || undefined))),
     /** What the panel says changed, a line each, for a test. */
     changes: () => [...changed.querySelectorAll("li")].map((li) => li.textContent ?? ""),
     /** Once the panel's last ask is answered. */

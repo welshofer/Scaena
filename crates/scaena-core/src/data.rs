@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 pub mod cells;
 pub mod edit;
+pub mod rename;
 
 /// The bundle's files, by bundle path (`data/q3.csv`), as far as data needs them.
 pub trait SourceFiles {

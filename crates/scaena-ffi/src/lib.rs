@@ -2362,7 +2362,7 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
             let (_, versions) = history_of(s)?;
             let version = scaena_ops::history::named(&versions, name).map_err(said)?.clone();
             let held = held(s, name)?;
-            let (restored, files) = s.restore_version(&held, version, user()).map_err(said)?;
+            let (restored, files) = s.restore_version(&held, version, None, user()).map_err(said)?;
             json!({ "restored": restored, "files": files })
         }
         // What Delete takes out (PLAN 2.34, 2.42): `nodes`, or one `node`, in one patch.

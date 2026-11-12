@@ -51,11 +51,30 @@ pub struct Notes {
     pub blocks: Vec<Block>,
 }
 
-/// The notes a presenter reads for `state` of `deck` (SPEC §2.6): its own, else its first beat's
-/// (`spine::notes`), read as blocks; none for a state the deck lacks.
+/// The notes a presenter reads for `state` of `deck` (SPEC §2.6): its own, else its slide's earlier
+/// step's, else its first beat's (`spine::notes`), read as blocks; none for a state the deck lacks.
 pub fn of(deck: &crate::document::Deck, state: &str) -> Option<Notes> {
     let text = crate::spine::notes(deck, state)?;
     Some(Notes { text: text.to_string(), blocks: read(text) })
+}
+
+/// The notes a presenter reads across the slide `state` is a step of, up to `state` (SPEC §2.6):
+/// each step's notes in turn ([`of`]), each once, a blank line between, so the first step's notes
+/// stand before a later step's own, never in their shadow: what a PDF with notes prints under the
+/// slide's page, which draws its last step (W1 dogfood 16). None for a state the deck lacks.
+pub fn of_slide(deck: &crate::document::Deck, state: &str) -> Option<Notes> {
+    let k = deck.states.iter().position(|s| s.id == state)?;
+    let slide = deck.slide_of(&deck.states[k]);
+    let steps = (deck.states[..=k].iter()).filter(|s| deck.slide_of(s) == slide);
+    let mut said: Vec<&str> = Vec::new();
+    for step in steps {
+        let text = crate::spine::notes(deck, &step.id).unwrap_or("").trim();
+        if !text.is_empty() && !said.contains(&text) {
+            said.push(text);
+        }
+    }
+    let text = said.join("\n\n");
+    Some(Notes { blocks: read(&text), text })
 }
 
 /// `notes` read as blocks (SPEC §2.6). Plain notes are one block of their lines, as written.
@@ -433,5 +452,26 @@ mod tests {
                 { "kind": "table", "header": true, "rows": [[[{ "text": "h" }]], [[{ "text": "c" }]]] }
             ])
         );
+    }
+
+    /// A slide's notes across its steps (W1 dogfood 16): each step's reading in turn, each once,
+    /// a step with none reading on from the one before it, and its beat's where none has its own.
+    #[test]
+    fn a_slides_notes_are_each_steps_in_turn_each_once() {
+        let mut deck = crate::Deck::from_json(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        // As the example ships, the slide's first step reads its beat's notes and `mix` its own:
+        // both, the beat's first, where `of` gives the last step's alone.
+        let (beat, own) = (of(&deck, "revenue").unwrap().text, of(&deck, "mix").unwrap().text);
+        assert!(!beat.is_empty() && beat != own, "{beat:?} {own:?}");
+        assert_eq!(of_slide(&deck, "mix").unwrap().text, format!("{beat}\n\n{own}"));
+        for (state, notes) in [("revenue", "Open on the doubling."), ("mix", "Then point at the orange band.")] {
+            deck.states.iter_mut().find(|s| s.id == state).unwrap().notes = Some(notes.into());
+        }
+        assert_eq!(of_slide(&deck, "mix").unwrap().text, "Open on the doubling.\n\nThen point at the orange band.");
+        assert_eq!(of_slide(&deck, "revenue").unwrap().text, "Open on the doubling.");
+        // A later step with none of its own reads on, said once.
+        deck.states.iter_mut().find(|s| s.id == "mix").unwrap().notes = None;
+        assert_eq!(of_slide(&deck, "mix").unwrap().text, "Open on the doubling.");
+        assert!(of_slide(&deck, "nowhere").is_none());
     }
 }
