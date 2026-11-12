@@ -14,6 +14,32 @@ extension ScaenaSession {
         public let frames: Int
         public let fps: Int
         public let durationMs: Double
+        /// Its chapters, as the CLI's video carries them (SPEC §10): each beat as it plays, by its
+        /// claim, and a slide no beat names by its headline; none where the deck has no spine.
+        public let chapters: [Chapter]?
+    }
+
+    /// A part of the movie a player can skip to: its title, and where it starts and ends, ms in.
+    public struct Chapter: Decodable, Sendable, Equatable {
+        public let title: String
+        public let start: Double
+        public let end: Double
+    }
+
+    /// The bundle's file at `path`, as the session holds it: a movie's sound track among them.
+    public func file(_ path: String) throws -> Data {
+        var error: UnsafeMutablePointer<CChar>?
+        return try Self.take(scaena_file(handle, path, &error), error)
+    }
+
+    /// The kinds of sound file a movie takes under its pictures, by their names' extensions.
+    public static let soundKinds: Set<String> = ["aac", "aif", "aiff", "caf", "m4a", "mp3", "wav"]
+
+    /// The bundle's sound files, by their paths in it: what a movie may take as its sound track,
+    /// as the CLI's `--audio` takes a file.
+    public func sounds() throws -> [String] {
+        let files: [String] = try call("files")
+        return files.filter { Self.soundKinds.contains(($0 as NSString).pathExtension.lowercased()) }.sorted()
     }
 
     /// The deck's movie of `fps` frames a second, as the browser's `movie` gives it; thrown where
@@ -65,25 +91,62 @@ final class Stopping: Sendable {
     var asked: Bool { stopped.withLock { $0 } }
 }
 
-/// The session's movie written to a file: H.264 in an MPEG-4 file, `fps` frames a second, as wide
-/// as the canvas, made even as H.264 asks, the deck's `title` its title.
-enum MovieWriter {
-    /// The frames a second a movie the editors export plays at, as the browser's Export… and the
-    /// CLI's default make one.
-    static let fps = 30
+/// A movie's size and pace as the export sheet asks them, as the browser's Export… does: a width in
+/// pixels, the height following the canvas's proportions, and 24, 30, or 60 frames a second.
+public enum MovieSize {
+    /// The frames a second a movie plays at unless another is asked, as the browser's Export… and
+    /// the CLI's default make one.
+    public static let fps = 30
+    /// The frames a second the sheet offers, as the browser's Export… offers them.
+    public static let rates = [24, 30, 60]
+    /// The widths a movie may be, in pixels, as the browser's Export… takes them: H.264 draws two at
+    /// the least, and the browser's field goes to 8192.
+    public static let widths = 2...8192
 
-    /// `session`'s movie written to `url`, its first `seconds` alone where given, stopped between
-    /// frames once `stopping` is asked, the file then taken away.
+    /// What was typed as a width: a whole number of pixels within `widths`; none for any other.
+    public static func width(_ typed: String) -> Int? {
+        guard let read = FieldNumber.read(typed), read == read.rounded(), widths.contains(Int(read)) else { return nil }
+        return Int(read)
+    }
+
+    /// The pixels a movie `width` wide of a canvas `canvas` is, as H.264 writes it: the width made
+    /// even, and the height the canvas's proportions give it, its last row dropped where odd, as
+    /// the writer makes it from the painter's frame.
+    public static func pixels(width: Int, canvas: CGSize) -> (width: Int, height: Int) {
+        let even = max(2, width & ~1)
+        guard canvas.width > 0 else { return (even, 2) }
+        let high = Int((canvas.height * Double(even) / canvas.width).rounded())
+        return (even, max(2, high & ~1))
+    }
+}
+
+/// The session's movie written to a file: H.264 in an MPEG-4 file, `fps` frames a second, `width`
+/// pixels wide or as wide as the canvas, made even as H.264 asks, the deck's `title` its title; a
+/// chapter for each beat as it plays, as the CLI's video carries them, and a sound track under it
+/// where one is given.
+enum MovieWriter {
+    /// `session`'s movie written to `url`, its first `seconds` alone where given, with `sound`, a
+    /// sound file's bytes and its name, under it as AAC, cut where the deck's timeline ends; stopped
+    /// between frames once `stopping` is asked, the file then taken away.
     static func write(
-        _ session: ScaenaSession, to url: URL, title: String?, seconds: Double? = nil, stopping: Stopping
+        _ session: ScaenaSession, to url: URL, title: String?, seconds: Double? = nil,
+        sound: (data: Data, name: String)? = nil, width asked: Int? = nil, fps: Int = MovieSize.fps,
+        stopping: Stopping
     ) throws {
+        if let asked, !MovieSize.widths.contains(asked) {
+            throw ScaenaError(message: "A movie is 2 to 8192 pixels wide, not \(asked)")
+        }
+        guard MovieSize.rates.contains(fps) else {
+            throw ScaenaError(message: "A movie plays at 24, 30, or 60 frames a second, not \(fps)")
+        }
         let movie = try session.movie(fps: fps)
         var frames = movie.frames
         if let seconds { frames = min(frames, max(1, Int((seconds * Double(fps)).rounded()))) }
+        let end = CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(fps))
         let canvas = try session.canvasSize()
-        // H.264 draws an even number of pixels each way: the canvas's width made even, and its
-        // height as the painter paints it, its last row dropped where odd.
-        let width = max(2, Int(canvas.width) & ~1)
+        // H.264 draws an even number of pixels each way: the width asked, else the canvas's, made
+        // even, and its height as the painter paints it, its last row dropped where odd.
+        let width = max(2, (asked ?? Int(canvas.width)) & ~1)
         try? FileManager.default.removeItem(at: url)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         if let title, !title.isEmpty {
@@ -93,8 +156,12 @@ enum MovieWriter {
             item.extendedLanguageTag = "und"
             writer.metadata = [item]
         }
+        // The sound read from a file of its own name, which is how AVFoundation knows its kind.
+        var soundFile: URL?
+        defer { if let soundFile { try? FileManager.default.removeItem(at: soundFile) } }
         var input: AVAssetWriterInput?
         var adaptor: AVAssetWriterInputPixelBufferAdaptor?
+        var feeds: [any Feeding] = []
         var height = 0
         var digest: String?
         var last = Data()
@@ -124,6 +191,21 @@ enum MovieWriter {
                                 kCVPixelBufferHeightKey as String: height,
                             ])
                         writer.add(made)
+                        let chapters = (movie.chapters ?? []).filter { $0.start < end.seconds * 1000 }
+                        if !chapters.isEmpty {
+                            let titles = try Chapters(chapters, ending: end, in: writer)
+                            guard made.canAddTrackAssociation(withTrackOf: titles.input, type: AVAssetTrack.AssociationType.chapterList.rawValue)
+                            else { throw ScaenaError(message: "the movie's chapters could not be joined to its pictures") }
+                            made.addTrackAssociation(withTrackOf: titles.input, type: AVAssetTrack.AssociationType.chapterList.rawValue)
+                            feeds.append(titles)
+                        }
+                        if let sound {
+                            let file = FileManager.default.temporaryDirectory.appending(
+                                path: "Scaena-\(UUID().uuidString).\((sound.name as NSString).pathExtension)")
+                            try sound.data.write(to: file)
+                            soundFile = file
+                            feeds.append(try Sound(file, named: sound.name, ending: end, in: writer))
+                        }
                         guard writer.startWriting() else { throw writer.error ?? ScaenaError(message: "the movie could not be begun") }
                         writer.startSession(atSourceTime: .zero)
                         input = made
@@ -131,17 +213,28 @@ enum MovieWriter {
                     }
                 }
                 guard let input, let adaptor else { throw ScaenaError(message: "the movie's first frame was not painted") }
+                let at = CMTime(value: CMTimeValue(k), timescale: CMTimeScale(fps))
+                // The chapters and the sound written a second ahead of the pictures, and as far as
+                // the writer wants them while it waits for theirs, so no track waits on another.
+                for feed in feeds { try feed.feed(until: at + CMTime(value: 1, timescale: 1)) }
                 while !input.isReadyForMoreMediaData {
                     if stopping.asked { throw CancellationError() }
+                    for feed in feeds { try feed.feed(until: nil) }
                     Thread.sleep(forTimeInterval: 0.002)
                 }
                 let buffer = try Self.buffer(of: last, width: width, height: height, from: adaptor)
-                guard adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(k), timescale: CMTimeScale(fps)))
+                guard adaptor.append(buffer, withPresentationTime: at)
                 else { throw writer.error ?? ScaenaError(message: "frame \(k + 1) of the movie could not be written") }
             }
             input?.markAsFinished()
-            // The last frame shown for its whole frame, so the movie runs `frames / fps` seconds.
-            writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: CMTimeScale(fps)))
+            while let open = feeds.first(where: { !$0.done }) {
+                if stopping.asked { throw CancellationError() }
+                try open.feed(until: nil)
+                if !open.done { Thread.sleep(forTimeInterval: 0.002) }
+            }
+            // The last frame shown for its whole frame, so the movie runs `frames / fps` seconds,
+            // and the sound cut there.
+            writer.endSession(atSourceTime: end)
             let done = DispatchSemaphore(value: 0)
             writer.finishWriting { done.signal() }
             done.wait()
@@ -190,5 +283,179 @@ enum MovieWriter {
             }
         }
         return buffer
+    }
+}
+
+/// A track written beside the movie's pictures, a sample at a time as the writer is ready for one.
+protocol Feeding: AnyObject {
+    /// Whether every sample is written and the track marked finished.
+    var done: Bool { get }
+    /// Its samples that start before `until`, or all of them where none, written while the writer
+    /// takes them: never waiting, so the pictures go on.
+    func feed(until: CMTime?) throws
+}
+
+/// The movie's chapters as a QuickTime chapter track: a text sample for each, its title for as
+/// long as it plays, which players list and skip to.
+final class Chapters: Feeding {
+    let input: AVAssetWriterInput
+    private var samples: [CMSampleBuffer]
+    private(set) var done = false
+
+    init(_ chapters: [ScaenaSession.Chapter], ending end: CMTime, in writer: AVAssetWriter) throws {
+        let format = try Self.format()
+        input = AVAssetWriterInput(mediaType: .text, outputSettings: nil, sourceFormatHint: format)
+        input.expectsMediaDataInRealTime = false
+        input.marksOutputTrackAsEnabled = false
+        input.languageCode = "und"
+        guard writer.canAdd(input) else { throw ScaenaError(message: "the movie cannot hold its chapters") }
+        writer.add(input)
+        let last = end.seconds * 1000
+        samples = try chapters.map { chapter in
+            try Self.sample(chapter.title, from: chapter.start, to: min(chapter.end, last), format: format)
+        }
+    }
+
+    func feed(until: CMTime?) throws {
+        while !done, input.isReadyForMoreMediaData {
+            guard let next = samples.first else {
+                input.markAsFinished()
+                done = true
+                return
+            }
+            if let until, CMSampleBufferGetPresentationTimeStamp(next) >= until { return }
+            guard input.append(next) else { throw ScaenaError(message: "a chapter of the movie could not be written") }
+            samples.removeFirst()
+        }
+    }
+
+    /// QuickTime text's sample description, as a chapter track's is written, from its bytes as
+    /// the QuickTime file format lays them out: its size and kind, a reference to its data, then
+    /// no flags, left justification, a white ground, an empty box, the system font, plain, black
+    /// letters, and no font name.
+    private static func format() throws -> CMFormatDescription {
+        var bytes: [UInt8] = []
+        func put(_ value: UInt32, _ width: Int) {
+            for shift in stride(from: (width - 1) * 8, through: 0, by: -8) { bytes.append(UInt8((value >> UInt32(shift)) & 0xFF)) }
+        }
+        put(60, 4)  // its size
+        bytes += Array("text".utf8)
+        put(0, 4); put(0, 2)  // reserved
+        put(1, 2)  // the data reference
+        put(0, 4)  // display flags
+        put(0, 4)  // justification: left
+        put(0xFFFF, 2); put(0xFFFF, 2); put(0xFFFF, 2)  // the ground
+        put(0, 2); put(0, 2); put(0, 2); put(0, 2)  // the default box
+        put(0, 4); put(0, 4)  // reserved
+        put(0, 2)  // the font: the system's
+        put(0, 2)  // its face: plain
+        put(0, 1); put(0, 2)  // reserved
+        put(0, 2); put(0, 2); put(0, 2)  // the letters: black
+        put(0, 1)  // no font name
+        var made: CMFormatDescription?
+        let status = bytes.withUnsafeBufferPointer { raw in
+            CMTextFormatDescriptionCreateFromBigEndianTextDescriptionData(
+                allocator: kCFAllocatorDefault, bigEndianTextDescriptionData: raw.baseAddress!, size: raw.count,
+                flavor: nil, mediaType: kCMMediaType_Text, formatDescriptionOut: &made)
+        }
+        guard status == noErr, let made else {
+            throw ScaenaError(message: "the movie's chapters could not be described (\(status))")
+        }
+        return made
+    }
+
+    /// `title` from `start` to `end`, ms into the movie, as QuickTime text: its length in two bytes,
+    /// big-endian, its UTF-8, then the atom that says it is UTF-8.
+    private static func sample(_ title: String, from start: Double, to end: Double, format: CMFormatDescription)
+        throws -> CMSampleBuffer
+    {
+        let words = Array(title.utf8.prefix(0xFFFF))
+        let encoding: [UInt8] = [0, 0, 0, 12, 0x65, 0x6E, 0x63, 0x64, 0x08, 0x00, 0x01, 0x00]
+        let bytes = [UInt8(words.count >> 8), UInt8(words.count & 0xFF)] + words + encoding
+        var block: CMBlockBuffer?
+        guard
+            CMBlockBufferCreateWithMemoryBlock(
+                allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: bytes.count,
+                blockAllocator: kCFAllocatorDefault, customBlockSource: nil, offsetToData: 0,
+                dataLength: bytes.count, flags: 0, blockBufferOut: &block) == noErr,
+            let block,
+            bytes.withUnsafeBytes({ raw in
+                CMBlockBufferReplaceDataBytes(
+                    with: raw.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: bytes.count)
+            }) == noErr
+        else { throw ScaenaError(message: "a chapter of the movie could not be written") }
+        let from = CMTime(value: CMTimeValue(start.rounded()), timescale: 1000)
+        let to = CMTime(value: CMTimeValue(max(end, start + 1).rounded()), timescale: 1000)
+        var timing = CMSampleTimingInfo(duration: to - from, presentationTimeStamp: from, decodeTimeStamp: .invalid)
+        var size = bytes.count
+        var sample: CMSampleBuffer?
+        guard
+            CMSampleBufferCreate(
+                allocator: kCFAllocatorDefault, dataBuffer: block, dataReady: true, makeDataReadyCallback: nil,
+                refcon: nil, formatDescription: format, sampleCount: 1, sampleTimingEntryCount: 1,
+                sampleTimingArray: &timing, sampleSizeEntryCount: 1, sampleSizeArray: &size,
+                sampleBufferOut: &sample) == noErr,
+            let sample
+        else { throw ScaenaError(message: "a chapter of the movie could not be written") }
+        return sample
+    }
+}
+
+/// A sound file read as PCM and written under the pictures as AAC, as far as the movie runs.
+final class Sound: Feeding {
+    private let reader: AVAssetReader
+    private let output: AVAssetReaderTrackOutput
+    private let input: AVAssetWriterInput
+    private let end: CMTime
+    private var next: CMSampleBuffer?
+    private(set) var done = false
+
+    init(_ file: URL, named name: String, ending end: CMTime, in writer: AVAssetWriter) throws {
+        let asset = AVURLAsset(url: file)
+        guard let track = asset.tracks(withMediaType: .audio).first,
+            let described = track.formatDescriptions.first,
+            let basic = CMAudioFormatDescriptionGetStreamBasicDescription(described as! CMFormatDescription)?
+                .pointee
+        else { throw ScaenaError(message: "\(name) holds no sound a movie can take") }
+        let channels = Int(basic.mChannelsPerFrame)
+        guard (1...2).contains(channels) else {
+            throw ScaenaError(message: "\(name) has \(channels) channels: a movie takes a sound of one or two")
+        }
+        reader = try AVAssetReader(asset: asset)
+        output = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false, AVLinearPCMIsNonInterleaved: false,
+            ])
+        guard reader.canAdd(output) else { throw ScaenaError(message: "\(name) cannot be read as sound") }
+        reader.add(output)
+        input = AVAssetWriterInput(
+            mediaType: .audio,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: min(max(basic.mSampleRate, 8000), 48000),
+                AVNumberOfChannelsKey: channels, AVEncoderBitRateKey: 128_000,
+            ])
+        input.expectsMediaDataInRealTime = false
+        guard writer.canAdd(input) else { throw ScaenaError(message: "the movie cannot hold \(name)'s sound") }
+        writer.add(input)
+        self.end = end
+        guard reader.startReading() else { throw reader.error ?? ScaenaError(message: "\(name) cannot be read") }
+    }
+
+    func feed(until: CMTime?) throws {
+        while !done, input.isReadyForMoreMediaData {
+            if next == nil { next = output.copyNextSampleBuffer() }
+            guard let sample = next, CMSampleBufferGetPresentationTimeStamp(sample) < end else {
+                // The sound ended, or the movie does here: what is left of it is not heard.
+                reader.cancelReading()
+                input.markAsFinished()
+                done = true
+                return
+            }
+            if let until, CMSampleBufferGetPresentationTimeStamp(sample) >= until { return }
+            guard input.append(sample) else { throw ScaenaError(message: "the movie's sound could not be written") }
+            next = nil
+        }
     }
 }

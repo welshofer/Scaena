@@ -356,7 +356,8 @@ fn folding(
             scaena_core::patch::shape("fold_slide").unwrap_or_default()
         )));
     };
-    let folded = crate::states::folding(b, slide).map_err(|e| refused(e.message))?;
+    let into = list[at].get("into").and_then(Value::as_str);
+    let folded = crate::states::folding(b, slide, into).map_err(|e| refused(e.message))?;
     if let Some(why) = folded.refused {
         return Err(refused(why));
     }

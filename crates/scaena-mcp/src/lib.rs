@@ -1019,6 +1019,10 @@ pub struct ImageAdd {
     /// Say what it would put where, and write nothing.
     #[serde(default)]
     pub dry_run: bool,
+    /// The patch compiled to JSON Patch too (`patch`), and the ops it was made of (`ops`), as
+    /// `deck_patch`'s `verbose` gives them.
+    #[serde(default)]
+    pub verbose: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1230,11 +1234,40 @@ pub struct DeckGenerate {
 }
 
 /// A source `deck_generate` is given: a file, or an address.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum GivenSource {
     File { file: String },
     Url { url: String },
+}
+
+/// The two shapes a source is written in, which a source that is neither is told (R1's dogfood
+/// 10): serde's own word for an untagged enum names neither.
+const SOURCE_SHAPES: &str = r#"a source is {"file": "PATH"} or {"url": "https://…" or "github:OWNER/REPO"}"#;
+
+impl<'de> Deserialize<'de> for GivenSource {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let value = Value::deserialize(d)?;
+        let given = |v: &Value| -> String {
+            let s = v.to_string();
+            if s.chars().count() > 80 { format!("{}…", s.chars().take(80).collect::<String>()) } else { s }
+        };
+        let Value::Object(map) = &value else {
+            return Err(D::Error::custom(format!("{SOURCE_SHAPES}; this one is {}", given(&value))));
+        };
+        let only = |key: &str| match (map.len(), map.get(key)) {
+            (1, Some(Value::String(s))) => Some(s.clone()),
+            _ => None,
+        };
+        if let Some(file) = only("file") {
+            return Ok(GivenSource::File { file });
+        }
+        if let Some(url) = only("url") {
+            return Ok(GivenSource::Url { url });
+        }
+        Err(D::Error::custom(format!("{SOURCE_SHAPES}; this one is {}", given(&value))))
+    }
 }
 
 /// A source a deck was grounded in, as it keeps it: its name, what it is, and its address where
@@ -1735,8 +1768,8 @@ impl Scaena {
         shot, a chart drawn elsewhere), copied into the bundle's `assets/` named by its content, one past 8192 px a \
         side made smaller first. It goes in the image `into` names, in place of what it showed; else in the state's \
         first empty place for a picture; else as a new image at `at` ([x, y, width, height], canvas units), kept to its \
-        slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is; `dry_run` \
-        writes nothing.")]
+        slide. `alt` says what it shows for someone who cannot see it. One patch, refused as a patch is, reported as \
+        `deck_patch` reports one (`summary`, and the JSON Patch only with `verbose`); `dry_run` writes nothing.")]
     async fn image_add(
         &self,
         Parameters(a): Parameters<ImageAdd>,
@@ -1751,9 +1784,10 @@ impl Scaena {
             if a.dry_run {
                 let (mut added, _) = scaena_ops::pictures::adding(b, &bytes, &a.picture)?;
                 added.patched.applied = false;
-                return Ok(added);
+                added.report.applied = false;
+                return Ok(added.verbose(a.verbose));
             }
-            scaena_ops::pictures::add(b, &bytes, &a.picture)
+            scaena_ops::pictures::add(b, &bytes, &a.picture).map(|added| added.verbose(a.verbose))
         })
         .await
         .map(Json)
@@ -2244,6 +2278,31 @@ mod tests {
             assert!(err.contains("keep the bundle in a folder of its own"), "{err}");
         }
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A source in neither shape says both, and which argument it was (R1's dogfood 10).
+    #[test]
+    fn a_source_in_no_shape_says_the_shapes() {
+        #[derive(Debug, Deserialize)]
+        struct Given {
+            #[allow(dead_code)]
+            sources: Vec<GivenSource>,
+        }
+        let read = |sources: Value| {
+            let mut m = Map::new();
+            m.insert("sources".into(), sources);
+            scaena_ops::arguments::read::<Given>(m).map(|_| ())
+        };
+        for wrong in [
+            serde_json::json!(["report.pdf"]),
+            serde_json::json!([{"path": "report.pdf"}]),
+            serde_json::json!([{"file": "a", "url": "b"}]),
+        ] {
+            let err = read(wrong.clone()).unwrap_err();
+            assert!(err.starts_with("`sources`: "), "{err}");
+            assert!(err.contains(r#"{"file": "PATH"} or {"url": "#), "{err}");
+        }
+        assert!(read(serde_json::json!([{"file": "a.pdf"}, {"url": "github:o/r"}])).is_ok());
     }
 
     fn path(p: &Path) -> String {

@@ -1061,7 +1061,8 @@ export class Stage {
     return this.request<"words">({ type: "words", id: ++this.asked, state }).then(({ words }) => words);
   }
 
-  /** The notes a presenter reads for `state` (SPEC §2.6): its own, else its first beat's, as
+  /** The notes a presenter reads for `state` (SPEC §2.6): its own, else its slide's earlier
+   * step's, else its first beat's, as
    * written and as the blocks a speaker reads; what a rehearsal shows beside the slide. */
   notes(state: string): Promise<SpeakerNotes> {
     return this.request<"notes">({ type: "notes", id: ++this.asked, state }).then(({ notes }) => notes);
@@ -1240,8 +1241,8 @@ export class Stage {
 
   /** The patch that folds `state`'s slide into the slide before it, on the deck `source` compiles
    * to, or why it cannot be (editor dogfood 6). */
-  folding(source: string, state: string): Promise<Folded> {
-    return this.request<"folding">({ type: "folding", id: ++this.asked, source, state }).then(({ folded }) => folded);
+  folding(source: string, state: string, into?: string): Promise<Folded> {
+    return this.request<"folding">({ type: "folding", id: ++this.asked, source, state, into }).then(({ folded }) => folded);
   }
 
   /** The slides a person may start after `state`'s slide, on the deck `source` compiles to (PLAN

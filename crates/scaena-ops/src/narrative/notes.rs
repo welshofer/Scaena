@@ -73,7 +73,20 @@ pub fn speaking(deck: &Deck) -> Result<Vec<Spoken>, OpsError> {
             }
         })
         .collect();
-    let budgets = notes::budgets(slot(deck), &timed);
+    // The beats the spine plans that no slide tells yet share the slot too, a slide each, so the
+    // first slides written to a planned spine are not given the whole talk (agent dogfood 8: a
+    // cover written first was budgeted 1,427 words of a 10-minute slot).
+    let planned = (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats))
+        .filter(|b| !b.states.iter().any(|id| deck.state_index(id).is_some()))
+        .map(|b| Timed {
+            seconds: b.duration.unwrap_or(15.0),
+            shown: notes::counted(&b.claim),
+            factor: duration::factor("", "", &b.claim),
+        });
+    let mut timed = timed;
+    timed.extend(planned);
+    let mut budgets = notes::budgets(slot(deck), &timed);
+    budgets.truncate(slides.len());
     let titles: Vec<&str> = slides.iter().map(|t| t.slide.title.trim()).collect();
     // The slide before is said whole, its words after its headline, so its notes may open on a
     // figure or a phrase of it this slide does not use (health's turn, H4).

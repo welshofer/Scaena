@@ -603,8 +603,9 @@ pub fn words(props: &Props) -> String {
     stretches(props).into_iter().map(|(w, _)| w).collect()
 }
 
-/// The words of the paragraphs a text node draws (PLAN 2.129): what a reader hears of it.
-fn drawn_words(props: &Props) -> String {
+/// The words of the paragraphs a text node draws (PLAN 2.129): what a reader hears of it, and
+/// what W210 and W323 count.
+pub(crate) fn drawn_words(props: &Props) -> String {
     drawn_stretches(props).into_iter().map(|(w, _)| w).collect()
 }
 

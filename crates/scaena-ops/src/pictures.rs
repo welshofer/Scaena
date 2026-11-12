@@ -45,8 +45,25 @@ pub struct Added {
     pub src: String,
     /// What it did, as an editor says it.
     pub said: String,
-    #[serde(flatten)]
+    /// The patch, as the session reads it; what a client is told is `report`.
+    #[serde(skip)]
     pub patched: Patched,
+    /// The patch as `deck_patch` reports one (agent dogfood 8): what changed in the slides and the
+    /// story, and the JSON Patch only with `verbose`.
+    #[serde(flatten)]
+    pub report: crate::patch::Reported,
+}
+
+impl Added {
+    /// The report as `deck_patch` gives one: the ops and the JSON Patch kept only where `verbose`
+    /// asks for them.
+    pub fn verbose(mut self, verbose: bool) -> Added {
+        if !verbose {
+            self.report.ops = None;
+            self.report.patch = None;
+        }
+        self
+    }
 }
 
 /// [`add`] with nothing written: what it puts where, and what to write, unless it is refused.
@@ -119,8 +136,10 @@ pub fn adding(b: &Bundle, bytes: &[u8], picture: &Picture) -> Result<(Added, Opt
     };
     let mut files = BTreeMap::new();
     files.insert(src.clone(), bytes.to_vec());
-    let (patched, write) = crate::patch::patching_with(b, &Value::Array(ops), Some(&said), files)?;
-    Ok((Added { node, src, said, patched }, write))
+    let ops = Value::Array(ops);
+    let (patched, write) = crate::patch::patching_with(b, &ops, Some(&said), files)?;
+    let report = crate::patch::Reported::of(deck, write.as_ref().map(|w| &w.deck), &ops, patched.clone(), true);
+    Ok((Added { node, src, said, patched, report }, write))
 }
 
 /// A picture's file, read whole: one larger than a bundle holds a file

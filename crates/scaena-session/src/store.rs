@@ -177,6 +177,7 @@ impl Session {
             removed: self.removed.clone(),
             begins: self.begins,
             edition: self.files_edition,
+            format: self.format.clone(),
         }
     }
 
@@ -344,6 +345,10 @@ pub struct Snapshot {
     /// The session's files' edition when it was taken: a session whose files changed since adopts
     /// no save of it.
     edition: u64,
+    /// The format the session laid frames out in when it was taken, one of the deck's `formats`,
+    /// else none: a session opened from it lays out in it too, so what it exports is what the
+    /// window showed, as the browser's Export… makes it ("in 9:16").
+    format: Option<String>,
 }
 
 impl Snapshot {
@@ -379,7 +384,8 @@ impl Snapshot {
 
     /// A session of its own on the deck and the files as the snapshot was taken, to run a tool
     /// that only reads on another thread ([`crate::assistant::reads_alone`], narrative lift-up
-    /// PERF-2): it answers as the session it was taken from did, and is let go after.
+    /// PERF-2), or to export what the window shows (lift-up PERF-3): it answers as the session it
+    /// was taken from did, in the format that session showed, and is let go after.
     pub fn session(&self) -> Result<Session, Error> {
         let deck = self.deck.to_json().map_err(|e| Error::Deck(e.to_string()))?;
         let mut session = Session::new(&deck, &self.theme_json)?;
@@ -388,6 +394,9 @@ impl Snapshot {
             if path != "deck.json" && Some(path.as_str()) != theme {
                 session.add_file(path, bytes.clone());
             }
+        }
+        if self.format.is_some() {
+            session.set_format(self.format.as_deref())?;
         }
         Ok(session)
     }

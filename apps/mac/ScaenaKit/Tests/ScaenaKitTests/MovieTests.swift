@@ -79,3 +79,137 @@ import Testing
     making.cancel()
     await #expect(throws: CancellationError.self) { try await making.value }
 }
+
+/// A movie's chapters are the CLI's video's (SPEC §10): each beat as it plays, titled by its claim,
+/// written as a chapter track AVFoundation reads back with their titles and times.
+@Test func aMoviesChaptersAreItsBeatsAsTheCLIsVideoCarriesThem() async throws {
+    let session = try ScaenaSession(directory: b1)
+    let movie = try session.movie(fps: 30)
+    let chapters = try #require(movie.chapters)
+    #expect(chapters.count > 2, "\(movie)")
+    #expect(chapters.first?.start == 0 && chapters.last?.end == movie.durationMs)
+    // The first two chapters and a part of the third: the third is cut where the movie ends.
+    let seconds = (chapters[1].end + 500) / 1000
+    let shown = chapters.filter { $0.start < seconds * 1000 }
+    let data = try await session.snapshot().exported(.movie(title: "B1", seconds: seconds))
+    let url = FileManager.default.temporaryDirectory.appending(path: "MovieTests-\(UUID().uuidString).mp4")
+    try data.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+
+    let asset = AVURLAsset(url: url)
+    let locales = try await asset.load(.availableChapterLocales)
+    let groups = try await asset.loadChapterMetadataGroups(
+        withTitleLocale: locales.first ?? Locale(identifier: "und"), containingItemsWithCommonKeys: [.commonKeyTitle])
+    #expect(groups.count == shown.count, "\(groups.count) chapters read of \(shown.count)")
+    for (group, chapter) in zip(groups, shown) {
+        let title = try await group.items.first { $0.commonKey == .commonKeyTitle }?.load(.stringValue)
+        #expect(title == chapter.title)
+        #expect(abs(group.timeRange.start.seconds * 1000 - chapter.start) < 2, "\(chapter.title)")
+    }
+}
+
+/// A sound file of the bundle goes under the movie as AAC, as the CLI's `--audio` takes one, cut
+/// where the deck's timeline ends.
+@Test func aMovieTakesABundlesSoundUnderItsPictures() async throws {
+    let bundle = FileManager.default.temporaryDirectory.appending(path: "MovieTests-\(UUID().uuidString).scaena")
+    try FileManager.default.copyItem(at: b1, to: bundle)
+    defer { try? FileManager.default.removeItem(at: bundle) }
+    try FileManager.default.createDirectory(at: bundle.appending(path: "sounds"), withIntermediateDirectories: true)
+    try tone(seconds: 3).write(to: bundle.appending(path: "sounds/tone.wav"))
+    let session = try ScaenaSession(directory: bundle)
+    #expect(try session.sounds() == ["sounds/tone.wav"])
+
+    let data = try await session.snapshot().exported(.movie(title: "B1", seconds: 1, sound: "sounds/tone.wav"))
+    let url = FileManager.default.temporaryDirectory.appending(path: "MovieTests-\(UUID().uuidString).mp4")
+    try data.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let asset = AVURLAsset(url: url)
+    let duration = try await asset.load(.duration)
+    #expect(abs(duration.seconds - 1) < 0.05, "it runs \(duration.seconds) s")
+    let sound = try #require(try await asset.loadTracks(withMediaType: .audio).first, "the movie has a sound track")
+    let heard = try await sound.load(.timeRange)
+    #expect(heard.duration.seconds > 0.5 && heard.duration.seconds <= 1.1, "its sound runs \(heard.duration.seconds) s")
+    #expect(try await asset.loadTracks(withMediaType: .video).count == 1)
+
+    // A sound the bundle lacks is an error that names it.
+    await #expect(throws: ScaenaError.self) {
+        try await session.snapshot().exported(.movie(title: "B1", seconds: 1, sound: "sounds/none.wav"))
+    }
+}
+
+/// A movie is made at the width and the frames a second its sheet asks, as the browser's Export…
+/// offers them: 640 pixels wide in the canvas's proportions, at 24 frames a second.
+@Test func aMovieIsMadeAtTheWidthAndFramesASecondAsked() async throws {
+    let session = try ScaenaSession(directory: b1)
+    let canvas = try session.canvasSize()
+    let data = try await session.snapshot().exported(.movie(title: "B1", seconds: 1, width: 640, fps: 24))
+    let url = FileManager.default.temporaryDirectory.appending(path: "MovieTests-\(UUID().uuidString).mp4")
+    try data.write(to: url)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let asset = AVURLAsset(url: url)
+    let duration = try await asset.load(.duration)
+    #expect(abs(duration.seconds - 1) < 0.05, "it runs \(duration.seconds) s")
+    let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+    let size = try await track.load(.naturalSize)
+    let asked = MovieSize.pixels(width: 640, canvas: canvas)
+    #expect(Int(size.width) == 640 && abs(Int(size.height) - asked.height) <= 2, "\(size), \(asked)")
+    let rate = try await track.load(.nominalFrameRate)
+    #expect(abs(rate - 24) < 0.5, "it plays at \(rate) frames a second")
+    // Every frame written, decoded as the first test reads them, a buffer that holds no picture
+    // not counted.
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(
+        track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+    reader.add(output)
+    #expect(reader.startReading())
+    var frames = 0
+    while let sample = output.copyNextSampleBuffer() {
+        if CMSampleBufferGetNumSamples(sample) > 0, CMSampleBufferGetImageBuffer(sample) != nil { frames += 1 }
+    }
+    #expect(frames == 24)
+
+    // A rate the sheet does not offer, and a width a movie may not be: each an error that says why.
+    await #expect(throws: ScaenaError.self) {
+        try await session.snapshot().exported(.movie(title: "B1", seconds: 1, fps: 25))
+    }
+    await #expect(throws: ScaenaError.self) {
+        try await session.snapshot().exported(.movie(title: "B1", seconds: 1, width: 9000))
+    }
+}
+
+/// The sheet's width read as the browser's field reads it, and the pixels it makes: a whole number
+/// from 2 to 8192, made even, the height the canvas's proportions give it.
+@Test func aMoviesWidthIsReadAndItsHeightFollowsTheCanvas() {
+    #expect(MovieSize.width("1280") == 1280 && MovieSize.width(" 640 ") == 640)
+    #expect(MovieSize.width("1") == nil && MovieSize.width("9000") == nil)
+    #expect(MovieSize.width("12.5") == nil && MovieSize.width("wide") == nil)
+    #expect(MovieSize.rates == [24, 30, 60] && MovieSize.fps == 30)
+    let made = MovieSize.pixels(width: 1281, canvas: CGSize(width: 1920, height: 1080))
+    #expect(made.width == 1280 && made.height == 720, "\(made)")
+    let tall = MovieSize.pixels(width: 1080, canvas: CGSize(width: 1080, height: 1920))
+    #expect(tall.width == 1080 && tall.height == 1920, "\(tall)")
+}
+
+/// `seconds` of a 440 Hz tone as a WAV file: mono, 16-bit, 44.1 kHz.
+private func tone(seconds: Double) -> Data {
+    let rate = 44_100
+    let count = Int(seconds * Double(rate))
+    var made = Data()
+    func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { made.append(contentsOf: $0) } }
+    made.append(contentsOf: Array("RIFF".utf8))
+    put(UInt32(36 + count * 2))
+    made.append(contentsOf: Array("WAVEfmt ".utf8))
+    put(UInt32(16))
+    put(UInt16(1))
+    put(UInt16(1))
+    put(UInt32(rate))
+    put(UInt32(rate * 2))
+    put(UInt16(2))
+    put(UInt16(16))
+    made.append(contentsOf: Array("data".utf8))
+    put(UInt32(count * 2))
+    for i in 0..<count {
+        put(Int16(sin(2 * Double.pi * 440 * Double(i) / Double(rate)) * 8000))
+    }
+    return made
+}

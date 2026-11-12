@@ -2584,8 +2584,10 @@ impl Session {
     /// states taken out, one step to undo; or why it cannot be, in a person's words, laid out to
     /// find words that would run past their place (`scaena_ops::states::folding`).
     #[cfg(feature = "editor")]
-    pub fn folding(&self, state: &str) -> Result<scaena_ops::states::Folded, Error> {
-        scaena_ops::states::folding(&self.bundle(), state).map_err(|e| Error::Ops(e.to_string()))
+    /// With `into`, a state of an earlier slide, it folds into that slide in place of the one
+    /// before it, as a Story row offers where a slide says again what an earlier one said.
+    pub fn folding(&self, state: &str, into: Option<&str>) -> Result<scaena_ops::states::Folded, Error> {
+        scaena_ops::states::folding(&self.bundle(), state, into).map_err(|e| Error::Ops(e.to_string()))
     }
 
     /// The slots of `state`'s layout, in the format shown, that wait for what their prompts say
@@ -2792,8 +2794,9 @@ impl Session {
         Ok(scaena_core::reading::html(&self.deck, &*self.files, snap, &list))
     }
 
-    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the first
-    /// beat that names it, else empty; as written, and as the blocks they read as, lines, a
+    /// The notes a presenter reads for `state` (SPEC §2.6): its own, else those of the nearest
+    /// earlier step of its slide that has some, else those of the first beat that names it, else
+    /// empty; as written, and as the blocks they read as, lines, a
     /// list, or a table (`scaena_core::notes`). What the browser's presenter view, the Mac's and
     /// the iPad's, the remote, and a rehearsal show.
     pub fn notes(&self, state: &str) -> Result<scaena_core::notes::Notes, Error> {
@@ -3179,6 +3182,29 @@ mod tests {
             s.add_file(&path, std::fs::read(format!("{BUNDLE}/{path}")).unwrap());
         }
         s
+    }
+
+    /// A snapshot opens in the format its session showed (one of the deck's `formats`), so what the
+    /// Mac and the iPad export away from the window is what the window shows, "in 9:16", as the
+    /// browser's Export… makes it: a PNG of a state there, and of every slide.
+    #[cfg(feature = "editor")]
+    #[test]
+    fn a_snapshot_opens_in_the_format_its_session_showed() {
+        let mut s = torture();
+        let own = s.png("images", 320).unwrap();
+        s.set_format(Some("9:16")).unwrap();
+        let tall = s.png("images", 320).unwrap();
+        assert_ne!(own, tall, "9:16 lays the state out otherwise");
+        let mut opened = s.snapshot().session().unwrap();
+        assert_eq!(opened.png("images", 320).unwrap(), tall, "the snapshot exports in 9:16");
+        // A movie, with sound or without, draws its frames on the session it is made on: in 9:16.
+        let frame = |s: &mut Session| s.movie_frame(10, 0, 160, None).unwrap().digest;
+        let tall_frame = frame(&mut s);
+        assert_eq!(frame(&mut opened), tall_frame, "the snapshot's movie is in 9:16 too");
+        s.set_format(None).unwrap();
+        assert_ne!(frame(&mut s), tall_frame, "and its frames are 9:16's own");
+        let mut opened = s.snapshot().session().unwrap();
+        assert_eq!(opened.png("images", 320).unwrap(), own, "and on the deck's own canvas where it shows that");
     }
 
     /// The cue a show goes on to, laid out while the state shown rests, is the one its frames
@@ -3812,7 +3838,7 @@ mod tests {
         assert_eq!(to("cover"), serde_json::Value::Null);
         assert_eq!(to("agenda"), "notes");
         assert_eq!(to("budget"), "place");
-        let folded = s.folding("budget").unwrap();
+        let folded = s.folding("budget", None).unwrap();
         assert_eq!((folded.said.as_str(), folded.refused), ("Folded slide 12 into slide 11", None));
     }
 

@@ -63,7 +63,9 @@ public final class RemoteBrowser {
 
 /// A remote joined to a presenter (PLAN 4.10): where the show is, as the presenter tells it, and
 /// what this remote asks of it. It pairs by the code first (`Pairing`, lift-up SEC-5), and every
-/// message after is sealed.
+/// message after is sealed. The connection, the pairing, and the channel are worked on a queue of
+/// their own (`RemoteLink`), so a phone or a test whose main actor is busy still joins within its
+/// patience; what the link hears is said here, on the main actor, in turn.
 @MainActor @Observable
 public final class RemoteClient {
     public enum Status: Equatable, Sendable {
@@ -90,34 +92,19 @@ public final class RemoteClient {
     @ObservationIgnored private let endpoint: NWEndpoint
     @ObservationIgnored private let code: String
     @ObservationIgnored private let seconds: Double
-    private let connection: NWConnection
-    /// This end of the pairing, until paired.
-    @ObservationIgnored private var pairing: Pairing?
-    /// The keys, once both hellos have passed.
-    @ObservationIgnored private var keys: Pairing.Keys?
-    /// Whether this end has proved itself and waits for the presenter to: a presenter that lets
-    /// go then had another code.
-    @ObservationIgnored private var proving = false
-    /// The channel, once paired.
-    @ObservationIgnored private var sealed: Sealed?
-    /// Given up waiting for the pairing: a presenter that does not answer leaves it waiting.
-    @ObservationIgnored private var patience: Task<Void, Never>?
+    @ObservationIgnored private var link: RemoteLink?
 
     /// Join the presenter at `endpoint` with `code`, giving up after `seconds`.
     public init(_ endpoint: NWEndpoint, code: String, seconds: Double = 10) {
         self.endpoint = endpoint
         self.code = code
         self.seconds = seconds
-        connection = NWConnection(to: endpoint, using: Remote.parameters())
-        pairing = try? Pairing(side: .remote, code: code)
-        connection.stateUpdateHandler = { [weak self] state in
-            MainActor.assumeIsolated { self?.changed(state) }
-        }
-        connection.start(queue: .main)
-        patience = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(seconds))
-            guard !Task.isCancelled, let self, self.status == .joining else { return }
-            self.lose("No answer with that code.")
+        let link = RemoteLink(endpoint, code: code, seconds: seconds)
+        self.link = link
+        link.start { [weak self] heard in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.apply(heard) }
+            }
         }
     }
 
@@ -134,10 +121,8 @@ public final class RemoteClient {
     }
 
     private func send(_ message: RemoteMessage) {
-        guard status == .joined, let sealed, let body = try? JSONEncoder().encode(message),
-            let frame = try? sealed.seal(body)
-        else { return }
-        connection.send(frame: frame)
+        guard status == .joined, let body = try? JSONEncoder().encode(message) else { return }
+        link?.send(body)
     }
 
     /// A remote that joins the same presenter again with the same code, this one left: what a
@@ -150,27 +135,116 @@ public final class RemoteClient {
 
     /// Leave the presenter.
     public func leave() {
-        patience?.cancel()
-        connection.cancel()
+        link?.leave()
+    }
+
+    /// What the link heard, said.
+    private func apply(_ heard: RemoteLink.Heard) {
+        if case .lost = status { return }
+        switch heard {
+        case .joined:
+            status = .joined
+        case .place(let place):
+            self.place = place
+        case .reconnecting(let waiting):
+            if status == .joined { reconnecting = waiting }
+        case .lost(let why, let joined, let proving):
+            rejoinable = joined
+            refused = proving && !joined
+            reconnecting = false
+            status = .lost(why)
+        }
+    }
+}
+
+/// A remote's connection to its presenter, worked on a queue of its own: the pairing, the proofs,
+/// and the sealed channel, every one of them touched on `queue` alone. What it hears it hands on in
+/// turn, as `Heard`; it gives up waiting for the pairing after its patience, which a busy main
+/// actor does not spend.
+final class RemoteLink: @unchecked Sendable {
+    /// What the link hears.
+    enum Heard: Sendable {
+        case joined
+        case place(RemotePlace)
+        /// The network gone while joined, or back.
+        case reconnecting(Bool)
+        /// It could not join, or the presenter went: why, whether it had joined, and whether it
+        /// had proved itself, a presenter that let go then having had another code.
+        case lost(String, joined: Bool, proving: Bool)
+    }
+
+    private let queue = DispatchQueue(label: "ScaenaRemote.RemoteClient")
+    private let connection: NWConnection
+    private let code: String
+    private let seconds: Double
+    private var hand: @Sendable (Heard) -> Void = { _ in }
+    /// This end of the pairing, until paired.
+    private var pairing: Pairing?
+    /// The keys, once both hellos have passed.
+    private var keys: Pairing.Keys?
+    /// Whether this end has proved itself and waits for the presenter to: a presenter that lets
+    /// go then had another code.
+    private var proving = false
+    /// The channel, once paired.
+    private var sealed: Sealed?
+    private var joined = false
+    private var lost = false
+    /// Whether the remote left, so its patience says nothing.
+    private var left = false
+
+    init(_ endpoint: NWEndpoint, code: String, seconds: Double) {
+        connection = NWConnection(to: endpoint, using: Remote.parameters())
+        self.code = code
+        self.seconds = seconds
+    }
+
+    /// Pair and join, handing what it hears to `hand`; given up after its `seconds`.
+    func start(_ hand: @escaping @Sendable (Heard) -> Void) {
+        queue.async { [self] in
+            self.hand = hand
+            pairing = try? Pairing(side: .remote, code: code)
+            connection.stateUpdateHandler = { [weak self] state in self?.changed(state) }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                guard let self, !self.joined, !self.left else { return }
+                self.lose("No answer with that code.")
+            }
+        }
+    }
+
+    /// `body` sent sealed, once joined.
+    func send(_ body: Data) {
+        queue.async { [self] in
+            guard joined, !lost, let sealed, let frame = try? sealed.seal(body) else { return }
+            connection.send(frame: frame)
+        }
+    }
+
+    /// Leave the presenter.
+    func leave() {
+        queue.async { [self] in
+            left = true
+            connection.cancel()
+        }
     }
 
     private func changed(_ state: NWConnection.State) {
         switch state {
         case .ready:
             // Back from waiting for the network, already joined: the show goes on as it was.
-            if status == .joined {
-                reconnecting = false
+            if joined {
+                hand(.reconnecting(false))
                 return
             }
             hello()
         case .waiting:
-            if status == .joined { reconnecting = true }
+            if joined { hand(.reconnecting(true)) }
         case .failed:
             // What the network says of it is not a person's words (PLAN 3.18). A presenter that
             // lets go once this end has proved itself had another code.
             lose(proving ? "No answer with that code." : "The presenter can't be reached. Check that this device is on its network, and try again.")
         case .cancelled:
-            if status != .joined { lose(proving ? "No answer with that code." : "Not joined.") }
+            if !joined { lose(proving ? "No answer with that code." : "Not joined.") }
         default:
             break
         }
@@ -184,7 +258,7 @@ public final class RemoteClient {
         }
         connection.send(frame: body)
         connection.receiveFrame(largest: Remote.small) { [weak self] body in
-            MainActor.assumeIsolated { self?.answered(body) }
+            self?.answered(body)
         }
     }
 
@@ -201,13 +275,13 @@ public final class RemoteClient {
         proving = true
         connection.send(frame: proof)
         connection.receiveFrame(largest: Remote.small) { [weak self] body in
-            MainActor.assumeIsolated { self?.proved(body) }
+            self?.proved(body)
         }
     }
 
     /// The presenter's proof: joined, the channel sealed, and each place heard.
     private func proved(_ body: Data?) {
-        guard let keys, let body, let proof = try? JSONDecoder().decode(Pairing.Proof.self, from: body),
+        guard !lost, let keys, let body, let proof = try? JSONDecoder().decode(Pairing.Proof.self, from: body),
             keys.proves(.presenter, proof.proof)
         else {
             lose("No answer with that code.")
@@ -215,35 +289,30 @@ public final class RemoteClient {
         }
         sealed = Sealed(keys: keys, side: .remote)
         self.keys = nil
-        patience?.cancel()
-        status = .joined
+        joined = true
+        hand(.joined)
         hearPlaces()
     }
 
     /// Each place the presenter sends, sealed, in turn; lost at the first that is not.
     private func hearPlaces() {
         connection.receiveFrame(largest: Remote.largest) { [weak self] frame in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                guard let frame, let sealed = self.sealed, let body = try? sealed.open(frame),
-                    let message = try? JSONDecoder().decode(RemoteMessage.self, from: body)
-                else {
-                    self.lose("The presenter went.")
-                    return
-                }
-                if let place = message.place { self.place = place.received() }
-                self.hearPlaces()
+            guard let self else { return }
+            guard let frame, let sealed = self.sealed, let body = try? sealed.open(frame),
+                let message = try? JSONDecoder().decode(RemoteMessage.self, from: body)
+            else {
+                self.lose("The presenter went.")
+                return
             }
+            if let place = message.place { self.hand(.place(place.received())) }
+            self.hearPlaces()
         }
     }
 
     private func lose(_ why: String) {
-        patience?.cancel()
-        if case .lost = status { return }
-        rejoinable = status == .joined
-        refused = proving && status != .joined
-        reconnecting = false
-        status = .lost(why)
+        guard !lost else { return }
+        lost = true
+        hand(.lost(why, joined: joined, proving: proving))
         connection.cancel()
     }
 }

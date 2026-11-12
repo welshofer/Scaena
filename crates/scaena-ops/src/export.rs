@@ -1089,6 +1089,30 @@ mod tests {
         assert!(!Request::default().notes, "a single file leaves the notes out unless asked");
     }
 
+    /// A slide's page in a PDF with notes, drawn at its last step, prints the notes its first
+    /// step keeps, as a presenter reads them on through its builds, not its beat's (agent
+    /// dogfood 8); a step's own win, and a slide with none prints its beat's.
+    #[test]
+    fn a_slides_page_prints_the_notes_its_steps_keep_before_its_beats() {
+        let deck: scaena_core::Deck = serde_json::from_value(json!({
+            "scaena": scaena_core::FORMAT_VERSION, "canvas": { "width": 1920, "height": 1080 }, "nodes": {},
+            "states": [
+                { "id": "a", "notes": "The slide's own." }, { "id": "a-2", "slide": "a" }, { "id": "a-3", "slide": "a" },
+                { "id": "b" }, { "id": "b-2", "slide": "b", "notes": "The step's own." },
+                { "id": "c" }
+            ],
+            "spine": { "sections": [{ "id": "s", "title": "S", "beats": [
+                { "id": "x", "claim": "X.", "states": ["a", "a-2", "a-3"], "notes": "The beat's." },
+                { "id": "y", "claim": "Y.", "states": ["b", "b-2", "c"], "notes": "Y's beat." }
+            ] }] }
+        }))
+        .unwrap();
+        let said = |state: &str| scaena_core::notes::of(&deck, state).map(|n| n.text);
+        assert_eq!(said("a-3").as_deref(), Some("The slide's own."));
+        assert_eq!(said("b-2").as_deref(), Some("The step's own."));
+        assert_eq!(said("c").as_deref(), Some("Y's beat."));
+    }
+
     /// A file an export writes goes in its folder made where it is not yet, as the spine's and
     /// the images' do (agent dogfood 6).
     #[test]

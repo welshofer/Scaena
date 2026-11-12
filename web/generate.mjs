@@ -183,7 +183,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1 });
   page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && !/Failed to (load resource|fetch)|CORS/.test(m.text()) && failures.push(`console: ${m.text()}`));
-  const accepting = (d) => d.accept();
+  /** Each `confirm` and `alert` the page asked, by its words. */
+  const dialogsSeen = [];
+  const accepting = (d) => (dialogsSeen.push(d.message()), d.accept());
   page.on("dialog", accepting);
   // Changes not saved are asked about in the editor's own dialog (lift-up 20261031 ATTR-3), answered
   // as the confirms it replaced were taken.
@@ -460,6 +462,9 @@ try {
   check(putBack === "No carrier can cut it alone." && (await page.isHidden("#prompting-removed")), `Undo puts it back where it stood, as typed: ${putBack}`);
   await page.locator("#prompting-beats li").nth(5).locator("button[data-act=remove]").click();
   await page.click("#prompting-add-beat");
+  // A beat added says the one slide the outline gives it, never none (W1 dogfood 14).
+  const added = await page.locator("#prompting-beats li").last().locator(".slides").inputValue();
+  check(added === "1", `a beat added takes one slide: ${added}`);
   await page.locator("#prompting-beats li").last().locator(".name").fill("Thanks");
   await page.locator("#prompting-beats li").last().locator(".claim").fill("Thank you for listening.");
   await page.fill("#prompting-big-idea", "Cargo pays for its carbon.");
@@ -965,6 +970,47 @@ try {
   );
   check(goneOn.find((r) => r.asked === "slides")?.prompt.includes(typed), "the slides are written to the claim the person typed");
   check((await page.evaluate(() => window.scaena.source())) !== unGoneOn, "and the deck is made");
+
+  // A run cancelled once the outline is settled keeps what it paid for too (W1 dogfood 14): Cancel
+  // says so, and the dialog opened again offers Go on, which writes the slides to the outline as
+  // the person settled it, asking for neither the arc nor the outline again.
+  await opened();
+  await page.check("#prompting-show-outline");
+  await page.click("#prompting-go");
+  await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 120000 });
+  const settledThen = "A shipper can price the carbon its freight carries";
+  await page.locator("#prompting-beats li .claim").first().fill(settledThen);
+  state.slow = 20000;
+  const askedBefore = dialogsSeen.length;
+  await page.click("#prompting-write");
+  await page.waitForFunction(() => [...document.querySelectorAll("#prompting-progress li")].some((li) => li.textContent.startsWith("Writing the slides")), null, { timeout: 60000 });
+  await page.click("#prompting-cancel");
+  await page.waitForFunction(() => !document.querySelector("#prompting").open, null, { timeout: 10000 }).catch(() => {});
+  const stopAsked = dialogsSeen.slice(askedBefore).join(" | ");
+  check(stopAsked.includes("What it has paid for so far is kept"), `Cancel says what was paid for is kept: ${stopAsked}`);
+  state.slow = 0;
+  await opened();
+  const keptAgain = (await page.textContent("#prompting-kept")) ?? "";
+  check(
+    (await page.isVisible("#prompting-go-on")) && keptAgain.includes("the outline as you settled it"),
+    `opened again after Cancel, Go on is offered: ${keptAgain}`,
+  );
+  const cancelledFrom = requests.length;
+  const unCancelled = await page.evaluate(() => window.scaena.source());
+  await page.click("#prompting-go-on");
+  await page
+    .waitForFunction((was) => window.scaena.source() !== was && window.scaena.last(), unCancelled, { timeout: 180000 })
+    .catch(() => {});
+  const afterCancel = requests.slice(cancelledFrom);
+  check(
+    !afterCancel.some((r) => r.asked === "arc" || r.asked === "outline") && afterCancel.find((r) => r.asked === "slides")?.prompt.includes(settledThen),
+    `going on after Cancel asks for the slides alone, to the claim typed: ${afterCancel.map((r) => r.asked)}`,
+  );
+  // A deck made, the dialog opens afresh: nothing is kept to go on from.
+  await page.waitForSelector("#recovering[open]", { timeout: 5000 }).then(() => page.click("#recovering [value=discard]")).catch(() => {});
+  await opened();
+  check(await page.isHidden("#prompting-go-on"), "a deck made, the dialog opens afresh");
+  await page.click("#prompting-cancel");
 
   // An outline that never reads (lift-up REL-3): asked twice, then the dialog says why and offers to
   // write the slides without one, on the arc already chosen, which makes the deck.

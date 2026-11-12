@@ -34,9 +34,11 @@ enum Exporting {
         /// was planned for it, which anyone who opens the file can read: asked for each time, as
         /// the browser's Export… asks (lift-up 20261025 SEC-3).
         case htmlNotes
-        /// The deck as it plays, as a movie: each state's cue then its hold, at the canvas's size
-        /// and 30 frames a second, titled as the deck is.
-        case movie
+        /// The deck as it plays, as a movie: each state's cue then its hold, `width` pixels wide
+        /// (the canvas's where none is given) in the canvas's proportions, at `fps` frames a
+        /// second, titled as the deck is, a chapter for each beat, and the bundle's sound file at
+        /// `sound` under it where one is chosen.
+        case movie(sound: String? = nil, width: Int? = nil, fps: Int = MovieSize.fps)
 
         var type: UTType {
             switch self {
@@ -59,20 +61,25 @@ enum Exporting {
         case .slides(let width): .slides(width: width, name: title(of: editor))
         case .html: .html(name: title(of: editor))
         case .htmlNotes: .html(name: title(of: editor), notes: true)
-        case .movie: .movie(title: ((try? editor.session.title()) ?? nil) ?? title(of: editor))
+        case .movie(let sound, let width, let fps):
+            .movie(
+                title: ((try? editor.session.title()) ?? nil) ?? title(of: editor), sound: sound, width: width, fps: fps)
         }
     }
 
-    /// What the window says while `kind` is made (lift-up PERF-3).
-    static func making(_ kind: Kind) -> String {
-        switch kind {
+    /// What the window says while `kind` is made (lift-up PERF-3): in `format`, the one shown,
+    /// where `kind` is drawn in it, as the browser's Export… says it ("in 9:16"). A PDF and a single
+    /// file are the deck on its own canvas, whatever is shown.
+    static func making(_ kind: Kind, in format: String? = nil) -> String {
+        let shown = format.map { " in \($0)" } ?? ""
+        return switch kind {
         case .pdf: "Making the PDF…"
         case .notes: "Making the PDF with the notes…"
-        case .png: "Making the PNG…"
-        case .slides: "Making a PNG of every slide…"
+        case .png: "Making the PNG\(shown)…"
+        case .slides: "Making a PNG of every slide\(shown)…"
         case .html: "Making the HTML file…"
         case .htmlNotes: "Making the HTML file with the notes…"
-        case .movie: "Making the movie…"
+        case .movie: "Making the movie\(shown)…"
         }
     }
 
@@ -137,6 +144,11 @@ enum Exporting {
         case .htmlNotes: return "\(safe) - Notes.html"
         case .movie: return "\(safe).mp4"
         }
+    }
+
+    /// A sound file of the bundle as a menu names it: its name, without its folder.
+    static func soundName(_ path: String) -> String {
+        (path as NSString).lastPathComponent
     }
 
     /// The deck's title, as a file's name may hold it.

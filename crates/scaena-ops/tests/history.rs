@@ -316,3 +316,92 @@ fn one_slide_is_put_back_and_every_later_edit_stays() {
     let wrong = scaena_ops::history::restore_slide(&b, "1", "revenu", true).unwrap_err().to_string();
     assert!(wrong.contains("version 1 has no state `revenu`") && wrong.contains("revenue"), "{wrong}");
 }
+
+/// A slide put back into a beat that tells another slide now keeps that beat as it is now (W1's
+/// review of #1172): its claim edited since, and the slide that joined it, stay, the slide's states
+/// going back where the version had them among its states.
+#[test]
+fn a_slide_put_back_keeps_its_beat_as_it_is_now() {
+    let dir = scratch("slide-beat");
+    keeping_history(&dir);
+    let patch = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    };
+    // The close joins the revenue slide's beat, its own part going; the beat's claim is edited;
+    // then the revenue slide is cut.
+    patch(json!([
+        { "op": "replace", "path": "/spine/sections/1/beats/0/states", "value": ["revenue", "mix", "close"] },
+        { "op": "remove", "path": "/spine/sections/2" }
+    ]));
+    patch(json!([{ "op": "replace", "path": "/spine/sections/1/beats/0/claim", "value": "Pro carried the year." }]));
+    patch(json!([{ "op": "remove_slide", "slide": "revenue" }]));
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
+    assert!(back.applied, "{back:?}");
+    assert!(back.added.iter().all(|f| f.code != "W401"), "every state is told: {:?}", back.added);
+    let now: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    let doubled = &now["spine"]["sections"][1]["beats"][0];
+    assert_eq!(doubled["id"], "doubled");
+    assert_eq!(doubled["states"], json!(["revenue", "mix", "close"]), "{}", now["spine"]);
+    assert_eq!(doubled["claim"], "Pro carried the year.", "the claim edited since stays");
+}
+
+/// A slide put back whose object's id another slide gives a node of its own now brings its object
+/// back under a fresh id (W1's review of #1172): the other slide keeps its own, and the slide put
+/// back shows the words it showed, never the other slide's.
+#[test]
+fn a_slide_put_back_brings_its_object_back_where_its_id_was_given_again() {
+    let dir = scratch("slide-ids");
+    keeping_history(&dir);
+    let patch = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    };
+    patch(json!([{ "op": "remove_slide", "slide": "revenue" }]));
+    patch(json!([{ "op": "add_node", "id": "note", "state": "close",
+        "node": { "type": "text", "role": "caption", "text": "Questions to the team", "at": { "col": [1, 12], "row": 11 } } }]));
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
+    assert!(back.applied, "{back:?}");
+    let b = scaena_ops::open(&dir).unwrap();
+    let snaps = scaena_core::resolve_states(&b.deck).unwrap();
+    let words = |state: &str| -> Vec<String> {
+        let snap = snaps.iter().find(|s| s.state_id == state).unwrap();
+        snap.nodes.values().map(scaena_core::reading::words).collect()
+    };
+    let revenue = words("revenue");
+    assert!(revenue.iter().any(|w| w.starts_with("Revenue in $M")), "{revenue:?}");
+    assert!(!revenue.iter().any(|w| w == "Questions to the team"), "{revenue:?}");
+    assert!(words("close").iter().any(|w| w == "Questions to the team"), "the close keeps its own");
+    assert_eq!(b.deck.nodes["note"].props.get("text").and_then(Value::as_str), Some("Questions to the team"));
+    assert!(b.deck.nodes.contains_key("note-2"), "{:?}", b.deck.nodes.keys().collect::<Vec<_>>());
+}
+
+/// A slide put back whose chart reads a data source the deck took away since brings the source
+/// back with its file, as the history kept it (W1's review of #1172): a source is written by its
+/// file's path (`"source": "data/…"`), and the file the version read is written again.
+#[test]
+fn a_slide_put_back_brings_its_data_back_with_its_file() {
+    let dir = scratch("slide-data");
+    keeping_history(&dir);
+    let patch = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        let p = scaena_ops::patch::patch(&b, &ops, false).unwrap();
+        assert!(p.applied, "{p:?}");
+    };
+    // The slide cut takes the source only it read, and its file is taken out with it.
+    patch(json!([{ "op": "remove_slide", "slide": "revenue" }]));
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(!b.deck.data.contains_key("q3"));
+    let removed = scaena_ops::files::remove(&b, &["data/q3-revenue.csv".to_string()], false).unwrap();
+    assert!(removed.applied, "{removed:?}");
+    assert!(!dir.join("data/q3-revenue.csv").exists());
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
+    assert!(back.applied, "{back:?}");
+    assert!(back.files.iter().any(|f| f.contains("q3-revenue")), "{back:?}");
+    assert!(dir.join("data/q3-revenue.csv").exists(), "the file the chart reads is back");
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(b.deck.data.contains_key("q3"));
+}
