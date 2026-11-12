@@ -809,6 +809,13 @@ impl TextEngine {
         let segments = segments(&mut layout, &text, rtl, room);
         let min_words = spec.min_last_line_words.or(base.min_last_line_words).unwrap_or(1) as usize;
         let breaking = Breaking { text: &text, rtl, room, segments: &segments, min_words };
+        // A Japanese phrase stands whole past its measure, as an English word too long for one
+        // does: its lines break as wide as its widest phrase where that is wider, up to the box,
+        // and a phrase cut only where the box cannot hold it (W1 dogfood 15).
+        let max_width = match particles(spec.lang.as_deref()) {
+            Some(_) if max_width < width => widest_phrase(&text, &segments).max(max_width).min(width),
+            _ => max_width,
+        };
         let requested = spec.wrap.unwrap_or(base.wrap);
         let mut fallback = match requested {
             _ if unbroken => None,
@@ -1640,6 +1647,27 @@ fn after_particle(before_before: Option<char>, before: char, after: char) -> boo
         && cjk_letter(after)
         && !particle(after)
         && !(before == 'で' && after == 'き')
+}
+
+/// The widest of the Japanese phrases `segments` set: each a run of segments no break ends
+/// but one inside a phrase ([`cuts`]), a particle's place ending one ([`after_particle`]).
+fn widest_phrase(text: &str, segments: &[Segment]) -> f32 {
+    let (mut widest, mut run) = (0.0_f32, 0.0_f32);
+    for segment in segments {
+        let mut back = text[..segment.text.end].chars().rev();
+        let joined = !segment.hard
+            && match (back.next(), text[segment.text.end..].chars().next()) {
+                (Some(before), Some(after)) => in_phrase(before, after) && !after_particle(back.next(), before, after),
+                _ => false,
+            };
+        if joined {
+            run += segment.full;
+        } else {
+            widest = widest.max(run + segment.bare + segment.hyphen);
+            run = 0.0;
+        }
+    }
+    widest.max(run)
 }
 
 /// Whether a line of `laid` breaks inside a Japanese phrase ([`in_phrase`]) where no particle

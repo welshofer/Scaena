@@ -748,6 +748,36 @@ fn a_japanese_phrase_too_long_for_its_line_breaks_after_its_particle() {
 }
 
 #[test]
+fn a_japanese_phrase_stands_whole_past_its_measure_as_an_english_word_does() {
+    // W1 dogfood 15: a closing's ありがとうございました, set in the display role, whose measure
+    // is 16 of its zeros, about nine kana, broke ありがとうご / ざいました on a slide 1680 wide.
+    // An English word longer than the measure stands whole past it; a Japanese phrase now does
+    // too, up to the box, and is cut only where the box cannot hold it.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let role = theme.text_role("display").unwrap();
+    let size = role.size;
+    let mut set = |text: &str, wrap: Wrap, width: f32| {
+        let mut spec = TextSpec::plain(role.clone(), text);
+        spec.lang = Some("ja".into());
+        spec.wrap = Some(wrap);
+        spec.measure = Some(16.0);
+        engine.layout(&mut fonts, &theme, &spec, width).unwrap()
+    };
+    let text = "これは本当にうまくいくかもしれない";
+    for wrap in [Wrap::Greedy, Wrap::Balance, Wrap::Pretty] {
+        let wide = set(text, wrap, 1680.0);
+        assert!(!wide.cut, "{wrap:?}: {:?}", breaks(&wide));
+        assert!(wide.lines.iter().all(|l| l.width <= 1680.0 + 1e-3), "{wrap:?}: {:?}", wide.lines);
+        // Its measure holds about nine of its letters, and the phrase is eleven.
+        assert!(wide.measure >= 10.0 * size && wide.measure <= 1680.0, "{wrap:?}: {}", wide.measure);
+    }
+    // In a box too narrow for the phrase, it is cut where it must be, as before.
+    let narrow = set(text, Wrap::Greedy, 6.0 * size);
+    assert!(narrow.cut && narrow.lines.iter().all(|l| l.width <= 6.0 * size + 1e-3), "{:?}", breaks(&narrow));
+}
+
+#[test]
 fn a_number_in_japanese_is_set_in_the_scripts_face() {
     // Dogfood: the figures in a Japanese headline were set in Fraunces, the Latin face Dusk's
     // display family names first, among letters set in Noto Sans JP.
