@@ -373,6 +373,24 @@ struct ScaenaPixels scaena_pixels(struct ScaenaSession *session,
                                   uint32_t width,
                                   char **error);
 
+// Frame `k` of the deck's movie of `fps` frames a second (lift-up 20261031 FUNC-2), painted by
+// the CPU painter `width` pixels wide, the height keeping the canvas's aspect, as the browser's
+// `movieFrame` paints it: the global timeline as `scaena export --format mp4` plays it, each
+// state's cue then its hold, paced by the beats. `*digest` is set to its drawing's digest, a
+// string to free. Where it is `before`'s, the frame the caller has already, nothing is painted:
+// null bytes, `*error` left null. Null bytes where it cannot be made, `*error` then saying why.
+//
+// # Safety
+// `session` is a live handle; `before` null or a NUL-terminated string; `digest` and `error`
+// null or writable.
+struct ScaenaPixels scaena_movie_frame(struct ScaenaSession *session,
+                                       uint32_t fps,
+                                       uint64_t k,
+                                       uint32_t width,
+                                       const char *before,
+                                       char **digest,
+                                       char **error);
+
 // `state` at rest on the deck's own canvas, painted by the CPU painter as wide as the PNG `png`
 // (`len` bytes), and held to it by SPEC §13.5's metric (`scaena_paint::diff`), the one the torture
 // goldens and the web player's painters are held by: what gate 4 holds the iPad's pixels to the

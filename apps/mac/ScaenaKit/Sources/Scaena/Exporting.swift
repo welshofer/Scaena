@@ -11,7 +11,9 @@ import UniformTypeIdentifiers
 /// last state, or with the presenter's notes under each, as `--notes` writes it; the state shown
 /// as a PNG, and every slide as PNGs in one zip, each named by its
 /// number (PLAN 2.122), as the editor's Export… makes them, at the canvas's size or twice it; and
-/// the deck as one HTML file that plays offline (lift-up 20261031 FUNC-3). Each is written
+/// the deck as one HTML file that plays offline (lift-up 20261031 FUNC-3); and the deck as a movie,
+/// as it plays, H.264 in an MPEG-4 file, as the browser's Export… makes one (lift-up 20261031
+/// FUNC-2). Each is written
 /// when it is asked for, into a folder of its own, then shared through the Share sheet, shown in
 /// Quick Look, or saved where the user says.
 enum Exporting {
@@ -28,6 +30,9 @@ enum Exporting {
         /// The deck as one HTML file that plays offline, without the presenter's notes, as a file
         /// sent to the room is (lift-up 20261031 FUNC-3).
         case html
+        /// The deck as it plays, as a movie: each state's cue then its hold, at the canvas's size
+        /// and 30 frames a second, titled as the deck is.
+        case movie
 
         var type: UTType {
             switch self {
@@ -35,6 +40,7 @@ enum Exporting {
             case .png: .png
             case .slides: .zip
             case .html: .html
+            case .movie: .mpeg4Movie
             }
         }
     }
@@ -48,6 +54,7 @@ enum Exporting {
         case .png(let state, let width): .png(state: state, width: width)
         case .slides(let width): .slides(width: width, name: title(of: editor))
         case .html: .html(name: title(of: editor))
+        case .movie: .movie(title: ((try? editor.session.title()) ?? nil) ?? title(of: editor))
         }
     }
 
@@ -59,6 +66,7 @@ enum Exporting {
         case .png: "Making the PNG…"
         case .slides: "Making a PNG of every slide…"
         case .html: "Making the HTML file…"
+        case .movie: "Making the movie…"
         }
     }
 
@@ -70,6 +78,7 @@ enum Exporting {
         case .png: "The PNG is made"
         case .slides: "A PNG of every slide is made"
         case .html: "The HTML file is made"
+        case .movie: "The movie is made"
         }
     }
 
@@ -89,6 +98,7 @@ enum Exporting {
         case .png(let state, _): return "\(safe) – \(Words.slide(state, in: editor.slots)).png"
         case .slides: return "\(safe) - Slides.zip"
         case .html: return "\(safe).html"
+        case .movie: return "\(safe).mp4"
         }
     }
 
@@ -172,7 +182,7 @@ private final class SharingEnd: NSObject, NSSharingServicePickerDelegate, NSShar
 
 /// An export's bytes, as a save panel writes them.
 struct ExportedFile: FileDocument {
-    static var readableContentTypes: [UTType] { [.pdf, .png, .zip, .html] }
+    static var readableContentTypes: [UTType] { [.pdf, .png, .zip, .html, .mpeg4Movie] }
     let data: Data
 
     init(data: Data) {

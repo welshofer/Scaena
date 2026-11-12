@@ -2128,6 +2128,11 @@ impl<'a> Drawing<'a> {
 /// than its lines (W202), with the most characters that would fit, by how far it runs over.
 pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsError> {
     let doc = deck.to_value()?;
+    // The claims the person settled, which stand in their words wherever a slide says one: never
+    // the fit's to rewrite (W1 dogfood 13).
+    let settled: Vec<&str> = (doc["meta"]["narrative"]["outline"]["beats"].as_array().into_iter().flatten())
+        .filter_map(|b| b["claim"].as_str())
+        .collect();
     let mut out: Vec<Long> = Vec::new();
     for f in findings {
         let (Some(id), Some(m)) = (f.node.as_deref(), f.measure.as_ref()) else { continue };
@@ -2144,6 +2149,9 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
         };
         let node = &doc["nodes"][id];
         let (true, Some(text)) = (node["type"] == "text", node["text"].as_str()) else { continue };
+        if settled.iter().any(|claim| says(claim, text)) {
+            continue;
+        }
         let n = text.chars().count();
         // A little under the measure, so a line that wraps otherwise still fits.
         let most = ((n as f64 * ratio.min(1.0) * 0.9).floor() as usize).max(8).min(n.saturating_sub(1));
@@ -2153,6 +2161,13 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
         }
     }
     Ok(out)
+}
+
+/// Whether `text` says `claim` in its words, its marks, case, and spacing aside: a headline that
+/// states its beat's settled claim, typeset or with its full stop taken off.
+fn says(claim: &str, text: &str) -> bool {
+    let claim = letters(claim);
+    !claim.is_empty() && claim == letters(text)
 }
 
 /// The texts of `doc` that grow (`fit: grow`, as [`Slots::grown`] marks them) or shrink held to
@@ -4380,7 +4395,10 @@ fn layout_for(
         "ranking",
         "manifesto",
     ];
-    let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") {
+    // A bare closing headed by its beat's claim sets all its own lines under the claim, on one line
+    // of the support, however many they are (W1 dogfood 13).
+    let claimed = wanted == "closing" && bare(&slide.slide_title) && claim.is_some_and(|c| !c.trim().is_empty());
+    let wanted = match holds(theme, wanted, n) || (storied && wanted == "statement") || claimed {
         true => wanted,
         false if sequential.contains(&identity) => "numbered",
         false => "bullets",
@@ -4398,7 +4416,7 @@ fn layout_for(
 /// "Q&A"), in the languages Scaena can tell: an ending that says nothing of the talk (lift-up
 /// ATTR-3).
 fn bare(title: &str) -> bool {
-    const BARE: [&str; 24] = [
+    const BARE: [&str; 32] = [
         "thank you",
         "thanks",
         "thank you for listening",
@@ -4411,6 +4429,14 @@ fn bare(title: &str) -> bool {
         "merci",
         "gracias",
         "danke",
+        "vielen dank",
+        "danke schön",
+        "dankeschön",
+        "merci beaucoup",
+        "muchas gracias",
+        "grazie mille",
+        "muito obrigado",
+        "muito obrigada",
         "grazie",
         "obrigado",
         "obrigada",
@@ -6670,6 +6696,13 @@ impl Builder {
                             node["maxLines"] = json!(3);
                         }
                     }
+                    // A beat's claim as the person settled it stands in their words: set smaller
+                    // where it runs past its place, never rewritten to fit it, nor grown past it
+                    // (W1 dogfood 13).
+                    if coded.is_none() && s.claim.is_some_and(|c| says(c, &text)) {
+                        node["fit"] = json!("shrink");
+                        node.as_object_mut().map(|n| (n.remove("maxSize"), n.remove("maxLines")));
+                    }
                     // A side's statement stands in the middle of its card, on as many as three lines
                     // as it grows to fill the card (G.20); the running head stands on the slide's
                     // foot, as a footer does.
@@ -6970,7 +7003,16 @@ fn linked(text: &str, bare: bool) -> Option<Vec<Value>> {
         let end = (word.char_indices().rev())
             .find(|(_, c)| c.is_alphanumeric() || *c == '/')
             .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
-        let Some(href) = href(&word[start..end], bare) else {
+        // An address that ends a word with no space before it, after a label in a script that
+        // sets none ("お問い合わせ：library@midori.jp") or a colon ("Contacto:agua@valdemar.es"): the
+        // address characters that end it (W2's health read).
+        let tail = (word[..end].char_indices().rev())
+            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || "._%+-@/".contains(c)))
+            .map_or(start, |(i, c)| (i + c.len_utf8()).max(start));
+        let found = href(&word[start..end], bare).map(|h| (start, h));
+        let Some((start, href)) =
+            found.or_else(|| (tail > start).then(|| href(&word[tail..end], bare)).flatten().map(|h| (tail, h)))
+        else {
             plain.push_str(piece);
             continue;
         };
@@ -11312,6 +11354,21 @@ mod tests {
         n.slides.last_mut().unwrap().key_bullets = vec!["Questions?".into()];
         n.outline.as_mut().unwrap().beats[5].claim = "Free fares bring the riders back.".into();
         has(&close(&n).1, "statement", "Free fares bring the riders back.");
+        // In a deck whose asks are not read, a thanks with more lines than the closing's one
+        // place still closes on the claim, every line of it under the claim, never a list that
+        // drops it (W1 dogfood 13).
+        n.brief.language = Some("German".into());
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Vielen Dank".into();
+        last.key_bullets = vec!["Fragen?".into(), "route9@example.gov".into()];
+        let (layout, said) = close(&n);
+        assert_eq!(layout, "closing", "{said:#?}");
+        has(&said, "statement", "Free fares bring the riders back.");
+        has(&said, "support", "Vielen Dank \u{b7} Fragen? \u{b7} route9@example.gov");
+        n.brief.language = None;
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Thank you".into();
+        last.key_bullets = vec!["Questions?".into()];
         n.outline = None;
         let (layout, said) = close(&n);
         assert_eq!(layout, "closing");
@@ -12135,6 +12192,20 @@ mod tests {
         {
             assert_eq!(linked(plain, true), None, "{plain}");
         }
+        // An address after a label with no space before it: a full-width colon, as Japanese writes
+        // one, or a colon (W2's health read).
+        assert_eq!(
+            linked("採決：12月10日\nお問い合わせ：library@midori.jp", true),
+            Some(vec![
+                json!({ "text": "採決：12月10日\nお問い合わせ：" }),
+                json!({ "text": "library@midori.jp", "link": { "href": "mailto:library@midori.jp" } }),
+            ])
+        );
+        assert_eq!(
+            linked("Contacto:agua@valdemar.es", true).unwrap()[1],
+            json!({ "text": "agua@valdemar.es", "link": { "href": "mailto:agua@valdemar.es" } })
+        );
+        assert_eq!(linked("お問い合わせ：図書館まで", true), None);
         // A heading's bare domain names a firm; an address with `www.` or a scheme links anywhere.
         assert_eq!(linked("Booking.com books more nights", false), None);
         assert_eq!(linked("Sign up at relay.app", false), None);
@@ -12695,6 +12766,57 @@ mod tests {
             assert_eq!(!framing(k), c.contains("\nIt must leave the audience with: Claim "), "slide {}: {c}", k + 1);
         }
         assert!(captions(&narrative)[8].ends_with("\nIt must leave the audience with: Claim 2\n</data>"));
+    }
+
+    /// A text that states its beat's claim as the person settled it shrinks where it runs past
+    /// its place, and is never offered to the fit's rewrite: the outline settled its words
+    /// (W1 dogfood 13).
+    #[test]
+    fn a_settled_claim_shrinks_and_is_never_rewritten_to_fit() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let claim = "Die Deponie schließt im Jahr 2034, und jedes einzelne Jahr des Wartens erhöht die Rechnung \
+                     für alle Haushalte der Stadt um weitere zwei Millionen Euro";
+        let text = serde_json::json!({
+            "executiveSummary": "Die Biotonne rechnet sich.",
+            "slides": [
+                { "slideTitle": "Die Biotonne", "subtitle": "", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": claim, "subtitle": "", "layoutSuggestion": "Statement",
+                  "keyBullets": ["Quelle: Abfallbericht 2025"] },
+                { "slideTitle": "Vielen Dank", "subtitle": "", "layoutSuggestion": "Closing", "keyBullets": [] },
+            ]
+        })
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut narrative = narrative(&written.executive_summary, written.slides);
+        narrative.outline = Some(scaena_narrato::outline::Outline {
+            big_idea: "Die Biotonne rechnet sich".into(),
+            beats: vec![scaena_narrato::outline::Beat { name: "Problem".into(), claim: claim.into(), slides: 3 }],
+        });
+        let pictures = Pictures::new();
+        let built = deck(&narrative, &theme, &pictures).unwrap();
+        let (made, write) = making(built, "Data Storytelling", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let write = write.unwrap();
+        let doc = write.deck.to_value().unwrap();
+        let (id, node) = doc["nodes"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .find(|(_, n)| n["text"].as_str().is_some_and(|t| letters(t) == letters(claim)))
+            .expect("the claim is set as settled");
+        assert_eq!(node["fit"], "shrink", "{node:#}");
+        assert!(node.get("maxSize").is_none(), "{node:#}");
+        assert!(made.created.findings.iter().all(|f| f.code != "E100" || f.node.as_deref() != Some(id)));
+        // Were it still to run past its place, the fit would be asked to rewrite another text,
+        // never the claim.
+        let mut long = Finding::new("E100", scaena_core::Severity::Error, "runs past its box");
+        long.node = Some(id.clone());
+        long.measure = Some(json!({ "box": [800.0, 100.0], "height": 200.0 }));
+        let support = format!("{}-support", id.trim_end_matches("-statement"));
+        assert!(doc["nodes"][&support]["text"].is_string(), "{:#}", doc["nodes"]);
+        let mut other = long.clone();
+        other.node = Some(support.clone());
+        let longs = overflowing(&write.deck, &[long, other]).unwrap();
+        assert_eq!(longs.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), [support.as_str()]);
     }
 
     /// The look offers a numbered list only for points in an order, or that their writer

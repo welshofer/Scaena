@@ -1589,6 +1589,36 @@ fn a_slide_folds_into_the_one_before_it() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A theme color held in its picker (`themePreviewing`), and an image's adjustment held on its
+/// slider (`preview` of its `choose`), each draw the slide otherwise with nothing made, as the
+/// browser's previews do (lift-up ATTR-5, 20261110 ATTR-5): the deck's source as it was, and the
+/// frame as it was once each is let go.
+#[test]
+fn a_theme_color_and_an_adjustment_held_show_before_they_are_chosen() {
+    let s = open(B1);
+    let source = call(s, "source", Value::Null);
+    let rest = call(s, "digest", json!({ "state": "cover" }));
+    let paper = [json!({ "op": "replace", "path": "/tokens/color/paper", "value": "#204060" })];
+    call(s, "themePreviewing", json!({ "ops": paper }));
+    assert_ne!(call(s, "digest", json!({ "state": "cover" })), rest, "the paper held is drawn");
+    assert_eq!(call(s, "source", Value::Null), source, "nothing is made");
+    call(s, "themePreviewing", json!({ "ops": null }));
+    assert_eq!(call(s, "digest", json!({ "state": "cover" })), rest);
+    unsafe { scaena_session_free(s) };
+
+    let s = open(TORTURE);
+    let source = call(s, "source", Value::Null);
+    let rest = call(s, "digest", json!({ "state": "images" }));
+    let warmer =
+        json!([{ "op": "choose", "node": "image-cover", "prop": "adjust/warmth", "value": 0.6, "state": "images" }]);
+    call(s, "preview", json!({ "ops": warmer }));
+    assert_ne!(call(s, "digest", json!({ "state": "images" })), rest, "the warmth held is drawn");
+    assert_eq!(call(s, "source", Value::Null), source, "nothing is made");
+    call(s, "preview", json!({ "ops": null }));
+    assert_eq!(call(s, "digest", json!({ "state": "images" })), rest);
+    unsafe { scaena_session_free(s) };
+}
+
 /// States and slides (PLAN 3.14), as the browser's strip, light table, rehearsal, and cue make
 /// them (PLAN 2.35, 2.97, 2.63, 2.44): a step and a slide added after the state shown, a state
 /// renamed, moved, and removed; a slide moved, copied, and taken out; a hold kept; and a motion
@@ -2319,5 +2349,50 @@ fn a_state_is_held_to_its_golden_raster() {
     // A PNG that is none is refused, saying why.
     let reply = took(unsafe { scaena_pixels_against(s, c("images").as_ptr(), [0u8; 4].as_ptr(), 4) });
     assert!(reply.contains("\"error\""), "{reply}");
+    unsafe { scaena_session_free(s) };
+}
+
+#[test]
+fn the_decks_movie_is_painted_frame_by_frame_as_the_browsers_is() {
+    // Lift-up 20261031 FUNC-2, for the Mac and the iPad: the movie's length, and each frame the
+    // session's, with a frame that draws as the one before painted no more.
+    let s = open(B1);
+    let movie = call(s, "movie", json!({ "fps": 30 }));
+    let frames = movie["frames"].as_u64().unwrap();
+    assert!(frames > 30 && movie["fps"] == json!(30) && movie["durationMs"].as_f64().unwrap() > 1000.0, "{movie}");
+    assert!(answered(s, "movie", &json!({ "fps": 0 }))["error"]["message"].as_str().unwrap().contains("`fps`"));
+
+    let frame = |k: u64, before: Option<&str>| {
+        let before = before.map(c);
+        let (mut digest, mut error) = (null_mut(), null_mut());
+        let painted = unsafe {
+            scaena_movie_frame(
+                s,
+                30,
+                k,
+                320,
+                before.as_ref().map_or(std::ptr::null(), |b| b.as_ptr()),
+                &mut digest,
+                &mut error,
+            )
+        };
+        let digest = (!digest.is_null()).then(|| took(digest));
+        let pixels =
+            if painted.bytes.data.is_null() && error.is_null() { None } else { Some(pixels_of(painted, error)) };
+        (digest, pixels)
+    };
+    let (digest, pixels) = frame(0, None);
+    let (width, height, rgba) = pixels.unwrap().unwrap();
+    assert_eq!((width, height, rgba.len()), (320, 180, 320 * 180 * 4));
+    // The same frame again, given its own digest: nothing painted, the digest said.
+    let digest = digest.unwrap();
+    let (again, unpainted) = frame(0, Some(&digest));
+    assert_eq!((again.as_deref(), unpainted.is_none()), (Some(digest.as_str()), true));
+    // Past the last frame, and a width it cannot paint: each an error that says why.
+    let (_, past) = frame(frames, None);
+    assert!(past.unwrap().unwrap_err().contains(&format!("{frames} frames")));
+    let (mut d, mut error) = (null_mut(), null_mut());
+    let narrow = unsafe { scaena_movie_frame(s, 30, 0, 1, std::ptr::null(), &mut d, &mut error) };
+    assert!(pixels_of(narrow, error).unwrap_err().contains("`width`"));
     unsafe { scaena_session_free(s) };
 }
