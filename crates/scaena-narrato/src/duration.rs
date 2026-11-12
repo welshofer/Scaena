@@ -4,6 +4,15 @@
 
 /// The pace a slide's words are said at, in words a minute.
 pub const WORDS_PER_MINUTE: f64 = 145.0;
+/// The pace a script read by the character is said at (Han, kana, Hangul), in its characters a
+/// minute, as health times one (lift-up FUNC-1, W1 dogfood 15).
+pub const CHARACTERS_PER_MINUTE: f64 = 300.0;
+
+/// Whether `c` is a letter of a script read by the character: kana, Han, and Hangul, as health
+/// reads them.
+pub fn by_character(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF)
+}
 /// The seconds a change of slide takes.
 pub const TRANSITION_SECONDS: f64 = 5.0;
 const HIGH: [&str; 16] = [
