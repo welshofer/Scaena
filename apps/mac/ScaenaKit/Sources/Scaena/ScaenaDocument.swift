@@ -274,6 +274,21 @@ final class ScaenaDocument: ReferenceFileDocument {
         keep(before, files: files, undo: undo)
     }
 
+    /// The theme edited by `change` (PLAN 2.61, 2.94), made away from the window so it goes on answering
+    /// (#1262): the deck read again, and one step to undo, which writes the theme back. What the
+    /// edit did; nil where the deck kept changing while it was made, nothing made.
+    @MainActor
+    func themed(_ change: ThemeChange, undo: UndoManager?) async throws -> ThemeEdited? {
+        try editor.unassisted()
+        guard let away = try await editor.themeEditAway(change) else { return nil }
+        guard away.edited.applied else { return away.edited }
+        // The source as it was just before the edit was written: what its undo makes the deck again.
+        let before = editor.source
+        if let source = away.source { editor.restore(source) } else { editor.reread() }
+        keep(before, files: away.edited.files, undo: undo)
+        return away.edited
+    }
+
     /// A data file a panel writes, or a file it takes out (PLAN 3.15): the deck read again, and
     /// one step to undo, the session's own, which puts the file back as it was, and the source as
     /// it was where the edit set a quote of the data again; redone, it is written again.

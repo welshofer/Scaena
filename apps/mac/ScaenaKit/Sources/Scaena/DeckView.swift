@@ -2170,6 +2170,7 @@ struct DeckView: View {
     private var panelEdits: PanelEdits {
         PanelEdits(
             besideMade: { name, edit in making(name) { try document.beside(edit, undo: undo) } },
+            themeMade: { name, refused, change in await theming(name, refused, change) },
             dataMade: { name, edit in making(name) { try document.data(edit, undo: undo) } },
             patchMade: { name, ops in making(name) { try document.make(ops, undo: undo) } },
             go: { state in chosen = state },
@@ -2215,6 +2216,26 @@ struct DeckView: View {
 
     /// `edit` made, its step to undo named `name` in the Edit menu: whether it was. Where it was
     /// not, the window says why, and no step is named.
+    /// The theme edited by `change`, made away from the window (#1262), one step to undo named
+    /// `name`: whether it was. Refused, failed, or outrun by the deck changing while it was made,
+    /// the window says why, `refused` naming what was not done.
+    private func theming(_ name: String, _ refused: String, _ change: ThemeChange) async -> Bool {
+        do {
+            guard let edited = try await document.themed(change, undo: undo) else {
+                failure = "\(refused): the deck kept changing while it was made"
+                return false
+            }
+            guard edited.applied else {
+                throw Refused(refused, edited.refusals, by: editor, otherwise: "the deck would not open in it")
+            }
+            undo?.setActionName(name)
+            return true
+        } catch {
+            failure = Why.said(error)
+            return false
+        }
+    }
+
     private func making(_ name: String, _ edit: () throws -> Void) -> Bool {
         do {
             try edit()

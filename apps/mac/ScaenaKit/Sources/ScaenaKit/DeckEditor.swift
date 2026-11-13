@@ -155,6 +155,16 @@ public final class DeckEditor {
     /// For a test: called on the caller's actor once a read of the deck's health has taken the
     /// deck it reads, before it waits for the answer, as `begun` is for a lint.
     @ObservationIgnored var reading: (() -> Void)?
+    /// Where a theme edit is made, away from the window (#1262).
+    @ObservationIgnored private let themeing = OffMain(label: "ScaenaKit.theme")
+    /// Bumped by each theme edit written into the session: one made on a snapshot taken before it
+    /// is made again.
+    @ObservationIgnored private var themesEdited = 0
+    /// For a test: called on the caller's actor once a theme edit has taken the deck it edits,
+    /// before it waits for the edit, so an edit made there is one made while it is under way.
+    @ObservationIgnored var themeEditing: (() -> Void)?
+    /// For a test: told, as a theme edit is made, whether it is made on the main thread.
+    @ObservationIgnored var themedOn: (@Sendable (_ main: Bool) -> Void)?
     /// Each state drawn small, by its id and the width asked, with the digest of its drawing at
     /// rest: the strip's, the presenter's next, and a remote's stand side by side (lift-up PERF-2).
     @ObservationIgnored private var drawings: [Drawn: (digest: String, image: CGImage)] = [:]
@@ -497,6 +507,48 @@ public final class DeckEditor {
         return image
     }
 
+    /// The theme the deck names edited by `change`, operations or a photo's colors (PLAN 2.61,
+    /// 2.94), made away from the window: on a session opened from a snapshot of the deck as it
+    /// stands, on a thread of its own, while the caller's actor (the window's) goes on answering. A theme edit lints the whole deck in the
+    /// theme it leaves and the one it makes, which on the window's thread kept it from answering,
+    /// a person and VoiceOver alike, for seconds, and on CI's Mac for minutes (#1262). Made, the
+    /// files it wrote are written into the session here, as an undo writes them, and the source it
+    /// made the deck, where it made another, is said for the caller to compile. Where the deck
+    /// changed while it was made, it is made again on the deck as it then stands, a few times at
+    /// most; nil past them. Refused, nothing is written.
+    public func themeEditAway(
+        _ change: ThemeChange, isolation: isolated (any Actor)? = #isolation
+    ) async throws -> ThemeEditedAway? {
+        for _ in 0..<Self.themeTries {
+            let began = (revision, themesEdited)
+            let snapshot = try session.snapshot()
+            let source = try session.source()
+            themeEditing?()
+            let told = themedOn
+            let made = try await themeing.run { () -> ThemeEditedAway in
+                told?(Thread.isMainThread)
+                let apart = try snapshot.opened()
+                let edited: ThemeEdited
+                switch change {
+                case .ops(let ops): edited = try apart.themeEdit(ops)
+                case .photo(let photo): edited = try apart.themeEdit(photo: photo)
+                }
+                let now = try apart.source()
+                return ThemeEditedAway(edited: edited, source: now == source ? nil : now)
+            }
+            // Another edit came while it was made: made again, on the deck as it now stands.
+            guard began == (revision, themesEdited) else { continue }
+            guard made.edited.applied else { return made }
+            try session.write(made.edited.files.map { (path: $0.path, text: $0.after) })
+            themesEdited += 1
+            return made
+        }
+        return nil
+    }
+
+    /// How many times a theme edit is made again where the deck changed while it was made.
+    static let themeTries = 4
+
     /// What the slide of `state` may take as its background, each drawn `height` pixels high, as
     /// `session.backgroundsDrawn` draws them, but away from the window (lift-up 10-25c PERF-4): on
     /// a session opened from a snapshot of the deck as it stands, in the format shown, on a thread
@@ -835,4 +887,20 @@ private final class Linter: Sendable {
             }
         }
     }
+}
+
+/// What a theme edit made away from the window (`DeckEditor.themeEditAway`) asks.
+public enum ThemeChange: Sendable {
+    /// RFC 6902 operations on the theme's JSON.
+    case ops([JSONValue])
+    /// The colors of a photo the bundle holds, by its path in it.
+    case photo(String)
+}
+
+/// A theme edit made away from the window (`DeckEditor.themeEditAway`): what it did, and the source
+/// it made the deck, where it made another (a font the theme now names listed in the deck); none
+/// where the deck's source is as it was.
+public struct ThemeEditedAway: Sendable {
+    public let edited: ThemeEdited
+    public let source: String?
 }

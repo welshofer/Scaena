@@ -56,7 +56,7 @@ struct ThemePanel: View {
                         key: entry.key, name: name, uses: uses(entry.key), value: entry.value.string ?? "",
                         preview: { held in editor.show(theme: held.map { [put(path, .string($0), over: entry.value)] }) }
                     ) { value in
-                        edit([put(path, .string(value), over: entry.value)], "\(name) Color")
+                        await edit([put(path, .string(value), over: entry.value)], "\(name) Color")
                     }
                 }
             }
@@ -65,22 +65,22 @@ struct ThemePanel: View {
                     RoleRow(key: role.key, role: role.value) { field, value in
                         let path = "/type/roles/\(escaped(role.key))/\(field.key)"
                         let name = "\(Words.phrase(role.key)) \(field.label)"
-                        return edit([put(path, .number(value), over: role.value[field.key])], name)
+                        return await edit([put(path, .number(value), over: role.value[field.key])], name)
                     }
                 }
             }
             Section("Spacing") {
                 let gutter = theme?["grid"]?["gutter"]
                 NumberRow(label: "Gutter", id: "theme-gutter", step: 1, unit: "pt", value: gutter?.number) {
-                    edit([put("/grid/gutter", .number($0), over: gutter)], "Gutter")
+                    await edit([put("/grid/gutter", .number($0), over: gutter)], "Gutter")
                 }
                 let baseline = theme?["grid"]?["baseline"]
                 NumberRow(label: "Baseline Grid", id: "theme-baseline", step: 1, unit: "pt", value: baseline?.number) {
-                    edit([put("/grid/baseline", .number($0), over: baseline)], "Baseline Grid")
+                    await edit([put("/grid/baseline", .number($0), over: baseline)], "Baseline Grid")
                 }
                 let space = theme?["tokens"]?["space"]?["unit"]
                 NumberRow(label: "Space Unit", id: "theme-space-unit", step: 1, unit: "pt", value: space?.number) {
-                    edit([put("/tokens/space/unit", .number($0), over: space)], "Space Unit")
+                    await edit([put("/tokens/space/unit", .number($0), over: space)], "Space Unit")
                 }
             }
             Section("Code") {
@@ -89,7 +89,8 @@ struct ThemePanel: View {
                 ForEach(codes) { code in
                     CodeRow(code: code, said: Words.syntax(code.kind), names: colorNames) { value in
                         let ops = CodeColor.coloring(code.kind, value, in: theme)
-                        return !ops.isEmpty && edit(ops, "\(Words.syntax(code.kind)) Color")
+                        guard !ops.isEmpty else { return false }
+                        return await edit(ops, "\(Words.syntax(code.kind)) Color")
                     }
                 }
             }
@@ -164,30 +165,17 @@ struct ThemePanel: View {
     }
 
     /// The theme edited by `ops`, one step to undo named `name`, the theme file written back:
-    /// whether it was; refused, the window says why.
+    /// whether it was; refused, the window says why. Made away from the window, which goes on
+    /// answering while the deck is linted in the theme it makes (#1262).
     @discardableResult
-    private func edit(_ ops: [JSONValue], _ name: String) -> Bool {
-        edits.beside(name) {
-            let edited = try editor.session.themeEdit(ops)
-            guard edited.applied else {
-                throw Refused(
-                    "\(name) not changed", edited.refusals, by: editor, otherwise: "the deck would not open in it")
-            }
-            return edited.files
-        }
+    private func edit(_ ops: [JSONValue], _ name: String) async -> Bool {
+        await edits.themeMade(name, "\(name) not changed", .ops(ops))
     }
 
     private func fromPhoto(_ photo: String) {
-        edits.beside("Colors from Photo") {
-            let edited = try editor.session.themeEdit(photo: photo)
-            guard edited.applied else {
-                // The photo by its file's name, as the panel offers it, not its path in the bundle.
-                let named = Words.file(photo, type: "image") ?? "the photo"
-                throw Refused(
-                    "not taken from \(named)", edited.refusals, by: editor, otherwise: "the deck would not open in it")
-            }
-            return edited.files
-        }
+        // The photo by its file's name, as the panel offers it, not its path in the bundle.
+        let named = Words.file(photo, type: "image") ?? "the photo"
+        Task { @MainActor in _ = await edits.themeMade("Colors from Photo", "not taken from \(named)", .photo(photo)) }
     }
 
     /// The op that sets `path` to `value`: a replace where `old` is there, an add where nothing is.
@@ -251,7 +239,7 @@ private struct ColorRow: View {
     /// Draw the slide as the color held would make it, nothing written; none, as it is.
     let preview: (String?) -> Void
     /// Set the color: whether it was.
-    let set: (String) -> Bool
+    let set: @MainActor (String) async -> Bool
     @State private var typed = ""
     /// The color set and not yet shown back: set once.
     @State private var asked: String?
@@ -327,9 +315,11 @@ private struct ColorRow: View {
         }
         guard color.lowercased() != asked?.lowercased() else { return }
         asked = color
-        if !set(color) {
+        let was = value
+        Task { @MainActor in
+            guard !(await set(color)) else { return }
             asked = nil
-            typed = value
+            typed = was
         }
     }
 
@@ -358,7 +348,7 @@ private struct ColorRow: View {
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
                     settling = nil
-                    if !set(hex) { preview(nil) }
+                    if !(await set(hex)) { preview(nil) }
                 }
             })
     }
@@ -370,7 +360,7 @@ private struct RoleRow: View {
     let key: String
     let role: JSONValue
     /// One of its fields set to a number: whether it was.
-    let set: (RoleField, Double) -> Bool
+    let set: @MainActor (RoleField, Double) async -> Bool
 
     var body: some View {
         DisclosureGroup {
@@ -378,12 +368,12 @@ private struct RoleRow: View {
                 if field.key == "weight" {
                     RoleWeight(
                         label: field.label, id: "theme-\(key)-\(field.key)", value: role[field.key]?.number
-                    ) { set(field, $0) }
+                    ) { await set(field, $0) }
                 } else {
                     NumberRow(
                         label: field.label, id: "theme-\(key)-\(field.key)", step: field.step, unit: field.unit,
                         value: role[field.key]?.number
-                    ) { set(field, $0) }
+                    ) { await set(field, $0) }
                 }
             }
         } label: {
@@ -406,12 +396,12 @@ private struct RoleWeight: View {
     let id: String
     let value: Double?
     /// Set the weight: whether it was.
-    let set: (Double) -> Bool
+    let set: @MainActor (Double) async -> Bool
 
     var body: some View {
         let current = Int((value ?? 400).rounded())
         Picker(label, selection: Binding(get: { current }, set: { picked in
-            if picked != current { _ = set(Double(picked)) }
+            if picked != current { Task { @MainActor in _ = await set(Double(picked)) } }
         })) {
             if !Words.weights.contains(where: { $0.value == current }) {
                 Text(Words.weight(current)).tag(current)
@@ -455,7 +445,7 @@ private struct NumberRow: View {
     let unit: String?
     let value: Double?
     /// Set the number: whether it was.
-    let set: (Double) -> Bool
+    let set: @MainActor (Double) async -> Bool
     @State private var typed = ""
     /// The number set and not yet shown back: set once.
     @State private var asked: Double?
@@ -513,9 +503,11 @@ private struct NumberRow: View {
         }
         guard FieldNumber.shown(number) != FieldNumber.shown(asked) else { return }
         asked = number
-        if !set(number) {
+        let was = value
+        Task { @MainActor in
+            guard !(await set(number)) else { return }
             asked = nil
-            typed = FieldNumber.shown(value)
+            typed = FieldNumber.shown(was)
         }
     }
 
@@ -569,7 +561,7 @@ private struct CodeRow: View {
     let said: String
     let names: [(key: String, name: String)]
     /// Name its color, or let the accent derive it: whether it was.
-    let set: (String?) -> Bool
+    let set: @MainActor (String?) async -> Bool
     @State private var settling: Task<Void, Never>?
 
     var body: some View {
@@ -611,7 +603,7 @@ private struct CodeRow: View {
             get: { code.named ?? "" },
             set: { picked in
                 guard picked != (code.named ?? "") else { return }
-                _ = set(picked.isEmpty ? nil : picked)
+                Task { @MainActor in _ = await set(picked.isEmpty ? nil : picked) }
             })
     }
 
@@ -625,7 +617,7 @@ private struct CodeRow: View {
                 settling = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
-                    _ = set(hex)
+                    _ = await set(hex)
                 }
             })
     }
