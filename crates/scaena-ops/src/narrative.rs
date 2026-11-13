@@ -667,6 +667,11 @@ pub struct Grounding {
     pub content: Option<String>,
     pub documents: Vec<Document>,
     pub given: Vec<Given>,
+    /// The words and figures each PDF draws, which notes may say the figures of
+    /// (`Generation::hold`, W1's dogfood 17), with ops' `pdf` feature; else none.
+    pub held: String,
+    /// Each PDF whose words were not read, and why.
+    pub unread: Vec<String>,
 }
 
 /// `sources` packed as Vzestup packs them (`scaena_sources::ground`): the first given the room
@@ -683,7 +688,11 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
             data: base64::engine::general_purpose::STANDARD.encode(pdf),
         })
         .collect();
-    Ok(Grounding { content: ground.content, documents, given: ground.given })
+    #[cfg(feature = "pdf")]
+    let (held, unread) = scaena_sources::pdf::held(sources);
+    #[cfg(not(feature = "pdf"))]
+    let (held, unread) = (String::new(), Vec::new());
+    Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread })
 }
 
 /// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
@@ -14100,6 +14109,25 @@ mod tests {
         let content = grounding(&[page], Provider::Anthropic).unwrap().content.unwrap();
         let refused = scaena_narrato::containment::refusal(&content, None).unwrap();
         assert!(refused.starts_with("Source \"https://example.org/a\" (text)"), "{refused}");
+    }
+
+    /// With ops' `pdf` feature, the CLI's, each PDF's words are held for the notes' figures, and a
+    /// PDF whose words cannot be read is said (W1's dogfood 17); the browser's modules hold none.
+    #[test]
+    fn a_pdfs_words_are_held_for_the_notes() {
+        let report = std::fs::read(root().join("docs/examples/dogfood-17/report.pdf")).unwrap();
+        let pdf = Source { pdf: Some(report), ..source("report.pdf", Kind::Pdf, "") };
+        let locked = Source {
+            pdf: Some(b"%PDF-1.7\ntrailer << /Encrypt << >> >>".to_vec()),
+            ..source("locked.pdf", Kind::Pdf, "")
+        };
+        let g = grounding(&[pdf, locked], Provider::Anthropic).unwrap();
+        if cfg!(feature = "pdf") {
+            assert!(g.held.contains("7,560 street trees") && g.held.contains("2040"), "{}", g.held);
+            assert_eq!(g.unread, ["locked.pdf: its words were not read: it is encrypted"]);
+        } else {
+            assert_eq!((g.held.as_str(), g.unread.len()), ("", 0));
+        }
     }
 
     #[test]
