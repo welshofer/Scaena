@@ -49,6 +49,26 @@ class Demangling(unittest.TestCase):
             "<alloc::vec::Vec<T> as Drop>::drop",
         )
 
+    def test_a_v0_symbol_reads_as_its_path_an_impls_method_under_its_type_or_trait(self):
+        # Each as CI's Mac sampled it (#1287's walk).
+        cases = {
+            "_RNvNtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrast6behind": "scaena_engine::lint::contrast::behind",
+            "_RNvMs_NtNtCsi4LIHK2nfKK_3std6thread6threadNtB4_6Thread4park": "<std::thread::thread::Thread>::park",
+            "_RNvMNtCs6ePwASBLEL8_13scaena_pixels6shaderNtB2_3Job9render_on": "<scaena_pixels::shader::Job>::render_on",
+            "_RNCNvNtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrast6behind0B7_": "scaena_engine::lint::contrast::behind::{closure}",
+            "_RNvMNtCsjSAAZcmtVt9_4core5sliceSh8split_atCs6ePwASBLEL8_13scaena_pixels": "<[u8]>::split_at",
+            "_RNvXs0_NtCs2bgM4g1DgtD_12scaena_paint3cpuNtB5_10CpuPainterNtB7_7Painter5paint": (
+                "<scaena_paint::cpu::CpuPainter as scaena_paint::Painter>::paint"
+            ),
+            "_RINvNtNtCsi4LIHK2nfKK_3std6thread6scoped5scopeNCNvMNtCs6ePwASBLEL8_13scaena_pixels6shaderNtBN_3Job9render_on0uEBP_": (
+                "std::thread::scoped::scope"
+            ),
+        }
+        for symbol, path in cases.items():
+            self.assertEqual(hangs.demangled(symbol), path)
+        # One that does not read is left as it is.
+        self.assertEqual(hangs.demangled("_RNvQ"), "_RNvQ")
+
     def test_any_other_symbol_is_as_it_is(self):
         for symbol in ("DeckEditor.lintShown()", "-[NSView displayIfNeeded]", "free"):
             self.assertEqual(hangs.demangled(symbol), symbol)
@@ -66,8 +86,8 @@ class Sampled(unittest.TestCase):
                 (6, "scaena_call"),
                 (6, "DeckEditor.lintShown()"),
                 (6, "closure #1 in ThemePanel.body.getter"),
-                (10, "Scaena_main"),
             ],
+            "the frames every stack opens with are left out",
         )
         self.assertEqual(len(hangs.app_frames(SAMPLE, most=2)[0]), 2)
 
@@ -89,6 +109,43 @@ class Sampled(unittest.TestCase):
 """
         self.assertEqual(hangs.app_frames(idle), ([], 4, 0))
         self.assertEqual(hangs.app_frames("no threads"), ([], 0, 0))
+
+
+class Recursion(unittest.TestCase):
+    def test_a_recursion_shows_the_frame_that_began_it(self):
+        # A comparison of two JSON values, many frames deep under the view that asked for it.
+        lines = ["    9 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)",
+                 "    + 9 Scaena_main  (in Scaena) + 1  [0x1]",
+                 "    +   9 closure #1 in Inspector.body.getter  (in Scaena) + 1  [0x2]"]
+        for depth in range(12):
+            name = "static JSONValue.==" if depth % 2 == 0 else "protocol witness for == in JSONValue"
+            lines.append("    +   " + "  " * (depth + 1) + f"9 {name}  (in Scaena) + 1  [0x3]")
+        own, _, _ = hangs.app_frames("\n".join(lines) + "\n")
+        self.assertEqual(
+            [symbol for _, symbol in own],
+            ["protocol witness for == in JSONValue", "static JSONValue.==", "closure #1 in Inspector.body.getter"],
+        )
+
+
+class Kept(unittest.TestCase):
+    def test_a_samples_main_thread_is_kept_demangled_its_rare_frames_left_out(self):
+        kept = hangs.graph(SAMPLE)
+        self.assertTrue(kept[0].endswith("com.apple.main-thread  (serial)"))
+        self.assertTrue(any("scaena_session::editor::Session::linted  (Scaena)" in line for line in kept), kept)
+        self.assertFalse(any("free" in line for line in kept), "a frame one sample held is left out")
+        self.assertFalse(any("foo::bar" in line for line in kept), "another thread is not read")
+
+    def test_every_sampled_hang_is_kept_the_longest_first(self):
+        with tempfile.TemporaryDirectory() as folder:
+            Path(folder, "hang-1.txt").write_text(SAMPLE, encoding="utf-8")
+            Path(folder, "hang-2.txt").write_text(SAMPLE, encoding="utf-8")
+            Path(folder, "hangs.txt").write_text(
+                "hang 1 at 1.0 s: 300 ms hang-1.txt\nhang 2 at 9.0 s: 900 ms hang-2.txt\nhang 3 at 9.5 s: 400 ms -\n",
+                encoding="utf-8",
+            )
+            kept = hangs.samples(folder)
+        heads = [line for line in kept if line.startswith("== ")]
+        self.assertEqual(heads, ["== hang 2, at 9.0 s: 900 ms", "== hang 1, at 1.0 s: 300 ms"])
 
 
 class Reported(unittest.TestCase):
