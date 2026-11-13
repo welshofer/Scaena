@@ -376,9 +376,12 @@ final class KeysTests: XCTestCase {
                 throw Unseen(description: "no Undo in the toolbar: \(app.debugDescription)")
             }
             XCTAssertTrue(wait(5) { undo.label == "Undo Typing" }, "the step to take back first is \(undo.label)")
-            try undoing(undo, in: app)
+            try undoing(undo, over: subtitle, in: app)
             XCTAssertEqual(undo.label, "Undo Make Code", "the typing was not one step: \(app.debugDescription)")
-            try undoing(undo, in: app)
+            try undoing(undo, over: subtitle, in: app)
+            // Make Code taken back, and no text typed in, before the menu is asked for.
+            XCTAssertNotEqual(undo.label, "Undo Make Code", "Make Code was not taken back: \(app.debugDescription)")
+            XCTAssertFalse(typing.exists, "a text is typed in where the menu is asked for: \(app.debugDescription)")
             pressForMenu(subtitle, in: app)
             let make = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Make Code'")).firstMatch
             XCTAssertTrue(paged(to: make, in: app), "the subtitle is still code: \(app.debugDescription)")
@@ -436,11 +439,26 @@ final class KeysTests: XCTestCase {
         _ = cancel(app, until: { !typing.exists })
     }
 
-    /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named (`chord`).
+    /// ⌘Z, waited on until the toolbar's Undo names another step than the one it named (`chord`),
+    /// with no text typed in. A ⌘Z that arrives bare is a "z", which types over `selected`, the text
+    /// selected, as a key pressed with one text selected does (`Typing.enterOver`): put back before
+    /// the ⌘Z is sent again, the typing ended and its "z" taken back, so the long press after it
+    /// lands on the text and not in a text typed in, which asks for no menu (#1282's iPad run).
     @MainActor
-    private func undoing(_ undo: XCUIElement, in app: XCUIApplication) throws {
+    private func undoing(_ undo: XCUIElement, over selected: XCUIElement, in app: XCUIApplication) throws {
         let step = undo.label
-        try chord("z", .command, named: "⌘Z, taking back \(step)", in: app) { undo.label != step }
+        let typing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'typing'")).firstMatch
+        let putBack = {
+            guard typing.exists else { return }
+            _ = self.cancel(app, until: { !typing.exists })
+            // The "z" typed over the words is a step of its own: taken back until they read again.
+            if !selected.exists {
+                try self.chord("z", .command, named: "⌘Z, taking back the bare z", in: app) { selected.exists }
+            }
+        }
+        try chord("z", .command, named: "⌘Z, taking back \(step)", in: app, restoring: putBack) {
+            undo.label != step && !typing.exists
+        }
         settle(1)
     }
 
