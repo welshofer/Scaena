@@ -2028,7 +2028,8 @@ impl Scaena {
         arc and a beat for each slide, each slide an absolute state in the theme layout its `layoutSuggestion` comes \
         to, its builds, and the fields `deck_health` reads (`media.narrato`), lint's fixes applied. With `outline`, \
         the big idea and each beat's claim the slides were written to, the sections are its beats and health holds \
-        the deck to its claims. A new bundle at `bundle`, in `theme`, as `deck_create` makes one; a deck in a script the theme's fonts do not draw is \
+        the deck to its claims. A new bundle at `bundle`, in `theme`, as `deck_create` makes one, or the bundle `deck_create` made there while \
+        it holds only its blank slide, filled in its own theme with the data attached to it; a deck in a script the theme's fonts do not draw is \
         refused, since the CLI alone fetches a script's font.")]
     async fn deck_generate(
         &self,
@@ -2060,7 +2061,29 @@ impl Scaena {
         // A new bundle has no folder yet: the theme is read under this server's own, as
         // deck_create reads one.
         let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
-        let (theme, within) = self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?;
+        // A bundle deck_create made, its blank slide alone, is filled in its own theme (W1's
+        // dogfood 19), and given in another, refused.
+        let mut blank = scaena_ops::narrative::fillable(&bundle).map_err(failure)?;
+        let (theme, within) = match &blank {
+            Some(b) => {
+                let file = b.bundle.root.join(&b.theme);
+                let named = |t: &str| t.trim_end_matches(".json").trim_end_matches(".theme").to_lowercase();
+                let own = named(&b.theme.file_name().unwrap_or_default().to_string_lossy());
+                if let Some(asked) = a.theme.as_deref()
+                    && named(Path::new(asked).file_name().map_or(asked.into(), |n| n.to_string_lossy()).as_ref()) != own
+                {
+                    return Err(failure(OpsError::new(format!(
+                        "`{}` was made in {own}: deck_generate fills it in its own theme, so leave `theme` out or give `{own}`",
+                        a.bundle
+                    ))));
+                }
+                (file, Some(b.bundle.root.clone()))
+            }
+            None => self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?,
+        };
+        if let Some(b) = &mut blank {
+            b.bundle.author = author.clone();
+        }
         // Each data file is held as `deck_create` holds one (lift-up 20261025b SEC-1).
         let mut data = a.data;
         for d in &mut data {
@@ -2088,6 +2111,7 @@ impl Scaena {
                 outline.as_ref(),
                 &data,
                 &grounds,
+                blank.as_ref(),
             )?;
             if made.created.created && a.history {
                 scaena_ops::history::begin(&made_by(&bundle, author)?, "deck_create")?;

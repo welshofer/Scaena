@@ -44,6 +44,20 @@ archives=${cache[1]}
 keep=${SCAENA_APT_KEEP:-}
 apt=(-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
 
+# The archive's mirror as the runner has it (not the security pocket's), then the fallbacks.
+own=$(mirror_in "$sources")
+# A runner whose sources name no archive (#1329's: its update reached Microsoft's alone) is given
+# Ubuntu's, with universe, which ffmpeg is in: no mirror swap has an address to swap without one,
+# and no package of Ubuntu's is found, kept or fetched.
+if [ -z "$own" ]; then
+  codename=${SCAENA_APT_CODENAME:-$(. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-}")}
+  codename=${codename:-noble}
+  own=http://archive.ubuntu.com/ubuntu/
+  echo "apt-get: $sources names no archive; naming $own for $codename" >&2
+  printf 'deb %s %s main universe\ndeb %s %s-updates main universe\n' "$own" "$codename" "$own" "$codename" |
+    $sudo tee -a "$sources" >/dev/null || exit 1
+fi
+
 # The bytes apt has fetched so far, partial files among them.
 fetched() { $sudo du -sb "${cache[@]}" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }
 
@@ -88,8 +102,6 @@ if [ -n "$keep" ] && compgen -G "$keep/archives/*.deb" >/dev/null; then
   echo "apt-get: what was kept does not install; fetching" >&2
 fi
 
-# The archive's mirror as the runner has it (not the security pocket's), then the fallbacks.
-own=$(mirror_in "$sources")
 mirrors=()
 for m in "$own" http://archive.ubuntu.com/ubuntu/ http://mirrors.edge.kernel.org/ubuntu/; do
   [ -n "$m" ] || continue

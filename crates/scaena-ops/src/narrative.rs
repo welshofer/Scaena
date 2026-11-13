@@ -714,7 +714,15 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
 /// figures it holds (W1's dogfood 17), read from `read`, the sources as read, and `pdfs`, the words
 /// each PDF draws by its name (`scaena_sources::pdf::each`), so health holds a slide that cites it
 /// to them.
-pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -> Vec<Provenance> {
+/// Each source's figures are read in the marks it writes them in, else in `language`'s, the
+/// deck's (`scaena_narrato::source_figures`, R1's agent dogfood 12).
+pub fn provenance(
+    given: &[Given],
+    read: &[Source],
+    pdfs: &[(String, String)],
+    language: Option<&str>,
+) -> Vec<Provenance> {
+    let decimal = decimal_of(language);
     (given.iter())
         .map(|g| {
             let mut text: String = (read.iter().filter(|s| s.name == g.name)).map(|s| s.text.as_str()).collect();
@@ -728,7 +736,7 @@ pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -
                 url: g.url.clone(),
                 bytes: g.bytes,
                 truncated: g.truncated,
-                figures: scaena_narrato::source_figures(&text),
+                figures: scaena_narrato::source_figures(&text, Some(decimal)),
             }
         })
         .collect()
@@ -1308,6 +1316,54 @@ pub fn generate_drawn(
     Ok((made, Some(write)))
 }
 
+/// A bundle `deck_create` made that `deck_generate` may fill (W1's dogfood 19): one slide, the
+/// blank one it starts with, and no spine. Its theme is the deck's, and each data file it holds
+/// is given again as it was attached. Anything more is refused, saying why and that
+/// `deck_generate` makes a bundle itself.
+pub struct Blank {
+    pub bundle: crate::Bundle,
+    /// The theme file the deck names, in the bundle.
+    pub theme: PathBuf,
+    /// Each data source the bundle holds, as it was attached, and its file's bytes.
+    pub data: Vec<(Attach, Vec<u8>)>,
+}
+
+/// `dir`, where a deck is to be made from slides: nothing there yet (`None`), a [`Blank`] bundle
+/// to fill, or refused.
+pub fn fillable(dir: &Path) -> Result<Option<Blank>, OpsError> {
+    let Err(not) = crate::create::vacant(dir) else { return Ok(None) };
+    let refused = |why: String| {
+        OpsError::new(format!(
+            "{}; deck_generate makes a bundle itself, in its `theme` with its `data`, or fills one deck_create made              that holds only its blank slide{why}",
+            not.message.trim_end_matches(": a new bundle needs a place of its own")
+        ))
+    };
+    if !dir.join("deck.json").is_file() {
+        return Err(refused(String::new()));
+    }
+    let bundle = crate::open(dir)?;
+    let slides = bundle.deck.states.len();
+    let beats: usize = (bundle.deck.spine.iter()).flat_map(|s| s.sections.iter()).map(|s| s.beats.len()).sum();
+    if slides != 1 || beats > 0 {
+        let held = match (slides, beats) {
+            (1, b) => format!("its spine tells {b} beat{}", if b == 1 { "" } else { "s" }),
+            (n, _) => format!("it holds {n} states"),
+        };
+        return Err(refused(format!(": {held}")));
+    }
+    let theme = (bundle.deck.theme.as_ref().and_then(Value::as_str))
+        .map(PathBuf::from)
+        .ok_or_else(|| refused(": its deck names its theme inline".into()))?;
+    let mut data = Vec::new();
+    for (id, source) in &bundle.deck.data {
+        let Some(path) = source.source.as_str() else { continue };
+        let bytes = bundle.files.read(path).with_context(|| format!("reading {path}"))?;
+        let file = PathBuf::from(Path::new(path).file_name().unwrap_or_default());
+        data.push((Attach { id: id.clone(), file, schema: source.schema.clone(), parse: source.parse.clone() }, bytes));
+    }
+    Ok(Some(Blank { bundle, theme, data }))
+}
+
 /// A deck made from slides written elsewhere, with no call (`scaena generate --slides`,
 /// `deck_generate`): `slides` is the JSON Narrato writes the slides in (`executiveSummary` and
 /// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
@@ -1331,8 +1387,22 @@ pub fn from_slides(
     outline: Option<&Outline>,
     data: &[(Attach, Vec<u8>)],
     grounds: &[scaena_sources::Source],
+    blank: Option<&Blank>,
 ) -> Result<Generated, OpsError> {
-    crate::create::vacant(dir)?;
+    // A bundle deck_create made, its blank slide alone, is filled, its data files given again
+    // where the call does not give one by that id; else the bundle is new.
+    let mut data = data.to_vec();
+    match blank {
+        Some(blank) => {
+            for (req, bytes) in &blank.data {
+                if !data.iter().any(|(given, _)| given.id == req.id) {
+                    data.push((req.clone(), bytes.clone()));
+                }
+            }
+        }
+        None => crate::create::vacant(dir)?,
+    }
+    let data = data.as_slice();
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
     // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
     // A word for a number is refused, naming the slide and the field.
@@ -1377,6 +1447,7 @@ pub fn from_slides(
     // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
     // and its address where it has one; none of its text is packed, since no model reads it.
     if !data.is_empty() || !grounds.is_empty() {
+        let decimal = decimal_of(generation.brief().language.as_deref());
         let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
         let given = (data.iter())
             .map(|(req, bytes)| Provenance {
@@ -1385,7 +1456,7 @@ pub fn from_slides(
                 url: None,
                 bytes: bytes.len(),
                 truncated: false,
-                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes)),
+                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes), None),
             })
             .chain(grounds.iter().map(|s| Provenance {
                 name: s.name.clone(),
@@ -1393,7 +1464,7 @@ pub fn from_slides(
                 url: scaena_sources::address(&s.name, s.kind),
                 bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
                 truncated: false,
-                figures: scaena_narrato::source_figures(&grounded_words(s)),
+                figures: scaena_narrato::source_figures(&grounded_words(s), Some(decimal)),
             }))
             .collect();
         generation.give_sources(given);
@@ -1455,7 +1526,12 @@ pub fn from_slides(
         }
         made.notes = budgeted(&write.deck).ok();
         made.slides = slides_told(&write.deck);
-        crate::create::make(dir, write)?;
+        match blank {
+            // Written over the blank deck as any edit is, the change recorded in the history
+            // deck_create began.
+            Some(blank) => crate::lint::write(&blank.bundle, write)?,
+            None => crate::create::make(dir, write)?,
+        }
     }
     Ok(made)
 }
@@ -2308,7 +2384,7 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
 
 /// Whether `text` says `claim` in its words, its marks, case, and spacing aside: a headline that
 /// states its beat's settled claim, typeset or with its full stop taken off.
-fn says(claim: &str, text: &str) -> bool {
+pub(crate) fn says(claim: &str, text: &str) -> bool {
     let claim = letters(claim);
     !claim.is_empty() && claim == letters(text)
 }
@@ -3758,6 +3834,13 @@ fn media(slide: &Slide) -> Value {
     Value::Object(m)
 }
 
+/// The decimal mark of a deck in `language`, named as a brief names it ("Spanish") or by its tag
+/// ("es"): a comma in Spanish, German, French, Italian, and Portuguese, else a point.
+pub fn decimal_of(language: Option<&str>) -> char {
+    let tag = language.map(|l| language_tag(l).unwrap_or(l));
+    scaena_core::format::Locale::of(tag).decimal.chars().next().unwrap_or('.')
+}
+
 /// The BCP 47 tag of a language the brief names by its English name.
 fn language_tag(language: &str) -> Option<&'static str> {
     Some(match scaena_narrato::brief::named(language)? {
@@ -4599,6 +4682,10 @@ fn layout_for(
         "quiz" if questions(items) && n == 3 && theme.layouts.contains_key("cards") => "cards",
         "quiz" if questions(items) => "faq",
         "quiz" => "quiz",
+        // The works cited, numbered in small type (W1's dogfood 19), never the years they were
+        // published as figures on cards.
+        "references" if theme.layouts.contains_key("references") => "references",
+        "references" => "numbered",
         "steps" if n <= 3 => "how-it-works",
         // Four steps, each in a card of its own under its number, as a deck's process is drawn.
         "steps" if n == 4 => "numbered-cards",
@@ -12406,6 +12493,51 @@ mod tests {
         assert!(left.is_empty(), "{left:#?}");
     }
 
+    /// W1's dogfood 19: a French paper's talk ends on its works cited, asked for as "References"
+    /// (here written "Références"). No layout was called that, so the slide was set as its items
+    /// read, and the years they were published stood on cards as figures. It takes the library's
+    /// References layout, its works numbered in small type as written, and Bibliography finds it
+    /// too.
+    #[test]
+    fn a_talks_works_cited_take_the_references_layout() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let works = [
+            "Bernard, A. et Lefèvre, M. (2023). Végétaliser la ville. Presses universitaires de Lyon.",
+            "Oke, T. R. (1982). The energetic basis of the urban heat island. Quarterly Journal of the Royal Meteorological Society, 108, 1–24.",
+            "Roussel, M. (2024). Capteurs à bas coût et îlots de chaleur. Revue d’écologie urbaine, 12(3), 45–61.",
+        ];
+        for asked in ["References", "Références", "Bibliography"] {
+            let text = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+                { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+                  "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"] },
+                { "slideTitle": "Références", "layoutSuggestion": asked, "keyBullets": works },
+                { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+            ]})
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.brief.language = Some("French".into());
+            let built = deck(&n, &theme, &Pictures::new()).unwrap();
+            let states = built.deck["states"].as_array().unwrap();
+            let refs = states.iter().find(|s| s["layout"] == "references").unwrap_or_else(|| {
+                panic!("{asked}: {:?}", states.iter().map(|s| s["layout"].clone()).collect::<Vec<_>>())
+            });
+            assert!(built.fell.iter().all(|f| f.asked != asked), "{asked}: {:?}", built.fell);
+            // Its works, numbered, as written, one text in the layout's place for them.
+            let nodes = &built.deck["nodes"];
+            let body = (refs["props"].as_object().unwrap().keys())
+                .map(|id| &nodes[id.as_str()])
+                .find(|n| n["at"]["in"] == "body")
+                .unwrap_or_else(|| panic!("{asked}: no body in {refs:#}"));
+            let said = body["text"].as_str().map(str::to_string).unwrap_or_else(|| {
+                (body["runs"].as_array().unwrap().iter()).filter_map(|r| r["text"].as_str()).collect::<String>()
+            });
+            assert_eq!(said.replace('\u{a0}', " "), works.join("\n"), "{asked}");
+            assert!(body["list"].as_array().unwrap().iter().all(|i| i["kind"] == "number"), "{asked}: {body:#}");
+        }
+    }
+
     #[test]
     fn a_set_of_texts_side_by_side_is_set_alike_and_as_large_as_its_places_allow() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -14520,7 +14652,7 @@ mod tests {
         let sheet = source("canopy.csv", Kind::Csv, "year,canopy_pct\n2016,31.4\n2025,25.8\n");
         let read = [pdf, sheet];
         let g = grounding(&read, Provider::Anthropic).unwrap();
-        let kept = provenance(&g.given, &read, &g.words);
+        let kept = provenance(&g.given, &read, &g.words, None);
         assert_eq!(kept[1].figures, ["25.8", "31.4", "2016", "2025"]);
         if cfg!(feature = "pdf") {
             assert!(kept[0].figures.contains(&"7560".to_string()) && kept[0].figures.contains(&"9".to_string()));
@@ -14597,7 +14729,7 @@ mod tests {
             slide.source_ref = named.map(str::to_string);
         }
         let mut n = narrative(&summary, slides);
-        n.sources = provenance(&g.given, &[], &[]);
+        n.sources = provenance(&g.given, &[], &[], None);
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let deck = write.unwrap().deck.to_value().unwrap();
         let sources = &deck["meta"]["narrative"]["sources"];
@@ -14649,7 +14781,7 @@ mod tests {
         slides.truncate(8);
         let made = |slides: Vec<Slide>| -> Vec<String> {
             let mut n = narrative(&summary, slides);
-            n.sources = provenance(&g.given, &[], &[]);
+            n.sources = provenance(&g.given, &[], &[], None);
             let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
             let deck = write.unwrap().deck.to_value().unwrap();
             let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();

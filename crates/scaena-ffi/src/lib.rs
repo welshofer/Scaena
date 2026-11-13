@@ -1253,6 +1253,41 @@ pub unsafe extern "C" fn scaena_adopt_since(
     }))
 }
 
+/// Take an edit made on `apart`, a session [`scaena_snapshot_open`] opened on `snapshot`, away
+/// from `session` (#1262's follow-up): a re-theme, which lints the whole deck in both themes,
+/// made on another thread while `session` answers on its own. Its deck, and each file it holds
+/// that `snapshot` did not, or held otherwise, fonts among them, are written into `session` as
+/// one change by `user`, said by `why`, at `at` (RFC 3339, or null), laying nothing out. Where
+/// `session` changed since `snapshot` was taken, it takes nothing. `{"ok": {"taken": bool}}` or
+/// `{"error"}`.
+///
+/// # Safety
+/// `session` is a live handle, on its own thread; `snapshot` one from [`scaena_snapshot_new`];
+/// `apart` one from [`scaena_snapshot_open`] on it, used by no other thread meanwhile; `why` a
+/// NUL-terminated string; `at` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_take_apart(
+    session: *mut ScaenaSession,
+    snapshot: *const ScaenaSnapshot,
+    apart: *const ScaenaSession,
+    why: *const c_char,
+    at: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        // SAFETY: the caller gives live handles, or null.
+        let snapshot = unsafe { snapshot.as_ref() }.ok_or_else(|| said("snapshot is null"))?;
+        let apart = unsafe { apart.as_ref() }.ok_or_else(|| said("apart is null"))?;
+        let why = unsafe { text(why, "why") }?;
+        let at = match at.is_null() {
+            true => None,
+            false => scaena_session::store::seconds(unsafe { text(at, "at") }?),
+        };
+        let taken = session.0.take_apart(&snapshot.0, &apart.0, why, at).map_err(said)?;
+        Ok(json!({ "taken": taken }))
+    }))
+}
+
 /// Let go of a save.
 ///
 /// # Safety
@@ -1938,6 +1973,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
         "digest" => json!(s.digest(arg("state")?).map_err(said)?),
+        // What a state at rest is drawn from, as a key, laying nothing out: what the slides down
+        // the side keep a drawing by, each drawn away from the window (#1262's follow-up).
+        "rest" => json!(s.rest(arg("state")?).map_err(said)?),
         // The deck as a movie of `fps` frames a second (lift-up 20261031 FUNC-2): `{frames, fps,
         // durationMs}`, refused where it would run 0 ms or past a day, as the CLI's is.
         "movie" => s.movie(fps(args, method)?).map_err(said)?,
