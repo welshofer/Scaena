@@ -602,12 +602,16 @@ fn computed(anchors: &[f64], values: &[f64], shown: &str, figure: f64) -> Option
     sums.then_some("a sum of the slide's own")
 }
 
-/// Whether `line` says a figure in it is the talk's own, a target or a plan, by an English word: a
-/// "target", a "goal", an "aim", a "plan", an "ask", a "budget", a "forecast", what "will" be, what
-/// a slide asks to "approve" or "fund", or "by" a year or a quarter, "under" or "above" a mark, or
-/// "back to" one.
-fn forward(line: &str) -> bool {
-    const WORDS: &[&str] = &[
+/// Whether `line` says a figure in it is the talk's own, a target or a plan, by a word of
+/// `language`'s. In English: a "target", a "goal", an "aim", a "plan", an "ask", a "budget", a
+/// "forecast", what "will" be, what a slide asks to "approve" or "fund", or "by" a year or a
+/// quarter, "under" or "above" a mark, or "back to" one. In German, Spanish, French, Portuguese,
+/// and Italian, their words for a goal, a plan, a budget, a forecast, an ask and its approval,
+/// what will be, and "by" a year ("bis 2026", "para 2027", "d'ici 2026"), so a deck in one of
+/// them is held to its sources as an English one is (R1's agent dogfood 13: "Wir bitten um
+/// Freigabe … für 25 weitere E-Lkw" is the talk's own ask).
+fn forward(line: &str, language: Option<&str>) -> bool {
+    const ENGLISH: &[&str] = &[
         "target",
         "targets",
         "goal",
@@ -628,11 +632,122 @@ fn forward(line: &str) -> bool {
         "approve",
         "fund",
     ];
+    const GERMAN: &[&str] = &[
+        "ziel",
+        "ziele",
+        "zielen",
+        "plan",
+        "pläne",
+        "planen",
+        "plant",
+        "geplant",
+        "budget",
+        "prognose",
+        "prognostiziert",
+        "freigabe",
+        "freigeben",
+        "bitten",
+        "beantragen",
+        "beantragt",
+        "antrag",
+        "wird",
+        "werden",
+        "soll",
+        "sollen",
+        "angestrebt",
+        "erwartet",
+    ];
+    const SPANISH: &[&str] = &[
+        "objetivo",
+        "objetivos",
+        "meta",
+        "metas",
+        "plan",
+        "planes",
+        "previsto",
+        "prevista",
+        "previstos",
+        "presupuesto",
+        "previsión",
+        "pedimos",
+        "solicitamos",
+        "aprueben",
+        "aprobar",
+        "financiar",
+        "será",
+        "serán",
+        "llegar",
+    ];
+    const FRENCH: &[&str] = &[
+        "objectif",
+        "objectifs",
+        "cible",
+        "plan",
+        "prévu",
+        "prévue",
+        "prévus",
+        "budget",
+        "prévision",
+        "demandons",
+        "approuver",
+        "approuvez",
+        "financer",
+        "sera",
+        "seront",
+        "atteindre",
+    ];
+    const PORTUGUESE: &[&str] = &[
+        "meta",
+        "metas",
+        "objetivo",
+        "objetivos",
+        "plano",
+        "previsto",
+        "prevista",
+        "orçamento",
+        "previsão",
+        "pedimos",
+        "solicitamos",
+        "aprovar",
+        "aprovem",
+        "financiar",
+        "será",
+        "serão",
+        "chegar",
+    ];
+    const ITALIAN: &[&str] = &[
+        "obiettivo",
+        "obiettivi",
+        "piano",
+        "previsto",
+        "prevista",
+        "budget",
+        "previsione",
+        "chiediamo",
+        "approvare",
+        "approvate",
+        "finanziare",
+        "sarà",
+        "saranno",
+        "raggiungere",
+    ];
+    let tag = language.map(|l| l.trim().to_lowercase()).unwrap_or_default();
+    let (words_of, by): (&[&str], &[&str]) = match tag.split(['-', '_', ' ']).next().unwrap_or_default() {
+        "de" | "deu" | "ger" | "german" | "deutsch" => (GERMAN, &["bis"]),
+        "es" | "spa" | "spanish" | "español" | "espanol" => (SPANISH, &["para", "en"]),
+        "fr" | "fra" | "fre" | "french" | "français" | "francais" => (FRENCH, &["ici"]),
+        "pt" | "por" | "portuguese" | "português" | "portugues" => (PORTUGUESE, &["até", "para"]),
+        "it" | "ita" | "italian" | "italiano" => (ITALIAN, &["entro"]),
+        _ => (ENGLISH, &["by"]),
+    };
     let words: Vec<String> = line.split(|c: char| !c.is_alphanumeric()).map(str::to_lowercase).collect();
     let mark = |w: &str| (w.len() == 4 && w.starts_with("20")) || (w.len() == 2 && w.starts_with('q'));
-    words.iter().any(|w| WORDS.contains(&w.as_str()))
-        || words.windows(2).any(|w| (w[0] == "by" && mark(&w[1])) || (w[0] == "back" && w[1] == "to"))
-        || words.iter().any(|w| w == "under" || w == "above")
+    let english = std::ptr::eq(words_of, ENGLISH);
+    words.iter().any(|w| words_of.contains(&w.as_str()))
+        || words
+            .windows(2)
+            .any(|w| (by.contains(&w[0].as_str()) && mark(&w[1])) || (english && w[0] == "back" && w[1] == "to"))
+        || (english && words.iter().any(|w| w == "under" || w == "above"))
 }
 
 fn figures(text: &str) -> Vec<Figure> {
@@ -3356,7 +3471,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let planned: Vec<(String, String)> = (read.iter())
         .flat_map(|s| {
             let shown = format!("{}\n{}", s.title, s.body);
-            (shown.lines().filter(|l| forward(l)))
+            (shown.lines().filter(|l| forward(l, language)))
                 .flat_map(|l| figures(l).into_iter().map(|f| (f.value, f.unit)))
                 .collect::<Vec<_>>()
         })
@@ -3392,8 +3507,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None => {
                     let line = shown.lines().find(|l| l.contains(&f.shown)).unwrap_or_default();
                     let value = scaena_narrato::figures(&f.shown).first().copied()?;
-                    let own = !english
-                        || forward(line)
+                    let own = forward(line, language)
                         || planned.contains(&(f.value.clone(), f.unit.clone()))
                         || known.iter().any(|(value, _)| *value == f.value)
                         || code.contains(&f.shown)
@@ -4725,6 +4839,13 @@ mod tests {
         // report alone. (Slide 4 says it too, but names the sheet in its chart's note, which cites it.)
         let mut five = es.clone();
         five["nodes"]["las-12-fuentes-sirvieron-66-400-first"]["text"] = json!("litros servidos; 18.400 en julio");
+        // Its headline's 66.400 is the sheet's column summed, which the sheet keeps (R1's agent
+        // dogfood 13), and is found first where the slide cites the report alone; taken away,
+        // July's 18.400 is what is found.
+        five["nodes"]["las-12-fuentes-sirvieron-66-400-header"]["text"] =
+            json!("Las fuentes del piloto sirvieron todo el verano");
+        five["nodes"]["las-12-fuentes-sirvieron-66-400-first-title"]["text"] = json!("18.400");
+        five["spine"]["sections"][2]["beats"][1]["claim"] = json!("Las fuentes del piloto sirvieron todo el verano");
         cite(&mut five, 2, 1, json!(["source:informe.pdf"]));
         let said = found(&five, 5).unwrap_or_default();
         assert!(
@@ -4743,6 +4864,20 @@ mod tests {
         for report in [spanish, english] {
             assert_eq!(found(&kept(report), 6), None, "{report}");
         }
+        // A figure no source holds is found in a deck not in English too (R1's agent dogfood 13:
+        // a German board deck's 87 %, cited to the annual report, went unfound): slide 6's points
+        // say 4.100 € where the report says 3.800 €.
+        let mut costs = es.clone();
+        costs["nodes"]["cada-fuente-cuesta-3-800-body"]["text"] =
+            json!("4.100\u{a0}€ por fuente instalada\n410\u{a0}€ al año de mantenimiento");
+        assert_eq!(
+            found(&costs, 6).as_deref(),
+            Some("Slide 6 writes 4.100\u{a0}€ and cites informe.pdf, which does not hold it.")
+        );
+        // Said as a plan in the deck's own words, it is the talk's own, as "planned" is in English.
+        costs["nodes"]["cada-fuente-cuesta-3-800-body"]["text"] =
+            json!("4.100\u{a0}€ previstos por fuente en 2027\n410\u{a0}€ al año de mantenimiento");
+        assert_eq!(found(&costs, 6), None);
     }
 
     /// A figure a slide cites to a source the deck keeps, which does not hold it, while another it
@@ -4839,7 +4974,7 @@ mod tests {
     /// holds, is found, and the editors offer Cite a source… for it (W1's dogfood 18: "from 14 to 6
     /// minutes", cited to hyperfine.md, raised nothing). A figure is the talk's own, and no
     /// finding, where it works out from a figure the slide writes that its sources hold (a change,
-    /// a share, a difference), where its words make it a target or a plan, in an English deck, or
+    /// a share, a difference), where its words make it a target or a plan, in the deck's language, or
     /// where a slide before it wrote it.
     #[test]
     fn a_figure_no_kept_source_holds_is_found_unless_the_talk_works_it_out_or_plans_it() {
@@ -4908,10 +5043,26 @@ mod tests {
         assert_eq!(said(&asked, priced), [], "the close asks for it");
         asked["nodes"]["thank-you-statement"]["text"] = json!("We ask the council to fund 2.4 miles of new beds.");
         assert_eq!(said(&asked, priced).len(), 1, "a plan of 2.4 in another unit plans none of it");
-        // A deck in another language is not read for its targets, so is found for none.
+        // A deck in another language is held to its sources as an English one is, its targets
+        // read in its own words (R1's agent dogfood 13: a German deck's 87 %, which no source
+        // holds, went unfound, since such a deck took every figure as its own).
         let mut german = deck.clone();
         german["meta"]["lang"] = json!("de");
-        assert_eq!(said(&german, "Eastside lost 87 street trees last spring."), []);
+        let gesagt = |words: &str| -> Vec<String> {
+            let mut deck = german.clone();
+            let node = deck["nodes"]["riverton-has-lost-a-fifth-support"].as_object_mut().unwrap();
+            node.remove("runs");
+            let text = format!("Der Schatten fiel von 31,4 % der Stadt 2016 auf 25,8 % 2025. {words}");
+            node.insert("text".into(), json!(text));
+            (of(&deck).findings.into_iter())
+                .filter(|f| f.kind == Kind::Source && f.slide == 2)
+                .map(|f| f.says)
+                .collect()
+        };
+        assert_eq!(gesagt(""), Vec::<String>::new(), "31,4 % and 25,8 % read in the deck's marks");
+        let lost = gesagt("Im Frühjahr fielen im Osten 87 Straßenbäume.");
+        assert!(lost.len() == 1 && lost[0].starts_with("Slide 2 writes 87"), "{lost:?}");
+        assert_eq!(gesagt("Ziel: 87 neue Straßenbäume bis 2040."), Vec::<String>::new(), "a goal is the talk's own");
         // A deck that keeps no source's figures, made before 0.41, reads as it did.
         for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
             s.as_object_mut().unwrap().remove("figures");

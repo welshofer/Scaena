@@ -254,13 +254,66 @@ pub fn source_figures(text: &str, deck: Option<char>) -> Vec<String> {
     let own = decimal_mark(text);
     let (words, cells) = (own.or(deck).unwrap_or('.'), own.unwrap_or('.'));
     let mut values: Vec<f64> = Vec::new();
+    // A sheet's columns as its rows of cells write them, each cell's one figure: a column that
+    // writes one in each row but its header keeps its total too, which a slide says ("412
+    // Mitarbeitende" over four sites' 148, 112, 96, and 56; R1's agent dogfood 13); a column of
+    // years keeps none. A table ends where its rows do, at a line of words or a row of another
+    // width, so each sheet of a workbook is summed apart.
+    let years = |c: &Vec<f64>| c.iter().all(|v| v.fract() == 0.0 && (1900.0..=2100.0).contains(v));
+    // A share or a rate summed down its column is no figure: a column so headed keeps no total.
+    const RATES: [&str; 14] = [
+        "pct",
+        "percent",
+        "%",
+        "rate",
+        "ratio",
+        "share",
+        "anteil",
+        "quote",
+        "marge",
+        "margin",
+        "porcentaje",
+        "taux",
+        "tasa",
+        "avg",
+    ];
+    let rated = |head: &str| {
+        let head = head.to_lowercase();
+        RATES.iter().any(|r| head.contains(r))
+    };
+    let totals = |columns: &[Vec<f64>], heads: &[String], rows: usize, values: &mut Vec<f64>| {
+        for (k, column) in columns.iter().enumerate() {
+            let head = heads.get(k).map(String::as_str).unwrap_or_default();
+            if column.len() >= 2 && column.len() + 1 >= rows && !years(column) && !rated(head) {
+                values.push((column.iter().sum::<f64>() * 1e9).round() / 1e9);
+            }
+        }
+    };
+    let (mut columns, mut heads, mut rows): (Vec<Vec<f64>>, Vec<String>, usize) = (Vec::new(), Vec::new(), 0);
     for line in text.lines() {
         let cut = split_cells(line, cells);
-        match cut.len() > 1 && cut.iter().all(|c| c.split_whitespace().count() <= 4) {
-            true => cut.iter().for_each(|cell| values.extend(figures_in_marks(cell, cells))),
+        let row = cut.len() > 1 && cut.iter().all(|c| c.split_whitespace().count() <= 4);
+        if !row || cut.len() != columns.len() {
+            totals(&columns, &heads, rows, &mut values);
+            columns = if row { vec![Vec::new(); cut.len()] } else { Vec::new() };
+            heads = if row { cut.iter().map(|c| c.trim().to_string()).collect() } else { Vec::new() };
+            rows = 0;
+        }
+        match row {
+            true => {
+                rows += 1;
+                for (k, cell) in cut.iter().enumerate() {
+                    let read = figures_in_marks(cell, cells);
+                    if let [one] = read.as_slice() {
+                        columns[k].push(*one);
+                    }
+                    values.extend(read);
+                }
+            }
             false => values.extend(figures_in_marks(line, words)),
         }
     }
+    totals(&columns, &heads, rows, &mut values);
     values.sort_unstable_by(f64::total_cmp);
     values.dedup();
     match values.len() > MOST_FIGURES {
@@ -1201,7 +1254,7 @@ mod tests {
     #[test]
     fn a_source_keeps_its_figures_and_never_a_row_read_as_one() {
         let csv = "jahr,restmuell_t,gebuehr_eur_t\n2021,182000,48\n2022,186500,52\n";
-        assert_eq!(source_figures(csv, None), ["48", "52", "2021", "2022", "182000", "186500"]);
+        assert_eq!(source_figures(csv, None), ["48", "52", "100", "2021", "2022", "182000", "186500", "368500"]);
         let prose = "Over ten years the city removed 7,560 street trees and planted 4,370, 9 degrees hotter.";
         assert_eq!(source_figures(prose, None), ["9", "4370", "7560"]);
         // A CSV's line that is a sentence with commas in it reads as words, not as its cells: its
@@ -1228,13 +1281,23 @@ mod tests {
         // A sheet's cells say nothing of marks: read plainly, whatever the deck's language.
         let csv = "mes,litros\n2025-05,6200\n2025-07,18400\n";
         assert_eq!(decimal_mark(csv), None);
-        assert_eq!(source_figures(csv, Some(',')), ["5", "7", "2025", "6200", "18400"]);
+        assert_eq!(source_figures(csv, Some(',')), ["5", "7", "2025", "6200", "18400", "24600"]);
         // Small figures in a row's cells are its cells, never a decimal: "1,2" tells nothing.
         assert_eq!(decimal_mark("a,1,2\nb,3,4\n"), None);
         // A sheet that writes its decimals with a comma, its cells between semicolons.
         let semi = "mes;litros;max\nmayo;6.200;38,5\njulio;18.400;46,2\n";
         assert_eq!(decimal_mark(semi), Some(','));
-        assert_eq!(source_figures(semi, None), ["38.5", "46.2", "6200", "18400"]);
+        assert_eq!(source_figures(semi, None), ["38.5", "46.2", "84.7", "6200", "18400", "24600"]);
+        // A column that writes a figure in each row keeps its total, which a slide says (R1's
+        // agent dogfood 13: 412 staff over four sites); one that does not, as a date's, none.
+        let sites = "Standort,Mitarbeitende,Umsatz_TEUR\nHamburg,148,18900\nBremen,112,13600\nHannover,96,10400\nKiel,56,5700\n";
+        let kept = source_figures(sites, Some(','));
+        assert!(kept.contains(&"412".to_string()) && kept.contains(&"48600".to_string()), "{kept:?}");
+        let two = format!("Umsatz\nMonat,Umsatz\n2025-01,3650\n2025-02,3720\nStandorte\n{sites}");
+        let kept = source_figures(&two, Some(','));
+        assert!(kept.contains(&"412".to_string()) && kept.contains(&"7370".to_string()), "each sheet apart: {kept:?}");
+        let gap = "a,b\nx,1\ny,\nz,3\n";
+        assert!(!source_figures(gap, None).contains(&"4".to_string()), "a column with a cell empty keeps no total");
         // Nothing told: the words are read in the deck's mark, a sheet's cells plainly.
         assert_eq!(source_figures("Cuesta 3.800 €.", Some(',')), ["3800"]);
         assert_eq!(source_figures("Costs 3.800 €.", Some('.')), ["3.8"]);
