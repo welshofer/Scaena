@@ -20,7 +20,7 @@ import Testing
     let away = try await editor.themeEditAway(.ops(AThemeEdit.paper("#2B1B3D")))
     let made = try #require(away, "the theme edit was made")
     editor.themedOn = nil
-    let main = try #require(themedOn.taken, "the theme edit ran")
+    let main = try #require(themedOn.taken as Bool?, "the theme edit ran")
     #expect(!main, "made on the main thread")
 
     #expect(made.edited.applied && made.source == nil, "a color edits the theme alone")
@@ -106,4 +106,23 @@ private final class ThemedOn: @unchecked Sendable {
     init(editor: DeckEditor) {
         self.editor = editor
     }
+}
+
+/// A theme's JSON is decoded once, as its text is read (#1262): the Theme panel reads it for each
+/// row it draws, and a shipped theme, its 181 layouts among it, decoded again for each kept the
+/// window from answering after every edit. Ten thousand reads of a shipped theme take no time
+/// that decoding it each time would.
+@Test func aThemesJSONIsDecodedOnceAsItsTextIsRead() throws {
+    let session = try ScaenaSession.create(theme: "Dusk", title: "Theme reads")
+    let text = try #require(try session.themeText())
+    let layouts = try #require(text.json?["layouts"]?.object)
+    #expect(layouts.count > 100, "a shipped theme carries its layout library: \(layouts.count)")
+    let clock = ContinuousClock()
+    let decodeOnce = clock.measure { _ = try? JSONDecoder().decode(JSONValue.self, from: Data(text.text.utf8)) }
+    var read = 0
+    let reads = clock.measure {
+        for _ in 0..<10_000 where text.json?["tokens"] != nil { read += 1 }
+    }
+    #expect(read == 10_000)
+    #expect(reads < decodeOnce * 50, "10,000 reads took \(reads), one decode \(decodeOnce)")
 }

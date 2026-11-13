@@ -86,8 +86,10 @@ struct ThemePanel: View {
             Section("Code") {
                 // Each kind of code token in the color it is drawn in: one the theme names, or one the
                 // accent derives where it names none (PLAN 2.144).
+                // The theme's color names worked out once for the rows, not again for each.
+                let names = colorNames
                 ForEach(codes) { code in
-                    CodeRow(code: code, said: Words.syntax(code.kind), names: colorNames) { value in
+                    CodeRow(code: code, said: Words.syntax(code.kind), names: names) { value in
                         let ops = CodeColor.coloring(code.kind, value, in: theme)
                         guard !ops.isEmpty else { return false }
                         return await edit(ops, "\(Words.syntax(code.kind)) Color")
