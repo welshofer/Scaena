@@ -13118,7 +13118,7 @@ mod tests {
         assert_eq!(decimals(&chart(&[48.0, 52.0, 71.0])), 0);
         assert_eq!(decimals(&chart(&[0.1 + 0.2])), 1, "a float's noise is no place written");
         assert_eq!(decimals(&chart(&[1.4826])), 4);
-        assert_eq!(decimals(&chart(&[3.14159265])), 4, "rounded past the fourth place");
+        assert_eq!(decimals(&chart(&[1.234_56])), 4, "rounded past the fourth place");
         assert_eq!(at_places(2.275, decimals(&chart(&[2.275, 0.232])), None, "en"), "2.275");
     }
 
