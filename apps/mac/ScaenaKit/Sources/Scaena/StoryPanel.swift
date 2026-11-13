@@ -176,7 +176,7 @@ struct StoryPanel: View {
                 answered = said
             }
             health = read.health
-            open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health.findings)
+            open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health)
             asLastRead = read.asLastRead
             if !read.asLastRead { grounded = (try? editor.session.grounded()) ?? [] }
             why = nil

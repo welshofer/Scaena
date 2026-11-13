@@ -13,6 +13,9 @@ struct DataPanel: View {
     @State private var chosen: String?
     @State private var sheet: Sheet?
     @State private var problem: String?
+    /// What the last edit did that the window says beside the table: a figure that quotes the data
+    /// no more, with the undo that brings it back, as the browser's Data tab says it.
+    @State private var said: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -40,7 +43,11 @@ struct DataPanel: View {
                     HStack {
                         Button("Add Row") { change(name, [.add(row: nil, values: [:])], file: sheet.file) }
                         Spacer()
-                        if let problem { Text(problem).font(.caption).foregroundStyle(.red).lineLimit(2) }
+                        if let problem {
+                            Text(problem).font(.caption).foregroundStyle(.red).lineLimit(2)
+                        } else if let said {
+                            Text(said).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                        }
                     }
                     .padding(8)
                 } else if let problem {
@@ -117,14 +124,18 @@ struct DataPanel: View {
     /// written inline, the source's.
     private func change(_ name: String, _ rows: [RowEdit], file: String?) {
         let session = editor.session
+        var dropped: [String] = []
         let made = { () throws -> Void in
             let edited = try session.dataEdit(name, rows)
             guard edited.edited else {
                 let source = Words.source(name, file: file)
                 throw Refused("\(source) not changed", edited.refusals, by: editor, otherwise: "it reads so already")
             }
+            dropped = edited.unquoted
         }
         problem = nil
+        said = nil
+        defer { if !dropped.isEmpty { said = "\(dropped.joined(separator: "; ")) · ⌘Z brings it back" } }
         if file == nil {
             edits.beside("Data Change") {
                 try made()

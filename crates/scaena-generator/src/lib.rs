@@ -611,7 +611,7 @@ impl Generation {
     }
 
     /// The notes an answer to `notesRequest` gives, JSON `{ notes: [[slide, notes]], dropped?:
-    /// [[slide, why]] }`: the notes what `Making.noted` takes, and each slide whose notes were
+    /// [[slide, why]], cut?: [[slide, sentence]] }`: the notes what `Making.noted` takes, and each slide whose notes were
     /// not taken, with why, which `notesSaid` says (W1's dogfood 6).
     #[wasm_bindgen(js_name = notesAnswer)]
     pub fn notes_answer(&self, status: u16, status_text: &str, body: &str, spoken: &str) -> Result<String, JsError> {
@@ -621,12 +621,18 @@ impl Generation {
     }
 
     /// The slides `dropped` (JSON `[[slide, why]]`, every round's) says were not taken, in a
-    /// sentence, with what each keeps of `spoken` (`Making.speaking`'s); none where none was.
+    /// sentence, with what each keeps of `spoken` (`Making.speaking`'s), and each sentence `cut`
+    /// (JSON `[[slide, sentence]]`, every round's) from the notes kept (W1's dogfood 17); none
+    /// where none was.
     #[wasm_bindgen(js_name = notesSaid)]
-    pub fn notes_said(&self, dropped: &str, spoken: &str) -> Result<Option<String>, JsError> {
+    pub fn notes_said(&self, dropped: &str, spoken: &str, cut: Option<String>) -> Result<Option<String>, JsError> {
         let dropped: Vec<(usize, scaena_narrato::notes::Dropped)> = serde_json::from_str(dropped).map_err(error)?;
         let spoken: Vec<scaena_narrato::notes::Spoken> = serde_json::from_str(spoken).map_err(error)?;
-        Ok(scaena_narrato::notes::said(&dropped, &spoken))
+        let cut: Vec<(usize, String)> = match cut {
+            Some(cut) => serde_json::from_str(&cut).map_err(error)?,
+            None => Vec::new(),
+        };
+        Ok(scaena_narrato::notes::said(&dropped, &cut, &spoken))
     }
 
     /// The rewrites an answer to `fitRequest` gives, JSON `[[id, text]]`, each shorter than the

@@ -4,8 +4,9 @@
 //! the fit is ([`crate::fit`]): Narrato asks for a few bullets of notes a slide, which carry a
 //! third of the talk its brief's slot holds, and never bridge one slide to the next.
 //!
-//! The model writes notes only: no slide's words, layout, or figures change, and notes that
-//! write a figure neither the slide nor its draft writes are not taken.
+//! The model writes notes only: no slide's words, layout, or figures change, and a sentence of
+//! notes that writes a figure neither the slide, its draft, nor the deck's sources write is cut
+//! from them; notes that come to too little without it are not taken.
 
 use crate::duration;
 use serde::{Deserialize, Serialize};
@@ -233,9 +234,89 @@ fn characters(words: usize) -> usize {
 /// Whether every figure `now` writes is one `given` writes: notes may say a figure again, and
 /// never one the slide and its draft do not (REL-2). A name's digits are no figure (W1's dogfood
 /// 8): notes may name "Route 9" or "Q3" where the slides beside them do not.
-fn figures_given(given: &str, now: &str) -> bool {
+fn figures_given(given: &str, now: &str, held: &Held) -> bool {
     let known = crate::figures(given);
-    crate::figures(&unnamed(now)).iter().all(|f| known.contains(f))
+    crate::figures(&unnamed(now)).iter().all(|f| known.contains(f) || held.holds(*f))
+}
+
+/// The figures the deck's sources hold (W1's dogfood 17): notes may say one of them though no
+/// slide writes it, since the talk stands on its sources. Read from their words, and from each
+/// cell of a sheet's rows, so a CSV's `2016,30.1` holds 2016 and 30.1.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Held(Vec<f64>);
+
+impl Held {
+    /// The figures `text` holds: its words', and each cell's where a line is a sheet's row.
+    pub fn of(text: &str) -> Held {
+        let mut held = Held::default();
+        held.add(text);
+        held
+    }
+
+    /// `text`'s figures added to these.
+    pub fn add(&mut self, text: &str) {
+        for line in text.lines() {
+            self.0.extend(crate::figures(line));
+            if line.contains([',', ';', '\t']) {
+                for cell in line.split([',', ';', '\t']) {
+                    self.0.extend(crate::figures(cell));
+                }
+            }
+        }
+        self.0.sort_unstable_by(f64::total_cmp);
+        self.0.dedup();
+    }
+
+    fn holds(&self, figure: f64) -> bool {
+        self.0.binary_search_by(|f| f.total_cmp(&figure)).is_ok()
+    }
+}
+
+/// `text` as its sentences, each with the spaces after it: a sentence ends at `.`, `!`, or `?`
+/// before a space or the end, or at a full stop of a script set without spaces.
+fn sentences(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let next = chars.peek().map(|&(_, n)| n);
+        let ends = match c {
+            '\u{3002}' | '\u{ff01}' | '\u{ff1f}' => true,
+            '.' | '!' | '?' => next.is_none_or(char::is_whitespace),
+            _ => false,
+        };
+        if !ends {
+            continue;
+        }
+        let mut end = i + c.len_utf8();
+        while let Some(&(j, w)) = chars.peek() {
+            if !w.is_whitespace() {
+                break;
+            }
+            end = j + w.len_utf8();
+            chars.next();
+        }
+        out.push(&text[start..end]);
+        start = end;
+    }
+    if start < text.len() {
+        out.push(&text[start..]);
+    }
+    out
+}
+
+/// `said` without each sentence that writes a figure neither `given` nor `held` does, and those
+/// sentences, each trimmed (W1's dogfood 17): one figure costs its sentence, not the notes.
+fn unfigured(given: &str, said: &str, held: &Held) -> (String, Vec<String>) {
+    let (mut kept, mut cut) = (String::new(), Vec::new());
+    for sentence in sentences(said) {
+        if figures_given(given, sentence, held) {
+            kept.push_str(sentence);
+        } else {
+            cut.push(sentence.trim().to_string());
+        }
+    }
+    (kept.trim_end().to_string(), cut)
 }
 
 /// Words that size an amount: a number after one is a figure, never a name's.
@@ -360,10 +441,22 @@ pub struct Read {
     pub notes: Vec<(usize, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dropped: Vec<(usize, Dropped)>,
+    /// Each sentence cut from the notes kept for a slide, by its slide: one that writes a figure
+    /// neither the slide nor the deck's sources do (W1's dogfood 17).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut: Vec<(usize, String)>,
 }
 
 /// [`read`], with each slide of `spoken` whose notes were not taken, and why.
 pub fn read_all(text: &str, spoken: &[Spoken]) -> Result<Read, String> {
+    read_held(text, spoken, &Held::default())
+}
+
+/// [`read_all`], each figure `held` holds, the deck's sources', counted as written: a sentence
+/// with a figure neither its slide nor its sources write is cut from the notes, and the notes
+/// are kept without it where what is left runs to their length (W1's dogfood 17), each sentence
+/// cut said in [`Read::cut`]; else they are not taken, for the figure.
+pub fn read_held(text: &str, spoken: &[Spoken], held: &Held) -> Result<Read, String> {
     let start = text.find('{').ok_or("the answer holds no JSON object")?;
     let end = text.rfind('}').ok_or("the answer holds no JSON object")?;
     let value: Value =
@@ -379,19 +472,25 @@ pub fn read_all(text: &str, spoken: &[Spoken]) -> Result<Read, String> {
         if read.notes.iter().any(|(k, _)| *k == slide) {
             continue;
         }
-        let n = counted(&said);
         let given = [s.title.as_str(), &s.words.join("\n"), &s.claim, &s.draft, &s.before, &s.after].join("\n");
+        let (kept, cut) = unfigured(&given, &said, held);
+        // Too short or too long as the model wrote them is the notes' own; too short once a
+        // figure's sentences are cut, the figure's.
+        let n = counted(&said);
         let dropped = if n * 2 < s.budget {
             Some(Dropped::Short)
         } else if n > s.budget * 2 {
             Some(Dropped::Long)
-        } else if !figures_given(&given, &said) {
+        } else if !cut.is_empty() && counted(&kept) * 2 < s.budget {
             Some(Dropped::Figure)
         } else {
             None
         };
         match dropped {
-            None => read.notes.push((slide, said)),
+            None => {
+                read.notes.push((slide, kept));
+                read.cut.extend(cut.into_iter().map(|c| (slide, c)));
+            }
             Some(d) if !why.iter().any(|(k, _)| *k == slide) => why.push((slide, d)),
             Some(_) => {}
         }
@@ -424,7 +523,9 @@ fn slides_said(slides: &[usize]) -> String {
 /// The slides whose notes `dropped` says were not taken, in a sentence a person reads (W1's
 /// dogfood 6): each reason with its slides, and what each slide keeps, the notes Narrato drafted
 /// for it where `spoken` gives one, else none. None where every slide's notes were taken.
-pub fn said(dropped: &[(usize, Dropped)], spoken: &[Spoken]) -> Option<String> {
+/// Each slide whose notes were kept with sentences `cut` from them follows, by the sentences cut
+/// (W1's dogfood 17).
+pub fn said(dropped: &[(usize, Dropped)], cut: &[(usize, String)], spoken: &[Spoken]) -> Option<String> {
     let mut parts = Vec::new();
     for (reason, plural) in [
         (Dropped::Short, "too short for their share of the talk"),
@@ -451,6 +552,27 @@ pub fn said(dropped: &[(usize, Dropped)], spoken: &[Spoken]) -> Option<String> {
             _ => format!("Narrato's drafts kept on {}, {} without notes", slides_said(&kept), slides_said(&none)),
         };
         parts.push(format!("{}'s notes {why}, {keeps}", slides_said(&slides)));
+    }
+    let mut slides: Vec<usize> = cut.iter().map(|(k, _)| *k).collect();
+    slides.sort_unstable();
+    slides.dedup();
+    for k in slides {
+        let each: Vec<String> = (cut.iter().filter(|(c, _)| *c == k))
+            .map(|(_, sentence)| {
+                let short: String = sentence.chars().take(79).collect();
+                if short.len() < sentence.len() {
+                    let short = short.trim_end_matches(|c: char| c.is_whitespace() || c == ',');
+                    format!("\u{201c}{short}\u{2026}\u{201d}")
+                } else {
+                    format!("\u{201c}{sentence}\u{201d}")
+                }
+            })
+            .collect();
+        let what = match each.len() {
+            1 => "a sentence with a figure the slide does not write".to_string(),
+            n => format!("{n} sentences with figures the slide does not write"),
+        };
+        parts.push(format!("slide {k}'s notes kept without {what}: {}", each.join(", ")));
     }
     let mut said = parts.join("; ");
     if let Some(first) = said.get_mut(0..1) {
@@ -638,8 +760,20 @@ mod tests {
         let notes = "Kansas City saw 12% more riders in a year. I tell the council what this means for the people who ride Route 9 every day, why it matters to this budget, and what the next slide answers.";
         let answer = |n: &str| json!({ "notes": [{ "slide": 8, "notes": n }] }).to_string();
         assert_eq!(read(&answer(notes), &s).unwrap(), vec![(8, notes.to_string())]);
+        // A figure of their own costs its sentence (W1's dogfood 17): the rest runs to their
+        // length, and is kept without it.
         let more = notes.replace("in a year", "in a year, and 30% more in two");
-        assert_eq!(read_all(&answer(&more), &s).unwrap().dropped, vec![(8, Dropped::Figure)]);
+        let read = read_all(&answer(&more), &s).unwrap();
+        let rest = notes.split_once(". ").unwrap().1;
+        assert_eq!(read.notes, vec![(8, rest.to_string())]);
+        assert_eq!(read.cut, vec![(8, "Kansas City saw 12% more riders in a year, and 30% more in two.".to_string())]);
+        assert!(read.dropped.is_empty(), "{:?}", read.dropped);
+        // Where the sentence is most of them, what is left is too little: not taken, for it.
+        let most = format!(
+            "{} I tell the council why.",
+            more.split_once(". ").unwrap().0.replace("riders", &vec!["riders"; 40].join(" "))
+        );
+        assert_eq!(read_all(&answer(&most), &s).unwrap().dropped, vec![(8, Dropped::Figure)]);
         // Where the digits are a name's, and where they are a figure.
         assert_eq!(
             unnamed("ride Route 9 every day, in Q3 2026 and FY26"),
@@ -649,6 +783,44 @@ mod tests {
             unnamed("Revenue 12% and Page 3.5; Over 500 riders, and About 40"),
             "Revenue 12% and Page 3.5; Over 500 riders, and About 40"
         );
+    }
+
+    /// W1's dogfood 17: every slide's notes carried one sentence with a year no slide wrote,
+    /// and every slide lost its notes. That sentence alone is cut, and a figure the deck's
+    /// sources hold, in their words or a sheet's cells, counts as written.
+    #[test]
+    fn a_figure_costs_its_sentence_and_the_sources_figures_count() {
+        let s = vec![Spoken {
+            slide: 4,
+            title: "About 450 trees planted a year".into(),
+            words: vec!["Riverton plants about 450 street trees a year".into()],
+            budget: 40,
+            ..Spoken::default()
+        }];
+        let notes = "Riverton plants about 450 trees a year, and loses more than it plants. By 2041 the canopy would be gone at this rate. The plan on the next slide turns that around, street by street, and starts with the neighborhoods that are hottest now.";
+        let answer = json!({ "notes": [{ "slide": 4, "notes": notes }] }).to_string();
+        let read = read_all(&answer, &s).unwrap();
+        assert_eq!(
+            read.notes,
+            vec![(4, notes.replace("By 2041 the canopy would be gone at this rate. ", ""))],
+            "the sentence with 2041 alone is cut"
+        );
+        assert_eq!(read.cut, vec![(4, "By 2041 the canopy would be gone at this rate.".to_string())]);
+        assert_eq!(
+            said(&read.dropped, &read.cut, &s).unwrap(),
+            "Slide 4's notes kept without a sentence with a figure the slide does not write: \u{201c}By 2041 the canopy would be gone at this rate.\u{201d}"
+        );
+        // A figure the sources write is written: in a report's words, or a sheet's cells, the
+        // CSV's 2041 among its years, its commas no group of the figures.
+        for source in ["The report projects the canopy gone by 2041.", "year,canopy_pct\n2025,25.8\n2041,0"] {
+            let read = read_held(&answer, &s, &Held::of(source)).unwrap();
+            assert_eq!((read.notes, read.cut), (vec![(4, notes.to_string())], vec![]), "{source}");
+        }
+        let cells = Held::of("year,pct\n2025,25.8");
+        assert!(cells.holds(2025.0) && cells.holds(25.8) && !cells.holds(2026.0));
+        // Sentences end at a stop before a space, never inside a figure.
+        assert_eq!(sentences("It is 6.2 million. Then? Yes!"), ["It is 6.2 million. ", "Then? ", "Yes!"]);
+        assert_eq!(sentences("本当です。次へ"), ["本当です。", "次へ"]);
     }
 
     /// Each slide whose notes were not taken says why, and what it keeps (W1's dogfood 6).
@@ -671,17 +843,17 @@ mod tests {
         }
         let n = all.len();
         assert_eq!(
-            said(&read.dropped, &s).unwrap(),
+            said(&read.dropped, &read.cut, &s).unwrap(),
             format!("Slides 1\u{2013}{n}'s notes too short for their share of the talk, each left without notes")
         );
         // Each its own reason, one kept, and the drafts said only where there are some.
         s[0].draft = "Open on the record year.".into();
         let read = read_all(&answer(&[(1, words(5, "")), (2, words(170, "It is 1.5°C."))]), &s).unwrap();
         assert_eq!(read.dropped[..2], [(1, Dropped::Short), (2, Dropped::Figure)]);
-        let told = said(&read.dropped, &s).unwrap();
+        let told = said(&read.dropped, &read.cut, &s).unwrap();
         assert!(told.starts_with("Slide 1's notes too short for its share of the talk, Narrato's drafts kept; slide 2's notes with a figure the slide does not write, left without notes"), "{told}");
         // Every slide's taken: nothing to say.
-        assert_eq!(said(&[], &s), None);
+        assert_eq!(said(&[], &[], &s), None);
         assert_eq!(slides_said(&[2, 4, 6]), "slides 2, 4 and 6");
     }
 }
