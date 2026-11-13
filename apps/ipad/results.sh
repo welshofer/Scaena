@@ -41,6 +41,9 @@ if cases:
     for took, name, result in sorted(cases, reverse=True):
         print("%8.1f s  %s  %s" % (took, name, result))
 ' || echo "no test durations in $results"
+# Where the slowest tests' time went, step by step, as XCTest's activities say: the wait for the
+# app to go idle, a query's snapshot, a wait of the test's own (scripts/ui_steps.py).
+python3 "$(dirname "$0")/../../scripts/ui_steps.py" "$results" 6 || echo "no steps read from $results"
 xcrun xcresulttool get log --path "$results" --type console 2>/dev/null | grep -oE "gate [0-9], criterion [0-9].*|skipping: .*"
 if [ -n "${2:-}" ]; then
   rm -rf "$2"

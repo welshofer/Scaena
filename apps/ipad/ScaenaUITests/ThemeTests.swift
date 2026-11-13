@@ -248,21 +248,20 @@ private func scrollPanel(
 @MainActor
 private func panelList(in app: XCUIApplication) -> XCUIElement? {
     let window = app.windows.firstMatch.frame
-    let lists = app.collectionViews
-    let at = (0..<lists.count).first { i in
-        let frame = lists.element(boundBy: i).frame
-        return frame.minX > window.midX && frame.minY < window.maxY
+    // Each list's frame read from one snapshot of the app, in the order the query lists them, not
+    // each list found again for its frame.
+    let at = snapshotted(app, kinds: [.collectionView]).firstIndex { one in
+        one.frame.minX > window.midX && one.frame.minY < window.maxY
     }
-    return at.map { lists.element(boundBy: $0) }
+    return at.map { app.collectionViews.element(boundBy: $0) }
 }
 
 /// How far the panel has scrolled, as its scroll bar says it.
 @MainActor
 private func scrolled(_ app: XCUIApplication) -> String {
-    let bar = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Vertical scroll bar'"))
-    let said = (0..<bar.count).map { i -> String in
-        let one = bar.element(boundBy: i)
-        return "\(one.label) at \(one.value as? String ?? "?")"
-    }
+    // Every scroll bar read from one snapshot of the app, not each found again for its label and
+    // again for its value.
+    let said = snapshotted(app).filter { $0.label.hasPrefix("Vertical scroll bar") }
+        .map { one in "\(one.label) at \(one.value as? String ?? "?")" }
     return said.isEmpty ? "no scroll bar shown" : said.joined(separator: "; ")
 }
