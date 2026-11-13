@@ -1249,7 +1249,7 @@ fn verb(word: &str) -> bool {
 /// with no verb, no figure, and no question ("Some history"); and under it a sentence of five
 /// words or more with a verb, not a question, a voice quoted, or a card's parts health joins with
 /// a dash. A figure's slide, and one whose headline names what it holds by design, has none.
-fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth, title: &str) -> Option<String> {
+fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth, title: &str) -> Option<(String, bool)> {
     let layout = slide.states.iter().find_map(|&k| deck.states[k].layout.as_deref()).unwrap_or_default();
     if FIGURES.contains(&layout) || NAMED.contains(&layout) || layout.contains("quote") || layout.starts_with("team") {
         return None;
@@ -1272,11 +1272,13 @@ fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth, title: &str) -> Option
             && !quoted
             && words.iter().any(|w| verb(w))
     };
-    // Where the beat keeps a claim, the heading shown is in the body; it is not under itself.
+    // Where the beat keeps a claim, the heading shown is in the body; it is not under itself. A
+    // line a list sets is one of its items, which the headline it becomes is to leave (W1's
+    // dogfood 17: said again, it stood twice).
     (s.body.lines())
-        .map(|l| l.trim().trim_start_matches('\u{2022}').trim())
-        .find(|l| *l != title && claims(l))
-        .map(str::to_string)
+        .map(|l| (l.trim().trim_start_matches('\u{2022}').trim(), l.trim().starts_with('\u{2022}')))
+        .find(|(l, _)| *l != title && claims(l))
+        .map(|(l, listed)| (l.to_string(), listed))
 }
 
 /// The layouts a talk closes in (ADR-0032 item 6).
@@ -1915,7 +1917,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("Give slide {k} a headline that states its point in a sentence."),
                 None,
             );
-        } else if let Some(line) =
+        } else if let Some((line, listed)) =
             (english && i > 0 && !framing(i) && !last(i)).then(|| buried(deck, &slides[i], s, &heading[i])).flatten()
         {
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
@@ -1929,9 +1931,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!(
                     "Slide {k}'s headline names its topic, \u{201C}{title}\u{201D}; its claim is under it: \u{201C}{line}\u{201D}."
                 ),
-                format!(
-                    "Make slide {k}'s claim its headline: say \u{201C}{line}\u{201D}, or what the slide proves, in place of \u{201C}{title}\u{201D}."
-                ),
+                if listed {
+                    format!(
+                        "Make slide {k}'s claim its headline: move \u{201C}{line}\u{201D} up from its list, in place of \u{201C}{title}\u{201D}, or say what the slide proves there."
+                    )
+                } else {
+                    format!(
+                        "Make slide {k}'s claim its headline: say \u{201C}{line}\u{201D}, or what the slide proves, in place of \u{201C}{title}\u{201D}."
+                    )
+                },
                 None,
             );
         } else if english && i > 0 && !framing(i) && !last(i) && !led[i] && labels(&heading[i]) {
@@ -6523,7 +6531,13 @@ mod tests {
             "{}",
             found[0].says
         );
-        assert!(found[0].ask.contains(claim), "{}", found[0].ask);
+        // From the slide's list, it is moved up, not said again over itself (W1's dogfood 17).
+        assert_eq!(
+            found[0].ask,
+            format!(
+                "Make slide 3's claim its headline: move \u{201C}{claim}\u{201D} up from its list, in place of \u{201C}Some history\u{201D}, or say what the slide proves there."
+            )
+        );
         assert!(found[0].fix.is_none(), "the slide's words are the writer's to change (ADR-0032)");
         assert!(topics(&of(&dogfood("keynote", "", |_| {}))).is_empty(), "each slide is headed by its claim");
         // A topic with no line that says a claim under it is asked nothing of the kind.
@@ -6534,6 +6548,15 @@ mod tests {
         assert!(topics(&of(&dogfood("keynote", "", bare))).is_empty());
         // One finding a slide: the label the plain topic headline gets is the warning here.
         assert_eq!(weak.findings.iter().filter(|f| f.kind == Kind::Label && f.slide == 3).count(), 1);
+        // A line under it that no list sets is said as the headline, as before.
+        let subtitled = |slides: &mut Vec<answer::Slide>| {
+            buried(slides);
+            slides[2].key_bullets.clear();
+            slides[2].subtitle = claim.into();
+        };
+        let said = topics(&of(&dogfood("keynote", "", subtitled)));
+        let said = said.first().unwrap_or_else(|| panic!("a subtitle's claim is found"));
+        assert!(said.ask.contains(&format!("say \u{201C}{claim}\u{201D}, or what the slide proves")), "{}", said.ask);
     }
 
     /// Where no slide balance counts lists a point, balance says which slides it counted rather
