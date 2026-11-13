@@ -262,11 +262,11 @@ struct CanvasMenu: NSViewRepresentable {
             item.target = action
             // The item keeps what it runs: a menu item's target is not kept.
             item.representedObject = action
-            item.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+            item.image = symbol.flatMap(MenuSymbols.image)
             return item
         case .menu(let title, let symbol, let children):
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+            item.image = symbol.flatMap(MenuSymbols.image)
             let submenu = NSMenu(title: title)
             submenu.autoenablesItems = false
             for child in children { submenu.addItem(Self.item(child)) }

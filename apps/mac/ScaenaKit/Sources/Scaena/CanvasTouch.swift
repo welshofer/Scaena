@@ -347,12 +347,12 @@ struct CanvasMenu: UIViewRepresentable {
         case .action(let title, let symbol, let destructive, let on, let run):
             let attributes: UIMenuElement.Attributes = destructive ? .destructive : []
             return UIAction(
-                title: title, image: symbol.flatMap { UIImage(systemName: $0) }, attributes: attributes, state: on ? .on : .off
+                title: title, image: symbol.flatMap(MenuSymbols.image), attributes: attributes, state: on ? .on : .off
             ) { _ in
                 run()
             }
         case .menu(let title, let symbol, let children):
-            return UIMenu(title: title, image: symbol.flatMap { UIImage(systemName: $0) }, children: children.compactMap(element))
+            return UIMenu(title: title, image: symbol.flatMap(MenuSymbols.image), children: children.compactMap(element))
         case .divider:
             return nil
         }
