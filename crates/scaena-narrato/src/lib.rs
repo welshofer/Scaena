@@ -245,13 +245,20 @@ pub const MOST_FIGURES: usize = 10_000;
 /// A line of cells, between commas, semicolons, or tabs, of four words at most each is a sheet's
 /// row, read cell by cell, so `2021,182000,48` holds 2021, 182000, and 48, never one long number;
 /// any other line is read whole, so "removed 7,560 street trees" holds 7560 alone.
-pub fn source_figures(text: &str) -> Vec<String> {
+/// Each figure is read in the marks the source writes its figures in, where they tell
+/// ([`decimal_mark`]): a Spanish report's "3.800 €" is 3800 and its "46,2 °C" 46.2, an English
+/// one's "3,800" 3800 (R1's agent dogfood 12). Where they do not, its words are read in
+/// `deck`'s decimal mark, the language the deck is grounded in, and a sheet's cells as written
+/// plainly, as a sheet's numbers are.
+pub fn source_figures(text: &str, deck: Option<char>) -> Vec<String> {
+    let own = decimal_mark(text);
+    let (words, cells) = (own.or(deck).unwrap_or('.'), own.unwrap_or('.'));
     let mut values: Vec<f64> = Vec::new();
     for line in text.lines() {
-        let cells: Vec<&str> = line.split([',', ';', '\t']).collect();
-        match cells.len() > 1 && cells.iter().all(|c| c.split_whitespace().count() <= 4) {
-            true => cells.iter().for_each(|cell| values.extend(figures(cell))),
-            false => values.extend(figures(line)),
+        let cut = split_cells(line, cells);
+        match cut.len() > 1 && cut.iter().all(|c| c.split_whitespace().count() <= 4) {
+            true => cut.iter().for_each(|cell| values.extend(figures_in_marks(cell, cells))),
+            false => values.extend(figures_in_marks(line, words)),
         }
     }
     values.sort_unstable_by(f64::total_cmp);
@@ -260,6 +267,110 @@ pub fn source_figures(text: &str) -> Vec<String> {
         true => Vec::new(),
         false => values.iter().map(|v| format!("{v}")).collect(),
     }
+}
+
+/// A line's cells, between semicolons, tabs, and commas: where a sheet writes its decimals with a
+/// comma, a comma between two digits is a figure's, never a cell's end.
+fn split_cells(line: &str, decimal: char) -> Vec<&str> {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut cells = Vec::new();
+    let mut from = 0;
+    for (k, &(at, c)) in chars.iter().enumerate() {
+        let between =
+            k > 0 && chars[k - 1].1.is_ascii_digit() && chars.get(k + 1).is_some_and(|(_, n)| n.is_ascii_digit());
+        if matches!(c, ';' | '\t') || (c == ',' && !(decimal == ',' && between)) {
+            cells.push(&line[from..at]);
+            from = at + c.len_utf8();
+        }
+    }
+    cells.push(&line[from..]);
+    cells
+}
+
+/// The figures `text` writes, as [`figures`] reads them, each read with `decimal` as its decimal
+/// mark: with a comma, a point between digits groups thousands ("3.800" is 3800) and a comma
+/// between them is the decimal point ("46,2" is 46.2).
+pub fn figures_in_marks(text: &str, decimal: char) -> Vec<f64> {
+    if decimal != ',' {
+        return figures(text);
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let between =
+        |i: usize| i > 0 && chars[i - 1].is_ascii_digit() && chars.get(i + 1).is_some_and(char::is_ascii_digit);
+    let plain: String = (chars.iter().enumerate())
+        .filter_map(|(i, &c)| match c {
+            '.' if between(i) => None,
+            ',' if between(i) => Some('.'),
+            c => Some(c),
+        })
+        .collect();
+    figures(&plain)
+}
+
+/// The mark `text` writes its decimals with, where its figures tell: a figure with both marks
+/// ends on its decimal ("1.234,5", "1,234.5"), one mark written more than once between groups of
+/// three groups thousands ("1.234.567"), and one written once before other than three digits is
+/// the decimal ("46,2", "25.8"). "3.800" and "3,800" alone tell nothing. None where its figures
+/// tell nothing, or tell both ways as often (R1's agent dogfood 12).
+pub fn decimal_mark(text: &str) -> Option<char> {
+    let (mut point, mut comma) = (0usize, 0usize);
+    for line in text.lines() {
+        // A row of a sheet separated by commas holds no comma of a figure's: its cells are read
+        // alone, so "2021,48" tells nothing. One separated by semicolons or tabs keeps its commas.
+        let cells: Vec<&str> = match line.contains([';', '\t']) {
+            true => line.split([';', '\t']).collect(),
+            false => line.split(',').collect(),
+        };
+        let row = cells.len() > 1 && cells.iter().all(|c| c.split_whitespace().count() <= 4);
+        let pieces: Vec<&str> = if row { cells } else { vec![line] };
+        for piece in pieces {
+            for told in piece_marks(piece) {
+                match told {
+                    '.' => point += 1,
+                    _ => comma += 1,
+                }
+            }
+        }
+    }
+    match point.cmp(&comma) {
+        std::cmp::Ordering::Greater => Some('.'),
+        std::cmp::Ordering::Less => Some(','),
+        std::cmp::Ordering::Equal => None,
+    }
+}
+
+/// The decimal mark each figure in `text` tells, where it tells one ([`decimal_mark`]).
+fn piece_marks(text: &str) -> Vec<char> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut told = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let from = i;
+        while i < chars.len()
+            && (chars[i].is_ascii_digit()
+                || (matches!(chars[i], '.' | ',') && chars.get(i + 1).is_some_and(char::is_ascii_digit)))
+        {
+            i += 1;
+        }
+        let run: String = chars[from..i].iter().collect();
+        let marks: Vec<char> = run.chars().filter(|c| matches!(c, '.' | ',')).collect();
+        let groups: Vec<&str> = run.split(['.', ',']).collect();
+        let mark = match marks.as_slice() {
+            [] => None,
+            [.., last] if marks.iter().any(|m| m != last) => Some(*last),
+            [one] => (groups[1].len() != 3 || groups[0] == "0").then_some(*one),
+            [m, ..] => {
+                let grouped = groups[0].len() <= 3 && groups[1..].iter().all(|g| g.len() == 3);
+                grouped.then_some(if *m == '.' { ',' } else { '.' })
+            }
+        };
+        told.extend(mark);
+    }
+    told
 }
 
 /// An icon a slide's word names (PLAN G.23): its name in its set, and its outline on its view.
@@ -1090,14 +1201,43 @@ mod tests {
     #[test]
     fn a_source_keeps_its_figures_and_never_a_row_read_as_one() {
         let csv = "jahr,restmuell_t,gebuehr_eur_t\n2021,182000,48\n2022,186500,52\n";
-        assert_eq!(source_figures(csv), ["48", "52", "2021", "2022", "182000", "186500"]);
+        assert_eq!(source_figures(csv, None), ["48", "52", "2021", "2022", "182000", "186500"]);
         let prose = "Over ten years the city removed 7,560 street trees and planted 4,370, 9 degrees hotter.";
-        assert_eq!(source_figures(prose), ["9", "4370", "7560"]);
+        assert_eq!(source_figures(prose, None), ["9", "4370", "7560"]);
         // A CSV's line that is a sentence with commas in it reads as words, not as its cells: its
         // 7,560 is one figure, never a 7 and a 560.
         let said = "year,note\n2025,\"Over ten years the city removed 7,560 street trees, and planted 4,370\"\n";
-        assert_eq!(source_figures(said), ["2025", "4370", "7560"]);
+        assert_eq!(source_figures(said, None), ["2025", "4370", "7560"]);
         let many: String = (0..=MOST_FIGURES).map(|n| format!("{n}\n")).collect();
-        assert!(source_figures(&many).is_empty(), "past the most, none");
+        assert!(source_figures(&many, None).is_empty(), "past the most, none");
+    }
+
+    /// A source's figures are read in the marks it writes them in (R1's agent dogfood 12): a
+    /// Spanish report's "3.800 €" is 3800 and its "46,2 °C" 46.2, an English report's "3,800"
+    /// 3800 and "46.2" 46.2, a sheet's cells as written plainly, and a sheet whose decimals take a
+    /// comma read as it writes them. Where a source's figures tell nothing ("3.800" alone), its
+    /// words are read in the deck's mark.
+    #[test]
+    fn a_source_keeps_its_figures_in_its_own_marks() {
+        let es = "Cada fuente cuesta 3.800 € instalada. La máxima llegó a 46,2 °C.";
+        assert_eq!(decimal_mark(es), Some(','));
+        assert_eq!(source_figures(es, Some('.')), ["46.2", "3800"]);
+        let en = "Each fountain costs $3,800 installed. The high reached 46.2 °C.";
+        assert_eq!(decimal_mark(en), Some('.'));
+        assert_eq!(source_figures(en, Some(',')), ["46.2", "3800"]);
+        // A sheet's cells say nothing of marks: read plainly, whatever the deck's language.
+        let csv = "mes,litros\n2025-05,6200\n2025-07,18400\n";
+        assert_eq!(decimal_mark(csv), None);
+        assert_eq!(source_figures(csv, Some(',')), ["5", "7", "2025", "6200", "18400"]);
+        // Small figures in a row's cells are its cells, never a decimal: "1,2" tells nothing.
+        assert_eq!(decimal_mark("a,1,2\nb,3,4\n"), None);
+        // A sheet that writes its decimals with a comma, its cells between semicolons.
+        let semi = "mes;litros;max\nmayo;6.200;38,5\njulio;18.400;46,2\n";
+        assert_eq!(decimal_mark(semi), Some(','));
+        assert_eq!(source_figures(semi, None), ["38.5", "46.2", "6200", "18400"]);
+        // Nothing told: the words are read in the deck's mark, a sheet's cells plainly.
+        assert_eq!(source_figures("Cuesta 3.800 €.", Some(',')), ["3800"]);
+        assert_eq!(source_figures("Costs 3.800 €.", Some('.')), ["3.8"]);
+        assert_eq!(figures_in_marks("18.400 litros y 46,2 °C", ','), [18400.0, 46.2]);
     }
 }

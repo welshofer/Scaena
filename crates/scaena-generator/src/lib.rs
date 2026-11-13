@@ -294,10 +294,12 @@ impl Generation {
             .collect();
         let settings = Settings { provider, model: asking.model, base: asking.base, browser: true };
         let mut inner = scaena_narrato::Generation::new(brief, settings).map_err(error)?;
+        let language = inner.brief().language.clone();
         inner.give_sources(scaena_ops::narrative::provenance(
             &ground.given,
             &sources.read,
             &scaena_sources::pdf::each(&sources.read),
+            language.as_deref(),
         ));
         // The words each PDF draws, whose figures the notes may say (W1's dogfood 17).
         inner.hold(&scaena_sources::pdf::held(&sources.read).0);
