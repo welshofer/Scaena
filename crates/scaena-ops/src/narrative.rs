@@ -12187,6 +12187,46 @@ mod tests {
         assert_eq!(deck, before);
     }
 
+    /// A made deck's headings and labels the theme keeps are the slide's words, never prompts left
+    /// (theme format 0.30, W1 dogfood 18): an agenda's "Agenda", a SWOT's four quarters, a Q&A's
+    /// "Questions?", and a closing's "Thank you", each its slot's prompt as the theme writes it,
+    /// draw no W305; a heading the theme does not keep, left as its prompt, is still found.
+    #[test]
+    fn a_made_decks_kept_headings_are_no_prompts_left() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({ "executiveSummary": "Benchmark until the numbers settle.", "slides": [
+            { "slideTitle": "Benchmark like you mean it", "layoutSuggestion": "Title", "keyBullets": [] },
+            { "slideTitle": "Agenda", "layoutSuggestion": "Agenda", "keyBullets": ["Why one run lies", "How hyperfine settles", "What to do Monday"] },
+            { "slideTitle": "Where hyperfine stands", "layoutSuggestion": "SWOT", "keyBullets": [
+                "Strengths: statistics built in", "Weaknesses: one machine at a time",
+                "Opportunities: CI regressions", "Threats: noisy shared runners"] },
+            { "slideTitle": "Questions?", "layoutSuggestion": "Q&A", "keyBullets": ["What about Windows?", "Does it measure memory?"] },
+            { "slideTitle": "Thank you", "layoutSuggestion": "Closing", "keyBullets": ["github.com/sharkdp/hyperfine"] },
+        ]})
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.arc = "Learning Journey".into();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let layouts: Vec<&str> =
+            (built.deck["states"].as_array().unwrap().iter()).filter_map(|s| s["layout"].as_str()).collect();
+        assert_eq!(layouts, ["title-center", "agenda", "swot", "qa", "closing"]);
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
+        assert!(left.is_empty(), "{left:#?}");
+        // The same deck in a theme whose agenda keeps nothing finds its "Agenda" left.
+        let mut unkept: Value = serde_json::from_str(&dusk()).unwrap();
+        unkept["layouts"]["agenda"]["slots"]["header"].as_object_mut().unwrap().remove("kept");
+        let unkept = unkept.to_string();
+        let theme: Theme = serde_json::from_str(&unkept).unwrap();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), unkept, &font).unwrap();
+        let left: Vec<String> =
+            made.created.findings.iter().filter(|f| f.code == "W305").map(|f| f.message.clone()).collect();
+        assert_eq!(left.len(), 1, "{left:#?}");
+        assert!(left[0].contains("\u{201c}Agenda\u{201d}"), "{left:#?}");
+    }
+
     #[test]
     fn a_set_of_texts_side_by_side_is_set_alike_and_as_large_as_its_places_allow() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
