@@ -84,11 +84,14 @@ impl<P: JsonSchema> JsonSchema for Parameters<P> {
     }
 }
 
-impl<S, P: serde::de::DeserializeOwned> FromContextPart<ToolCallContext<'_, S>> for Parameters<P> {
+impl<S, P: serde::de::DeserializeOwned + JsonSchema> FromContextPart<ToolCallContext<'_, S>> for Parameters<P> {
     fn from_context_part(context: &mut ToolCallContext<S>) -> Result<Self, ErrorData> {
         let args = context.arguments.take().unwrap_or_default();
-        // rmcp hands an error with this prefix back to the client as the tool's own.
-        scaena_ops::arguments::read(args)
+        // An argument's struct is said by its shape, as the tool's schema gives it, not its Rust
+        // name (R1's agent dogfood 11). rmcp hands an error with this prefix back to the client
+        // as the tool's own.
+        let schema = serde_json::to_value(schemars::schema_for!(P)).ok();
+        scaena_ops::arguments::read_shaped(args, schema.as_ref())
             .map(Parameters)
             .map_err(|e| ErrorData::invalid_params(format!("failed to deserialize parameters: {e}"), None))
     }

@@ -2820,7 +2820,9 @@ fn furnish(d: &Doc, number: Option<bool>, footer: Option<&Value>) -> Result<Vec<
 
 /// The deck's brief, `meta.narrative.brief`, with each field given set, or taken away with `null`
 /// (agent dogfood 6): a goal one of [`super::GOALS`], a length one of [`super::LENGTHS`], minutes a
-/// whole number from 1 to 600, the rest words. A brief left with nothing is none.
+/// whole number from 1 to 600, the rest words. Minutes given where no length is set or kept give
+/// the length they take ([`super::length_for_minutes`]), as `deck_generate` reads a brief (R1's
+/// agent dogfood 11). A brief left with nothing is none.
 fn brief(d: &Doc, given: &[(&str, &Option<Value>)]) -> Result<Vec<JsonOp>, String> {
     let at = "/meta/narrative/brief";
     let old = d.0.pointer(at).and_then(Value::as_object).cloned().unwrap_or_default();
@@ -2850,6 +2852,13 @@ fn brief(d: &Doc, given: &[(&str, &Option<Value>)]) -> Result<Vec<JsonOp>, Strin
             Some(value) => drop(new.insert((*field).to_string(), value)),
             None => drop(new.shift_remove(*field)),
         }
+    }
+    let timed = given.iter().any(|(field, value)| *field == "minutes" && value.as_ref().is_some_and(|v| !v.is_null()));
+    if timed
+        && !new.contains_key("length")
+        && let Some(minutes) = new.get("minutes").and_then(Value::as_u64)
+    {
+        new.insert("length".into(), Value::from(super::length_for_minutes(minutes as u32)));
     }
     if new == old {
         return Ok(Vec::new());

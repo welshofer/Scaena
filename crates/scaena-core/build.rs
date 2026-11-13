@@ -8,10 +8,15 @@ use std::path::Path;
 
 fn main() {
     let out = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/schema");
+    // The crate's folder as Cargo runs this script, never as it compiled it: one target folder
+    // shared by several checkouts (worktrees) builds this script once for all of them, and a path
+    // compiled in (`env!`) names the first, which may be gone. Cargo reads a relative
+    // `rerun-if-changed` from the crate's folder too, so each checkout's own schemas are watched.
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
+    let root = Path::new(&manifest).join("../../docs/schema");
     for name in ["deck", "theme", "spine"] {
         let path = root.join(format!("{name}.schema.json"));
-        println!("cargo:rerun-if-changed={}", path.display());
+        println!("cargo:rerun-if-changed=../../docs/schema/{name}.schema.json");
         let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let mut schema: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         // Each definition's own description, kept.

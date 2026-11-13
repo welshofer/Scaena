@@ -16,7 +16,7 @@ crate-type = ["staticlib", "rlib"]
 scaena-session = { workspace = true, features = ["generate", "health", "shipped", "slides"] }
 # Narrato's requests and answers, the sources read, and the theme a deck is made in (PLAN G.6).
 scaena-narrato.workspace = true
-scaena-sources.workspace = true
+scaena-sources = { workspace = true, features = ["pdf"] }
 # A map from Geoapify, by the plan Swift runs with URLSession (ADR-0030, PLAN O.1d).
 scaena-objects.workspace = true
 # The syllable table compiled in (PLAN O.4a), so lint counts a haiku (I404).

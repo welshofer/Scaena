@@ -472,3 +472,32 @@ fn the_compare_names_the_slide_a_beats_notes_changed_on() {
     assert_eq!(c.story, vec![("Presenter Notes".to_string(), vec!["Slide 2".to_string()])], "{c:?}");
     assert!(!c.deck.contains_key("spine"), "the spine is not named: {:?}", c.deck.keys().collect::<Vec<_>>());
 }
+
+/// A slide put back that the deck already shows as the version drew it puts nothing back
+/// (editor dogfood 7): no state changes what it shows, and nothing is written, so the history
+/// keeps no change of it and an editor makes no step to undo of it. The slide another edit
+/// changed since is still put back, with the words of the object it alone shows.
+#[test]
+fn a_slide_already_as_the_version_drew_it_is_not_put_back() {
+    let dir = scratch("unchanged-slide");
+    keeping_history(&dir);
+    let b = scaena_ops::open(&dir).unwrap();
+    let ops = json!([{ "op": "replace", "path": "/nodes/subtitle/text", "value": "A subtitle typed over" }]);
+    assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    let before = std::fs::read_to_string(dir.join("deck.json")).unwrap();
+    let count = changes(&dir).len();
+    for slide in ["revenue", "close"] {
+        let b = scaena_ops::open(&dir).unwrap();
+        let back = scaena_ops::history::restore_slide(&b, "1", slide, false).unwrap();
+        assert!(back.states.is_empty() && back.files.is_empty(), "{slide}: {back:?}");
+        assert_eq!(std::fs::read_to_string(dir.join("deck.json")).unwrap(), before, "{slide} wrote the deck");
+        assert_eq!(changes(&dir).len(), count, "{slide} was recorded in the history");
+    }
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "intro", false).unwrap();
+    assert!(back.applied && back.states.contains(&"intro".to_string()), "{back:?}");
+    // Its subtitle, the slide's own, comes back with its words.
+    let now: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(now["nodes"]["subtitle"]["text"], "This quarter changed the shape of the business.");
+    assert!(back.kept.is_empty() || !back.kept.iter().any(|k| k.contains("typed over")), "{back:?}");
+}

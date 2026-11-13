@@ -175,6 +175,22 @@ import Testing
     #expect(Health.kindSaid("arc") == "arc", "a kind with no words of its own is said as it is")
 }
 
+/// A Story row with several questions offers each its own Ask, named by what it is about, as the
+/// browser's row does (W1's dogfood 17): never one question joined of them all. One alone is Ask
+/// the Assistant; a second of a kind is numbered.
+@Test func eachQuestionOnARowHasItsOwnAsk() throws {
+    let kinds = ["tone", "notes", "label", "tone"]
+    let listed = kinds.enumerated().map { i, kind in
+        #"{"state": "s\#(i)", "slide": 4, "severity": "info", "kind": "\#(kind)", "says": "", "ask": "Ask \#(i)."}"#
+    }
+    let findings = try JSONDecoder().decode([Health.Finding].self, from: Data("[\(listed.joined(separator: ","))]".utf8))
+    #expect(
+        Health.askLabels(findings)
+            == ["Ask About Its Tone", "Ask About Its Notes", "Ask About Its Headline", "Ask About Its Tone (2)"])
+    #expect(Health.askLabels(Array(findings.prefix(1))) == ["Ask the Assistant"])
+    #expect(Health.askLabels([]).isEmpty)
+}
+
 /// A slide that holds balance down ranks by balance's score, as the browser's Story ranks it,
 /// and folds as a thin slide (R1's MCP dogfood): a thin warning under balance at 60 opens ahead
 /// of a tone warning at 72, and folded it is said in words.

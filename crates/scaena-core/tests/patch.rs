@@ -1463,6 +1463,8 @@ fn furnish_sets_the_decks_number_and_footer() {
 /// `brief` sets the deck's brief, which health paces and reads it by (agent dogfood 6): a deck made
 /// by hand has none, and is given one; what it leaves out stays; `null` takes a field away; a goal
 /// or a length Narrato does not take, or minutes past 1 to 600, is refused, naming what it takes.
+/// Minutes given where no length is set or kept give the length they take, as `deck_generate`
+/// reads a brief (R1's agent dogfood 11); a length set stays.
 #[test]
 fn brief_sets_the_decks_brief() {
     let mut bare = example();
@@ -1471,11 +1473,19 @@ fn brief_sets_the_decks_brief() {
     assert_eq!(
         rfc(&c),
         json!([{ "op": "add", "path": "/meta", "value": { "narrative": { "brief": {
-            "audience": "The finance committee", "minutes": 10 } } } }])
+            "audience": "The finance committee", "minutes": 10, "length": "5-10 slides" } } } }])
     );
     assert!(errors(&c.doc).is_empty(), "{:?}", errors(&c.doc));
     let c = patch(&c.doc, json!([{ "op": "brief", "goal": "Persuade", "minutes": null }])).unwrap();
-    assert_eq!(c.doc["meta"]["narrative"]["brief"], json!({ "audience": "The finance committee", "goal": "Persuade" }));
+    assert_eq!(
+        c.doc["meta"]["narrative"]["brief"],
+        json!({ "audience": "The finance committee", "length": "5-10 slides", "goal": "Persuade" })
+    );
+    // Minutes given again keep the length the brief has; with it taken away, they give theirs.
+    let kept = patch(&c.doc, json!([{ "op": "brief", "minutes": 25 }])).unwrap();
+    assert_eq!(kept.doc["meta"]["narrative"]["brief"]["length"], json!("5-10 slides"));
+    let given = patch(&c.doc, json!([{ "op": "brief", "minutes": 25, "length": null }])).unwrap();
+    assert_eq!(given.doc["meta"]["narrative"]["brief"]["length"], json!("11-15 slides"));
     let c = patch(&c.doc, json!([{ "op": "brief", "length": "5-10 slides", "desiredOutcomes": "Fund it" }])).unwrap();
     let brief = &c.doc["meta"]["narrative"]["brief"];
     assert_eq!((brief["length"].as_str(), brief["desiredOutcomes"].as_str()), (Some("5-10 slides"), Some("Fund it")));

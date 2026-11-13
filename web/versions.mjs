@@ -15,7 +15,9 @@
 // - Restore This Slide puts back the slide shown alone, saying which before and after: a text only
 //   it shows as the version had it, the rest of the deck as it is now, one change ⌘Z takes back
 //   (dogfood 16). What it shows as it is now since another slide shows it too is said, by its
-//   words and those slides, on the revenue deck's title and on B1's cover.
+//   words and those slides, on the revenue deck's title and on B1's cover. A slide already as the
+//   version drew it is not put back, and the restore says so, with nothing to undo (editor
+//   dogfood 7).
 // - A version whose deck names a file the bundle no longer holds is refused, and says why.
 // - axe-core finds nothing against WCAG 2.1 AA with a version shown; a bundle that keeps no
 //   history says so, and Keep a history begins one with a save (PLAN 2.87).
@@ -192,7 +194,12 @@ try {
   // Restore This Slide: the subtitle typed over, and slide 1 put back as version 1 had it, the
   // rest of the deck as it is now: the title other slides show too keeps its words (dogfood 16).
   const unslid = await source();
-  const typed = unslid.replace('"This quarter changed the shape of the business."', '"A subtitle typed over"');
+  // The subtitle's own words, not the beat's claim, which says the same and which a beat the deck
+  // has keeps as it is now (editor dogfood 7).
+  const typed = unslid.replace(
+    'subtitle text role:title "This quarter changed the shape of the business."',
+    'subtitle text role:title "A subtitle typed over"',
+  );
   await page.evaluate((s) => window.scaena.type(s), typed);
   await page.waitForFunction((s) => window.scaena.source() === s && window.scaena.last()?.valid, typed, { timeout: 30000, polling: 50 }).catch(() => {});
   await page.click(`#versions [data-id="${first.id}"]`);
@@ -204,11 +211,11 @@ try {
   await page.click("#versions [data-restore-slide]");
   await settled();
   await page
-    .waitForFunction(() => window.scaena.last()?.valid && window.scaena.source().includes('"This quarter changed the shape of the business."'), null, { timeout: 60000 })
+    .waitForFunction(() => window.scaena.last()?.valid && window.scaena.source().includes('subtitle text role:title "This quarter changed the shape of the business."'), null, { timeout: 60000 })
     .catch(() => {});
   const slid = await source();
   check(
-    slid.includes('"This quarter changed the shape of the business."') && slid.includes("Revenue tripled") && /state outro/.test(slid),
+    slid.includes('subtitle text role:title "This quarter changed the shape of the business."') && slid.includes("Revenue tripled") && /state outro/.test(slid),
     "Restore This Slide puts back that slide's own text, the rest of the deck as it is now",
   );
   check(
@@ -223,6 +230,20 @@ try {
   };
   check(await undoTo(typed), "⌘Z takes the slide put back away again");
   check(await undoTo(unslid), "and a second ⌘Z the typing before it");
+  // A slide the version drew as the deck does now: its title, which the other slides show too,
+  // stays as it is, so nothing is put back, and the restore says so, with no step to undo
+  // (editor dogfood 7).
+  await page.selectOption("#versions [data-state]", "close");
+  await settled();
+  await page.click("#versions [data-restore-slide]");
+  await settled();
+  await page.waitForFunction(() => /^Nothing put back/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 30000 }).catch(() => {});
+  const nothing = await status();
+  check(
+    /^Nothing put back: Slide 3[^·]* is as version 1 drew it\. “Thank you” kept as it is now, since Slides? [^·]+ shows? it too$/.test(nothing) &&
+      (await source()) === unslid,
+    `a slide already as the version drew it is not put back, and the restore says so, with nothing to undo: ${nothing}`,
+  );
 
   const later = await source();
   check((await revenue("9")) === "9", "the data file as the deck reads it now: the edit's 9");
@@ -301,7 +322,9 @@ try {
   );
 
   // B1's cover put back from its first version: its title, which the closing slide shows too,
-  // keeps its words now, and the status says so, by those words and that slide (dogfood 16).
+  // keeps its words now, and the status says so, by those words and that slide (dogfood 16). The
+  // title is all that changed, so nothing else is put back, said so, with no step to undo
+  // (editor dogfood 7).
   {
     const deck = await open(`/${b1}/deck.json`);
     const listed = await deck.evaluate(() => window.scaena.versions.listed());
@@ -311,10 +334,10 @@ try {
     await deck.evaluate(() => window.scaena.versions.settled());
     await deck.click("#versions [data-restore-slide]");
     await deck.evaluate(() => window.scaena.versions.settled());
-    await deck.waitForFunction(() => /put back/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
+    await deck.waitForFunction(() => /put back/i.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
     const said = await deck.locator("#status").textContent();
     check(
-      /^Slide 1(: [^·]+)? put back from version 1\. “Scaena anew” kept as it is now, since Slide \d+ shows it too · ⌘Z undoes it$/.test(said) &&
+      /^Nothing put back: Slide 1(: [^·]+)? is as version 1 drew it\. “Scaena anew” kept as it is now, since Slide \d+ shows it too$/.test(said) &&
         (await deck.evaluate(() => window.scaena.source())).includes('"Scaena anew"'),
       `B1's cover put back keeps its title for the closing slide, and says so: ${said}`,
     );

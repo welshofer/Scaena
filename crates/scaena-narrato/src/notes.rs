@@ -818,6 +818,10 @@ mod tests {
         }
         let cells = Held::of("year,pct\n2025,25.8");
         assert!(cells.holds(2025.0) && cells.holds(25.8) && !cells.holds(2026.0));
+        // A figure beside a code a PDF's font says nothing of, read as U+FFFD, is its number.
+        let unread = Held::of("Die Geb\u{fffd}hr steigt von 48 \u{fffd} auf 71\u{fffd}.");
+        assert!(unread.holds(48.0) && unread.holds(71.0) && !unread.holds(4871.0));
+        assert_eq!(crate::figures("48 \u{fffd}"), [48.0]);
         // Sentences end at a stop before a space, never inside a figure.
         assert_eq!(sentences("It is 6.2 million. Then? Yes!"), ["It is 6.2 million. ", "Then? ", "Yes!"]);
         assert_eq!(sentences("本当です。次へ"), ["本当です。", "次へ"]);

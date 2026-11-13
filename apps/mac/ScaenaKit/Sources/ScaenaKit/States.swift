@@ -301,9 +301,13 @@ public struct Slide: Identifiable, Equatable, Sendable {
     /// as the browser names it: "Fold Into Slide 6", or "Fold Into Slide 6's Notes" where that slide
     /// has no place for words; none on the first slide.
     public static func folding(_ state: String, in slots: [ScaenaSession.Slot]) -> String? {
-        let slides = Slide.of(slots)
-        guard let i = slides.firstIndex(where: { $0.states.contains(state) }), i > 0 else { return nil }
-        return FoldsTo.label("Slide \(i)", slots.first { $0.state == state }?.foldsTo)
+        before(state, in: slots).map { FoldsTo.label("Slide \($0)", slots.first { $0.state == state }?.foldsTo) }
+    }
+
+    /// The number, from 1, of the slide before the slide `state` is on: none on the first.
+    public static func before(_ state: String, in slots: [ScaenaSession.Slot]) -> Int? {
+        guard let i = Slide.of(slots).firstIndex(where: { $0.states.contains(state) }), i > 0 else { return nil }
+        return i
     }
 
     /// The earlier slides `findings`, a slide's row of the Story, offer to fold it into, each once,

@@ -271,7 +271,28 @@ final class ScaenaDocument: ReferenceFileDocument {
         let before = editor.source
         let files = try edit()
         editor.reread()
+        // An edit that changed neither the deck nor a file beside it, a restore of a slide the
+        // deck already draws as the version did, makes no step to undo, which would take back to
+        // the same deck (editor dogfood 7), as a data edit that changed nothing makes none.
+        guard before != editor.source || !files.isEmpty else { return }
         keep(before, files: files, undo: undo)
+    }
+
+    /// The theme edited by `change` (PLAN 2.61, 2.94), made away from the window so it goes on answering
+    /// (#1262): the deck read again, and one step to undo, which writes the theme back. What the
+    /// edit did; nil where the deck kept changing while it was made, nothing made.
+    @MainActor
+    func themed(_ change: ThemeChange, undo: UndoManager?) async throws -> ThemeEdited? {
+        try editor.unassisted()
+        guard let away = try await editor.themeEditAway(change) else { return nil }
+        guard away.edited.applied else { return away.edited }
+        // The source as it was just before the edit was written: what its undo makes the deck again.
+        let before = editor.source
+        // Compiled with no lint of the state shown here: the theme changed what lies behind every
+        // text, which `lintEvery` paints away from the window once edits stop (#1262's sample).
+        if let source = away.source { editor.restoreUnlinted(source) } else { editor.reread(lint: false) }
+        keep(before, files: away.edited.files, undo: undo)
+        return away.edited
     }
 
     /// A data file a panel writes, or a file it takes out (PLAN 3.15): the deck read again, and

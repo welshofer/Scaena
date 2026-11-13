@@ -69,3 +69,37 @@ import Testing
     #expect(editor.slots.contains { $0.slide == "belief-9" })
     #expect(try editor.session.notes(state: "belief-9").text == between)
 }
+
+/// The Story's fold buttons say beforehand what the fold itself will do, as the browser's do
+/// (#1222): B1's slide 4 into slide 3 reads "Fold Into Slide 3" from the slots, which see a place
+/// for words, but its words, laid out, would run past that place, so the fold's dry run puts them
+/// in slide 3's notes and the button says so; a fold refused is held with why. Each dry run is
+/// asked once for the source as it stands, and asked again once the source changes.
+@MainActor
+@Test func aStoryFoldSaysWhatItsDryRunWillDo() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let slots = { (state: String) in editor.slots.first { $0.state == state }?.foldsTo }
+    #expect(Slide.folding("belief-2", in: editor.slots) == "Fold Into Slide 3", "the slots see a place for words")
+    #expect(Slide.before("belief-2", in: editor.slots) == 3 && Slide.before("cover", in: editor.slots) == nil)
+
+    let into = FoldAsk(state: "belief-2")
+    let cover = FoldAsk(state: "cover")
+    let folds = await editor.foldsAway([into, cover, into])
+    #expect(folds.count == 2)
+    let offer = FoldsTo.offer("Slide 3", slots: slots("belief-2"), folds[into])
+    #expect(offer == FoldOffer(label: "Fold Into Slide 3's Notes", refused: nil))
+    // Until the dry run answers, the slots' label stands.
+    #expect(FoldsTo.offer("Slide 3", slots: slots("belief-2"), nil).label == "Fold Into Slide 3")
+    // The first slide's fold is refused: held with why, under the slots' label.
+    let refused = FoldsTo.offer("Slide 1", slots: nil, folds[cover])
+    #expect(refused.refused == "Slide 1 has no slide before it to fold into.")
+
+    // Asked again for the same source, each is kept; an edit asks afresh.
+    let kept = editor.foldsRun.source
+    _ = await editor.foldsAway([into])
+    #expect(editor.foldsRun.source == kept && editor.foldsRun.folds.count == 2)
+    _ = try editor.make(try editor.session.folding("goal").patch)
+    let again = await editor.foldsAway([FoldAsk(state: "belief-2")])
+    #expect(editor.foldsRun.source != kept && again.count == 1)
+    #expect(again[into]?.to == .notes, "slide 4 is slide 3 now, its words still too many for slide 2's place")
+}

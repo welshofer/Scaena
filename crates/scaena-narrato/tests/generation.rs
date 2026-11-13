@@ -539,3 +539,26 @@ fn a_rest_too_short_for_the_length_asks_the_slides_again() {
     assert!(matches!(failed, Err(NarratoError::Incomplete { delivered: 4, minimum: 11 })), "{failed:?}");
     assert_eq!(g.step(), Step::Slides);
 }
+
+/// A figure only a PDF the deck is grounded in holds, its words held (`Generation::hold`), counts as
+/// written: a notes sentence that says it is kept, as one saying a figure the packed sources hold
+/// is (W1's dogfood 17). Before the words are held, that sentence alone is cut.
+#[test]
+fn a_pdfs_held_words_count_as_written_in_the_notes() {
+    use scaena_narrato::notes::{Spoken, read_held};
+    let spoken = vec![Spoken {
+        slide: 4,
+        title: "About 450 trees planted a year".into(),
+        words: vec!["Riverton plants about 450 street trees a year".into()],
+        budget: 40,
+        ..Spoken::default()
+    }];
+    let notes = "Riverton plants about 450 trees a year, and loses more than it plants. By 2040 the plan returns the canopy to 30%. The plan on the next slide turns that around, street by street, and starts with the neighborhoods that are hottest now.";
+    let answer = serde_json::json!({ "notes": [{ "slide": 4, "notes": notes }] }).to_string();
+    let mut g = Generation::new(brief(), settings(Provider::Anthropic)).unwrap();
+    let cut = read_held(&answer, &spoken, &g.held()).unwrap();
+    assert_eq!(cut.cut, vec![(4, "By 2040 the plan returns the canopy to 30%.".to_string())]);
+    g.hold("It would return the canopy to 30% by 2040.");
+    let kept = read_held(&answer, &spoken, &g.held()).unwrap();
+    assert_eq!((kept.notes, kept.cut), (vec![(4, notes.to_string())], vec![]));
+}

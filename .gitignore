@@ -6,6 +6,7 @@ Cargo.lock.bak
 /apps/mac/build
 /apps/mac/DerivedData
 /apps/mac/ScaenaKit/.build/
+/apps/mac/ScaenaKit/.build-tsan/
 /apps/mac/ScaenaKit/.swiftpm/
 /apps/ipad/Engine.xcconfig
 /apps/ipad/Team.xcconfig

@@ -4,6 +4,8 @@
 //   node web/story.mjs     (after `just web`; from the repository's root)
 //
 // - The curve's legend keeps each mark with its words on one line (editor dogfood 2).
+// - A row with several questions offers each its own Ask, named by what it is about, and each
+//   asks its own question alone (W1's dogfood 17).
 // - Each finding says what to do in its row, under what it found: the question the assistant
 //   would be asked, so a presenter with no key is not sent to an Assistant tab to read it
 //   (editor dogfood 3).
@@ -155,6 +157,36 @@ try {
   check(await page.evaluate(() => document.activeElement?.id === "key"), "the key's field in focus");
   await page.fill("#question", "");
   await tab(page, "story");
+
+  // A row with several questions offers each its own Ask, named by what it is about, and the
+  // second askRows its own question alone, never one joined of them all (W1's dogfood 17).
+  const askRows = await page.evaluate(() =>
+    [...document.querySelectorAll("#story li[data-slide]")]
+      .map((li) => ({ slide: Number(li.dataset.slide), labels: [...li.querySelectorAll("[data-ask]")].map((b) => b.textContent), todos: li.querySelectorAll("p[data-todo]").length }))
+      .filter((r) => r.todos > 1),
+  );
+  check(askRows.length > 0, `some row asks more than one thing: ${JSON.stringify(askRows)}`);
+  check(
+    askRows.every((r) => r.labels.length === r.todos && new Set(r.labels).size === r.labels.length && r.labels.every((l) => l.startsWith("Ask about its "))),
+    `each of its questions has its own Ask: ${JSON.stringify(askRows)}`,
+  );
+  if (askRows.length) {
+    const second = await page.evaluate((slide) => [...document.querySelectorAll(`#story li[data-slide="${slide}"]`)].find((li) => li.querySelectorAll("[data-ask]").length > 1)?.querySelectorAll("[data-ask]")[1]?.dataset.kind, askRows[0].slide);
+    const found = await page.evaluate(([slide, kind]) => {
+      const t = window.scaena.story.triaged();
+      const all = [...t.open, ...t.more].filter((f) => f.slide === slide && f.ask.trim());
+      return { second: all.find((f) => f.kind === kind)?.ask, others: all.filter((f) => f.kind !== kind).map((f) => f.ask) };
+    }, [askRows[0].slide, second]);
+    await page.evaluate((slide) => [...document.querySelectorAll(`#story li[data-slide="${slide}"]`)].find((li) => li.querySelectorAll("[data-ask]").length > 1).querySelectorAll("[data-ask]")[1].click(), askRows[0].slide);
+    await page.waitForFunction(() => document.querySelector("#question").value !== "", null, { timeout: 10000 }).catch(() => {});
+    const question = await page.inputValue("#question");
+    check(
+      !!found.second && question.includes(found.second) && found.others.every((a) => !question.includes(a)),
+      `the second Ask puts its own question alone: ${JSON.stringify(question.slice(0, 160))}`,
+    );
+    await page.fill("#question", "");
+    await tab(page, "story");
+  }
 
   // Read again with nothing changed, the score's live region is left as it was, so nothing is
   // said again (lift-up 20261110 deferred).

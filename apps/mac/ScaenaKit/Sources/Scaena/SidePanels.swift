@@ -63,6 +63,10 @@ struct PanelEdits {
     /// restored, rows written inline): the deck read again, its undo writing back the files the
     /// edit gives. Whether it was made.
     let besideMade: (_ name: String, _ edit: () throws -> [Rewritten]) -> Bool
+    /// The theme edited by `change`, operations or a photo's colors, made away from the window
+    /// (#1262), one step to undo named `name`; refused or failed, the window says why, `refused`
+    /// naming what was not done. Whether it was made.
+    var themeMade: @MainActor (_ name: String, _ refused: String, _ change: ThemeChange) async -> Bool = { _, _, _ in false }
     /// A data file written, or a file taken out: the deck read again, its undo the session's.
     /// Whether it was made.
     let dataMade: (_ name: String, _ edit: () throws -> Void) -> Bool

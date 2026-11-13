@@ -151,10 +151,21 @@ fn fell_back(narrative: &Narrative, chosen: &[String]) -> Vec<Fell> {
             continue;
         }
         let identity = as_asked(slide).layout.identity();
+        // A chart whose `chartData` is written in another shape, Chart.js's `labels` and
+        // `datasets` among them, says the shape it reads and what it was given (R1's agent
+        // dogfood 11).
+        let unread = |chart: &str| match &slide.chart_unread {
+            Some(given) => format!(
+                "{chart}, and its `chartData` does not read: a chart's is `{{ \"categories\": [...], \"series\": \
+                 [{{ \"name\": ..., \"values\": [...] }}] }}`, a value for each category in each series, and it \
+                 gave {given}"
+            ),
+            None => format!("{chart} but gives no `chartData` to draw"),
+        };
         let why = if chart_named(name) && slide.chart_data.is_none() {
-            "it names a chart but gives no `chartData` to draw".to_string()
+            unread("it names a chart")
         } else if matches!(identity, "bar-chart" | "line-chart") && slide.chart_data.is_none() {
-            "it is a chart but gives no `chartData` to draw".to_string()
+            unread("it is a chart")
         } else if matches!(layouts::structural(name), "image" | "image-text") && !pictures_in(layout) {
             // A picture asked for that the slide has none of (agent dogfood 8): its words are set
             // as they read, and `image_add` gives it one once its layout holds one.
@@ -667,6 +678,11 @@ pub struct Grounding {
     pub content: Option<String>,
     pub documents: Vec<Document>,
     pub given: Vec<Given>,
+    /// The words and figures each PDF draws, which notes may say the figures of
+    /// (`Generation::hold`, W1's dogfood 17), with ops' `pdf` feature; else none.
+    pub held: String,
+    /// Each PDF whose words were not read, and why.
+    pub unread: Vec<String>,
 }
 
 /// `sources` packed as Vzestup packs them (`scaena_sources::ground`): the first given the room
@@ -683,7 +699,11 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
             data: base64::engine::general_purpose::STANDARD.encode(pdf),
         })
         .collect();
-    Ok(Grounding { content: ground.content, documents, given: ground.given })
+    #[cfg(feature = "pdf")]
+    let (held, unread) = scaena_sources::pdf::held(sources);
+    #[cfg(not(feature = "pdf"))]
+    let (held, unread) = (String::new(), Vec::new());
+    Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread })
 }
 
 /// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
@@ -3222,7 +3242,14 @@ fn assemble(
         // A layout asked for by name that has no place for every item, set as a list of them all,
         // is said (agent dogfood 2), as a name no layout is called is.
         let asked = slide.layout_suggestion.trim();
-        let own = as_asked(slide).layout.identity();
+        // Narrato's names for a layout the theme calls otherwise (R1's agent dogfood 11: a Big
+        // Number is Narrato's `metric`).
+        let own = match as_asked(slide).layout.identity() {
+            "metric" => "big-number",
+            "vs" => "head-to-head",
+            "3horizons" => "three-horizons",
+            own => own,
+        };
         if layouts::known(asked)
             && matches!(layout.as_str(), "bullets" | "numbered")
             && own != layout
@@ -3249,6 +3276,20 @@ fn assemble(
         {
             (deck.nodes, deck.data) = (kept.0.clone(), kept.2.clone());
             deck.states.truncate(kept.1);
+            // A layout asked for by name that would have drawn it otherwise is said, as one with no
+            // place for every item is (R1's agent dogfood 11: a Big Number of three figures).
+            if layouts::known(asked) && !outgrown.iter().any(|f| f.slide == i + 1) {
+                let why = match holds(theme, &layout, items.len()) {
+                    false => format!(
+                        "`{layout}` has no place for {} items, so it was set as a list of them all",
+                        items.len()
+                    ),
+                    true => format!(
+                        "`{layout}` would have drawn a figure other than as written, so it was set as a list of its items, their words as written"
+                    ),
+                };
+                outgrown.push(Fell { slide: i + 1, asked: asked.to_string(), layout: "bullets".to_string(), why });
+            }
             made = deck.slide(Slots { layout: "bullets", ..slots }, entrance("bullets", slide, after, last, peak))?;
             layout = "bullets".to_string();
             deck.relisted.push(first + i);
@@ -3277,6 +3318,20 @@ fn assemble(
         };
         for item in items.iter().filter(|_| !charted).filter(unsaid) {
             unset.push(Unset { slide: i + 1, words: item.whole.clone(), layout: layout.clone() });
+        }
+        // And its subtitle, where no text of the slide sets it nor a chart titles its axis by it:
+        // a code slide's file name, which names the code's language and stands nowhere (R1's
+        // agent dogfood 11).
+        let subtitle = letters(&slide.subtitle);
+        let titled = (deck.nodes.iter())
+            .filter(|(id, n)| !kept.0.contains_key(*id) && n["type"] == "chart")
+            .flat_map(|(_, n)| [&n["x"]["title"], &n["y"]["title"]])
+            .filter_map(Value::as_str)
+            .any(|t| letters(t).contains(&subtitle));
+        let cover =
+            matches!(layout.as_str(), "title" | "title-center" | "title-split") || layout.starts_with("section");
+        if !subtitle.is_empty() && !cover && !titled && !words.iter().any(|w| w.contains(&subtitle)) {
+            unset.push(Unset { slide: i + 1, words: slide.subtitle.trim().to_string(), layout: layout.clone() });
         }
         let divider = layout.starts_with("section") && !slide.slide_title.is_empty();
         if divider {
@@ -3828,6 +3883,13 @@ fn iconic(theme: &Theme, layout: &str) -> bool {
 }
 
 fn item(bullet: &str) -> Item {
+    // An item written on lines of its own is written as it stands, as code is: a YAML list's
+    // "- uses:" keeps its dash and its lines their indentation, and no label is cut from its
+    // first ": " (R1's agent dogfood 11).
+    let lines = bullet.trim_matches(['\n', '\r']).trim_end();
+    if lines.contains('\n') && !lines.trim().is_empty() {
+        return Item { label: None, detail: lines.to_string(), whole: lines.to_string() };
+    }
     let bullet = bullet.trim();
     // The mark a model may lead an item with, but not a figure's minus: "-13%" keeps it.
     let whole = match bullet.strip_prefix(['-', '\u{2013}']) {
@@ -8696,6 +8758,36 @@ mod tests {
         );
     }
 
+    /// Code written on lines of its own is set as written: a YAML list's first item keeps its
+    /// "- ", and its lines their indentation, where a one-line item still sheds a model's bullet
+    /// mark (R1's agent dogfood 11).
+    #[test]
+    fn code_on_lines_of_its_own_keeps_its_list_marks() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let yaml = "- uses: actions/cache@v4\n  with:\n    path: ~/.cache/pnpm\n    key: deps-${{ hashFiles('pnpm-lock.yaml') }}";
+        let slide = |title: &str, layout: &str, items: &[&str]| Slide {
+            slide_title: title.into(),
+            subtitle: ".github/workflows/ci.yml".into(),
+            layout_suggestion: layout.into(),
+            key_bullets: items.iter().map(|i| i.to_string()).collect(),
+            ..Slide::default()
+        };
+        let slides = vec![
+            slide("Halving CI", "Title", &[]),
+            slide("One shared cache key", "Code", &[&format!("\n{yaml}\n")]),
+            slide("Two changes did it", "Bullet List", &["- The shared cache key", "- The test split"]),
+            slide("Add both this sprint", "Closing", &[]),
+        ];
+        let made = deck(&narrative("Halving CI.", slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.layouts[1], "title-code");
+        let nodes = made.deck["nodes"].as_object().unwrap();
+        let code: Vec<&str> =
+            nodes.values().filter(|n| n["code"].is_object()).filter_map(|n| n["text"].as_str()).collect();
+        assert_eq!(code, [yaml]);
+        let words: String = nodes.values().filter_map(|n| n["text"].as_str()).collect::<Vec<_>>().join("\n");
+        assert!(words.contains("The shared cache key") && !words.contains("- The"), "{words}");
+    }
+
     /// An item written in code is set as code in its language, on its card, in the theme's code
     /// role and fitted as code fits (dogfood 8a F1, deepdive 6): its language named by the file the
     /// subtitle names, else found in the slide's code read together, a block on one line set on
@@ -9776,6 +9868,43 @@ mod tests {
         quote.key_bullets = vec!["The ocean \u{2014} not the air \u{2014} carries the cost".into()];
         let said = texts(&made(quote));
         assert!(said.iter().any(|t| t.contains("not the air \u{2014} carries the cost")), "{said:?}");
+    }
+
+    /// A layout asked for by name that the slide was set otherwise than as asked says why: a Big
+    /// Number given three figures, set as a list of them; and a chart whose `chartData` is written
+    /// as Chart.js writes it says the shape a chart's reads and what it gave (R1's agent dogfood 11).
+    #[test]
+    fn a_big_number_set_as_a_list_and_a_chart_written_in_another_shape_are_said() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let answer = serde_json::json!({ "executiveSummary": "CI", "slides": [
+            { "slideTitle": "Halving CI", "layoutSuggestion": "Title", "keyBullets": [] },
+            { "slideTitle": "A 41-minute pipeline cost every engineer an hour a day", "layoutSuggestion": "Big Number",
+              "keyBullets": ["41 min median wait for a green build in July", "3 pushes a day per engineer, on average",
+                             "1 hour a day each, spent waiting or switching away"] },
+            { "slideTitle": "Two stages ate 31 of the 41 minutes", "layoutSuggestion": "Bar Chart",
+              "keyBullets": ["Install and integration tests took 31 minutes"],
+              "chartData": { "labels": ["Install", "Tests"], "datasets": [{ "label": "Minutes", "data": [14, 17] }] } },
+            { "slideTitle": "One shared cache key", "subtitle": ".github/workflows/ci.yml", "layoutSuggestion": "Code",
+              "keyBullets": ["- uses: actions/cache@v4\n  with:\n    path: ~/.cache/pnpm"] },
+            { "slideTitle": "Add both this sprint", "layoutSuggestion": "Closing", "keyBullets": [] }
+        ] });
+        let written = scaena_narrato::answer::slides(&answer.to_string()).unwrap();
+        assert_eq!(written.slides[2].chart_unread.as_deref(), Some("`labels`, `datasets`"));
+        let m = deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
+        let fell: Vec<(usize, &str, &str)> =
+            m.fell.iter().map(|f| (f.slide, f.asked.as_str(), f.why.as_str())).collect();
+        assert_eq!(fell.len(), 2, "{fell:?}");
+        assert_eq!((fell[0].0, fell[0].1), (2, "Big Number"), "{fell:?}");
+        assert!(fell[0].2.contains("`big-number`") && fell[0].2.contains("list"), "{fell:?}");
+        assert_eq!((fell[1].0, fell[1].1), (3, "Bar Chart"), "{fell:?}");
+        assert!(
+            fell[1].2.contains("\"categories\"") && fell[1].2.ends_with("it gave `labels`, `datasets`"),
+            "{fell:?}"
+        );
+        // A code slide's file name, which names its language and stands nowhere on it, is said.
+        assert_eq!(m.layouts[3], "title-code");
+        let unset: Vec<(usize, &str)> = m.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
+        assert_eq!(unset, [(4, ".github/workflows/ci.yml")], "{unset:?}");
     }
 
     /// A slide that names a chart without saying which, `Chart` as `deck_generate`'s own schema
@@ -11111,10 +11240,13 @@ mod tests {
         let silent = made("");
         assert_eq!(silent.layouts[1], "architecture");
         let unset: Vec<(usize, &str)> = silent.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
-        assert_eq!(unset, [(2, "Checkout service: Go, 40 pods")]);
-        // Said in the slide's notes, it is not left out.
+        // Its subtitle too, which an architecture sets nowhere (R1's agent dogfood 11).
+        let subtitle = "How a checkout request flows today";
+        assert_eq!(unset, [(2, "Checkout service: Go, 40 pods"), (2, subtitle)]);
+        // Said in the slide's notes, the figure is not left out.
         let noted = made("Checkout runs on Go, 40 pods behind the gateway.");
-        assert!(noted.unset.is_empty(), "{:?}", noted.unset);
+        let unset: Vec<(usize, &str)> = noted.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
+        assert_eq!(unset, [(2, subtitle)]);
     }
 
     #[test]
@@ -14100,6 +14232,25 @@ mod tests {
         let content = grounding(&[page], Provider::Anthropic).unwrap().content.unwrap();
         let refused = scaena_narrato::containment::refusal(&content, None).unwrap();
         assert!(refused.starts_with("Source \"https://example.org/a\" (text)"), "{refused}");
+    }
+
+    /// With ops' `pdf` feature, the CLI's, each PDF's words are held for the notes' figures, and a
+    /// PDF whose words cannot be read is said (W1's dogfood 17); the browser's modules hold none.
+    #[test]
+    fn a_pdfs_words_are_held_for_the_notes() {
+        let report = std::fs::read(root().join("docs/examples/dogfood-17/report.pdf")).unwrap();
+        let pdf = Source { pdf: Some(report), ..source("report.pdf", Kind::Pdf, "") };
+        let locked = Source {
+            pdf: Some(b"%PDF-1.7\ntrailer << /Encrypt << >> >>".to_vec()),
+            ..source("locked.pdf", Kind::Pdf, "")
+        };
+        let g = grounding(&[pdf, locked], Provider::Anthropic).unwrap();
+        if cfg!(feature = "pdf") {
+            assert!(g.held.contains("7,560 street trees") && g.held.contains("2040"), "{}", g.held);
+            assert_eq!(g.unread, ["locked.pdf: its words were not read: it is encrypted"]);
+        } else {
+            assert_eq!((g.held.as_str(), g.unread.len()), ("", 0));
+        }
     }
 
     #[test]
