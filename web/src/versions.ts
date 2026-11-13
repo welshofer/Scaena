@@ -174,6 +174,8 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   const keep = into.querySelector<HTMLButtonElement>("[data-keep]")!;
   /** The versions as the history last listed them, oldest first; null where it keeps none. */
   let versions: Version[] | null = [];
+  /** Where it keeps none yet: a deck the editor made, whose history begins at its first save. */
+  let begins = false;
   /** The version shown, by its id. */
   let chosen: string | undefined;
   /** Listings, drawings, and comparisons asked for, each counted apart: an answer to one before
@@ -199,11 +201,12 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
         try {
           const got = await stage.versions();
           if (asked !== listing) return;
-          versions = got;
+          ({ versions, begins } = got);
           draw();
         } catch (e) {
           if (asked !== listing) return;
           versions = [];
+          begins = false;
           draw();
           head.textContent = `The versions could not be read: ${said(e)}`;
         }
@@ -214,10 +217,13 @@ export function versionsPanel(stage: Stage, into: HTMLElement, editor: VersionsE
   }
 
   function draw() {
-    keep.hidden = versions !== null;
+    keep.hidden = versions !== null || begins;
     if (versions === null) {
-      head.textContent =
-        "This deck keeps no history. Keep a history saves it now, as its first version, and each save after keeps the edits since the last.";
+      // A deck the editor made begins its history at its first save, as `deck_create` and
+      // `deck_generate` begin one.
+      head.textContent = begins
+        ? "Its history begins when it is first saved: that save is its first version, and each save after keeps the edits since the last."
+        : "This deck keeps no history. Keep a history saves it now, as its first version, and each save after keeps the edits since the last.";
       list.replaceChildren();
       return;
     }

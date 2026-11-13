@@ -21,6 +21,9 @@
 // - A version whose deck names a file the bundle no longer holds is refused, and says why.
 // - axe-core finds nothing against WCAG 2.1 AA with a version shown; a bundle that keeps no
 //   history says so, and Keep a history begins one with a save (PLAN 2.87).
+// - A deck the editor made, New's and one From a prompt… made, says before its first save that its
+//   history begins then, offering no Keep, and that save begins it, as `deck_create` and
+//   `deck_generate` begin one.
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
@@ -39,8 +42,12 @@ const root = "target/web-versions";
 const bundle = `${root}/revenue`;
 // B1, its history begun, and its title changed since: the cover and the closing slide show it.
 const b1 = `${root}/b1`;
+// A whole bundle with no history, as From a prompt… makes one: opened kept nowhere (`begins`), its
+// history begins at its first save.
+const made = `${root}/made`;
 await rm(root, { recursive: true, force: true });
 scaena("save", "docs/examples/revenue.deck.json", "--to", bundle, "--history", "--keep-fonts");
+scaena("save", "docs/examples/revenue.deck.json", "--to", made, "--keep-fonts");
 const patch = async (ops) => {
   await writeFile(join(root, "ops.json"), JSON.stringify(ops));
   scaena("patch", bundle, "--ops", join(root, "ops.json"));
@@ -88,6 +95,48 @@ try {
       begun?.length === 1 && begun[0].message === "history begins" && begun[0].author === "user" && !(await keep.isVisible()),
       `Keep a history saves the bundle, its first version the deck as saved: ${JSON.stringify(begun?.map((v) => `${v.message} · ${v.author}`))} · ${await page.locator("#status").textContent()}`,
     );
+    await page.close();
+  }
+
+  // A deck the editor made begins its history at its first save, with nothing asked: New's, and
+  // one From a prompt… made, which opens as its files (`begins`).
+  {
+    const page = await open("/docs/examples/revenue.deck.json");
+    // The prompt's deck as its files, read in the page, since bytes do not cross into it.
+    const opens = { New: { create: { theme: "Dusk", title: "Begun" } }, "From a prompt…": "files" };
+    for (const [how, deck] of Object.entries(opens)) {
+      await page.evaluate(
+        async ({ d, dir }) => {
+          if (d !== "files") return window.scaena.open(d);
+          // The whole bundle, as From a prompt… hands its files over: every file its manifest lists.
+          const manifest = await (await fetch(`/${dir}/manifest.json`)).json();
+          const paths = ["deck.json", "manifest.json", ...Object.keys(manifest.files ?? manifest.hashes ?? {})];
+          const files = {};
+          for (const path of [...new Set(paths)]) {
+            const r = await fetch(`/${dir}/${path}`);
+            if (r.ok) files[path] = await r.arrayBuffer();
+          }
+          return window.scaena.open({ files, name: "Made", begins: true });
+        },
+        { d: deck, dir: made },
+      );
+      await page.waitForFunction(() => window.scaena?.last()?.valid, null, { timeout: 120000 });
+      // The panel reads as it is shown (its MutationObserver): a fresh deck opened over one on the
+      // Versions tab keeps the tab shown, so Format then Versions makes it read the new deck.
+      await tab(page, "inspector");
+      await tab(page, "versions");
+      await page.evaluate(() => window.scaena.versions.settled());
+      const said = await page.locator("#versions [data-summary]").textContent();
+      const keep = page.locator("#versions [data-keep]");
+      check(said.startsWith("Its history begins when it is first saved") && !(await keep.isVisible()), `${how}: the history begins at its first save, said before it: ${said}`);
+      await page.evaluate(() => window.scaena.save());
+      await page.waitForFunction(() => window.scaena.versions.listed()?.length > 0, null, { timeout: 60000 }).catch(() => {});
+      const begun = await page.evaluate(() => window.scaena.versions.listed());
+      check(
+        begun?.length === 1 && begun[0].message === "history begins" && begun[0].author === "user",
+        `${how}: its first save begins its history: ${JSON.stringify(begun?.map((v) => `${v.message} · ${v.author}`))} · ${await page.locator("#status").textContent()}`,
+      );
+    }
     await page.close();
   }
 
