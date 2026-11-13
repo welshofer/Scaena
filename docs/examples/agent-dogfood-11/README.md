@@ -23,7 +23,7 @@ Lint found nothing at any step. Health went from 73 to 83, after the arc fix it 
 
 ## Minor
 
-- The cover's `speakerNotes` went onto both its beat's notes and its state's notes, the beat having none of its own.
+- `spine_read` seemed to show the cover's notes twice, on its beat and on its state. They are kept once, on the beat; `spine_read`'s `states` list each state's notes as a presenter reads them, the beat's where the state has none. Pacing hears them once (`health::talk` reads each state's through `spine::notes`, each once).
 - A code slide's subtitle, the path of the file its code is from, is set nowhere and is not listed in `unset`.
 - `scripts/split-tests.ts` breaks at its own hyphen ("split-" / "tests.ts"), which reads as a hyphen put in. A path is not yet set as an address is.
 - `deck_create`'s `data` given as a list of file names says "expected struct Attach", not the `{ id, file }` it expects.
