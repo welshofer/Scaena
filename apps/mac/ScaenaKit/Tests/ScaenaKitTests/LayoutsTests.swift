@@ -1,5 +1,5 @@
 import Foundation
-import ScaenaKit
+@testable import ScaenaKit
 import Testing
 
 /// The layouts a slide may take (PLAN 2.92, 3.26), as the Format tab shows them: judged a step at
@@ -86,4 +86,38 @@ import Testing
     let current = drawn.first { $0.current }
     #expect(current?.adds(over: current).errors == 0)
     #expect(drawn.filter { !$0.current }.allSatisfy { $0.adds(over: current).errors > 0 })
+}
+
+/// The layout picker's slides to start are drawn away from the window (#1309's walk, hang 29):
+/// off the main thread, on a session of a snapshot of the deck, the pictures the window's own
+/// drawing makes, and kept, so asked again none is drawn anew.
+@Test @MainActor func theSlidesToStartAreDrawnAwayFromTheWindow() async throws {
+    let session = try ScaenaSession(files: example("revenue"))
+    let editor = DeckEditor(session: session)
+    let drawnOn = StartersOn()
+    editor.startersOn = { drawnOn.take(main: $0) }
+    let away = await editor.startersAway(["swot", "nowhere", nil], after: "revenue", height: 90)
+    #expect(drawnOn.taken == [false], "drawn once, off the main thread")
+    #expect(away.map(\.starter.layout) == ["swot", nil], "in the order asked, a name the theme lacks passed over")
+
+    let here = try session.startersDrawn(after: "revenue", height: 90, only: ["swot"])
+    #expect(away.first?.image.height == 90)
+    #expect(away.first?.image.dataProvider?.data as Data? == here.first?.image.dataProvider?.data as Data?)
+
+    let again = await editor.startersAway(["swot"], after: "revenue", height: 90)
+    #expect(again.first?.image === away.first?.image, "kept")
+    #expect(drawnOn.taken == [false], "none drawn anew")
+    #expect(editor.startersKept(["swot"], height: 90).first?.image === away.first?.image)
+}
+
+/// Each round of drawing, where it ran.
+private final class StartersOn: @unchecked Sendable {
+    private let lock = NSLock()
+    private var rounds: [Bool] = []
+
+    func take(main: Bool) {
+        lock.withLock { rounds.append(main) }
+    }
+
+    var taken: [Bool] { lock.withLock { rounds } }
 }
