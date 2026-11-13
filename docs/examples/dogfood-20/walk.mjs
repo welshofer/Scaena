@@ -353,6 +353,32 @@ try {
   };
   if (stages.has("bundle")) await downloadBundle("made");
 
+  if (stages.has("probe")) {
+    const errs = async (label) => {
+      const hh = await health();
+      const f = await page.evaluate(() => window.scaena.last()?.findings?.filter((x) => x.severity === "error").map((x) => `${x.code} ${x.state}`));
+      note(label, "| story errors:", (hh?.findings ?? []).filter((x) => x.severity === "error").map((x) => x.state), "| editor errors:", f, "| whole:", await page.evaluate(() => window.scaena.last()?.whole));
+    };
+    await tab(page, "story");
+    await errs("landed");
+    await page.waitForTimeout(20000);
+    await errs("20 s on");
+    await page.locator("#strip li[data-state]").nth(3).click();
+    await page.waitForTimeout(3000);
+    await errs("another slide shown, 3 s");
+    await page.waitForTimeout(15000);
+    await errs("15 s more");
+    await page.evaluate(() => document.querySelectorAll("#story [data-more] details").forEach((d) => (d.open = true)));
+    await page.locator('#story [data-findings] li[data-slide="13"] button[data-ask]').first().click();
+    await page.waitForTimeout(800);
+    await page.click("#ask");
+    await page.waitForFunction(() => !document.querySelector("#stop:not([hidden])"), null, { timeout: 120000 }).catch(() => {});
+    await page.waitForTimeout(8000);
+    await tab(page, "story");
+    await errs("after an assistant turn that changes nothing");
+    await page.waitForTimeout(15000);
+    await errs("15 s more");
+  }
   // 2. The Story's findings worked down, as a person would: a fix where one is offered, a field
   //    typed by hand where the row offers one, else the assistant asked.
   if (stages.has("story")) {
