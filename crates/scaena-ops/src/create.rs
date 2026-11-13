@@ -134,6 +134,21 @@ fn source(req: &Attach, bytes: Vec<u8>) -> Result<Source, OpsError> {
     }
     let name = req.file.file_name().and_then(|n| n.to_str()).context("the data file has no name")?;
     let path = format!("data/{name}");
+    // A file that is no CSV or JSON is refused by what it is, never as text that does not read
+    // ("`data/kennzahlen.xlsx` is not UTF-8"), and a workbook is told where it goes (R1's agent
+    // dogfood 13).
+    let kind = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    if kind != "csv" && kind != "json" {
+        let workbook = matches!(kind.as_str(), "xlsx" | "xlsm" | "xls" | "ods" | "numbers");
+        return Err(OpsError::new(if workbook {
+            format!(
+                "`{name}` is a workbook, and `data_attach` takes a CSV or a JSON file (an array of objects): give the \
+                 workbook to `deck_generate`'s `sources`, which keeps each sheet as a data source, or save a sheet as CSV"
+            )
+        } else {
+            format!("`{name}` is not a CSV or a JSON file (an array of objects), which `data_attach` takes")
+        }));
+    }
     let inferred = scaena_core::data::infer(&path, &bytes).map_err(|e| OpsError::new(e.to_string()))?;
     let schema: IndexMap<String, String> = match &req.schema {
         Some(schema) => schema.clone(),
