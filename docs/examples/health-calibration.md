@@ -395,4 +395,53 @@ Should a fix the Story asks for move the score when no measure counts it? On thi
    - No figure moves.
    - A row that calls a story fix "not counted" could teach people to skip the findings that make the talk better. That is why the rows say nothing of it yet.
 
-Options 2 and 3 cannot be read against the reader until there are calibration decks that keep a settled outline.
+On the 13 decks above, options 2 and 3 move nothing: none keeps a settled outline, and none has a `label`, `claim` or `bigIdea` warning. Their label findings are all infos. So ρ there stays +0.65 under either option. W2's outlined calibration (`docs/examples/health-calibration-outlined/`, #1256) gives six decks that keep their outline, ranked by a reader before any score was read. Both options are read on them below.
+
+### Options 2 and 3, read on decks that keep their outline
+
+The six decks are built as that calibration's README builds them, and read by health on main. Their base scores are the ones that calibration gives. Each option is read twice: with health's detectors on main, and with two fixes to them that are in review.
+- **#1257:** a word or two, and a how or what clause, read as a topic headline, and an imperative read as a point.
+- **#1259:** a part's claim is not counted as carried by a name every part shares.
+
+With the second set, health finds 12 of the 16 topic headlines the reader counts, with none false. On main it finds 5, with one false.
+
+**The options as measured.** The costs and weights are mine, chosen before reading the results and not fitted to them.
+- **Option 3, a cost per finding.** The score without the cap, less 1, 2 or 3 points for each `label`, `claim` or `bigIdea` warning, then capped again where lint finds a slide broken.
+  - Most of health's topic headlines are infos, not warnings, so a variant counts `label` findings of either severity.
+- **Option 2, an outline measure.** It is weighed 0.25 beside pacing (0.20), balance (0.25) and fidelity (0.25), and read only for a deck that keeps an outline. It is the mean of three shares:
+  - the parts whose slides carry their claim: 1 less the `claim` warnings over the parts;
+  - the big idea landed: 1, or 0 where `bigIdea` warns;
+  - the content slides whose headline states its point: 1 less the `label` findings over the content slides.
+
+| | main's detectors, as scored | main's, without the cap | with #1257 and #1259, as scored | with them, without the cap |
+|---|---|---|---|---|
+| base | −0.20 | +0.88 | −0.20 | +0.88 |
+| 3: −1 per warning | −0.14 | +0.94 | −0.14 | +0.94 |
+| 3: −1 per finding, labels of either severity | −0.14 | +0.94 | +0.06 | +1.00 |
+| 3: −2 per warning | −0.03 | +0.93 | +0.20 | +0.93 |
+| 3: −2 per finding, labels of either severity | −0.03 | +0.93 | +0.71 | +0.94 |
+| 3: −3 per warning | +0.58 | +0.89 | +0.58 | +0.89 |
+| 2: an outline measure | +0.35 | +0.93 | +0.71 | +0.99 |
+
+ρ is Spearman's rank correlation with the reader's order, ties at their average rank. The six decks' scores under the two options that read closest, with both fixes and without the cap:
+
+| deck | reader | base, no cap | 2, no cap | 3: −2 per finding, no cap |
+|---|---|---|---|---|
+| lanes | 1 | 95 | 96 | 95 |
+| sourdough | 2 | 93 | 95 | 93 |
+| vans | 3 | 93 | 89 | 83 |
+| support | 4 | 89 | 89 | 85 |
+| larder | 5 | 87 | 77 | 79 |
+| warehouse | 6 | 89 | 76 | 73 |
+
+### What the numbers say
+
+- **The cap decides more than either option.** As scored, lanes and vans (the reader's first and third) stay at 81 and 80 under every option. Each is capped by a lint error the builder left, so no option gets past +0.71 with the cap.
+- **Without the cap, both options follow the reader more closely than the base does.** ρ rises from +0.88 to +0.89–1.00. Both put larder and warehouse (fifth and sixth) under support (fourth), where the base ties warehouse with support.
+- **They need the corrected detectors.** With main's, health finds two of vans' eight topic headlines and two of warehouse's eight, so a cost per label barely reaches them. With #1257, option 2 and option 3, counting labels of either severity, separate them. But option 3 then also takes vans, the reader's third, ten points under sourdough: vans' headlines are topics, and its story is the strongest of the six.
+- **How far to trust it.**
+  - Six decks are few. One swap of neighbours moves ρ by about 0.1.
+  - W2 wrote each deck to sit at a point on the three axes these findings read, so the decks favour any option that reads them, by construction.
+  - The 13 decks a reader ranked for other reasons can't test either option, because neither moves them.
+  - Read +0.99 and +1.00 as "orders these six as the reader does", not as a measured fit.
+- **Each option is a new ADR-0032 item.** Option 2 is a new measure in Vzestup's composite. Option 3 is a cost outside every measure. Neither is recommended here; the question stays Jay's.
