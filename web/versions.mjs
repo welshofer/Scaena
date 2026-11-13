@@ -5,6 +5,9 @@
 //
 //   node web/versions.mjs     (after `just web`; from the repository's root)
 //
+// A change whose message says nothing of it is listed by what it changed: a patch of a beat's
+// notes alone, "Presenter Notes changed on Slide 2" (editor dogfood 7).
+//
 // - The tab lists the history's changes, the newest first, each by its author and when.
 // - A version chosen shows a state of it at rest, read only, and what changed from it to the deck
 //   now, in a person's words, a text whose words changed named by its words before, and one whose
@@ -87,6 +90,23 @@ try {
       `Keep a history saves the bundle, its first version the deck as saved: ${JSON.stringify(begun?.map((v) => `${v.message} · ${v.author}`))} · ${await page.locator("#status").textContent()}`,
     );
     await page.close();
+  }
+
+  // A change whose message says nothing of it is said by what it changed, as `deck_history` tells
+  // it (editor dogfood 7): a patch of a beat's notes alone is listed "Presenter Notes changed on
+  // Slide 2", not "An edit".
+  {
+    const nb = `${root}/said`;
+    scaena("save", "docs/examples/revenue.deck.json", "--to", nb, "--history", "--keep-fonts");
+    await writeFile(join(root, "said-ops.json"), JSON.stringify([{ op: "replace", path: "/spine/sections/1/beats/0/notes", value: "A new growth note." }]));
+    scaena("patch", nb, "--ops", join(root, "said-ops.json"));
+    const said = await open(`/${nb}/deck.json`);
+    const listed = await said.evaluate(() => window.scaena.versions.listed());
+    check(
+      listed.length === 2 && listed[1].said === "Presenter Notes changed on Slide 2",
+      `a patch of a beat's notes is listed by the slide it changed: ${JSON.stringify(listed.map((v) => v.said))}`,
+    );
+    await said.close();
   }
 
   const page = await open(`/${bundle}/deck.json`);

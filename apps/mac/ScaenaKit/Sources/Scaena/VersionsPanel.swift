@@ -27,6 +27,8 @@ struct VersionsPanel: View {
     @State private var problem: String?
     /// What the last restore of a slide put back, as the browser's status says it.
     @State private var putBack: String?
+    /// Each read of the versions begun, counted, so an answer to one before the last is let go.
+    @State private var reading = 0
     /// The version chosen, shown on a snapshot's session of its own.
     @State private var version: VersionShown?
 
@@ -109,11 +111,24 @@ struct VersionsPanel: View {
         return (state, i < slides.count ? slides[i] : "Slide \(i + 1)")
     }
 
+    /// The versions read again, away from the window (editor dogfood 7): a change its message says
+    /// nothing of is said by what it changed, which checks the newest versions out. The last read
+    /// begun is the one kept.
     private func read() {
         let session = editor.session
         keeps = (try? session.keepsHistory()) ?? false
-        versions = (try? session.versions()) ?? []
-        if let chosen, !versions.contains(where: { $0.id == chosen }) { self.chosen = nil }
+        reading += 1
+        let asked = reading
+        guard keeps, let snapshot = try? session.snapshot() else {
+            versions = []
+            return
+        }
+        Task {
+            let listed = (try? await VersionShown.listed(from: snapshot)) ?? []
+            guard asked == reading else { return }
+            versions = listed
+            if let chosen, !versions.contains(where: { $0.id == chosen }) { self.chosen = nil }
+        }
     }
 
     /// The version chosen shown read only, on a snapshot's session of its own away from the window,

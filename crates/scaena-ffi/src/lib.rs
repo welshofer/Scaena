@@ -2345,7 +2345,14 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         // with the deck now; and one made the deck again, with each file it wrote for the undo. A
         // version is named by its number as listed, or its id.
         "versions" => {
-            let listed: Vec<scaena_session::versions::Listed> = history_of(s)?.1.into_iter().map(Into::into).collect();
+            // Each told as `deck_history` tells it (editor dogfood 7): a change its message says
+            // nothing of said by what it changed, the newest checked out, which the Mac reads away
+            // from the window.
+            let (doc, _) = history_of(s)?;
+            let told = scaena_ops::history::told(&doc).map_err(said)?;
+            let listed: Vec<scaena_session::versions::Listed> = (told.into_iter())
+                .map(|t| scaena_session::versions::Listed { version: t.version, said: t.said, by: t.by })
+                .collect();
             json!(listed)
         }
         "viewVersion" => {

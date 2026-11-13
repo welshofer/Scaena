@@ -259,6 +259,21 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     await #expect(throws: ScaenaError.self) { try await VersionShown.opened("9", from: try session.snapshot()) }
 }
 
+/// The versions are read away from the window, each said as `deck_history` tells it (editor
+/// dogfood 7): a save that changed only a beat's notes is listed by the slide they are read on, as
+/// the session lists it.
+@Test func theVersionsAreListedOnASnapshotEachSaidByWhatItChanged() async throws {
+    let session = try ScaenaSession(directory: b1)
+    try session.keepHistory()
+    let editor = DeckEditor(session: session)
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_000), subset: false))
+    try editor.typed([["op": "add", "path": "/spine/sections/0/beats/0/notes", "value": "A new opening note."]])
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_300), subset: false))
+    let listed = try await VersionShown.listed(from: try session.snapshot())
+    #expect(listed.map(\.said) == (try session.versions()).map(\.said))
+    #expect(listed.last?.said.hasPrefix("Presenter Notes changed on Slide ") == true)
+}
+
 /// A panel's number field (PLAN 3.28): a number shown as a person writes it, read from what they
 /// typed, and stepped without the noise of a binary fraction.
 @Test func aFieldShowsReadsAndStepsANumberAsAPersonWritesIt() {

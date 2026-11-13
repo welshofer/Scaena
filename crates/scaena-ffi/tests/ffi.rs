@@ -1868,6 +1868,14 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     assert_eq!((&versions[0]["said"], &versions[0]["by"]), (&json!("The history begins"), &json!("you")), "{versions}");
     let said = versions[1]["said"].as_str().unwrap_or_default();
     assert!(!said.is_empty() && !said.contains("patch:") && !said.contains('_'), "{versions}");
+    // A change that touched only a beat's notes is said by the slide they are read on, as
+    // `deck_history` tells it, never as an edit its message cannot name (editor dogfood 7).
+    let notes = json!([{ "op": "add", "path": "/spine/sections/0/beats/0/notes", "value": "A new opening note." }]);
+    assert_eq!(call(s, "typed", json!({ "ops": notes })), true);
+    save(s, "2026-10-08T12:06:00Z");
+    let versions = call(s, "versions", Value::Null);
+    let said = versions[2]["said"].as_str().unwrap_or_default();
+    assert!(said.starts_with("Presenter Notes changed on Slide "), "{versions}");
 
     let states = call(s, "viewVersion", json!({ "version": "1" }));
     assert_eq!(states[0], "cover", "{states}");
