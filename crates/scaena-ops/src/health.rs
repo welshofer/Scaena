@@ -1512,8 +1512,25 @@ const THANKS: [&str; 16] = [
 
 /// The plan layouts a talk closes in, as Narrato names them (`media.narrato.layout`): a slide
 /// planned in one closes the talk whatever theme layout its items were set in.
-const CLOSING_PLANS: [&str; 9] =
-    ["closing", "call to action", "next steps", "q&a", "q & a", "qa", "questions", "takeaways", "poster"];
+const CLOSING_PLANS: [&str; 15] = [
+    "closing",
+    "call to action",
+    "next steps",
+    "q&a",
+    "q & a",
+    "qa",
+    "questions",
+    "takeaways",
+    "poster",
+    // The works cited and the thanks a talk ends on come after its close, as a paper's do (W1's
+    // dogfood 19).
+    "references",
+    "bibliography",
+    "works cited",
+    "acknowledgments",
+    "acknowledgements",
+    "acknowledgment",
+];
 
 /// Whether the slide's beat planned it in a layout that closes the talk ([`CLOSING_PLANS`]):
 /// health read of a Spanish deck, whose Closing of two items was set as bullets.
@@ -1537,9 +1554,11 @@ fn closing(deck: &Deck, slides: &[Slide], read: &[SlideForHealth]) -> Vec<String
         // Next steps and the floor opened belong to a close too, before or after its last word
         // (dogfood pass 9). A headline closes only where it thanks the room or opens the floor in
         // three words or fewer: an FAQ headed "Questions every support lead asks us first"
-        // answers them in the talk (the calibration against a reader).
-        layout.is_some_and(|l| CLOSING.contains(&l) || matches!(l, "next-steps" | "qa"))
-            || (THANKS.iter().any(|t| title.starts_with(t)) && title.split_whitespace().count() <= 3)
+        // answers them in the talk (the calibration against a reader). The works cited and the
+        // thanks to those who helped come after it, as a paper's do (W1's dogfood 19).
+        layout.is_some_and(|l| {
+            CLOSING.contains(&l) || matches!(l, "next-steps" | "qa" | "references" | "acknowledgments")
+        }) || (THANKS.iter().any(|t| title.starts_with(t)) && title.split_whitespace().count() <= 3)
     };
     let n = read.len().min(slides.len());
     (0..n).rev().take_while(|&i| closes(i)).map(|i| read[i].id.clone()).collect()
@@ -8276,6 +8295,52 @@ mod tests {
                 "no figure moves"
             );
         }
+    }
+
+    /// W1's dogfood 19: a paper's talk ends on its works cited, after its close, planned calm, and
+    /// health asked it planned more intense, "calmer than its place in the story calls for (0.87)".
+    /// A references slide, an acknowledgments slide, or one planned as either, at the deck's end
+    /// joins its closing run, so its calm is no bend; the same slide in a layout that closes
+    /// nothing still bends. No figure moves.
+    #[test]
+    fn works_cited_at_the_end_join_the_close() {
+        let declare = |deck: &mut Value, state: &str, v: f64| {
+            let beat = beat_of(deck, state);
+            *deck.pointer_mut(&format!("{beat}/media/narrato/intensity")).unwrap() = json!(v);
+        };
+        let cooler = |h: &Health, state: &str| {
+            h.findings.iter().any(|f| f.state == state && f.kind == Kind::Arc && f.says.contains("cooler"))
+        };
+        let base = climate();
+        let before = of(&base);
+        let n = before.slides.len();
+        let [close, last] = [n - 2, n - 1].map(|i| before.slides[i].state.clone());
+        let laid = |deck: &mut Value, state: &str, layout: &str, plan: &str| {
+            let at = (deck["states"].as_array().unwrap().iter()).position(|s| s["id"] == state).unwrap();
+            deck["states"][at]["layout"] = json!(layout);
+            let beat = beat_of(deck, state);
+            deck.pointer_mut(&format!("{beat}/media/narrato")).unwrap()["layout"] = json!(plan);
+        };
+        let ending = |layout: &str, plan: &str| {
+            let mut deck = base.clone();
+            laid(&mut deck, &close, "closing", "Closing");
+            declare(&mut deck, &close, 0.0);
+            laid(&mut deck, &last, layout, plan);
+            declare(&mut deck, &last, 0.2);
+            deck
+        };
+        for (layout, plan) in
+            [("references", "References"), ("acknowledgments", "Acknowledgments"), ("bullets", "Bibliography")]
+        {
+            let h = of(&ending(layout, plan));
+            assert!(!cooler(&h, &last), "{layout} / {plan}: {:#?}", h.findings);
+        }
+        let open = of(&ending("statement", "Statement"));
+        let title = open.slides.last().unwrap().title.to_lowercase();
+        if !THANKS.iter().any(|t| title.starts_with(t)) {
+            assert!(cooler(&open, &last), "the same plan as a statement bends: {:#?}", open.findings);
+        }
+        assert_eq!(of(&ending("references", "References")).fidelity.score, open.fidelity.score, "no figure moves");
     }
 
     /// Health says nothing it did not read (Jay's call, 2026-10-25). Words the lexicons read
