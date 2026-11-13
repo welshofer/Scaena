@@ -143,6 +143,18 @@ fn nothing_is_written_that_does_not_validate() {
     let b = scaena_ops::open(&dir).unwrap();
     let err = attach(&b, &q3()).unwrap_err();
     assert!(err.message.contains("has a data source `q3` already"), "{err}");
+    // A workbook is told where it goes, never that it is not UTF-8 (R1's agent dogfood 13), and
+    // any other kind of file what `data_attach` takes; nothing is copied in.
+    for (file, says) in [
+        ("kennzahlen.xlsx", "give the workbook to `deck_generate`'s `sources`"),
+        ("q3.txt", "is not a CSV or a JSON file"),
+    ] {
+        let path = root.join(file);
+        std::fs::write(&path, b"PK\x03\x04\xff\xfe").unwrap();
+        let err = attach(&b, &Attach { id: "sheet".into(), file: path, schema: None, parse: None }).unwrap_err();
+        assert!(err.message.contains(says) && !err.message.contains("UTF-8"), "{err}");
+    }
+    assert!(!dir.join("data/kennzahlen.xlsx").exists());
 }
 
 /// A build that splits a node into what it does not have is the deck's error (E106, PLAN 2.112),

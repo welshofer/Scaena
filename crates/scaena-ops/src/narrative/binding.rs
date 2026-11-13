@@ -215,8 +215,23 @@ fn named(cell: &Datum, category: &str) -> Named {
             let name = name.trim_end_matches(['.', ',']).to_lowercase();
             let month = |names: [&str; 12]| names.iter().position(|n| n.to_lowercase() == name);
             let locales = scaena_core::format::LOCALES.iter();
-            let short = locales.clone().find_map(|l| month(l.short_months));
+            // A month's name cut short as a chart's axis cuts it, its first three letters or more where
+            // they begin no other month of its language ("Mär" for März beside the locale's "Mrz",
+            // "Sept"; R1's agent dogfood 13), reads as its short name.
+            let cut = |names: [&str; 12]| {
+                let starts = |n: &&str| {
+                    let n = n.to_lowercase();
+                    name.chars().count() >= 3 && n.starts_with(&name) && n != name
+                };
+                let mut found = names.iter().enumerate().filter(|(_, n)| starts(n));
+                match (found.next(), found.next()) {
+                    (Some((k, _)), None) => Some(k),
+                    _ => None,
+                }
+            };
             let long = locales.clone().find_map(|l| month(l.months));
+            let short = (locales.clone().find_map(|l| month(l.short_months)))
+                .or_else(|| long.is_none().then(|| locales.clone().find_map(|l| cut(l.months))).flatten());
             let Some(index) = short.or(long) else { return Named::No };
             if index + 1 != c.month as usize {
                 return Named::No;
@@ -466,7 +481,10 @@ fn missing(chart: &ChartData, table: &Table, id: &str) -> String {
         .map(String::as_str)
         .collect();
     if !lacks.is_empty() {
-        return format!("`{id}`'s `{column}` holds the slide's categories ({all}) but {}", lacks.join(", "));
+        return format!(
+            "`{id}`'s `{column}` holds the slide's categories ({all}) but no row of it is {}",
+            lacks.join(" or ")
+        );
     }
     let twice: Vec<&str> = (chart.categories.iter())
         .filter(|cat| table.rows.iter().filter(|r| is(&r[c], cat)).count() > 1)
@@ -601,6 +619,13 @@ mod tests {
             assert_eq!(named(&jan, written), how, "{written}");
         }
         assert_eq!(named(&month(2026, 5), "May"), Named::Month { short: true, long: true });
+        // A month's name cut short as an axis cuts it, where no other month of its language begins
+        // so (R1's agent dogfood 13: a German chart's "Mär" beside the locale's "Mrz").
+        assert_eq!(named(&month(2026, 3), "Mär"), Named::Month { short: true, long: false });
+        assert_eq!(named(&month(2026, 9), "Sept"), Named::Month { short: true, long: false });
+        assert_eq!(named(&month(2026, 6), "Juni"), Named::Month { short: false, long: true });
+        assert_eq!(named(&month(2026, 3), "Mä"), Named::No, "two letters name no month");
+        assert_eq!(named(&month(2026, 1), "Ju"), Named::No);
         // A day within the month is not the month.
         let fifteenth = Datum::Date(
             DateTime::from_civil(Civil { year: 2026, month: 1, day: 15, hour: 0, minute: 0, second: 0 }).unwrap(),
@@ -786,7 +811,10 @@ mod tests {
         let mut on = chart(&["2022", "2023", "2024", "2025", "2026"]);
         on.series.iter_mut().for_each(|s| s.values.rotate_left(1));
         let why = bind(&mut late, &on, &deck, &files, "canopy").unwrap_err();
-        assert!(why.contains("`canopy`'s `year` holds the slide's categories") && why.ends_with("but 2026"), "{why}");
+        assert!(
+            why.contains("`canopy`'s `year` holds the slide's categories") && why.ends_with("but no row of it is 2026"),
+            "{why}"
+        );
         assert_eq!(late["data"], json!("@own"));
     }
 

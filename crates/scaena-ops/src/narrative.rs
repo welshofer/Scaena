@@ -6137,7 +6137,15 @@ impl Slots<'_> {
             .chain(std::iter::once(self.slide.subtitle.trim().to_string()))
             .chain(self.items.iter().map(|i| i.whole.trim().to_string()))
             .filter(|w| !w.is_empty())
-            .collect();
+            .fold(Vec::new(), |mut said: Vec<String>, w| {
+                // A model writes its thanks as the title, the subtitle, and the points alike
+                // ("Vielen Dank", "Fragen?", then both again): each is said once (R1's agent
+                // dogfood 13).
+                if !said.iter().any(|s| s.to_lowercase() == w.to_lowercase()) {
+                    said.push(w);
+                }
+                said
+            });
         said.join(" \u{b7} ")
     }
 
@@ -12289,6 +12297,13 @@ mod tests {
         assert_eq!(layout, "closing", "{said:#?}");
         has(&said, "statement", "Free fares bring the riders back.");
         has(&said, "support", "Vielen Dank \u{b7} Fragen? \u{b7} route9@example.gov");
+        // Its thanks written as its title, its subtitle, and its points alike are said once each
+        // (R1's agent dogfood 13: "Vielen Dank · Fragen? · Vielen Dank · Fragen?").
+        let last = n.slides.last_mut().unwrap();
+        last.subtitle = "Fragen?".into();
+        last.key_bullets = vec!["Vielen Dank".into(), "Fragen?".into()];
+        has(&close(&n).1, "support", "Vielen Dank \u{b7} Fragen?");
+        n.slides.last_mut().unwrap().subtitle = String::new();
         // A closing that says its ask, its thanks under it, keeps its closing too, in any
         // language, the thanks on one line under the ask (agent dogfood 9: "Aprueben la
         // ampliación" over "Gracias", "¿Preguntas?" was set as a list of the two).
