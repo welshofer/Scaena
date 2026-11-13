@@ -113,6 +113,7 @@ class AptInstall(unittest.TestCase):
             ARCHIVES=str(d / "archives"),
             SCAENA_APT_SOURCES=str(d / "ubuntu.sources"),
             SCAENA_APT_SUDO="",
+            SCAENA_APT_CODENAME="noble",
             SCAENA_APT_CACHE=f"{d / 'lists'} {d / 'archives'}",
             SCAENA_APT_KEEP=str(keep) if keep else "",
             # Reads a second apart, a floor of 1,000 bytes a second, no pause between mirrors.
@@ -182,6 +183,19 @@ class AptInstall(unittest.TestCase):
         self.assertNotIn(LISTED, sources)
         self.assertIn("# See http://help.ubuntu.com/community/UpgradeNotes for how", sources)
         self.assertIn("deb http://security.ubuntu.com/ubuntu noble-security", sources)
+
+    def test_a_runner_whose_sources_name_no_archive_is_given_ubuntus(self):
+        # #1329's runner named no archive in its sources at all, its update reaching Microsoft's
+        # alone, so no mirror swap had an address to swap and no package of Ubuntu's was found:
+        # Ubuntu's archive is named, with universe, which ffmpeg is in, and the rounds go on.
+        bare = "# Ubuntu sources have moved to /etc/apt/sources.list.d/ubuntu.sources\n"
+        done, log, sources, _ = self.run_script(sources=bare)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(log, [f"{ARCHIVE} update", f"{ARCHIVE} download", f"{ARCHIVE} install"])
+        self.assertIn(f"deb {ARCHIVE} noble main universe", sources)
+        self.assertIn(f"deb {ARCHIVE} noble-updates main universe", sources)
+        self.assertTrue(sources.startswith(bare))
+        self.assertIn("names no archive", done.stderr)
 
     def test_a_dpkg_left_interrupted_is_configured_and_the_install_goes_on(self):
         done, log, _, _ = self.run_script(interrupted=True)
