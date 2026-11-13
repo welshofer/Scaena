@@ -2319,3 +2319,55 @@ async fn deck_generates_sources_are_held_to_a_gigabyte_together() {
     assert!(text(&result).contains("sources: 17 given, past the 16"), "{}", text(&result));
     client.cancel().await.unwrap();
 }
+
+/// French slides on a paper's results, the results' CSV beside them: what W1's dogfood 19 gave
+/// `deck_generate`.
+fn toitures() -> (Value, &'static str) {
+    let slides = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+        { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Confluence gagne 2,4 °C, Vaise à peine 0,7 °C", "layoutSuggestion": "Bar Chart",
+          "keyBullets": ["Baisse moyenne de la température de surface, en °C"],
+          "chartData": { "categories": ["Confluence", "Part-Dieu", "Croix-Rousse", "Gerland", "Vaise"],
+                         "series": [{ "name": "Baisse de température", "values": [2.4, 1.6, 1.1, 1.9, 0.7] }],
+                         "sourceId": "resultats" } },
+        { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"],
+          "sourceRef": "resultats.csv" },
+        { "slideTitle": "La flore compte autant que la surface", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Les sédums résistent à la canicule", "Les graminées se dessèchent"] },
+        { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+    ] });
+    let csv = "quartier,toitures_m2,baisse_temperature_c,part_surface_pct\nConfluence,184500,2.4,11.2\nPart-Dieu,97300,1.6,6.8\nCroix-Rousse,61200,1.1,4.3\nGerland,142800,1.9,8.9\nVaise,38400,0.7,3.7\n";
+    (slides, csv)
+}
+
+/// W1's dogfood 19: one CSV given both as `data` and among `sources` was kept twice, as the data
+/// source `resultats` and again as `resultats-2`, and listed twice among the deck's sources. It
+/// is one file: kept once, as the data source it is attached as, and listed once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_given_as_data_and_as_a_source_is_kept_once() {
+    let dir = scratch("kept-once");
+    let (slides, csv) = toitures();
+    std::fs::write(dir.join("resultats.csv"), csv).unwrap();
+    let client = connect_in(&dir).await;
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": "toitures", "theme": "salon", "language": "French", "slides": slides,
+                "data": [{ "id": "resultats", "file": "resultats.csv" }],
+                "sources": [{ "file": "resultats.csv" }] }),
+    )
+    .await;
+    assert!(made.get("kept").is_none_or(|k| k.as_array().is_some_and(Vec::is_empty)), "{made:#}");
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("toitures/deck.json")).unwrap()).unwrap();
+    // The file is the one data source `resultats`, no copy beside it.
+    let copies: Vec<&String> = (d["data"].as_object().unwrap().iter())
+        .filter(|(_, decl)| decl["source"].as_str().is_some_and(|s| s.starts_with("data/resultats")))
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(copies, ["resultats"], "{:#}", d["data"]);
+    let named: Vec<&str> =
+        (d["meta"]["narrative"]["sources"].as_array().unwrap().iter()).filter_map(|s| s["name"].as_str()).collect();
+    assert_eq!(named, ["resultats.csv"], "{:#}", d["meta"]["narrative"]["sources"]);
+    client.cancel().await.unwrap();
+}
