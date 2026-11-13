@@ -341,10 +341,26 @@ The candidate makes item 6 one rule for the finding and the score: a slide in th
 | fleet | 90 | 91 |
 | cargo | 69 | 70 |
 
-| | ρ against the reader | decks at 90–95 | above 95 | spread |
+| | ρ against the reader | decks at 90–95 | spread | largest single-deck move |
 |---|---|---|---|---|
-| base | +0.65 | 10 | 0 | 26 |
-| A | +0.44 | 7 | 3 | 28 |
+| base | +0.65 | 10 | 26 | none |
+| A | +0.44 | 7, and 3 above 95 | 28 | training 93 → 98 |
+
+ρ is Spearman's rank correlation of health's order with the reader's, tied scores taking their average rank, as above. A takes it down by 0.21. The decks that move it:
+
+| deck | reader's rank | health's rank, base | with A | why it moves |
+|---|---|---|---|---|
+| training | 10 | 5 | 1 | its close is planned calm, so fidelity 81 → 93 |
+| deepdive | 4 | 5 | 2 | its close, a bare "Questions?", is planned calm: fidelity 81 → 91 |
+| board-de | 8 | 9 | 6.5 | its close, a bare "Vielen Dank", is planned calm: fidelity 79 → 86 |
+| keynote | 1 | 2.5 | 5 | does not move, and is passed |
+| lecture | 7 | 2.5 | 4 | rises a point, and is passed by deepdive and training |
+| appeal | 2 | 5 | 6.5 | does not move, and is passed |
+| pitch | 3 | 9 | 10 | does not move, and is passed by board-de |
+
+Ranks are health's, ties sharing their average. Qbr (reader 5th) falls from health's first to third and launch (6th) from seventh to eighth, passed by the three that rise. Climate, grant, fleet and cargo hold their ranks.
+
+The decks A lifts most each close calmly: deepdive on a bare Questions slide, board-de on a bare thank-you, and training on a close planned calm. The reader marks the first two down for exactly that. The score's charge on a calm close is part of what keeps them under the decks that end on their thesis.
 
 The 13 decks are built as the method above builds them. Each base is the one the score-compression section gives, but cargo's, which main has since moved from 68 to 69. Outside the 13, dogfood 17 goes from 84 to 89 as made and from 86 to 90 as worked, and B1, which names no arc, stays at 72.
 
@@ -352,12 +368,31 @@ The 13 decks are built as the method above builds them. Each base is the one the
 
 - **A makes the ranking worse.**
   - It rewards the decks that close calmly. Training, the reader's tenth, becomes the top deck at 98.
-  - Board-de (eighth) and deepdive (fourth) rise past the reader's top three.
+  - Deepdive (fourth) rises past all of the reader's top three, and board-de (eighth) past pitch (third).
   - Keynote, appeal and pitch, which a reader puts first, do not move.
 - **The band empties the wrong way.** 90–95 holds seven decks instead of ten, but only because three rise past 95.
 - **The charge on a calm close is doing work.** The score's charge on a close planned under the curve is inconsistent with item 6's finding. On this evidence, though, it keeps the score nearer the reader.
 
 ### Recommendation
 
-- **Do not take A.** If the inconsistency between item 6's finding and the score matters, close it in words, not in the score: the finding can say that the score still reads the close against the curve. No figure would move.
-- **The Story's number will stay still under coaching.** Seven of every nine fixes here are coaching the score does not weigh, by design. Whether a Story row should say so waits on this decision. A row that calls a story fix "not counted" would teach people to skip the findings that make the talk better.
+- **A is not recommended.** ρ falls from +0.65 to +0.44.
+- **The alternative is to say it in words.** If the inconsistency between item 6's finding and the score matters, close it in words: health can say that the score still reads the close against the arc's curve, though no finding asks for its plan. No figure moves.
+
+### The question A was answering, which stays Jay's
+
+Should a fix the Story asks for move the score when no measure counts it? On this deck that is `label` (2), `claim` (2), and `bigIdea` (1): five of the nine fixes. `turn` is counted by coherence, which has no score when read by words. The options, with what each would cost:
+
+1. **No, as now.** The score is Vzestup's three measures, and coaching sits beside it.
+   - The number stays still under five of these nine fixes, which is what W1's walk found ("Working the Story barely moves the score").
+   - Nothing moves on any deck.
+2. **Count them in a measure of their own.** The settled outline's findings (`claim`, `bigIdea`) and the headline's (`label`) would make an outline measure, weighed beside the three.
+   - This departs from Vzestup's composite, a new ADR-0032 item.
+   - It needs its own ρ read before it lands: these findings fire only on decks that keep a settled outline, and none of the calibration's 13 does. So the read needs decks made with their outline shown.
+3. **Count them as warnings that cost points.** For example, the score less a point or two per warning of these kinds.
+   - The calibration's C5 did this for every warning and took ρ to +0.30.
+   - Narrowed to these kinds it has not been measured. Like option 2, it would read nothing on the 13 decks, which keep no outline.
+4. **Leave the score and say it on the row.** Each Story row would say whether its fix moves the score.
+   - No figure moves.
+   - A row that calls a story fix "not counted" could teach people to skip the findings that make the talk better. That is why the rows say nothing of it yet.
+
+Options 2 and 3 cannot be read against the reader until there are calibration decks that keep a settled outline.
