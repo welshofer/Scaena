@@ -1,0 +1,180 @@
+{
+ "executiveSummary": "A neighborhood group asks the city council's transportation committee to fund a twelve-week protected-lane pilot on Harmon Avenue, the city's most dangerous crossing, for less than a year of crash cleanup.",
+ "slides": [
+  {
+   "slideTitle": "Harmon Avenue can be safe by summer",
+   "subtitle": "Transportation committee · March 4 · Harmon Neighbors",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Thank you for the time this evening.\n- I'm Dana Ruiz. I live two blocks from Harmon and 9th, and I'm here about that one intersection and one vote.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "Opens the talk",
+   "intent": "Name the ask's place",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Harmon and 9th had more crashes last year than any crossing in the city",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "23 crashes at Harmon and 9th in 2025",
+    "Up from 14 in 2022",
+    "Source: city police crash reports"
+   ],
+   "speakerNotes": "- That figure is from your own police reports, not ours.\n- It is the highest in the city for the second year running, and it has gone up every year since the bus route moved onto Harmon.\n- Nine of the twenty-three involved someone on a bike or on foot.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "States the problem",
+   "intent": "Make the danger concrete",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "The crossing guard has stopped three near misses since September",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "“I hold my sign up and I still watch cars go around me.”",
+    "Marta Diaz, crossing guard at Harmon and 9th since 2017"
+   ],
+   "speakerNotes": "- Marta has worked that corner for eight years. She asked me to read you this.\n- Three times this school year she has pulled a child back onto the curb.\n- She is not asking for a new job. She is asking for a street that does part of hers.",
+   "beatIndex": 0,
+   "beatName": "What Is",
+   "purpose": "Makes it personal",
+   "intent": "Put a face on the number",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.1
+  },
+  {
+   "slideTitle": "Beacon Street cut injury crashes by more than half with the same design",
+   "subtitle": "",
+   "layoutSuggestion": "Before / After",
+   "keyBullets": [
+    "Before: 31 injury crashes a year",
+    "After: 12 a year, three years running",
+    "Source: Somerville traffic report, 2024"
+   ],
+   "speakerNotes": "- This is not a guess. Somerville put a protected lane on Beacon Street in 2021, with the same posts and paint we are asking for.\n- Injury crashes fell from thirty-one a year to twelve, and they stayed there.\n- Their traffic engineer has offered to brief your staff.",
+   "beatIndex": 1,
+   "beatName": "What Could Be",
+   "purpose": "Shows what could be",
+   "intent": "Prove it has worked nearby",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "A twelve-year-old could ride to Lincoln Middle School on Harmon by June",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "1.4 miles, one turn, every crossing signaled"
+   ],
+   "speakerNotes": "- Picture the ride. A seventh grader leaves Elm Street, rides Harmon behind a row of posts, and turns at the light on 9th.\n- Today no parent on our block lets their kid do that.\n- With the lane, forty families on our survey say they would.",
+   "beatIndex": 1,
+   "beatName": "What Could Be",
+   "purpose": "Paints the future",
+   "intent": "Let the room see it",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "The lane takes 38 parking spaces, on blocks that are 60% full at the busiest hour",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Spaces removed: 38, all on the east side",
+    "Peak use on those blocks: 60%, city count, October",
+    "Nearest open lot: the library, 120 spaces, half empty"
+   ],
+   "speakerNotes": "- I want to be straight about the cost to drivers, because you will hear about it.\n- Thirty-eight spaces go. The city's own October count found those blocks sixty percent full at peak.\n- The library lot a block away is half empty most evenings.",
+   "beatIndex": 2,
+   "beatName": "Return",
+   "purpose": "Answers an objection",
+   "intent": "Name the parking cost honestly",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.4
+  },
+  {
+   "slideTitle": "The pilot costs less than one year of crash response on Harmon",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "$84,000 for the twelve-week pilot",
+    "$112,000 a year in crash response on Harmon, city estimate"
+   ],
+   "speakerNotes": "- Eighty-four thousand dollars buys the paint, the posts, and two signal changes.\n- Your public works office puts crash response on Harmon at a hundred and twelve thousand a year: police, ambulance, cleanup, repairs.\n- The pilot pays for itself if it prevents a few months of that.",
+   "beatIndex": 2,
+   "beatName": "Return",
+   "purpose": "Answers the cost",
+   "intent": "Make the price small beside the problem",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "The pilot runs twelve weeks, and the counts are public every Friday",
+   "subtitle": "",
+   "layoutSuggestion": "Timeline",
+   "keyBullets": [
+    "Week 1: paint, posts, signal timing",
+    "Weeks 2–11: crash and traffic counts every Monday, posted each Friday",
+    "Week 12: report to this committee"
+   ],
+   "speakerNotes": "- We are not asking you to trust us. We are asking you to watch.\n- Staff count crashes and traffic every Monday, and the numbers go on the city's site every Friday.\n- In week twelve, you get a report and decide.",
+   "beatIndex": 3,
+   "beatName": "Bridge",
+   "purpose": "Shows the path",
+   "intent": "Make the step small and visible",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "If the pilot fails, the posts come out in a day",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "The posts are bolted, not poured",
+    "Taking them out costs $6,000",
+    "No concrete until the counts say so"
+   ],
+   "speakerNotes": "- If the numbers don't move, you lose very little.\n- The posts bolt down. Public works can pull them in a day for six thousand dollars.\n- Concrete waits until the counts earn it.",
+   "beatIndex": 3,
+   "beatName": "Bridge",
+   "purpose": "Lowers the risk",
+   "intent": "Make yes easy",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Vote Tuesday to fund the pilot",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "Fund $84,000 from the street safety reserve",
+    "Paint in April, report in July",
+    "Judge it on one number: crashes at Harmon and 9th"
+   ],
+   "speakerNotes": "- Here is the ask, plainly.\n- Fund the pilot from the street safety reserve on Tuesday, so the paint goes down in April.\n- Then judge it on one number in July. If it's not lower, pull the posts.",
+   "beatIndex": 4,
+   "beatName": "Commit",
+   "purpose": "Makes the ask",
+   "intent": "Ask for the vote",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "For less than a year of cleanup, Harmon and 9th can stop being the city's worst crossing",
+   "subtitle": "Fund the pilot on Tuesday",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Twenty-three crashes last year. Marta on the curb with her sign.\n- Or a seventh grader riding to school behind a row of posts, for less than the city already spends cleaning up.\n- Thank you. I'm glad to take questions.",
+   "beatIndex": 4,
+   "beatName": "Commit",
+   "purpose": "Closes the talk",
+   "intent": "Land the big idea",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.8
+  }
+ ]
+}
