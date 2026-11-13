@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 scaena-core.workspace = true
 scaena-narrato.workspace = true
-scaena-sources.workspace = true
+scaena-sources = { workspace = true, features = ["pdf"] }
 # The map plan (ADR-0030, PLAN O.1c): each GET it builds the worker makes by `fetch`.
 scaena-objects.workspace = true
 # The deck a narrative builds (`scaena_ops::narrative::deck`), which reads the theme alone; the

@@ -17,6 +17,8 @@ pub mod fetch;
 pub mod github;
 pub mod html;
 pub mod ooxml;
+#[cfg(feature = "pdf")]
+pub mod pdf;
 pub mod pptx;
 pub mod rtf;
 pub mod sec;

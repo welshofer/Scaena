@@ -825,6 +825,14 @@ pub fn run(a: GenerateArgs, json: bool) -> Result<ExitCode> {
     let settings = Settings { provider, model: model.clone(), base: a.base.clone(), browser: false };
     let mut generation = Generation::new(brief, settings).map_err(|e| anyhow!(e))?;
     generation.give_sources(scaena_ops::narrative::provenance(&grounding.given));
+    // The words each PDF draws, whose figures the notes may say (W1's dogfood 17); one that could
+    // not be read is said, and its figures cost a sentence of notes that says one.
+    generation.hold(&grounding.held);
+    if !json {
+        for why in &grounding.unread {
+            eprintln!("{why}");
+        }
+    }
     match &a.slides {
         // Slides written to an outline are read once it is settled, on its arc (lift-up 10-25c FUNC-1).
         Some(_) if a.from_outline.is_some() => {}
