@@ -3318,13 +3318,14 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // in an English deck alone), where arithmetic gets it from a figure the slide writes that the
     // sources hold ([`computed`]: a change, a share, a difference), where an earlier slide that cites
     // a source wrote it, in any unit ("up 23 this quarter", then "23 added"), where a line the
-    // deck makes a target or a plan writes it anywhere, before it or after (Valdemar's repair, its
-    // 2,3 M€ priced on slide 5 and asked for on slide 8), or where code writes it.
-    let planned: Vec<String> = (read.iter())
+    // deck makes a target or a plan writes it anywhere, before it or after, in its unit
+    // (Valdemar's repair, its 2,3 M€ priced on slide 5 and asked for on slide 8; never "12 roles"
+    // for "12 months"), or where code writes it.
+    let planned: Vec<(String, String)> = (read.iter())
         .flat_map(|s| {
             let shown = format!("{}\n{}", s.title, s.body);
             (shown.lines().filter(|l| forward(l)))
-                .flat_map(|l| figures(l).into_iter().map(|f| f.value))
+                .flat_map(|l| figures(l).into_iter().map(|f| (f.value, f.unit)))
                 .collect::<Vec<_>>()
         })
         .collect();
@@ -3361,7 +3362,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     let value = scaena_narrato::figures(&f.shown).first().copied()?;
                     let own = !english
                         || forward(line)
-                        || planned.contains(&f.value)
+                        || planned.contains(&(f.value.clone(), f.unit.clone()))
                         || known.iter().any(|(value, _)| *value == f.value)
                         || code.contains(&f.shown)
                         || computed(&anchors, &values, &f.shown, value).is_some();
@@ -4789,6 +4790,8 @@ mod tests {
         let mut asked = deck.clone();
         asked["nodes"]["thank-you-statement"]["text"] = json!("We ask the council to approve $2.4 million.");
         assert_eq!(said(&asked, priced), [], "the close asks for it");
+        asked["nodes"]["thank-you-statement"]["text"] = json!("We ask the council to fund 2.4 miles of new beds.");
+        assert_eq!(said(&asked, priced).len(), 1, "a plan of 2.4 in another unit plans none of it");
         // A deck in another language is not read for its targets, so is found for none.
         let mut german = deck.clone();
         german["meta"]["lang"] = json!("de");
