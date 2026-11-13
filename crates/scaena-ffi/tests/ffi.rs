@@ -444,16 +444,16 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
             let mut error = null_mut();
             sent.1 = unsafe { scaena_snapshot_open(sent.0, &mut error) };
             assert!(!sent.1.is_null(), "opened: {}", took(error));
-            let themed = call(sent.1, "retheme", json!({ "ships": "Ember", "at": "2026-11-13T12:00:00Z" }));
+            let themed = call(sent.1, "retheme", json!({ "ships": "Salon", "at": "2026-11-13T12:00:00Z" }));
             (sent, themed)
         });
         made.join().unwrap()
     };
     let take = |s: *mut ScaenaSession, sent: &Sent| -> Value {
-        let (why, at) = (c("theme --apply themes/ember.theme.json"), c("2026-11-13T12:00:00Z"));
+        let (why, at) = (c("theme --apply themes/salon.theme.json"), c("2026-11-13T12:00:00Z"));
         serde_json::from_str(&took(unsafe { scaena_take_apart(s, sent.0, sent.1, why.as_ptr(), at.as_ptr()) })).unwrap()
     };
-    // A new deck in Dusk, which Ember's layouts all hold.
+    // A new deck in Dusk, which Salon's layouts all hold.
     let dusk = || {
         let mut error = null_mut();
         let s = unsafe { scaena_create(c("Dusk").as_ptr(), c("Trail report").as_ptr(), &mut error) };
@@ -466,6 +466,11 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
     };
 
     let s = dusk();
+    let held = call(s, "files", Value::Null);
+    assert!(
+        !held.as_array().unwrap().iter().any(|f| f.as_str().is_some_and(|f| f.contains("InstrumentSerif"))),
+        "{held}"
+    );
     let (sent, themed) = apart(s);
     assert_eq!(themed["applied"], json!(true), "{themed}");
     assert_eq!(take(s, &sent), json!({ "ok": { "taken": true } }));
@@ -473,21 +478,24 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
 
     // As the session itself re-themed would stand: its source, its files, and what it draws.
     let here = dusk();
-    let themed = call(here, "retheme", json!({ "ships": "Ember", "at": "2026-11-13T12:00:00Z" }));
+    let themed = call(here, "retheme", json!({ "ships": "Salon", "at": "2026-11-13T12:00:00Z" }));
     assert_eq!(themed["applied"], json!(true), "{themed}");
     assert_eq!(call(s, "source", Value::Null), call(here, "source", Value::Null));
     let files = call(s, "files", Value::Null);
     assert_eq!(files, call(here, "files", Value::Null));
-    let fonts = files.as_array().unwrap().iter().filter(|f| f.as_str().is_some_and(|f| f.starts_with("fonts/")));
-    assert!(fonts.count() > 0, "Ember's fonts are taken: {files}");
-    assert!(call(s, "themeText", Value::Null)["theme"] == json!("themes/ember.theme.json"));
+    // Salon's headlines are Instrument Serif, which Dusk's deck held no file of: font bytes taken.
+    let serif = |files: &Value| {
+        files.as_array().unwrap().iter().any(|f| f.as_str().is_some_and(|f| f.contains("InstrumentSerif")))
+    };
+    assert!(serif(&files), "Salon's fonts are taken: {files}");
+    assert!(call(s, "themeText", Value::Null)["theme"] == json!("themes/salon.theme.json"));
     let states = call(s, "states", Value::Null);
     let state = c(states[0].as_str().unwrap());
     let mut error = null_mut();
     let ours = pixels_of(unsafe { scaena_pixels(s, state.as_ptr(), f64::INFINITY, 96, &mut error) }, error).unwrap();
     let theirs =
         pixels_of(unsafe { scaena_pixels(here, state.as_ptr(), f64::INFINITY, 96, &mut error) }, error).unwrap();
-    assert!(ours == theirs, "drawn in Ember as the session re-themed draws it");
+    assert!(ours == theirs, "drawn in Salon as the session re-themed draws it");
     unsafe { scaena_session_free(here) };
     unsafe { scaena_session_free(s) };
 
@@ -500,12 +508,12 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
     assert_eq!(take(s, &sent), json!({ "ok": { "taken": false } }));
     let source = call(s, "source", Value::Null);
     assert!(source.as_str().unwrap().contains("Said meanwhile."), "the edit is kept");
-    assert!(call(s, "themeText", Value::Null)["theme"] != json!("themes/ember.theme.json"), "not re-themed");
+    assert!(call(s, "themeText", Value::Null)["theme"] != json!("themes/salon.theme.json"), "not re-themed");
     free(sent);
     unsafe { scaena_session_free(s) };
 
     // A theme the deck would not open in is refused apart, as it is here: B1 lays slides out in
-    // layouts Ember has not.
+    // layouts Salon has not.
     let s = open(B1);
     let (sent, themed) = apart(s);
     assert_eq!((&themed["applied"], &themed["refused"]), (&json!(false), &json!(true)), "{themed}");
