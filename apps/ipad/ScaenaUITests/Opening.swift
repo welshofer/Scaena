@@ -51,14 +51,20 @@ extension XCTestCase {
         let prompt = app.staticTexts.matching(NSPredicate(format: "label == 'New from a Prompt…'")).firstMatch
         let b1 = cell(in: app, named: "b1")
         let open = { first.exists && !(prompt.exists && prompt.isHittable) && !(b1.exists && b1.isHittable) }
-        if first.waitForExistence(timeout: 5), wait(5, open) { return }
+        // A window the app brought back, or the browser it launches to: waited on for either, so a
+        // launch to the browser, as nearly every one is, goes on to tap B1 as soon as the browser
+        // shows, not after five seconds' wait for a window that is not there.
+        let browsing = app.buttons.matching(NSPredicate(format: "label == 'Browse'")).firstMatch
+        _ = wait(5) { first.exists || b1.exists || prompt.exists || browsing.exists }
+        if first.exists, wait(5, open) { return }
         for launch in 1...2 {
             if launch > 1 {
                 keep(app, as: "b1-unanswered")
                 print("B1 unanswered after three taps: the app launched again")
                 app.terminate()
                 app.launch()
-                if first.waitForExistence(timeout: 5), wait(5, open) { return }
+                _ = wait(5) { first.exists || b1.exists || prompt.exists || browsing.exists }
+                if first.exists, wait(5, open) { return }
             }
             for tap in 1...3 {
                 let named = "B1 tapped in the document browser, launch \(launch), tap \(tap)"
@@ -274,7 +280,11 @@ extension XCTestCase {
         let row = listed.matching(NSPredicate(format: "label == 'Copy'")).firstMatch.frame.midY
         for _ in 0..<8 {
             if item.waitForExistence(timeout: 1), item.isHittable { return true }
-            let shown = listed.allElementsBoundByIndex.filter { abs($0.frame.midY - row) < 6 && $0.frame.width > 0 }
+            // The row's items read from one snapshot of the app: each element of a query bound by
+            // its index is found again, the whole app's buttons one by one, for its frame alone.
+            let shown = snapshotted(app, kinds: [.button, .menuItem]).filter {
+                abs($0.frame.midY - row) < 6 && $0.frame.width > 0
+            }
             guard let last = shown.max(by: { $0.frame.maxX < $1.frame.maxX }) else { return false }
             // The arrow, where it is listed as an element of its own; else the point just past the
             // last item, where it stands.
@@ -286,4 +296,19 @@ extension XCTestCase {
         }
         return item.exists && item.isHittable
     }
+}
+
+/// Each element of `app` of one of `kinds`, or of any kind where none is given, as one snapshot of
+/// it reads them, in the order a query lists them: what a loop over a query's elements by index
+/// reads, in one round trip to the app rather than one for each element and each property read.
+@MainActor
+func snapshotted(_ app: XCUIApplication, kinds: Set<XCUIElement.ElementType>? = nil) -> [XCUIElementSnapshot] {
+    guard let root = try? app.snapshot() else { return [] }
+    var found: [XCUIElementSnapshot] = []
+    func walk(_ one: XCUIElementSnapshot) {
+        if kinds?.contains(one.elementType) ?? true { found.append(one) }
+        for child in one.children { walk(child) }
+    }
+    for child in root.children { walk(child) }
+    return found
 }
