@@ -211,7 +211,7 @@ struct StoryPanel: View {
     }
 
     /// A slide's row: its number, which shows it, and its headline; what health finds there; each
-    /// fix it offers; and its questions, asked together.
+    /// fix it offers; and each of its questions, an Ask of its own.
     private func row(_ run: [Health.Finding], _ health: Health) -> some View {
         let first = run[0]
         // The slide as it reads now, never only its beat's claim (editor dogfood 4).
@@ -303,11 +303,18 @@ struct StoryPanel: View {
                     .disabled(asLastRead)
                     .accessibilityIdentifier("story-field-\(field)")
                 }
-                // The slide it is about shown first: a question begins with what the window shows,
-                // which "this slide" means to the assistant (lift-up USE-5).
-                Button("Ask the Assistant") {
-                    edits.go(first.state)
-                    edits.ask(run.map(\.ask).joined(separator: " "))
+                // Each question its own Ask, named by what it is about where the row has several,
+                // never one question joined of them all (W1's dogfood 17). The slide it is about
+                // shown first, at the step its finding was read at: a question begins with what the
+                // window shows, which "this slide" means to the assistant (lift-up USE-5).
+                let asking = run.filter { !$0.ask.trimmingCharacters(in: .whitespaces).isEmpty }
+                let labels = Health.askLabels(asking)
+                ForEach(asking.indices, id: \.self) { i in
+                    Button(labels[i]) {
+                        edits.go(asking[i].state)
+                        edits.ask(asking[i].ask)
+                    }
+                    .accessibilityIdentifier("story-ask-\(i)")
                 }
             }
             .controlSize(.small)
