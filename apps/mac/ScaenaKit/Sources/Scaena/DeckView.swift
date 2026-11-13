@@ -87,6 +87,10 @@ struct DeckView: View {
     @State private var movieAsked: MovieAsked?
     /// The movie the sheet chose, made once the sheet is put away: shared, or saved.
     @State private var movieChosen: (kind: Exporting.Kind, sharing: Bool)?
+    /// PNGs asked for, their width asked before they are made, as the browser's Export… asks it.
+    @State private var picturesAsked: PicturesAsked?
+    /// The PNGs the sheet chose, made once the sheet is put away: shared, or saved.
+    @State private var picturesChosen: (kind: Exporting.Kind, sharing: Bool)?
     @State private var picturingTheme = ""
     /// Where a map goes, while Insert › Map…'s sheet asks where it is of (PLAN O.1d).
     @State private var mapping: MapTarget?
@@ -667,13 +671,13 @@ struct DeckView: View {
             Button("Save as PDF with Notes…") { save(.notes) }
             if let shown {
                 Divider()
-                Button("Share This Slide as PNG…") { export(png(shown), sharing: true) }
-                Button("Save This Slide as PNG…") { save(png(shown)) }
+                Button("Share This Slide as PNG…") { picturesAsked = PicturesAsked(state: shown, sharing: true) }
+                Button("Save This Slide as PNG…") { picturesAsked = PicturesAsked(state: shown, sharing: false) }
             }
             // Every slide, each a PNG named by its number (PLAN 2.122).
             Divider()
-            Button("Share All Slides as PNGs…") { export(allSlides, sharing: true) }
-            Button("Save All Slides as PNGs…") { save(allSlides) }
+            Button("Share All Slides as PNGs…") { picturesAsked = PicturesAsked(state: nil, sharing: true) }
+            Button("Save All Slides as PNGs…") { picturesAsked = PicturesAsked(state: nil, sharing: false) }
             // The deck as it plays, as a movie (lift-up 20261031 FUNC-2).
             Divider()
             Button("Share as Movie…") { movieAsked = MovieAsked(sound: nil, sharing: true) }
@@ -728,7 +732,7 @@ struct DeckView: View {
         if !editor.slots.isEmpty {
             made.savePDF = { save(.pdf) }
             made.saveNotes = { save(.notes) }
-            made.saveImages = { scale in save(slides(scaled: scale)) }
+            made.saveImages = { picturesAsked = PicturesAsked(state: nil, sharing: false) }
             made.saveHTML = { save(.html) }
             made.saveHTMLNotes = { save(.htmlNotes) }
             made.saveMovie = { movieAsked = MovieAsked(sound: nil, sharing: false) }
@@ -1037,6 +1041,18 @@ struct DeckView: View {
                 MovieSheet(asked: asked, canvas: (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)) {
                     width, fps in
                     movieChosen = (Exporting.Kind.movie(sound: asked.sound, width: width, fps: fps), asked.sharing)
+                }
+            }
+            // The PNGs' width, asked first as the movie's is; made once the sheet is put away.
+            .sheet(item: $picturesAsked, onDismiss: madePicturesAsked) { asked in
+                PicturesSheet(
+                    asked: asked, canvas: (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080),
+                    slide: asked.state.map { Words.slide($0, in: editor.slots) } ?? "",
+                    slides: Slide.of(editor.slots).count, format: editor.format
+                ) { width in
+                    let kind: Exporting.Kind =
+                        asked.state.map { .png(state: $0, width: width) } ?? .slides(width: width)
+                    picturesChosen = (kind, asked.sharing)
                 }
             }
             .sheet(item: $picturing) { target in
@@ -1407,19 +1423,12 @@ struct DeckView: View {
         }
     }
 
-    /// `state` at rest as a PNG the canvas's width, a pixel to the unit.
-    private func png(_ state: String) -> Exporting.Kind {
-        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-        return .png(state: state, width: Int(size.width.rounded()))
-    }
-
-    /// Every slide as PNGs the canvas's width, a pixel to the unit, in one zip.
-    private var allSlides: Exporting.Kind { slides(scaled: 1) }
-
-    /// Every slide as PNGs `scale` times the canvas's width, in one zip (lift-up 20261031 FUNC-3).
-    private func slides(scaled scale: Int) -> Exporting.Kind {
-        let size = (try? editor.session.canvasSize()) ?? CGSize(width: 1920, height: 1080)
-        return .slides(width: min(16384, Int(size.width.rounded()) * max(1, scale)))
+    /// The PNGs the sheet chose, shared or saved, once the sheet is put away; none where it was
+    /// cancelled.
+    private func madePicturesAsked() {
+        guard let chosen = picturesChosen else { return }
+        picturesChosen = nil
+        if chosen.sharing { export(chosen.kind, sharing: true) } else { save(chosen.kind) }
     }
 
     /// Write `kind` and share it, or show it in Quick Look.

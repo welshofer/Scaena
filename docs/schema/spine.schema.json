@@ -125,7 +125,7 @@
         "id": { "type": "string" },
         "slide": { "description": "The slide it builds (SPEC §2.2).", "type": "string" },
         "notes": {
-          "description": "What a presenter reads for it (SPEC §2.6, `notes`): its own notes, else its beat's. None where nothing is written on it.",
+          "description": "What a presenter reads for it (SPEC §2.6, `notes`): its own notes, else its slide's earlier step's, else its beat's. None where nothing is written on it.",
           "type": "string"
         },
         "hold": { "description": "Its dwell at rest, ms, as the deck gives it.", "type": "number" },

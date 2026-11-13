@@ -850,7 +850,8 @@ pub fn state_choices(deck: &Deck, theme: &Theme, state: &str) -> Result<StateCho
                 let value = match (prop, key) {
                     (_, Some(key)) => transition.get(key).cloned(),
                     ("hold", _) => own.hold.map(Value::from),
-                    // The notes a presenter reads: its own, else its beat's (SPEC §2.6), which
+                    // The notes a presenter reads: its own, else its slide's earlier step's, else its
+                    // beat's (SPEC §2.6), which
                     // `set_state` writes where they live (editor dogfood 3).
                     _ => crate::spine::notes(deck, state).filter(|n| !n.is_empty()).map(|n| Value::String(n.into())),
                 };

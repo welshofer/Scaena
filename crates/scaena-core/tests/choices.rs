@@ -813,6 +813,28 @@ fn notes_are_written_where_the_presenter_reads_them() {
     // Taken away, the beat's go.
     let doc = notes(&example(), "revenue", Value::Null);
     assert!(beat(&doc, "doubled").get("notes").is_none());
+    // A step with none of its own reads on from its slide's first state's (agent dogfood 8), and
+    // its notes edited are those: the first state's are written, the step keeps none, and both
+    // read the new notes, never a copy that forks them.
+    let mut built = bare.clone();
+    let r = built["states"].as_array().unwrap().iter().position(|s| s["id"] == "revenue").unwrap();
+    built["states"][r]["notes"] = json!("Bars by quarter.");
+    assert_eq!(read(&built, "mix").as_deref(), Some("Bars by quarter."));
+    assert_eq!(shown(own(&state(&built, "mix"), "notes")).0, Some(json!("Bars by quarter.")));
+    let doc = notes(&built, "mix", json!("Bars by quarter, then stacked."));
+    assert_eq!(at(&doc, "revenue")["notes"], "Bars by quarter, then stacked.");
+    assert!(at(&doc, "mix").get("notes").is_none(), "the step keeps none of its own");
+    assert_eq!(read(&doc, "mix").as_deref(), Some("Bars by quarter, then stacked."));
+    assert_eq!(beat(&doc, "doubled")["notes"], beat(&example(), "doubled")["notes"]);
+    // With `fork`, the step is given notes of its own and its slide's first state keeps its
+    // (W1's review): an agent writing notes step by step loses none.
+    let ops = json!([{ "op": "set_state", "id": "mix", "prop": "notes", "value": "Now the stack.", "fork": true }]);
+    let doc = compile(&built, ops.as_array().unwrap(), &Examples).unwrap().doc;
+    assert_eq!(
+        (at(&doc, "revenue")["notes"].clone(), at(&doc, "mix")["notes"].clone()),
+        (json!("Bars by quarter."), json!("Now the stack."))
+    );
+    assert_eq!(read(&doc, "mix").as_deref(), Some("Now the stack."));
 }
 
 /// What the inspector offers of a slide's number and footer (ADR-0028): the deck's, and what the

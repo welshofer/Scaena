@@ -908,6 +908,8 @@ export interface Restored {
   removed: Finding[];
   errors: number;
   states: string[];
+  /** With a slide asked, the slide put back, by its number and headline in the deck it makes. */
+  slide?: string;
 }
 
 /** A file an edit wrote beside the deck, a data file a restore wrote or the theme a theme edit
@@ -1480,7 +1482,7 @@ export type ToWorker =
   /** `version` made the deck again, with its data files, as one change by the user; refused
    * where the deck would not validate in the bundle as it is. A source that does not compile
    * is no bar: restoring a version is a way back from one. */
-  | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string }
+  | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string; slide?: string }
   /** The theme frames are drawn in, as its text (PLAN 2.61). */
   | { type: "themeText"; id: number }
   /** Each kind of code token as the theme draws it (PLAN 2.144). */
@@ -1939,7 +1941,8 @@ export interface Opened {
    * lists of that shape is its own canvas, laid out as it is, so an editor offers it once, by
    * that name. */
   own?: string;
-  /** Each state's speaker notes, the engine's (SPEC §2.6): its own, else its first beat's,
+  /** Each state's speaker notes, the engine's (SPEC §2.6): its own, else its slide's earlier
+   * step's, else its first beat's,
    * else empty; as written, and as the blocks a speaker reads. */
   notes: SpeakerNotes[];
   /** The spine's sections in its order, each with its title (else its first beat's claim)
@@ -2105,7 +2108,9 @@ export interface DataSource {
 export type RowEdit =
   | { op: "set"; row: number; column: string; value: string }
   | { op: "add"; row?: number; values?: Record<string, string> }
-  | { op: "remove"; row: number };
+  | { op: "remove"; row: number }
+  /** A column named anew, through the file and every reader of it in the deck. */
+  | { op: "rename"; column: string; to: string };
 
 /** What `data_edit` did (SPEC §7.2). */
 export interface DataEdited {
@@ -2119,6 +2124,9 @@ export interface DataEdited {
   refused: boolean;
   /** The texts whose quoted figures the edits set again, by node (ADR-0019, PLAN 2.72). */
   quoted?: string[];
+  /** Each text that quoted, by its index, a row the edits took away: its figure kept as words,
+   * quoting nothing now, with the slides that show it and what the status line says of it. */
+  unquoted?: { node: string; slides: number[]; words: string; said: string }[];
 }
 
 /** A value of a data source a run quotes (ADR-0019, PLAN 2.72). */

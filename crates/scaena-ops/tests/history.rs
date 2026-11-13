@@ -377,3 +377,31 @@ fn a_slide_put_back_brings_its_object_back_where_its_id_was_given_again() {
     assert_eq!(b.deck.nodes["note"].props.get("text").and_then(Value::as_str), Some("Questions to the team"));
     assert!(b.deck.nodes.contains_key("note-2"), "{:?}", b.deck.nodes.keys().collect::<Vec<_>>());
 }
+
+/// A slide put back whose chart reads a data source the deck took away since brings the source
+/// back with its file, as the history kept it (W1's review of #1172): a source is written by its
+/// file's path (`"source": "data/…"`), and the file the version read is written again.
+#[test]
+fn a_slide_put_back_brings_its_data_back_with_its_file() {
+    let dir = scratch("slide-data");
+    keeping_history(&dir);
+    let patch = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        let p = scaena_ops::patch::patch(&b, &ops, false).unwrap();
+        assert!(p.applied, "{p:?}");
+    };
+    // The slide cut takes the source only it read, and its file is taken out with it.
+    patch(json!([{ "op": "remove_slide", "slide": "revenue" }]));
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(!b.deck.data.contains_key("q3"));
+    let removed = scaena_ops::files::remove(&b, &["data/q3-revenue.csv".to_string()], false).unwrap();
+    assert!(removed.applied, "{removed:?}");
+    assert!(!dir.join("data/q3-revenue.csv").exists());
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
+    assert!(back.applied, "{back:?}");
+    assert!(back.files.iter().any(|f| f.contains("q3-revenue")), "{back:?}");
+    assert!(dir.join("data/q3-revenue.csv").exists(), "the file the chart reads is back");
+    let b = scaena_ops::open(&dir).unwrap();
+    assert!(b.deck.data.contains_key("q3"));
+}

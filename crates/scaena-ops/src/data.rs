@@ -52,6 +52,23 @@ pub struct DataEdited {
     /// written in the deck in the same change, with each claim that held the old figure.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub quoted: Vec<String>,
+    /// Each text that quoted, by its index, a row the edits took away, each once: its words stay
+    /// as they were last set, and quote nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unquoted: Vec<Unquoted>,
+}
+
+/// A text whose quote of a row taken away was taken off it (R1's agent dogfood 10).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct Unquoted {
+    /// The text's node.
+    pub node: String,
+    /// The slides that show it, numbered from 1.
+    pub slides: Vec<usize>,
+    /// The figure it keeps, as last set, quoting nothing now.
+    pub words: String,
+    /// What an editor's status line says of it: "Slide 7's “275” quotes the data no more".
+    pub said: String,
 }
 
 /// Make `req.edits` in source `req.source`, all or none, and write the file it is, or the deck
@@ -85,8 +102,19 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     let file = declared.source.as_str().map(String::from);
     let mut deck = b.deck.clone();
     let mut view = View::of(b);
+    let mut unquoted: Vec<(String, String)> = Vec::new();
     for (i, edit) in req.edits.iter().enumerate() {
         let at = |message: String| OpsError { message, plan: None, op: Some(i) };
+        // A quote that names its row by index keeps to that row as rows are added before it or
+        // taken away (R1's agent dogfood 10: a month added at the top of a sheet set "Burn fell
+        // to $290K in April", March's figure); one on the row taken away quotes no more.
+        if matches!(edit, RowEdit::Add { .. } | RowEdit::Remove { .. }) {
+            let rows = sheet(&deck, &Texts(&view), name).map(|s| s.rows.len()).unwrap_or(0);
+            let mut doc = deck.to_value()?;
+            if keep_rows(&mut doc, name, edit, rows, &mut unquoted) {
+                deck = Deck::from_value(&doc).map_err(at)?;
+            }
+        }
         match scaena_core::data::edit::edit(&deck, &Texts(&view), name, edit).map_err(at)? {
             Edited::File { path, bytes } => view = view.with(path, bytes),
             Edited::Inline(ops) => {
@@ -94,6 +122,14 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
                 scaena_core::patch::apply(&mut doc, &ops).map_err(|e| at(e.to_string()))?;
                 deck = Deck::from_value(&doc).map_err(at)?;
             }
+        }
+        // A column renamed is renamed through the deck in the same edit: the source's schema,
+        // its rows written inline, and every chart, table, transform, and quote that reads it.
+        if let RowEdit::Rename { column, to } = edit {
+            let mut doc = deck.to_value()?;
+            let ops = scaena_core::data::rename::renaming(&doc, name, column, to).map_err(at)?;
+            scaena_core::patch::apply(&mut doc, &ops).map_err(|e| at(e.to_string()))?;
+            deck = Deck::from_value(&doc).map_err(at)?;
         }
     }
     // Each figure a run quotes, set again from the data as the edits leave it (ADR-0019).
@@ -131,6 +167,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
             errors,
             refused: false,
             quoted: vec![],
+            unquoted: vec![],
         };
         return Ok((edited, None));
     }
@@ -160,6 +197,7 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
         errors: errors(&after),
         refused,
         quoted: if refused { vec![] } else { quoted },
+        unquoted: if refused { vec![] } else { said_on(&deck, unquoted) },
     };
     if refused {
         return Ok((edited, None));
@@ -172,6 +210,90 @@ pub fn editing(b: &Bundle, req: &DataEdit, linted: bool) -> Result<(DataEdited, 
     Ok((edited, Some(made)))
 }
 
+/// Slides by number as a sentence opens on them: "Slide 7's ", "Slides 2 and 3's ", else "".
+fn on_slides(slides: &[usize]) -> String {
+    let named: Vec<String> = slides.iter().map(usize::to_string).collect();
+    match named.split_last() {
+        None => String::new(),
+        Some((one, [])) => format!("Slide {one}'s "),
+        Some((last, rest)) => format!("Slides {} and {last}'s ", rest.join(", ")),
+    }
+}
+
+/// Each text taken off its quote, with the slides that show it, numbered from 1.
+fn said_on(deck: &Deck, unquoted: Vec<(String, String)>) -> Vec<Unquoted> {
+    let shown = scaena_core::tracking::resolve_states(deck).unwrap_or_default();
+    let slides = deck.slides();
+    (unquoted.into_iter())
+        .map(|(node, words)| {
+            // A slide shows the figure where it draws the node with the run that wrote it.
+            let draws = |p: &scaena_core::document::Props| {
+                (p.get("runs").and_then(serde_json::Value::as_array).into_iter().flatten())
+                    .any(|r| r.get("text").and_then(serde_json::Value::as_str) == Some(words.as_str()))
+            };
+            let on = |states: &Vec<usize>| {
+                states.iter().any(|&k| shown.get(k).and_then(|s| s.nodes.get(&node)).is_some_and(draws))
+            };
+            let slides: Vec<usize> =
+                (slides.iter().enumerate()).filter(|(_, states)| on(states)).map(|(s, _)| s + 1).collect();
+            let said = format!("{}“{words}” quotes the data no more", on_slides(&slides));
+            Unquoted { node, slides, words, said }
+        })
+        .collect()
+}
+
+/// Each quote of source `name` in `doc` that names its row by index, kept to that row as `edit`
+/// adds a row or takes one away from the `rows` there are: an index at or past a row added moves
+/// down one, past a row taken away up one, and one counted from the end is counted from the top.
+/// A quote of the row taken away is taken off its run, whose words stay, and its node is said in
+/// `unquoted`. Whether `doc` changed.
+fn keep_rows(
+    doc: &mut serde_json::Value,
+    name: &str,
+    edit: &RowEdit,
+    rows: usize,
+    unquoted: &mut Vec<(String, String)>,
+) -> bool {
+    let source = format!("@{name}");
+    let moves: Vec<(String, String, i64)> = scaena_core::quotes::quoted(doc)
+        .into_iter()
+        .filter(|q| q.run["quote"]["data"].as_str() == Some(source.as_str()))
+        .filter_map(|q| q.run["quote"]["row"].as_i64().map(|i| (q.path.clone(), q.node.to_string(), i)))
+        .collect();
+    let mut changed = false;
+    for (path, node, i) in moves {
+        let at = if i < 0 { rows as i64 + i } else { i };
+        if at < 0 || at >= rows as i64 {
+            continue;
+        }
+        let now = match edit {
+            RowEdit::Add { row, .. } => Some(if at >= row.map_or(rows, |r| r.min(rows)) as i64 { at + 1 } else { at }),
+            RowEdit::Remove { row } if at == *row as i64 => None,
+            RowEdit::Remove { row } => Some(if at > *row as i64 { at - 1 } else { at }),
+            RowEdit::Set { .. } | RowEdit::Rename { .. } => continue,
+        };
+        let Some(run) = doc.pointer_mut(&path).and_then(serde_json::Value::as_object_mut) else { continue };
+        match now {
+            Some(now) if now == i => {}
+            Some(now) => {
+                run.get_mut("quote")
+                    .and_then(serde_json::Value::as_object_mut)
+                    .map(|q| q.insert("row".into(), now.into()));
+                changed = true;
+            }
+            None => {
+                run.remove("quote");
+                let words = run.get("text").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                if !unquoted.iter().any(|(n, w)| *n == node && *w == words) {
+                    unquoted.push((node, words));
+                }
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// What `edits` do, as the history says it: `rev of row 3`, `a row added`, `row 2 taken away`,
 /// or how many.
 fn said(edits: &[RowEdit]) -> String {
@@ -180,6 +302,7 @@ fn said(edits: &[RowEdit]) -> String {
         [RowEdit::Add { row: Some(row), .. }] => format!("a row added at {row}"),
         [RowEdit::Add { row: None, .. }] => "a row added".into(),
         [RowEdit::Remove { row }] => format!("row {row} taken away"),
+        [RowEdit::Rename { column, to }] => format!("{column} renamed {to}"),
         edits => format!("{} edits", edits.len()),
     }
 }

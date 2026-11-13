@@ -940,6 +940,9 @@ async function speak(
     const written: [number, string][] = [];
     // Each slide whose notes the model gave were not taken, and why (W1's dogfood 6).
     const dropped: [number, string][] = [];
+    // Each sentence cut from the notes kept, with a figure neither the slide nor the sources
+    // write (W1's dogfood 17).
+    const cut: [number, string][] = [];
     let unanswered: string | undefined;
     for (const [i, { part, first, last }] of rounds.entries()) {
       const reply = replies[i];
@@ -947,9 +950,11 @@ async function speak(
         const got = JSON.parse(read(name, reply, () => generation.notesAnswer(reply.status, reply.statusText, reply.body, part))) as {
           notes: [number, string][];
           dropped?: [number, string][];
+          cut?: [number, string][];
         };
         written.push(...got.notes);
         dropped.push(...(got.dropped ?? []));
+        cut.push(...(got.cut ?? []));
       } catch (e) {
         const which = first === last ? `slide ${first}'s notes` : `slides ${first}\u2013${last}'s notes`;
         const why = `${which} not written: ${said(e)}`;
@@ -957,7 +962,7 @@ async function speak(
       }
     }
     making.noted(JSON.stringify(written));
-    const why = dropped.length ? generation.notesSaid(JSON.stringify(dropped), JSON.stringify(spoken)) : undefined;
+    const why = dropped.length || cut.length ? generation.notesSaid(JSON.stringify(dropped), JSON.stringify(spoken), JSON.stringify(cut)) : undefined;
     if (why) unanswered = unanswered ? `${unanswered}; ${why}` : why;
     // How many were written, then why the rest were not (W1's dogfood 6).
     hear({ kind: "noted", slides: written.length });

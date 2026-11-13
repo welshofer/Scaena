@@ -1020,3 +1020,28 @@ fn a_weather_charts_fields_and_skies_are_its_datas() {
     let w = serde_json::json!({ "w": { "type": "chart", "kind": "weather", "data": "@week", "alt": "", "at": { "in": "main" } } });
     assert_eq!(findings(&deck(w, unknown)), ["E103 /nodes/w/data"]);
 }
+
+/// A column a reader names that is not there, as a renamed header leaves the charts that read
+/// it, offers the column meant where one is near it and of the type the reader asks, with the
+/// patch that names it there (R1's dogfood 10).
+#[test]
+fn a_column_not_there_offers_the_one_meant() {
+    let line = r#""y": { "field": "rev", "type": "quantitative", "format": "$,.0f" }"#;
+    let deck = fixture!("E103", "clean").replacen(line, &line.replace("\"rev\"", "\"revenue\""), 1);
+    let found = validate_bundle(&deck, &Fixtures).unwrap();
+    let e = found.iter().find(|f| f.path.as_deref() == Some("/nodes/a/y/field")).expect("E103");
+    assert!(
+        e.message.ends_with("has no column `revenue`; it has `quarter`, `rev`, `when`; did you mean `rev`?"),
+        "{}",
+        e.message
+    );
+    assert_eq!(
+        e.fix.as_deref(),
+        Some(&[serde_json::json!({ "op": "replace", "path": "/nodes/a/y/field", "value": "rev" })][..])
+    );
+    // A column near the name but of another type than the channel reads is not offered.
+    let deck = fixture!("E103", "clean").replacen(line, &line.replace("\"rev\"", "\"quarters\""), 1);
+    let found = validate_bundle(&deck, &Fixtures).unwrap();
+    let e = found.iter().find(|f| f.path.as_deref() == Some("/nodes/a/y/field")).expect("E103");
+    assert!(!e.message.contains("did you mean") && e.fix.is_none(), "{e:#?}");
+}
