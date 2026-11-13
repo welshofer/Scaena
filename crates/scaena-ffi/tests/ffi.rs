@@ -1907,6 +1907,9 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     assert_eq!(slide["restored"]["applied"], true, "{slide}");
     assert!(slide["restored"]["slide"].as_str().is_some_and(|said| said.starts_with("Slide 3")), "{slide}");
     assert_eq!(slide["restored"].get("kept"), None, "nothing it shows was kept for another slide: {slide}");
+    // It says the states it changes, against the deck as it was typed: the headline put back.
+    let changed = slide["restored"]["states"].as_array().cloned().unwrap_or_default();
+    assert!(changed.iter().any(|s| s == "belief-1"), "{slide}");
     // The cover put back: its title, which the closing slide shows too, keeps its words, and says so
     // (dogfood 16).
     let cover = call(s, "restoreVersion", json!({ "version": "1", "slide": "cover", "at": "2026-10-08T12:16:00Z" }));

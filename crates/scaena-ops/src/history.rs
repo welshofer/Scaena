@@ -832,10 +832,16 @@ pub fn slide_restored(
     let (deck, files, kept) = slide_back(&b.deck, was, held, slide, version.n)?;
     let said = put_back(&deck, slide);
     let kept = kept_said(&deck, slide, &kept);
+    let spine = serde_json::to_value(&deck.spine).ok() == serde_json::to_value(&b.deck.spine).ok();
     let (mut restored, write_it) = restored(b, version, deck, files)?;
     restored.slide = said;
     restored.kept = kept;
     let id = restored.version.id.clone();
+    // A slide the deck already shows as the version drew it, its states written otherwise
+    // alone, is not put back: nothing is written, so no change is recorded and an editor makes
+    // no step to undo of it (editor dogfood 7).
+    let same = spine && restored.states.is_empty() && restored.files.is_empty();
+    let write_it = write_it.filter(|_| !same);
     let write_it = write_it.map(|w| Write { why: Why::new(format!("history --restore {id} --slide {slide}")), ..w });
     Ok((restored, write_it))
 }

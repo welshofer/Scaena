@@ -187,7 +187,8 @@ struct VersionsPanel: View {
         guard let chosen else { return }
         let n = versions.first { $0.id == chosen }?.n
         let of = n.map { "version \($0)" } ?? "this version"
-        var said: String?
+        let before = editor.source
+        var put: Restored?
         let made = edits.beside(slide == nil ? "Restore Version" : "Restore Slide") {
             let restored = try editor.session.restoreVersion(chosen, slide: slide)
             guard restored.applied else {
@@ -195,16 +196,24 @@ struct VersionsPanel: View {
                     slide == nil ? "not restored" : "The slide of \(of) not put back", restored.refusals, by: editor,
                     otherwise: "the deck would not open with the files it has now")
             }
-            if slide != nil {
-                let files = restored.files.map { $0.path.split(separator: "/").last.map(String.init) ?? $0.path }
-                let with = files.isEmpty ? "" : ", with \(files.joined(separator: ", "))"
-                // What it shows as it is now, for another slide's sake, said (dogfood 16).
-                let kept = restored.kept.map { ". \($0)" }.joined()
-                said = "\(restored.slide ?? "The slide") put back from \(of)\(with)\(kept) · ⌘Z undoes it"
-            }
+            put = restored
             return restored.files
         }
-        putBack = made ? said : nil
+        guard made, let restored = put else { return putBack = nil }
+        // What it shows as it is now, for another slide's sake, said (dogfood 16).
+        let kept = restored.kept.map { ". \($0)" }.joined()
+        // Nothing to put back: the deck and its files are already as the version had them, a slide
+        // the deck already draws as the version did, so no step to undo was made, which ⌘Z would
+        // take back to the same deck (editor dogfood 7).
+        if editor.source == before, restored.files.isEmpty {
+            let asNow = slide != nil ? "\(restored.slide ?? "The slide") is as \(of) drew it" : "The deck is as \(of) drew it"
+            putBack = "Nothing put back: \(asNow)\(kept)"
+            return
+        }
+        guard slide != nil else { return putBack = nil }
+        let files = restored.files.map { $0.path.split(separator: "/").last.map(String.init) ?? $0.path }
+        let with = files.isEmpty ? "" : ", with \(files.joined(separator: ", "))"
+        putBack = "\(restored.slide ?? "The slide") put back from \(of)\(with)\(kept) · ⌘Z undoes it"
     }
 
     /// When a version was made, as the list says it.
