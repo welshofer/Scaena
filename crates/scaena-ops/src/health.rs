@@ -2432,9 +2432,12 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             None,
         );
     }
-    // The close as the big idea reads it, worked out before the claims are, so a close asked for
-    // both is asked once to say both (W1's dogfood 17: each fix raised the other, four times).
-    let mut close_unlanded: Option<Vec<usize>> = None;
+    // The close as the big idea reads it, and whether it lands it, worked out before the claims
+    // are: the big idea's ask and the claim's ask of the close each name the other, landed or not,
+    // so a close rewritten for one keeps the other (W1's dogfood 17: each fix raised the other,
+    // four times, as a close headed by its part's claim missed the idea and one rewritten to the
+    // idea missed the claim).
+    let mut close: Option<(Vec<usize>, bool)> = None;
     let mut close_unread: Option<(String, Vec<usize>)> = None;
     if let Some(idea) = &big_idea {
         // The close is the deck's last run of closing slides, as the calm close reads it, with the
@@ -2474,13 +2477,19 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
         match (named, closes) {
             (Some(name), Some(of)) => close_unread = Some((name, of)),
-            (None, Some(of)) if lands(&of) == Some(false) => close_unlanded = Some(of),
+            (None, Some(of)) => close = lands(&of).map(|landed| (of, landed)),
             _ => {}
         }
     }
-    // The claims settled for the slides of the close that the big idea is asked of too, with the
-    // part each is settled for: said in the big idea's ask, as the idea is in theirs.
-    let mut close_claims: Vec<String> = Vec::new();
+    // The claims settled for the parts of the talk the close stands in, carried or not: said in
+    // the big idea's ask, as the idea is in theirs.
+    let close_claims: Vec<String> = match &close {
+        Some((of, _)) if !unspaced => (outlined.iter().enumerate())
+            .filter(|(k, (_, claim))| !claim.is_empty() && of_beat(*k).iter().any(|i| of.contains(i)))
+            .map(|(_, (_, claim))| unstopped(claim).to_string())
+            .collect(),
+        _ => Vec::new(),
+    };
     for (k, (name, claim)) in outlined.iter().enumerate() {
         let of = of_beat(k);
         if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
@@ -2510,14 +2519,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
         let mut said = slides.clone();
         said[..1].make_ascii_uppercase();
-        // Where the close is asked to land the big idea too, the claim and the idea are asked of
-        // it once, together.
-        let both = close_unlanded.as_ref().filter(|close| of.iter().any(|i| close.contains(i)));
+        // Where its slides are the close, the big idea is asked of them too, landed or not, so
+        // carrying the claim keeps the idea.
+        let both = close.as_ref().filter(|(close, _)| of.iter().any(|i| close.contains(i)));
         let ask = match (both, &big_idea) {
             (Some(_), Some(idea)) => {
-                close_claims.push(claim.to_string());
                 format!(
-                    "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}, and the close is to land the big idea, \u{201c}{}\u{201d}. Rewrite {slides} so {carry} both, or tell me what to settle instead.",
+                    "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}, and the close is to land the big idea too, \u{201c}{}\u{201d}. Rewrite {slides} so {carry} both, or tell me what to settle instead.",
                     unstopped(idea)
                 )
             }
@@ -2550,12 +2558,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ),
                 None,
             );
-        } else if let Some(of) = close_unlanded {
+        } else if let Some((of, false)) = close {
             let slides = spanned(&of);
             let also = match close_claims.as_slice() {
                 [] => String::new(),
+                [claim] => {
+                    format!(", while it carries the claim the outline settled for its part, \u{201c}{claim}\u{201d}")
+                }
                 claims => format!(
-                    ", and so it carries the claim the outline settled for it, {}",
+                    ", while it carries the claims the outline settled for its parts, {}",
                     claims.iter().map(|c| format!("\u{201c}{c}\u{201d}")).collect::<Vec<_>>().join(" and ")
                 ),
             };
@@ -6632,9 +6643,39 @@ mod tests {
         assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
         // A claim settled for another part than the close is asked of its own slides alone.
         assert!(!claim.ask.contains("Zebras") && !big.ask.contains("Penguins"), "{}\n{}", claim.ask, big.ask);
-        // The closing part's claim and the big idea, both missed on the close, are each asked of it
-        // together, so a fix for one is not found wanting by the other (W1's dogfood 17).
+        // The close is asked for the big idea and its part's claim each with the other, whether it
+        // carries the other or not, so a close rewritten for one keeps the other (W1's dogfood 17:
+        // a close headed by its part's claim missed the idea, and one rewritten to the idea missed
+        // the claim, four times).
         let closing_beat = written[close];
+        let idea = h.slides[close].title.trim().trim_end_matches('.').to_string();
+        // The claim carried, the idea missed: the big idea's ask keeps the claim.
+        let kept = h.slides[first_of(closing_beat)].title.trim().trim_end_matches('.').to_string();
+        assert!(
+            big.ask.ends_with(&format!(
+                "so the talk ends by landing it, while it carries the claim the outline settled for its part, \u{201c}{kept}\u{201d}."
+            )),
+            "{}",
+            big.ask
+        );
+        // The idea landed, the claim missed: the claim's ask keeps the idea.
+        let mut landed = deck.clone();
+        landed["meta"]["narrative"]["outline"]["bigIdea"] = json!(h.slides[close].title);
+        landed["meta"]["narrative"]["outline"]["beats"][closing_beat]["claim"] =
+            json!("Fund the plan in the 2027 budget.");
+        let landed = of(&landed);
+        assert!(!landed.findings.iter().any(|f| f.kind == Kind::BigIdea), "{:#?}", landed.findings);
+        let claim = (landed.findings.iter())
+            .find(|f| f.kind == Kind::Claim && f.says.contains("Fund the plan"))
+            .unwrap_or_else(|| panic!("{:#?}", landed.findings));
+        assert!(
+            claim.ask.contains(&format!(
+                "\u{201c}Fund the plan in the 2027 budget\u{201d}, and the close is to land the big idea too, \u{201c}{idea}\u{201d}. Rewrite"
+            )) && claim.ask.contains(" both, or tell me what to settle instead."),
+            "{}",
+            claim.ask
+        );
+        // Both missed: each is asked with the other.
         let mut both = deck.clone();
         both["meta"]["narrative"]["outline"]["beats"][closing_beat]["claim"] =
             json!("Fund the plan in the 2027 budget.");
@@ -6644,14 +6685,15 @@ mod tests {
             .unwrap_or_else(|| panic!("{:#?}", twice.findings));
         let big = twice.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
         assert!(
-            claim.ask.contains("\u{201c}Fund the plan in the 2027 budget\u{201d}, and the close is to land the big idea, \u{201c}Zebras orchestrate symphonies underwater\u{201d}")
-                && claim.ask.contains("carry both"),
+            claim.ask.contains(
+                "and the close is to land the big idea too, \u{201c}Zebras orchestrate symphonies underwater\u{201d}"
+            ) && claim.ask.contains(" both, or tell me"),
             "{}",
             claim.ask
         );
         assert!(
             big.ask.ends_with(
-                "so the talk ends by landing it, and so it carries the claim the outline settled for it, \u{201c}Fund the plan in the 2027 budget\u{201d}."
+                "while it carries the claim the outline settled for its part, \u{201c}Fund the plan in the 2027 budget\u{201d}."
             ),
             "{}",
             big.ask
