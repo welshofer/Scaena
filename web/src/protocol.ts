@@ -133,6 +133,8 @@ export interface StoryPlace {
   planned?: number;
   before: number;
   slot?: string;
+  /** Where every beat's time is Narrato's estimate and the brief asks minutes: the minutes and the estimates' total, seconds; `planned` and `before` are then the slot's (editor dogfood 7). */
+  estimated?: { minutes: number; total: number };
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */
