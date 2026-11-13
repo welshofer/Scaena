@@ -102,7 +102,15 @@ final class PresentingTests: XCTestCase {
         XCTAssertFalse(isOn(), "Remote… opened let on")
         // The switch stands at the row's trailing end, its label before it.
         let flip = { on.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap() }
+        // The sheet is still coming up when its switch first exists, and a tap then can fall on
+        // nothing (the switch read 0 under a slow runner, #1231): let it settle, and hold the
+        // switch to reading on before the code is looked for.
+        settle()
         flip()
+        guard wait(10, isOn) else {
+            keep(app, as: "remote-not-let-on")
+            throw Unseen(description: "the switch tapped still reads off: \(app.debugDescription)")
+        }
         let code = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'remote-code'")).firstMatch
         guard code.waitForExistence(timeout: 10) else {
             keep(app, as: "remote-no-code")
