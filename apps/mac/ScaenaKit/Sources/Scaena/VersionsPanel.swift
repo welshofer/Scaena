@@ -6,7 +6,9 @@ import SwiftUI
 /// them (PLAN 2.99). One chosen is drawn read only, a slide of it at a time, numbered as its own
 /// slide list numbers them, and
 /// compared with the deck now; Restore makes it the deck again with its data files and its theme,
-/// one step to undo, which writes the files back. Where the bundle keeps no history, Keep a History
+/// one step to undo, which writes the files back, and Restore This Slide puts back the slide shown
+/// alone, with the data it reads, the rest of the deck as it is, as the browser's does (dogfood
+/// 16). Where the bundle keeps no history, Keep a History
 /// begins one with the next save (PLAN 2.87). A version is replayed, compared, and drawn on a
 /// snapshot's session away from the window, and the list is read again as a save adds to it, not
 /// on every edit (lift-up 20261110 PERF-3).
@@ -23,6 +25,8 @@ struct VersionsPanel: View {
     @State private var drawing: Image?
     @State private var compared: Compared?
     @State private var problem: String?
+    /// What the last restore of a slide put back, as the browser's status says it.
+    @State private var putBack: String?
     /// The version chosen, shown on a snapshot's session of its own.
     @State private var version: VersionShown?
 
@@ -83,10 +87,26 @@ struct VersionsPanel: View {
             }
             if let compared { Text(Self.since(compared)).font(.caption).foregroundStyle(.secondary) }
             if let problem { Text(problem).font(.caption).foregroundStyle(.red) }
-            Button("Restore This Version") { restore() }
-                .help("Make this version the deck again, with its data files and its theme: one step to undo")
+            if let putBack { Text(putBack).font(.caption).foregroundStyle(.secondary) }
+            HStack {
+                Button("Restore This Version") { restore() }
+                    .help("Make this version the deck again, with its data files and its theme: one step to undo")
+                if let picked {
+                    // The slide it puts back said before it is pressed, as the slide picker names it.
+                    Button("Restore This Slide") { restore(slide: picked.state) }
+                        .help("Put back \(picked.said) as this version drew it, with the data it reads, the rest of the deck as it is: one step to undo")
+                        .accessibilityHint("Puts back \(picked.said) as this version drew it")
+                        .accessibilityIdentifier("restore-slide")
+                }
+            }
         }
         .padding(8)
+    }
+
+    /// The state the slide picker shows, and its slide as the picker names it.
+    private var picked: (state: String, said: String)? {
+        guard let state, let i = states.firstIndex(of: state) else { return nil }
+        return (state, i < slides.count ? slides[i] : "Slide \(i + 1)")
     }
 
     private func read() {
@@ -102,6 +122,7 @@ struct VersionsPanel: View {
         drawing = nil
         compared = nil
         problem = nil
+        putBack = nil
         version = nil
         guard let chosen else {
             states = []
@@ -145,17 +166,28 @@ struct VersionsPanel: View {
         }
     }
 
-    private func restore() {
+    /// The version chosen made the deck again, or with `slide`, a state of it, the slide that holds
+    /// it put back alone: one step to undo, and what it put back said, as the browser says it.
+    private func restore(slide: String? = nil) {
         guard let chosen else { return }
-        edits.beside("Restore Version") {
-            let restored = try editor.session.restoreVersion(chosen)
+        let n = versions.first { $0.id == chosen }?.n
+        let of = n.map { "version \($0)" } ?? "this version"
+        var said: String?
+        let made = edits.beside(slide == nil ? "Restore Version" : "Restore Slide") {
+            let restored = try editor.session.restoreVersion(chosen, slide: slide)
             guard restored.applied else {
                 throw Refused(
-                    "not restored", restored.refusals, by: editor,
+                    slide == nil ? "not restored" : "The slide of \(of) not put back", restored.refusals, by: editor,
                     otherwise: "the deck would not open with the files it has now")
+            }
+            if slide != nil {
+                let files = restored.files.map { $0.path.split(separator: "/").last.map(String.init) ?? $0.path }
+                let with = files.isEmpty ? "" : ", with \(files.joined(separator: ", "))"
+                said = "\(restored.slide ?? "The slide") put back from \(of)\(with) · ⌘Z undoes it"
             }
             return restored.files
         }
+        putBack = made ? said : nil
     }
 
     /// When a version was made, as the list says it.

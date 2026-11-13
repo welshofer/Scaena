@@ -2,6 +2,9 @@ E100 - wrap-longword wrap-word /nodes/wrap-word fix
 E100 9:16 wrap-longword wrap-word /nodes/wrap-word
 E100 9:16 wrap-narrow wrap-narrow-col /nodes/wrap-narrow-col fix
 E100 9:16 hyphenation hyph-off /nodes/hyph-off fix
+E100 9:16 cjk cjk-ko-greedy /nodes/cjk-ko-greedy fix
+E100 9:16 cjk cjk-ko-balance /nodes/cjk-ko-balance fix
+E100 9:16 cjk cjk-ko-pretty /nodes/cjk-ko-pretty fix
 E101 9:16 hyphenation hyph-off /nodes/hyph-off
 E110 - mesh case /nodes/case
 E110 9:16 mesh case /nodes/case
@@ -12,6 +15,7 @@ W202 9:16 fit fit-lines /nodes/fit-lines
 W202 9:16 morph-from mf-badge /nodes/mf-badge fix
 W202 9:16 morph mf-badge /nodes/mf-badge fix
 W202 9:16 formats fm-claim /nodes/fm-claim fix
+W202 9:16 cjk cjk-zh /nodes/cjk-zh fix
 W203 9:16 verse verse-poem /nodes/verse-poem
 W220 - alignment - /states/28
 W220 - hyphenation - /states/31
@@ -188,6 +192,14 @@ W302 - code code-block /nodes/code-block/at/col
 W302 - verse verse-poem /nodes/verse-poem/at/col
 W302 - caustics caustics-calm /nodes/caustics-calm/at/col
 W302 - caustics caustics-bright /nodes/caustics-bright/at/col
+W302 - cjk cjk-thanks /nodes/cjk-thanks/at/col
+W302 - cjk cjk-thanks-shrink /nodes/cjk-thanks-shrink/at/col
+W302 - cjk cjk-particle /nodes/cjk-particle/at/col
+W302 - cjk cjk-counter /nodes/cjk-counter/at/col
+W302 - cjk cjk-zh /nodes/cjk-zh/at/col
+W302 - cjk cjk-ko-greedy /nodes/cjk-ko-greedy/at/col
+W302 - cjk cjk-ko-balance /nodes/cjk-ko-balance/at/col
+W302 - cjk cjk-ko-pretty /nodes/cjk-ko-pretty/at/col
 W421 - chart-next - /states/23
 W421 - images - /states/26
 W421 - containers - /states/27

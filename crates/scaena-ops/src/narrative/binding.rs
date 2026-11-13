@@ -224,18 +224,17 @@ pub fn bind(
 ) -> Result<Option<String>, String> {
     let table =
         scaena_core::data::load(deck, files, id).map_err(|e| format!("its source `{id}` does not read: {e}"))?;
+    // The column that holds every category: each row of it one of them, else each category in
+    // one row alone, the rest of the file's rows left out by a filter (W1's dogfood 17: a slide
+    // charts 2021–2025 of a file that runs from 2016).
+    let holds = |c: usize| chart.categories.iter().all(|cat| table.rows.iter().any(|r| is(&r[c], cat)));
+    let only = |c: usize| table.rows.iter().all(|r| chart.categories.iter().any(|cat| is(&r[c], cat)));
+    let once = |c: usize| chart.categories.iter().all(|cat| table.rows.iter().filter(|r| is(&r[c], cat)).count() == 1);
     let x = (0..table.columns.len())
-        .find(|&c| {
-            chart.categories.iter().all(|cat| table.rows.iter().any(|r| is(&r[c], cat)))
-                && table.rows.iter().all(|r| chart.categories.iter().any(|cat| is(&r[c], cat)))
-        })
-        .ok_or_else(|| {
-            format!(
-                "no column of `{id}` holds the slide's categories ({}); its columns are {}",
-                chart.categories.join(", "),
-                listed(&table.columns.iter().collect::<Vec<_>>())
-            )
-        })?;
+        .find(|&c| holds(c) && only(c))
+        .or_else(|| (0..table.columns.len()).find(|&c| holds(c) && once(c)))
+        .ok_or_else(|| missing(chart, &table, id))?;
+    let some = !only(x);
     // A month named without its year names one row, else the chart would read another year's.
     let months: Vec<Named> = (chart.categories.iter())
         .map(|cat| {
@@ -265,7 +264,17 @@ pub fn bind(
             let one = found.next();
             one.filter(|_| found.next().is_none())
         };
-        let column = match by_name.or_else(by_measure) {
+        // Else by its words, the one number column whose name holds every word of the series'
+        // and more: "Planted" for `trees_planted` (W1's dogfood 17).
+        let by_words = || {
+            let wanted = series.name.as_deref().map(words_of).filter(|w| !w.is_empty())?;
+            let mut found = (numbers.iter().copied())
+                .filter(|c| !columns.contains(c))
+                .filter(|&c| wanted.iter().all(|w| words_of(&table.columns[c]).contains(w)));
+            let one = found.next();
+            one.filter(|_| found.next().is_none())
+        };
+        let column = match by_name.or_else(by_measure).or_else(by_words) {
             Some(c) => c,
             None if !several && numbers.len() == 1 => numbers[0],
             None => {
@@ -341,6 +350,9 @@ pub fn bind(
         }
     }
     let mut steps: Vec<Value> = Vec::new();
+    if some {
+        steps.push(json!({ "filter": kept(chart, &table, x, dated.is_some()) }));
+    }
     if several {
         steps.push(json!({ "fold": names, "as": ["series", "value"] }));
     } else {
@@ -392,6 +404,78 @@ fn years(deck: &Deck, files: &dyn SourceFiles, id: &str, table: &Table, x: usize
     let Some(decl) = typed.data.get_mut(id) else { return false };
     decl.schema.get_or_insert_with(Default::default).insert(column.clone(), "date".into());
     scaena_core::data::load(&typed, files, id).is_ok_and(|t| t.types[x] == ColumnType::Date)
+}
+
+/// Why no column of the source `id` holds `chart`'s categories, by the column that holds most of
+/// them: the categories it lacks, or those it holds in more than one row, else its columns.
+fn missing(chart: &ChartData, table: &Table, id: &str) -> String {
+    let all = chart.categories.join(", ");
+    let held = |c: usize| chart.categories.iter().filter(|cat| table.rows.iter().any(|r| is(&r[c], cat))).count();
+    let best = (0..table.columns.len()).filter(|&c| held(c) > 0).max_by_key(|&c| (held(c), usize::MAX - c));
+    let Some(c) = best else {
+        return format!(
+            "no column of `{id}` holds the slide's categories ({all}); its columns are {}",
+            listed(&table.columns.iter().collect::<Vec<_>>())
+        );
+    };
+    let column = &table.columns[c];
+    let lacks: Vec<&str> = (chart.categories.iter())
+        .filter(|cat| !table.rows.iter().any(|r| is(&r[c], cat)))
+        .map(String::as_str)
+        .collect();
+    if !lacks.is_empty() {
+        return format!("`{id}`'s `{column}` holds the slide's categories ({all}) but {}", lacks.join(", "));
+    }
+    let twice: Vec<&str> = (chart.categories.iter())
+        .filter(|cat| table.rows.iter().filter(|r| is(&r[c], cat)).count() > 1)
+        .map(String::as_str)
+        .collect();
+    format!(
+        "`{id}`'s `{column}` holds the slide's categories ({all}), {} in more than one row, so which it charts is not known",
+        twice.join(", ")
+    )
+}
+
+/// The filter that keeps the rows of `table` whose column `x` is one of `chart`'s categories, by
+/// their cells as the column reads them, `dated` where the bind types a column of years `date`:
+/// each by its own cell, the exact set the slide names, so the chart keeps to its words if the
+/// file gains a row between them.
+fn kept(chart: &ChartData, table: &Table, x: usize, dated: bool) -> String {
+    let column = &table.columns[x];
+    let field = if column.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && column.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    {
+        column.clone()
+    } else {
+        format!("`{}`", column.replace('`', ""))
+    };
+    let rows: Vec<&Datum> =
+        (table.rows.iter().map(|r| &r[x])).filter(|cell| chart.categories.iter().any(|cat| is(cell, cat))).collect();
+    let number = |cell: &Datum| match cell {
+        Datum::Number(n) => Some(*n),
+        Datum::Text(t) if dated => t.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+    let read = if dated { format!("year({field})") } else { field.clone() };
+    let print = |n: f64| scaena_core::data::Datum::Number(n).label();
+    let one = |cell: &Datum| match cell {
+        Datum::Date(t) => {
+            let c = t.civil();
+            format!("(year({field}) == {} && month({field}) == {} && day({field}) == {})", c.year, c.month, c.day)
+        }
+        Datum::Text(t) if !dated => format!("{field} == '{}'", t.replace('\\', "\\\\").replace('\'', "\\'")),
+        other => format!("{read} == {}", number(other).map_or_else(|| other.label(), print)),
+    };
+    rows.iter().map(|c| one(c)).collect::<Vec<_>>().join(" || ")
+}
+
+/// The words of a series' or a column's name, lowercase, its unit's aside: `trees_planted`'s
+/// `trees` and `planted`.
+fn words_of(name: &str) -> Vec<String> {
+    (name.to_lowercase().split(|c: char| !c.is_alphanumeric()))
+        .filter(|w| !w.is_empty() && !super::quoting::UNITS.contains(w))
+        .map(str::to_string)
+        .collect()
 }
 
 /// `names` as a reader lists them: "`a`, `b`, and `c`", or "none".
@@ -576,6 +660,66 @@ mod tests {
             source_id: Some("ferry".into()),
         };
         (node, chart)
+    }
+
+    /// W1's dogfood 17: a slide charts Planted and Removed for 2021–2025 from `canopy.csv`, which
+    /// runs from 2016 and names its series `trees_planted` and `trees_removed`. Its years are the
+    /// column's that holds each one once, the file's other rows filtered out, and each series the
+    /// one number column whose name holds its words. A category the file lacks is said by name.
+    #[test]
+    fn a_chart_of_some_years_binds_the_rows_it_names() {
+        const CANOPY: &str = "year,canopy_pct,trees_planted,trees_removed\n2016,31.0,800,900\n2017,30.6,820,940\n2018,30.1,790,980\n2019,29.7,850,1010\n2020,29.2,880,1050\n2021,28.9,1200,1000\n2022,28.7,1450,980\n2023,28.6,1700,950\n2024,28.8,2100,900\n2025,29.1,2500,880\n";
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["data"]["canopy"] = json!({ "source": "data/canopy.csv", "schema": {
+            "year": "number", "canopy_pct": "number", "trees_planted": "number", "trees_removed": "number"
+        } });
+        let files = BTreeMap::from([("data/canopy.csv".to_string(), CANOPY.as_bytes().to_vec())]);
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        let chart = |categories: &[&str]| ChartData {
+            categories: categories.iter().map(|c| c.to_string()).collect(),
+            series: vec![
+                Series { name: Some("Planted".into()), values: [1200., 1450., 1700., 2100., 2500.].map(Some).to_vec() },
+                Series { name: Some("Removed".into()), values: [1000., 980., 950., 900., 880.].map(Some).to_vec() },
+            ],
+            unit: None,
+            source_id: Some("canopy".into()),
+        };
+        let node = || {
+            json!({
+                "type": "chart", "chart": "bar", "data": "@own",
+                "x": { "field": "category", "type": "ordinal" },
+                "y": { "field": "value", "type": "quantitative" }
+            })
+        };
+        let mut bound = node();
+        bind(&mut bound, &chart(&["2021", "2022", "2023", "2024", "2025"]), &deck, &files, "canopy").unwrap();
+        assert_eq!(bound["data"], json!("@canopy"));
+        assert_eq!(bound["x"]["field"], json!("year"));
+        assert_eq!(
+            bound["dataTransform"],
+            json!([
+                { "filter": "year == 2021 || year == 2022 || year == 2023 || year == 2024 || year == 2025" },
+                { "fold": ["trees_planted", "trees_removed"], "as": ["series", "value"] }
+            ])
+        );
+        let mut doc = doc.clone();
+        doc["nodes"]["bars"] = bound.clone();
+        let props: scaena_core::document::Props = serde_json::from_value(bound.clone()).unwrap();
+        let read = scaena_core::data::read(&Deck::from_json(&doc.to_string()).unwrap(), &files, &props);
+        assert_eq!(read.map(|t| t.rows.len()).ok(), Some(10), "five years, two series each");
+        // Years apart too.
+        let mut apart = node();
+        let mut two = chart(&["2021", "2023"]);
+        two.series.iter_mut().for_each(|s| s.values = vec![s.values[0], s.values[2]]);
+        bind(&mut apart, &two, &deck, &files, "canopy").unwrap();
+        assert_eq!(apart["dataTransform"][0], json!({ "filter": "year == 2021 || year == 2023" }));
+        // A year the file lacks is said by name.
+        let mut late = node();
+        let mut on = chart(&["2022", "2023", "2024", "2025", "2026"]);
+        on.series.iter_mut().for_each(|s| s.values.rotate_left(1));
+        let why = bind(&mut late, &on, &deck, &files, "canopy").unwrap_err();
+        assert!(why.contains("`canopy`'s `year` holds the slide's categories") && why.ends_with("but 2026"), "{why}");
+        assert_eq!(late["data"], json!("@own"));
     }
 
     /// A year a slide writes names a date column's first day of that year, once a first bind

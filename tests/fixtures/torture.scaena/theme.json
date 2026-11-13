@@ -174,6 +174,36 @@
             800
           ]
         }
+      },
+      "japanese": {
+        "family": "Noto Sans JP",
+        "file": "fonts/NotoSansJP-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ]
+        }
+      },
+      "chinese": {
+        "family": "Noto Sans SC",
+        "file": "fonts/NotoSansSC-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ]
+        }
+      },
+      "korean": {
+        "family": "Noto Sans KR",
+        "file": "fonts/NotoSansKR-VF.ttf",
+        "axes": {
+          "wght": [
+            100,
+            900
+          ]
+        }
       }
     },
     "scale": {
@@ -549,6 +579,40 @@
         "features": {
           "calt": false
         },
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "ja-display": {
+        "family": "japanese",
+        "size": 72,
+        "weight": 700,
+        "leading": 1.2,
+        "wrap": "balance",
+        "box": "line",
+        "measure": 8
+      },
+      "ja-body": {
+        "family": "japanese",
+        "size": 56,
+        "weight": 400,
+        "leading": 1.4,
+        "wrap": "greedy",
+        "box": "line"
+      },
+      "zh-headline": {
+        "family": "chinese",
+        "size": 64,
+        "weight": 700,
+        "leading": 1.25,
+        "wrap": "balance",
+        "box": "line",
+        "maxLines": 2
+      },
+      "ko-body": {
+        "family": "korean",
+        "size": 40,
+        "weight": 400,
+        "leading": 1.4,
         "wrap": "greedy",
         "box": "line"
       }

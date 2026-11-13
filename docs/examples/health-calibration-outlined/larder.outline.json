@@ -1,0 +1,36 @@
+{
+ "arc": "Problem–Solution",
+ "bigIdea": "Families who plan with Larder throw away a third less food, and they keep paying because the savings show on every receipt.",
+ "beats": [
+  {
+   "name": "Problem",
+   "claim": "A family of four throws away $1,500 of food a year.",
+   "slides": 2
+  },
+  {
+   "name": "Impact",
+   "claim": "Most of it was bought without a plan and never cooked.",
+   "slides": 1
+  },
+  {
+   "name": "Existing Approaches",
+   "claim": "Recipe apps plan meals but never look at what is already in the fridge.",
+   "slides": 1
+  },
+  {
+   "name": "Solution",
+   "claim": "Larder plans the week from what you already have.",
+   "slides": 2
+  },
+  {
+   "name": "Proof",
+   "claim": "Families on Larder waste a third less food, and 71% still use it after six months.",
+   "slides": 2
+  },
+  {
+   "name": "Call to Action",
+   "claim": "We are raising $1.5M to reach 50,000 families.",
+   "slides": 2
+  }
+ ]
+}

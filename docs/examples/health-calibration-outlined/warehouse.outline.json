@@ -1,0 +1,31 @@
+{
+ "arc": "Roadmap / Future-State",
+ "bigIdea": "Scanning every pallet at the dock will end the Friday recounts by September.",
+ "beats": [
+  {
+   "name": "Now",
+   "claim": "Friday recounts take four hours because pallets are logged by hand.",
+   "slides": 3
+  },
+  {
+   "name": "North Star",
+   "claim": "Every pallet scanned at the dock means the count is right before it reaches a shelf.",
+   "slides": 2
+  },
+  {
+   "name": "Phases",
+   "claim": "Dock 1 goes live in June and the other three docks by August.",
+   "slides": 2
+  },
+  {
+   "name": "Risks",
+   "claim": "Scanners fail in the freezer, so cold-room pallets keep paper tags until fall.",
+   "slides": 1
+  },
+  {
+   "name": "Measures",
+   "claim": "We will know it worked when Friday recounts stop.",
+   "slides": 2
+  }
+ ]
+}

@@ -10,7 +10,10 @@ Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1, uharfbuzz 0.57.0) f
 | `NotoSansArabic-VF.ttf` | `ofl/notosansarabic/NotoSansArabic[wdth,wght].ttf` | `63111b5b2e074dd4…` | `6240ae32d944a419…` | 824 KB → 164 KB | catalogue only: Arabic bidi line |
 | `NotoColorEmoji-COLRv1.ttf` | `ofl/notocoloremoji/NotoColorEmoji-Regular.ttf` | `4d82a18d8d95f60b…` | `24f1031339499bdd…` | 24739 KB → 28 KB | catalogue only: emoji |
 | `JetBrainsMono-VF.ttf` | `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` | `48715a42ec242c21…` | `448ca6a6f221712e…` | 182 KB → 107 KB | code, set as written (PLAN 2.131) |
+| `NotoSansJP-VF.ttf` | `ofl/notosansjp/NotoSansJP[wght].ttf` | `c2f3b4d463500a2d…` | `0a114bf8b613f2b6…` | 9365 KB → 28 KB | Japanese line breaking: phrases, particles, counters (case 71) |
+| `NotoSansSC-VF.ttf` | `ofl/notosanssc/NotoSansSC[wght].ttf` | `a3041811a78c361b…` | `fee586f4a32917d5…` | 17355 KB → 9 KB | Chinese: a balanced headline (case 71) |
+| `NotoSansKR-VF.ttf` | `ofl/notosanskr/NotoSansKR[wght].ttf` | `194018e6b2b293a7…` | `74c29cfbe668f723…` | 10170 KB → 6 KB | Korean: breaks between words (case 71) |
 
-**Subset:** every character the deck draws ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC, and each font's `KEPT` characters, which its committed subset carries, so a rebuild renumbers no glyph. A presenter's notes are part of no subset: they are never drawn. All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
+**Subset:** every character the deck draws ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC, and each font's `KEPT` characters, which its committed subset carries, so a rebuild renumbers no glyph; the Noto Sans JP, SC, and KR subsets hold only the characters of the text set in them (case 71). A presenter's notes are part of no subset: they are never drawn. All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
 
 **Licenses:** SIL Open Font License 1.1, no Reserved Font Names; each `OFL-*.txt` beside the fonts is the upstream license file (sha256-pinned in the script).
