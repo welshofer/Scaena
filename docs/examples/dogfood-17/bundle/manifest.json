@@ -1,0 +1,16 @@
+{
+  "scaena": "0.40",
+  "deck": "aeb1e13160af5cd4bd18de53c603371a7387358efcd29ac6d83b93e78c76885a",
+  "files": {
+    "data/canopy.csv": "80b8f0d1da954ebe554314fda253ad765d9e4eaa72fe428a830bf3c8400cae89",
+    "fonts/Fraunces-744bb5b7a199b885.ttf": "744bb5b7a199b885703f92effa7d9eec7e5975d1023639985eced9458aebae0d",
+    "fonts/Fraunces-Italic-778e8ee27bcbd425.ttf": "778e8ee27bcbd425ed27ddd6f75dc6eecabf3b2c93fa31bf8d2ae172be95b861",
+    "fonts/Inter-Italic-0ceaef921fccd6b1.ttf": "0ceaef921fccd6b1e82a0dca092e332489637162f7986f6deb8188810b122183",
+    "fonts/Inter-d78901d009daf77a.ttf": "d78901d009daf77a3c74f50b5c32086e068f6087b154e4df1738e7df21553cc4",
+    "fonts/JetBrainsMono-7d7c222450f58b2a.ttf": "7d7c222450f58b2a4437e81793bfda49fa17de0065426b952e3dc2154ef3eeba",
+    "fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf": "0cbc5e7fc9aaf6ee791d8efc06c9240c9e9dc3a1b509e6281988c160c40cd039",
+    "themes/dusk.theme.json": "6795be39b76d0ae7e3b0d02f79b68a63e7b18e8850d53c04738cb91f16e9508e"
+  },
+  "created": "2026-11-12T23:33:39.747Z",
+  "modified": "2026-11-12T23:33:39.747Z"
+}
