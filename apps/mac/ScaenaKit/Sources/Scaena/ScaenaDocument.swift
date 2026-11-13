@@ -284,7 +284,9 @@ final class ScaenaDocument: ReferenceFileDocument {
         guard away.edited.applied else { return away.edited }
         // The source as it was just before the edit was written: what its undo makes the deck again.
         let before = editor.source
-        if let source = away.source { editor.restore(source) } else { editor.reread() }
+        // Compiled with no lint of the state shown here: the theme changed what lies behind every
+        // text, which `lintEvery` paints away from the window once edits stop (#1262's sample).
+        if let source = away.source { editor.restoreUnlinted(source) } else { editor.reread(lint: false) }
         keep(before, files: away.edited.files, undo: undo)
         return away.edited
     }

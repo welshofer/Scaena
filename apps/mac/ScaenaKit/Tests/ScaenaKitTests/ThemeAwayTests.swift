@@ -29,6 +29,15 @@ import Testing
     #expect(try paper() == "#2B1B3D", "the session's theme is the one made")
     #expect(try editor.session.digest(state: "cover") != digest, "the cover drawn in the theme made")
 
+    // Read again with no lint of the state shown, which would paint what lies behind each of its
+    // texts on the window's thread (#1262's sample): every state is linted away from it after.
+    let revision = editor.revision
+    editor.reread(lint: false)
+    #expect(editor.revision == revision + 1 && editor.valid, "the deck compiled in the theme made")
+    #expect(!editor.whole, "its lint of every state waits for lintEvery")
+    await editor.lintEvery()
+    #expect(editor.whole, "linted away from the window")
+
     // Its undo writes the theme back, as a theme edit made on the window's thread had it.
     try editor.session.write(made.edited.files.map { (path: $0.path, text: $0.before) })
     #expect(try paper() == "#101014")

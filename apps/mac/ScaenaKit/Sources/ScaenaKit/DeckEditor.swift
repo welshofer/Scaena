@@ -431,11 +431,21 @@ public final class DeckEditor {
     /// Take the deck as the session holds it after an edit made on it directly, as the assistant
     /// makes one (PLAN 3.6), or a panel beside the source: the theme edited or another taken, a
     /// data file written, a version restored (PLAN 3.15). It is compiled and linted as any edit
-    /// is, and drawn again: the source it replaces, for an undo.
+    /// is, and drawn again: the source it replaces, for an undo. Without `lint`, the state shown
+    /// waits for `lintEvery`, away from the window: a theme edited changes what lies behind every
+    /// text, and the state shown linted at once painted each of them again on the window's thread
+    /// (#1262's sample).
     @discardableResult
-    public func reread() -> String? {
+    public func reread(lint: Bool = true) -> String? {
         guard let next = try? session.source() else { return nil }
-        return take(next)
+        return take(next, lint: lint)
+    }
+
+    /// Make the deck `source` again after a theme edit made away from the window, as `reread`
+    /// does without `lint`: the state shown waits for `lintEvery` (#1262).
+    @discardableResult
+    public func restoreUnlinted(_ source: String) -> String? {
+        take(source, lint: false)
     }
 
     /// Lint the state shown, laid out alone, the others' findings kept: what an edit shows at once.
