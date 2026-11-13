@@ -578,7 +578,9 @@ struct Inspector: View {
 
     private func reload() {
         let session = editor.session
-        look = ThemeLook(try? session.themeText())
+        // The look kept while the theme reads as it did, so what holds it is not made again.
+        let read = try? session.themeText()
+        if look?.text != read { look = ThemeLook(read) }
         guard let state else {
             layers = []
             choices = nil

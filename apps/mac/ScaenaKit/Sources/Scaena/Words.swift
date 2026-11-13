@@ -419,13 +419,20 @@ enum Words {
 /// What the theme the deck names says of its names (PLAN 3.18): each color's swatch, each font's
 /// family, each duration's milliseconds, and each step of its radius and space scales: what the
 /// inspector shows beside a name.
-struct ThemeLook {
+///
+/// Two are equal where they read one theme's text, as `ThemeText` is: each row of the inspector
+/// holds one, and SwiftUI compares it each time the inspector is made again.
+struct ThemeLook: Equatable {
+    let text: ThemeText
     private let theme: JSONValue
 
     init?(_ text: ThemeText?) {
-        guard let theme = text?.json else { return nil }
+        guard let text, let theme = text.json else { return nil }
+        self.text = text
         self.theme = theme
     }
+
+    static func == (a: ThemeLook, b: ThemeLook) -> Bool { a.text == b.text }
 
     /// A color by its name, or by the role that names one: `accent`, or `onSurface`.
     func color(_ name: String) -> Color? {

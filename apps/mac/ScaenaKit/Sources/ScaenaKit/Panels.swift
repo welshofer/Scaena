@@ -90,7 +90,11 @@ public struct CodeColor: Decodable, Sendable, Identifiable {
     }
 }
 
-public struct ThemeText: Decodable, Sendable {
+/// Two are equal where they read one theme as one text: its JSON, decoded from that text, is not
+/// compared, since SwiftUI compares what a view holds each time the view is made again, and a
+/// shipped theme's JSON compared value by value, read afresh after each edit, kept the window from
+/// answering for seconds (the hang watch's samples of an insert and a drop, #1309).
+public struct ThemeText: Decodable, Sendable, Equatable {
     /// Its path in the bundle, or `(inline)`.
     public let theme: String
     public let text: String
@@ -107,6 +111,8 @@ public struct ThemeText: Decodable, Sendable {
         text = try fields.decode(String.self, forKey: .text)
         json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
     }
+
+    public static func == (a: ThemeText, b: ThemeText) -> Bool { a.theme == b.theme && a.text == b.text }
 }
 
 /// What a re-theme did, as `scaena theme --apply` says it (PLAN 2.39).
