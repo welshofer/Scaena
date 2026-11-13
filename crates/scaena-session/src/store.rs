@@ -1219,6 +1219,32 @@ pub(crate) mod tests {
         serde_json::from_value(json!({ "source": "q3", "edits": edits })).unwrap()
     }
 
+    /// The Data panel's rows added and taken away keep a figure quoted by its row's index on that
+    /// row, as `data_edit` does, and one on a row taken away quotes no more (R1's agent dogfood 10).
+    #[test]
+    fn a_row_added_in_the_panel_keeps_a_quote_by_index_on_its_row() {
+        let mut files = revenue();
+        let mut deck: serde_json::Value = serde_json::from_slice(&files["deck.json"]).unwrap();
+        let quote = json!({ "data": "@q3", "row": 10, "column": "revenue", "format": "$.1f" });
+        deck["states"][1]["props"]["title"]["runs"] =
+            json!([{ "text": "Pro hit " }, { "text": "$19.4", "quote": quote }]);
+        deck["states"][1]["props"]["title"].as_object_mut().unwrap().shift_remove("text");
+        files.insert("deck.json".into(), serde_json::to_vec(&deck).unwrap());
+        let mut s = Session::open(files).unwrap();
+        let user = Caller { author: USER, at: None };
+        let run = |s: &Session| {
+            let deck = s.deck().to_value().unwrap();
+            deck["states"][1]["props"]["title"]["runs"][1].clone()
+        };
+        let row = json!({ "quarter": "2025-Q3", "product": "Pro", "revenue": 1 });
+        let (added, wrote) = s.data_edit(&q3(json!([{ "op": "add", "row": 0, "values": row }])), false, user).unwrap();
+        assert!(wrote && added.unquoted.is_empty(), "{added:?}");
+        assert_eq!((run(&s)["quote"]["row"].clone(), run(&s)["text"].clone()), (json!(11), json!("$19.4")));
+        let (gone, _) = s.data_edit(&q3(json!([{ "op": "remove", "row": 11 }])), false, user).unwrap();
+        assert_eq!((gone.unquoted.len(), gone.unquoted[0].slides.as_slice()), (1, &[2][..]), "{gone:?}");
+        assert_eq!(run(&s), json!({ "text": "$19.4" }));
+    }
+
     /// A cell set in the Data panel (PLAN 2.55): the file written with that one field changed, and
     /// the chart that reads it drawn again; an edit refused writes nothing; the file put back by
     /// the panel's undo and written again by its redo, before a save and after it.

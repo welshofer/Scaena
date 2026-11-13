@@ -115,7 +115,17 @@
         },
         "required": ["code", "severity", "message"]
       },
-      "Severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Unquoted": {
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "slides": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "words": { "type": "string" },
+          "said": { "type": "string" }
+        },
+        "required": ["node", "slides", "words", "said"]
+      }
     },
     "required": ["edited", "source", "sheet", "added", "removed", "errors", "refused"],
     "type": "object",
@@ -128,7 +138,8 @@
       "removed": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
       "errors": { "type": "integer", "minimum": 0 },
       "refused": { "type": "boolean" },
-      "quoted": { "type": "array", "items": { "type": "string" } }
+      "quoted": { "type": "array", "items": { "type": "string" } },
+      "unquoted": { "type": "array", "items": { "$ref": "#/$defs/Unquoted" } }
     }
   }
 }
