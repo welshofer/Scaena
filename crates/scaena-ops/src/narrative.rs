@@ -683,6 +683,9 @@ pub struct Grounding {
     pub held: String,
     /// Each PDF whose words were not read, and why.
     pub unread: Vec<String>,
+    /// The words each PDF draws, by its name, whose figures the deck keeps source by source
+    /// ([`provenance`]), with ops' `pdf` feature; else none.
+    pub words: Vec<(String, String)>,
 }
 
 /// `sources` packed as Vzestup packs them (`scaena_sources::ground`): the first given the room
@@ -700,24 +703,47 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
         })
         .collect();
     #[cfg(feature = "pdf")]
-    let (held, unread) = scaena_sources::pdf::held(sources);
+    let ((held, unread), words) = (scaena_sources::pdf::held(sources), scaena_sources::pdf::each(sources));
     #[cfg(not(feature = "pdf"))]
-    let (held, unread) = (String::new(), Vec::new());
-    Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread })
+    let ((held, unread), words) = ((String::new(), Vec::new()), Vec::new());
+    Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread, words })
 }
 
 /// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
-/// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short.
-pub fn provenance(given: &[Given]) -> Vec<Provenance> {
+/// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short; and the
+/// figures it holds (W1's dogfood 17), read from `read`, the sources as read, and `pdfs`, the words
+/// each PDF draws by its name (`scaena_sources::pdf::each`), so health holds a slide that cites it
+/// to them.
+pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -> Vec<Provenance> {
     (given.iter())
-        .map(|g| Provenance {
-            name: g.name.clone(),
-            kind: g.kind.to_string(),
-            url: g.url.clone(),
-            bytes: g.bytes,
-            truncated: g.truncated,
+        .map(|g| {
+            let mut text: String = (read.iter().filter(|s| s.name == g.name)).map(|s| s.text.as_str()).collect();
+            for (_, words) in pdfs.iter().filter(|(name, _)| *name == g.name) {
+                text.push('\n');
+                text.push_str(words);
+            }
+            Provenance {
+                name: g.name.clone(),
+                kind: g.kind.to_string(),
+                url: g.url.clone(),
+                bytes: g.bytes,
+                truncated: g.truncated,
+                figures: scaena_narrato::source_figures(&text),
+            }
         })
         .collect()
+}
+
+/// What `source` says, for its figures: its text, and the words it draws where it is a PDF and
+/// ops' `pdf` feature reads them.
+fn grounded_words(source: &Source) -> String {
+    #[cfg(feature = "pdf")]
+    if let Some(pdf) = &source.pdf {
+        return scaena_sources::pdf::words(&source.name, pdf)
+            .map(|w| format!("{}\n{w}", source.text))
+            .unwrap_or_else(|_| source.text.clone());
+    }
+    source.text.clone()
 }
 
 /// How a beat cites the source its slide names (narrative FUNC-3): by the source's address where
@@ -1359,6 +1385,7 @@ pub fn from_slides(
                 url: None,
                 bytes: bytes.len(),
                 truncated: false,
+                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes)),
             })
             .chain(grounds.iter().map(|s| Provenance {
                 name: s.name.clone(),
@@ -1366,6 +1393,7 @@ pub fn from_slides(
                 url: scaena_sources::address(&s.name, s.kind),
                 bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
                 truncated: false,
+                figures: scaena_narrato::source_figures(&grounded_words(s)),
             }))
             .collect();
         generation.give_sources(given);
@@ -3563,7 +3591,9 @@ fn rebroken(
 /// caps them since each is a picture of its own there, but here a divider costs nothing and the
 /// agenda names every part, so each the model asked for stays one. Nor does a Q&A that ends the
 /// talk become a plain closing (dogfood pass 10): it is a closing already, and its seeded
-/// questions, which a closing has no place for, would be set as a list on its backdrop.
+/// questions, which a closing has no place for, would be set as a list on its backdrop. Nor does
+/// a list its writer left unnumbered become a numbered one for variety: numbering says its points
+/// have an order, which they may not (W1 dogfood 18), as [`rebroken`] never numbers them either.
 fn varied(narrative: &Narrative) -> Vec<Varied> {
     let mut varied: Vec<Varied> = narrative.slides.iter().map(as_asked).collect();
     let changes = layouts::vary(&mut varied, true);
@@ -3572,7 +3602,7 @@ fn varied(narrative: &Narrative) -> Vec<Varied> {
         let kept = match c.reason {
             layouts::Reason::SectionCap => true,
             layouts::Reason::BookendClosing => asked.identity() == "qa",
-            _ => false,
+            _ => c.to == "numbered" && asked.identity() != "numbered",
         };
         if kept {
             varied[c.index].layout = asked;
@@ -3891,10 +3921,15 @@ fn item(bullet: &str) -> Item {
         return Item { label: None, detail: lines.to_string(), whole: lines.to_string() };
     }
     let bullet = bullet.trim();
-    // The mark a model may lead an item with, but not a figure's minus: "-13%" keeps it.
-    let whole = match bullet.strip_prefix(['-', '\u{2013}']) {
-        Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit()) => bullet,
-        _ => bullet.trim_start_matches(['\u{2022}', '-', '*', '\u{2013}']),
+    // The mark a model may lead an item with. A bullet (•) is always one; a dash, star, or en dash
+    // is one only before a space ("- Measure", "* Warm up"), so a figure's minus ("-13%") and a
+    // command-line flag ("--warmup", "-S") keep theirs and are never shortened into another word.
+    let whole = match bullet.strip_prefix('\u{2022}').map(str::trim_start).unwrap_or(bullet) {
+        marked if marked != bullet => marked,
+        _ => match bullet.strip_prefix(['-', '*', '\u{2013}']) {
+            Some(rest) if rest.starts_with(char::is_whitespace) => rest.trim_start(),
+            _ => bullet,
+        },
     }
     .trim()
     .to_string();
@@ -7979,9 +8014,14 @@ fn two(slide: &Slide) -> bool {
         .is_some_and(|c| c.categories.len() == 2 && c.series.len() == 1 && c.series[0].values.len() == 2)
 }
 
-/// The decimals of the most precise of `chart`'s values, two at most: 2.0 beside 1.1.
+/// The decimals of the most precise of `chart`'s values, four at most: 2.0 beside 1.1, and
+/// 2.275 beside 0.232, as its writer wrote them, never 2.27 (W1 dogfood 18). A made deck draws no
+/// figure its writer did not write (DF7-1), so a label rounds only past the fourth place.
 fn decimals(chart: &ChartData) -> usize {
-    let places = |v: f64| (0..=2usize).find(|d| (v * 10f64.powi(*d as i32)).fract().abs() < 1e-9).unwrap_or(2);
+    // Whole at `d` places: within a float's noise of the nearest integer, from either side (2.275
+    // is 2274.9999999999995 thousandths).
+    let whole = |x: f64| (x - x.round()).abs() <= 1e-9 * x.abs().max(1.0);
+    let places = |v: f64| (0..=4usize).find(|d| whole(v * 10f64.powi(*d as i32))).unwrap_or(4);
     chart.series.iter().flat_map(|s| s.values.iter().flatten()).map(|v| places(*v)).max().unwrap_or(0)
 }
 
@@ -8665,6 +8705,11 @@ mod tests {
         let i = item("-13%: Arctic summer ice per decade");
         assert_eq!((i.label.as_deref(), i.figure().as_deref()), (Some("-13%"), Some("-13%")));
         assert_eq!(item("- Measure our travel").whole, "Measure our travel");
+        assert_eq!(item("* Warm up first").whole, "Warm up first");
+        assert_eq!(item("\u{2022} Compare against a reference").whole, "Compare against a reference");
+        // A command-line flag leads an item unshortened (W1 dogfood 18): "--warmup", not "warmup".
+        assert_eq!(item("--warmup 3 before measuring").whole, "--warmup 3 before measuring");
+        assert_eq!(item("-S for pipes and wildcards").whole, "-S for pipes and wildcards");
     }
 
     /// A detail that is code or an identifier keeps its case (DF7-2, deepdive 6): Go stays Go,
@@ -12187,6 +12232,34 @@ mod tests {
         assert_eq!(deck, before);
     }
 
+    /// A quiz's letters and a process's step numbers are their places' labels, which a made deck
+    /// sets as its layout writes them: lint's W305 never finds one a prompt left to type over (W1's
+    /// dogfood 18, a quiz whose "A", "B", and "C" it found).
+    #[test]
+    fn a_made_decks_labels_are_no_prompts_left() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({ "executiveSummary": "Measure until the numbers settle.", "slides": [
+            { "slideTitle": "Benchmark like you mean it", "layoutSuggestion": "Title", "keyBullets": [] },
+            { "slideTitle": "Check yourself", "layoutSuggestion": "Quiz",
+              "keyBullets": ["Which option benchmarks a cold cache?", "A: --warmup", "B: --prepare", "C: --runs"] },
+            { "slideTitle": "How a benchmark runs", "layoutSuggestion": "How It Works",
+              "keyBullets": ["Warm up: run it three times first", "Measure: run it until it settles", "Compare: against the first command"] },
+            { "slideTitle": "Run fast commands without a shell", "layoutSuggestion": "Statement", "keyBullets": [] },
+            { "slideTitle": "Measure it before you change it", "layoutSuggestion": "Closing", "keyBullets": ["Questions?"] },
+        ]})
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.arc = "Learning Journey".into();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let layouts: Vec<&str> =
+            (built.deck["states"].as_array().unwrap().iter()).filter_map(|s| s["layout"].as_str()).collect();
+        assert!(layouts.contains(&"quiz") && layouts.contains(&"how-it-works"), "{layouts:?}");
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
+        assert!(left.is_empty(), "{left:#?}");
+    }
+
     #[test]
     fn a_set_of_texts_side_by_side_is_set_alike_and_as_large_as_its_places_allow() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -13096,6 +13169,27 @@ mod tests {
         assert!(unmade.iter().all(|u| u.contains("out of credit")), "{unmade:?}");
     }
 
+    /// A chart's figures are drawn to the places its writer wrote them, four at most (W1 dogfood
+    /// 18): hyperfine's README times fd at 0.232 s and find at 2.275 s, never 0.23 and 2.27.
+    #[test]
+    fn a_charts_figures_keep_the_places_written() {
+        let chart = |values: &[f64]| ChartData {
+            categories: values.iter().map(|v| v.to_string()).collect(),
+            series: vec![scaena_narrato::answer::Series {
+                name: None,
+                values: values.iter().copied().map(Some).collect(),
+            }],
+            ..ChartData::default()
+        };
+        assert_eq!(decimals(&chart(&[2.275, 1.427, 0.232])), 3);
+        assert_eq!(decimals(&chart(&[2.0, 1.1])), 1);
+        assert_eq!(decimals(&chart(&[48.0, 52.0, 71.0])), 0);
+        assert_eq!(decimals(&chart(&[0.1 + 0.2])), 1, "a float's noise is no place written");
+        assert_eq!(decimals(&chart(&[1.4826])), 4);
+        assert_eq!(decimals(&chart(&[1.234_56])), 4, "rounded past the fourth place");
+        assert_eq!(at_places(2.275, decimals(&chart(&[2.275, 0.232])), None, "en"), "2.275");
+    }
+
     #[test]
     fn a_layout_with_no_place_for_an_item_gives_way_to_a_list() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
@@ -13112,6 +13206,39 @@ mod tests {
             deck(&narrative(&summary, vec![slides[0].clone(), steps, slides[55].clone()]), &theme, &Pictures::new())
                 .unwrap();
         assert_eq!(made.layouts[1], "numbered");
+    }
+
+    /// Narrato's variety pass breaks a run of one layout, but never by numbering a list its writer
+    /// left unnumbered, which says its points have an order (W1 dogfood 18: "What the shell costs",
+    /// four points of no order, came out 1 to 4 after three lists before it).
+    #[test]
+    fn a_list_left_unnumbered_is_never_numbered_for_variety() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let list = |title: &str| Slide {
+            slide_title: title.into(),
+            layout_suggestion: "Bullet List".into(),
+            key_bullets: vec![
+                "Commands run directly by default".into(),
+                "Use -S for pipes and wildcards".into(),
+                "A shell's startup is subtracted".into(),
+                "Below 5 ms that is noise".into(),
+            ],
+            ..Slide::default()
+        };
+        let cover = Slide {
+            slide_title: "Benchmark like you mean it".into(),
+            layout_suggestion: "Title".into(),
+            ..Slide::default()
+        };
+        let slides = vec![
+            cover,
+            list("What the shell costs"),
+            list("What a run costs"),
+            list("What a warmup costs"),
+            list("What a reference costs"),
+        ];
+        let made = deck(&narrative("Measure until it settles.", slides), &theme, &Pictures::new()).unwrap();
+        assert!(!made.layouts.iter().any(|l| l == "numbered"), "{:?}", made.layouts);
     }
 
     #[test]
@@ -14234,6 +14361,26 @@ mod tests {
         assert!(refused.starts_with("Source \"https://example.org/a\" (text)"), "{refused}");
     }
 
+    /// Each source keeps the figures it holds, a PDF's from the words it draws where ops' `pdf`
+    /// feature reads them, so health holds a slide that cites it to them (W1's dogfood 17).
+    #[test]
+    fn each_source_keeps_its_figures() {
+        let report = std::fs::read(root().join("docs/examples/dogfood-17/report.pdf")).unwrap();
+        let pdf = Source { pdf: Some(report), ..source("report.pdf", Kind::Pdf, "") };
+        let sheet = source("canopy.csv", Kind::Csv, "year,canopy_pct\n2016,31.4\n2025,25.8\n");
+        let read = [pdf, sheet];
+        let g = grounding(&read, Provider::Anthropic).unwrap();
+        let kept = provenance(&g.given, &read, &g.words);
+        assert_eq!(kept[1].figures, ["25.8", "31.4", "2016", "2025"]);
+        if cfg!(feature = "pdf") {
+            assert!(kept[0].figures.contains(&"7560".to_string()) && kept[0].figures.contains(&"9".to_string()));
+        } else {
+            assert!(kept[0].figures.is_empty());
+        }
+        let deck: Value = serde_json::to_value(&kept[1]).unwrap();
+        assert_eq!(deck["figures"][0], "25.8");
+    }
+
     /// With ops' `pdf` feature, the CLI's, each PDF's words are held for the notes' figures, and a
     /// PDF whose words cannot be read is said (W1's dogfood 17); the browser's modules hold none.
     #[test]
@@ -14300,7 +14447,7 @@ mod tests {
             slide.source_ref = named.map(str::to_string);
         }
         let mut n = narrative(&summary, slides);
-        n.sources = provenance(&g.given);
+        n.sources = provenance(&g.given, &[], &[]);
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let deck = write.unwrap().deck.to_value().unwrap();
         let sources = &deck["meta"]["narrative"]["sources"];
@@ -14352,7 +14499,7 @@ mod tests {
         slides.truncate(8);
         let made = |slides: Vec<Slide>| -> Vec<String> {
             let mut n = narrative(&summary, slides);
-            n.sources = provenance(&g.given);
+            n.sources = provenance(&g.given, &[], &[]);
             let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
             let deck = write.unwrap().deck.to_value().unwrap();
             let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();

@@ -1,5 +1,5 @@
 {
-  "scaena": "0.40",
+  "scaena": "0.41",
   "_comment": "W423 clean: a chart reads @sales in the first beat's state, and a text quotes one of its cells in the second's.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

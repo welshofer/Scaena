@@ -202,6 +202,12 @@ struct RehearsedSheet: View {
         guard let plan = rehearsal.againstPlan else {
             return "\(readable(rehearsal.total())) in all. No slide rehearsed has a planned time, so times alone are shown."
         }
+        // A plan of Narrato's estimates alone is the slot's: the time taken against it, and the
+        // estimates said beside it as what they are (editor dogfood 7).
+        if let guessed = rehearsal.estimated {
+            return "\(readable(plan.taken)) of a \(Int(guessed.minutes))-minute slot; the beats' estimates come to "
+                + "\(readable(guessed.total * 1000)), \(signed(plan.taken - plan.planned)) · \(readable(rehearsal.total())) in all."
+        }
         // The brief's slot beside the beats' plan, where it asks minutes (W1's dogfood 17).
         let given = rehearsal.slot.map { ", \($0)" } ?? ""
         return "\(readable(plan.taken)) taken against a \(readable(plan.planned)) plan\(given), "

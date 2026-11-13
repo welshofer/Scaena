@@ -785,9 +785,10 @@ export class Stage {
     });
   }
 
-  /** The bundle's versions, oldest first (PLAN 2.60); none where it keeps no history. */
-  versions(): Promise<Version[] | null> {
-    return this.request<"versions">({ type: "versions", id: ++this.asked }).then(({ versions }) => versions);
+  /** The bundle's versions, oldest first (PLAN 2.60); none where it keeps no history, and
+   * `begins` where it keeps none yet and its first save begins one. */
+  versions(): Promise<{ versions: Version[] | null; begins: boolean }> {
+    return this.request<"versions">({ type: "versions", id: ++this.asked }).then(({ versions, begins }) => ({ versions, begins: !!begins }));
   }
 
   /** Version `version` shown read-only: its states, and `state` of it at rest as a PNG `width`

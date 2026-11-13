@@ -677,6 +677,9 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
   /** Whether closing the deck would lose something: an edit not saved, or a deck kept nowhere,
    * which opens with nothing edited and nothing of it kept (lift-up 10-24 REL-1). */
   const unsaved = () => dirty() || unkept();
+  /** Whether the editor made the deck, New or From a prompt…: its history begins at its first
+   * save, as `deck_create` and `deck_generate` begin one. */
+  const begins = () => "create" in source || (("files" in source || "recovered" in source) && !!source.begins);
   /** The folder on disk the bundle is kept in, where the page has its handle. */
   let folderHandle: FileSystemDirectoryHandle | undefined = "folder" in source ? source.folder : undefined;
   /** How many times the engine has been started again after a panic (lift-up STAB-2). */
@@ -703,7 +706,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
             ? { url: source.url, serve: source.serve }
             : undefined;
     try {
-      await stage.restart(crash.files ? { recovered: crash.files, name, kept } : (kept ?? source));
+      await stage.restart(crash.files ? { recovered: crash.files, name, kept, begins: !kept && begins() } : (kept ?? source));
     } catch (e) {
       say(`The engine stopped on an error${why}, and could not be started again: ${said(e)}. Download the deck to keep what you changed.`);
       return;
@@ -779,7 +782,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
           : "create" in source
             ? { create: source.create }
             : opening
-              ? { files: Object.keys(opening) }
+              ? { files: Object.keys(opening), begins: begins() }
               : undefined;
       const bundle = reopen && "files" in reopen && !carried ? opening : undefined;
       const kept = await keep(key, { at: Date.now(), name, source: view.state.doc.toString(), files: [...written.keys()], removed, reopen }, files, bundle);
@@ -3873,7 +3876,7 @@ async function leftoversOffered() {
       drop.setAttribute("aria-label", `Discard ${called}, changed ${when(l.at)}`);
       recover.onclick = async () => {
         dialog.close();
-        const reopened: Source = "create" in l.reopen ? { create: l.reopen.create } : { files: await bundleOf(l.key, l.reopen.files), name: l.name };
+        const reopened: Source = "create" in l.reopen ? { create: l.reopen.create } : { files: await bundleOf(l.key, l.reopen.files), name: l.name, begins: l.reopen.begins };
         await open(reopened, false, true).catch(failed);
       };
       drop.onclick = async () => {

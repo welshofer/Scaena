@@ -10,7 +10,9 @@
 //! deep, parsed with a stack of its own, never the program's. Each page's text operators (`Tj`,
 //! `TJ`, `'`, `"`) are read in the font its resources name, form XObjects too: a string is
 //! words only through its own font's ToUnicode CMap, or the standard encoding a simple font
-//! names, else none, never a guess. An encrypted PDF gives none. A file past a bound is refused,
+//! names (WinAnsi, MacRoman, or Standard, and the Latin glyphs its `/Differences` name), else
+//! none, never a guess. A code its font says nothing of is read as U+FFFD in its word, so a word
+//! is never shortened into another ("Restm\u{fffd}lls", never "Restmlls"). An encrypted PDF gives none. A file past a bound is refused,
 //! naming it, never a hang, a run out of memory, or a stack overflow.
 
 use crate::SourceError;
@@ -83,6 +85,14 @@ pub fn held(sources: &[crate::Source]) -> (String, Vec<String>) {
     (all, unread)
 }
 
+/// The words of each PDF among `sources`, by its name, those it could not read left out: what a
+/// deck keeps the figures of, source by source (`Provenance::figures`, W1's dogfood 17).
+pub fn each(sources: &[crate::Source]) -> Vec<(String, String)> {
+    (sources.iter())
+        .filter_map(|source| Some((source.name.clone(), words(&source.name, source.pdf.as_deref()?).ok()?)))
+        .collect()
+}
+
 /// [`words`] within `bounds`.
 pub fn words_within(name: &str, bytes: &[u8], bounds: &Bounds) -> Result<String, SourceError> {
     let mut file = File::new(bytes, bounds);
@@ -146,7 +156,7 @@ type Packed = (Vec<u8>, Vec<usize>);
 enum Font {
     /// Codes of these widths in bytes, each the text a CMap says.
     Mapped { codes: BTreeMap<Vec<u8>, String>, widths: Vec<usize> },
-    /// A byte a character, through an encoding; a byte it says nothing of is no character.
+    /// A byte a character, through an encoding; a byte it says nothing of is [`UNREAD`].
     Encoded(Box<[Option<char>; 256]>),
 }
 
@@ -470,17 +480,32 @@ impl<'a> File<'a> {
             Some(e) => self.resolve(&e)?,
             None => None,
         };
-        let standard = |n: &[u8]| matches!(n, b"WinAnsiEncoding" | b"MacRomanEncoding" | b"StandardEncoding");
         let mut table: Box<[Option<char>; 256]> = Box::new([None; 256]);
+        // Its base encoding, named, else the standard one a standard font takes.
+        let standard = standard14(font).then_some(&b"StandardEncoding"[..]);
         let base = match &encoding {
-            Some(Value::Name(n)) if standard(n) => true,
-            Some(Value::Dict(e)) => name(get(e, b"BaseEncoding")).is_some_and(standard) || standard14(font),
-            None => standard14(font),
-            _ => false,
+            Some(Value::Name(n)) => Some(n.as_slice()),
+            Some(Value::Dict(e)) => name(get(e, b"BaseEncoding")).or(standard),
+            None => standard,
+            _ => None,
         };
-        if base {
+        let upper = match base {
+            Some(b"WinAnsiEncoding") => Some(&WIN_ANSI),
+            Some(b"MacRomanEncoding") => Some(&MAC_ROMAN),
+            Some(b"StandardEncoding") => Some(&STANDARD),
+            _ => None,
+        };
+        if let Some(upper) = upper {
             for (b, slot) in table.iter_mut().enumerate().take(0x7f).skip(0x20) {
                 *slot = Some(b as u8 as char);
+            }
+            // The standard encoding's quotes are curled where ASCII's are straight.
+            if base == Some(b"StandardEncoding") {
+                table[0x27] = Some('\u{2019}');
+                table[0x60] = Some('\u{2018}');
+            }
+            for (slot, c) in table[0x80..].iter_mut().zip(upper) {
+                *slot = (*c != '\0').then_some(*c);
             }
         }
         if let Some(Value::Dict(e)) = &encoding
@@ -580,11 +605,12 @@ impl<'a> File<'a> {
         Ok(())
     }
 
-    /// `raw`, a string shown in `font`, as words: each character its font says, none it does not.
+    /// `raw`, a string shown in `font`, as words: each character its font says, and [`UNREAD`]
+    /// for each code it does not, so a word keeps its length; in no font, none.
     fn show(&mut self, raw: &[u8], font: Option<&Font>) -> Result<(), String> {
         match font {
             None => {}
-            Some(Font::Encoded(table)) => self.out.extend(raw.iter().filter_map(|b| table[*b as usize])),
+            Some(Font::Encoded(table)) => self.out.extend(raw.iter().map(|b| table[*b as usize].unwrap_or(UNREAD))),
             Some(Font::Mapped { codes, widths }) => {
                 let mut at = 0;
                 'codes: while at < raw.len() {
@@ -595,6 +621,7 @@ impl<'a> File<'a> {
                             continue 'codes;
                         }
                     }
+                    self.out.push(UNREAD);
                     at += widths.first().copied().unwrap_or(1);
                 }
             }
@@ -613,8 +640,10 @@ fn standard14(font: &Dict) -> bool {
     [&b"Helvetica"[..], b"Times", b"Courier"].iter().any(|f| base.starts_with(f))
 }
 
-/// The character a glyph's name stands for, of the names a figure and its words are drawn in.
+/// The character a glyph's name stands for: a letter of its own, `uniXXXX`, or one of [`GLYPHS`],
+/// a suffix after a `.` set aside (`a.sc` is `a`).
 fn glyph_char(glyph: &[u8]) -> Option<char> {
+    let glyph = glyph.split(|b| *b == b'.').next().filter(|g| !g.is_empty())?;
     if let [one] = glyph
         && one.is_ascii_alphabetic()
     {
@@ -623,40 +652,322 @@ fn glyph_char(glyph: &[u8]) -> Option<char> {
     if let Some(hex) = glyph.strip_prefix(b"uni").filter(|h| h.len() == 4) {
         return u32::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok().and_then(char::from_u32);
     }
-    const NAMES: [(&[u8], char); 30] = [
-        (b"zero", '0'),
-        (b"one", '1'),
-        (b"two", '2'),
-        (b"three", '3'),
-        (b"four", '4'),
-        (b"five", '5'),
-        (b"six", '6'),
-        (b"seven", '7'),
-        (b"eight", '8'),
-        (b"nine", '9'),
-        (b"space", ' '),
-        (b"period", '.'),
-        (b"comma", ','),
-        (b"percent", '%'),
-        (b"dollar", '$'),
-        (b"hyphen", '-'),
-        (b"minus", '\u{2212}'),
-        (b"colon", ':'),
-        (b"semicolon", ';'),
-        (b"slash", '/'),
-        (b"plus", '+'),
-        (b"parenleft", '('),
-        (b"parenright", ')'),
-        (b"quoteright", '\u{2019}'),
-        (b"quoteleft", '\u{2018}'),
-        (b"sterling", '£'),
-        (b"Euro", '€'),
-        (b"yen", '¥'),
-        (b"endash", '\u{2013}'),
-        (b"emdash", '\u{2014}'),
-    ];
-    NAMES.iter().find(|(n, _)| *n == glyph).map(|(_, c)| *c)
+    GLYPHS.binary_search_by(|(n, _)| n.as_bytes().cmp(glyph)).ok().map(|i| GLYPHS[i].1)
 }
+
+/// What a code its font says nothing of is read as: a character, so its word is kept unread,
+/// never shortened into another word.
+pub const UNREAD: char = '\u{fffd}';
+
+/// The characters the glyphs a font's `/Differences` names stand for, by name in byte order: a
+/// figure's, its words' Latin letters, and their marks.
+const GLYPHS: [(&str, char); 254] = [
+    ("AE", '\u{00c6}'),
+    ("Aacute", '\u{00c1}'),
+    ("Abreve", '\u{0102}'),
+    ("Acircumflex", '\u{00c2}'),
+    ("Adieresis", '\u{00c4}'),
+    ("Agrave", '\u{00c0}'),
+    ("Amacron", '\u{0100}'),
+    ("Aogonek", '\u{0104}'),
+    ("Aring", '\u{00c5}'),
+    ("Atilde", '\u{00c3}'),
+    ("Cacute", '\u{0106}'),
+    ("Ccaron", '\u{010c}'),
+    ("Ccedilla", '\u{00c7}'),
+    ("Ccircumflex", '\u{0108}'),
+    ("Cdotaccent", '\u{010a}'),
+    ("Dcaron", '\u{010e}'),
+    ("Eacute", '\u{00c9}'),
+    ("Ebreve", '\u{0114}'),
+    ("Ecaron", '\u{011a}'),
+    ("Ecircumflex", '\u{00ca}'),
+    ("Edieresis", '\u{00cb}'),
+    ("Edotaccent", '\u{0116}'),
+    ("Egrave", '\u{00c8}'),
+    ("Emacron", '\u{0112}'),
+    ("Eogonek", '\u{0118}'),
+    ("Eth", '\u{00d0}'),
+    ("Euro", '\u{20ac}'),
+    ("Gbreve", '\u{011e}'),
+    ("Gcedilla", '\u{0122}'),
+    ("Gcircumflex", '\u{011c}'),
+    ("Gdotaccent", '\u{0120}'),
+    ("Hcircumflex", '\u{0124}'),
+    ("Iacute", '\u{00cd}'),
+    ("Ibreve", '\u{012c}'),
+    ("Icircumflex", '\u{00ce}'),
+    ("Idieresis", '\u{00cf}'),
+    ("Idotaccent", '\u{0130}'),
+    ("Igrave", '\u{00cc}'),
+    ("Imacron", '\u{012a}'),
+    ("Iogonek", '\u{012e}'),
+    ("Itilde", '\u{0128}'),
+    ("Jcircumflex", '\u{0134}'),
+    ("Kcedilla", '\u{0136}'),
+    ("Lacute", '\u{0139}'),
+    ("Lcaron", '\u{013d}'),
+    ("Lcedilla", '\u{013b}'),
+    ("Lslash", '\u{0141}'),
+    ("Nacute", '\u{0143}'),
+    ("Ncaron", '\u{0147}'),
+    ("Ncedilla", '\u{0145}'),
+    ("Ntilde", '\u{00d1}'),
+    ("OE", '\u{0152}'),
+    ("Oacute", '\u{00d3}'),
+    ("Obreve", '\u{014e}'),
+    ("Ocircumflex", '\u{00d4}'),
+    ("Odieresis", '\u{00d6}'),
+    ("Ograve", '\u{00d2}'),
+    ("Ohungarumlaut", '\u{0150}'),
+    ("Omacron", '\u{014c}'),
+    ("Oslash", '\u{00d8}'),
+    ("Otilde", '\u{00d5}'),
+    ("Racute", '\u{0154}'),
+    ("Rcaron", '\u{0158}'),
+    ("Rcedilla", '\u{0156}'),
+    ("Sacute", '\u{015a}'),
+    ("Scaron", '\u{0160}'),
+    ("Scedilla", '\u{015e}'),
+    ("Scircumflex", '\u{015c}'),
+    ("Tcaron", '\u{0164}'),
+    ("Tcedilla", '\u{0162}'),
+    ("Thorn", '\u{00de}'),
+    ("Uacute", '\u{00da}'),
+    ("Ubreve", '\u{016c}'),
+    ("Ucircumflex", '\u{00db}'),
+    ("Udieresis", '\u{00dc}'),
+    ("Ugrave", '\u{00d9}'),
+    ("Uhungarumlaut", '\u{0170}'),
+    ("Umacron", '\u{016a}'),
+    ("Uogonek", '\u{0172}'),
+    ("Uring", '\u{016e}'),
+    ("Utilde", '\u{0168}'),
+    ("Wcircumflex", '\u{0174}'),
+    ("Yacute", '\u{00dd}'),
+    ("Ycircumflex", '\u{0176}'),
+    ("Ydieresis", '\u{0178}'),
+    ("Zacute", '\u{0179}'),
+    ("Zcaron", '\u{017d}'),
+    ("Zdotaccent", '\u{017b}'),
+    ("aacute", '\u{00e1}'),
+    ("abreve", '\u{0103}'),
+    ("acircumflex", '\u{00e2}'),
+    ("adieresis", '\u{00e4}'),
+    ("ae", '\u{00e6}'),
+    ("agrave", '\u{00e0}'),
+    ("amacron", '\u{0101}'),
+    ("ampersand", '\u{0026}'),
+    ("aogonek", '\u{0105}'),
+    ("aring", '\u{00e5}'),
+    ("asciicircum", '\u{005e}'),
+    ("asciitilde", '\u{007e}'),
+    ("asterisk", '\u{002a}'),
+    ("at", '\u{0040}'),
+    ("atilde", '\u{00e3}'),
+    ("backslash", '\u{005c}'),
+    ("bar", '\u{007c}'),
+    ("braceleft", '\u{007b}'),
+    ("braceright", '\u{007d}'),
+    ("bracketleft", '\u{005b}'),
+    ("bracketright", '\u{005d}'),
+    ("bullet", '\u{2022}'),
+    ("cacute", '\u{0107}'),
+    ("ccaron", '\u{010d}'),
+    ("ccedilla", '\u{00e7}'),
+    ("ccircumflex", '\u{0109}'),
+    ("cdotaccent", '\u{010b}'),
+    ("cent", '\u{00a2}'),
+    ("colon", '\u{003a}'),
+    ("comma", '\u{002c}'),
+    ("copyright", '\u{00a9}'),
+    ("currency", '\u{00a4}'),
+    ("dcaron", '\u{010f}'),
+    ("degree", '\u{00b0}'),
+    ("divide", '\u{00f7}'),
+    ("dollar", '\u{0024}'),
+    ("dotlessi", '\u{0131}'),
+    ("eacute", '\u{00e9}'),
+    ("ebreve", '\u{0115}'),
+    ("ecaron", '\u{011b}'),
+    ("ecircumflex", '\u{00ea}'),
+    ("edieresis", '\u{00eb}'),
+    ("edotaccent", '\u{0117}'),
+    ("egrave", '\u{00e8}'),
+    ("eight", '\u{0038}'),
+    ("ellipsis", '\u{2026}'),
+    ("emacron", '\u{0113}'),
+    ("emdash", '\u{2014}'),
+    ("endash", '\u{2013}'),
+    ("eogonek", '\u{0119}'),
+    ("equal", '\u{003d}'),
+    ("eth", '\u{00f0}'),
+    ("exclam", '\u{0021}'),
+    ("exclamdown", '\u{00a1}'),
+    ("fi", '\u{fb01}'),
+    ("five", '\u{0035}'),
+    ("fl", '\u{fb02}'),
+    ("four", '\u{0034}'),
+    ("gbreve", '\u{011f}'),
+    ("gcedilla", '\u{0123}'),
+    ("gcircumflex", '\u{011d}'),
+    ("gdotaccent", '\u{0121}'),
+    ("germandbls", '\u{00df}'),
+    ("grave", '\u{0060}'),
+    ("greater", '\u{003e}'),
+    ("guillemotleft", '\u{00ab}'),
+    ("guillemotright", '\u{00bb}'),
+    ("hcircumflex", '\u{0125}'),
+    ("hyphen", '\u{002d}'),
+    ("iacute", '\u{00ed}'),
+    ("ibreve", '\u{012d}'),
+    ("icircumflex", '\u{00ee}'),
+    ("idieresis", '\u{00ef}'),
+    ("igrave", '\u{00ec}'),
+    ("imacron", '\u{012b}'),
+    ("iogonek", '\u{012f}'),
+    ("itilde", '\u{0129}'),
+    ("jcircumflex", '\u{0135}'),
+    ("kcedilla", '\u{0137}'),
+    ("lacute", '\u{013a}'),
+    ("lcaron", '\u{013e}'),
+    ("lcedilla", '\u{013c}'),
+    ("less", '\u{003c}'),
+    ("lslash", '\u{0142}'),
+    ("minus", '\u{2212}'),
+    ("mu", '\u{00b5}'),
+    ("multiply", '\u{00d7}'),
+    ("nacute", '\u{0144}'),
+    ("nbspace", '\u{00a0}'),
+    ("ncaron", '\u{0148}'),
+    ("ncedilla", '\u{0146}'),
+    ("nine", '\u{0039}'),
+    ("ntilde", '\u{00f1}'),
+    ("numbersign", '\u{0023}'),
+    ("oacute", '\u{00f3}'),
+    ("obreve", '\u{014f}'),
+    ("ocircumflex", '\u{00f4}'),
+    ("odieresis", '\u{00f6}'),
+    ("oe", '\u{0153}'),
+    ("ograve", '\u{00f2}'),
+    ("ohungarumlaut", '\u{0151}'),
+    ("omacron", '\u{014d}'),
+    ("one", '\u{0031}'),
+    ("onehalf", '\u{00bd}'),
+    ("onequarter", '\u{00bc}'),
+    ("oslash", '\u{00f8}'),
+    ("otilde", '\u{00f5}'),
+    ("parenleft", '\u{0028}'),
+    ("parenright", '\u{0029}'),
+    ("percent", '\u{0025}'),
+    ("period", '\u{002e}'),
+    ("perthousand", '\u{2030}'),
+    ("plus", '\u{002b}'),
+    ("plusminus", '\u{00b1}'),
+    ("question", '\u{003f}'),
+    ("questiondown", '\u{00bf}'),
+    ("quotedbl", '\u{0022}'),
+    ("quotedblbase", '\u{201e}'),
+    ("quotedblleft", '\u{201c}'),
+    ("quotedblright", '\u{201d}'),
+    ("quoteleft", '\u{2018}'),
+    ("quoteright", '\u{2019}'),
+    ("quotesinglbase", '\u{201a}'),
+    ("quotesingle", '\u{0027}'),
+    ("racute", '\u{0155}'),
+    ("rcaron", '\u{0159}'),
+    ("rcedilla", '\u{0157}'),
+    ("registered", '\u{00ae}'),
+    ("sacute", '\u{015b}'),
+    ("scaron", '\u{0161}'),
+    ("scedilla", '\u{015f}'),
+    ("scircumflex", '\u{015d}'),
+    ("section", '\u{00a7}'),
+    ("semicolon", '\u{003b}'),
+    ("seven", '\u{0037}'),
+    ("six", '\u{0036}'),
+    ("slash", '\u{002f}'),
+    ("space", '\u{0020}'),
+    ("sterling", '\u{00a3}'),
+    ("tcaron", '\u{0165}'),
+    ("tcedilla", '\u{0163}'),
+    ("thorn", '\u{00fe}'),
+    ("three", '\u{0033}'),
+    ("threequarters", '\u{00be}'),
+    ("trademark", '\u{2122}'),
+    ("two", '\u{0032}'),
+    ("uacute", '\u{00fa}'),
+    ("ubreve", '\u{016d}'),
+    ("ucircumflex", '\u{00fb}'),
+    ("udieresis", '\u{00fc}'),
+    ("ugrave", '\u{00f9}'),
+    ("uhungarumlaut", '\u{0171}'),
+    ("umacron", '\u{016b}'),
+    ("underscore", '\u{005f}'),
+    ("uogonek", '\u{0173}'),
+    ("uring", '\u{016f}'),
+    ("utilde", '\u{0169}'),
+    ("wcircumflex", '\u{0175}'),
+    ("yacute", '\u{00fd}'),
+    ("ycircumflex", '\u{0177}'),
+    ("ydieresis", '\u{00ff}'),
+    ("yen", '\u{00a5}'),
+    ("zacute", '\u{017a}'),
+    ("zcaron", '\u{017e}'),
+    ("zdotaccent", '\u{017c}'),
+    ("zero", '\u{0030}'),
+];
+
+/// WIN_ANSI's characters for the codes 0x80 to 0xFF, `\0` where it gives none.
+const WIN_ANSI: [char; 128] = [
+    '\u{20ac}', '\0', '\u{201a}', '\u{0192}', '\u{201e}', '\u{2026}', '\u{2020}', '\u{2021}', '\u{02c6}', '\u{2030}',
+    '\u{0160}', '\u{2039}', '\u{0152}', '\0', '\u{017d}', '\0', '\0', '\u{2018}', '\u{2019}', '\u{201c}', '\u{201d}',
+    '\u{2022}', '\u{2013}', '\u{2014}', '\u{02dc}', '\u{2122}', '\u{0161}', '\u{203a}', '\u{0153}', '\0', '\u{017e}',
+    '\u{0178}', '\u{00a0}', '\u{00a1}', '\u{00a2}', '\u{00a3}', '\u{00a4}', '\u{00a5}', '\u{00a6}', '\u{00a7}',
+    '\u{00a8}', '\u{00a9}', '\u{00aa}', '\u{00ab}', '\u{00ac}', '\u{00ad}', '\u{00ae}', '\u{00af}', '\u{00b0}',
+    '\u{00b1}', '\u{00b2}', '\u{00b3}', '\u{00b4}', '\u{00b5}', '\u{00b6}', '\u{00b7}', '\u{00b8}', '\u{00b9}',
+    '\u{00ba}', '\u{00bb}', '\u{00bc}', '\u{00bd}', '\u{00be}', '\u{00bf}', '\u{00c0}', '\u{00c1}', '\u{00c2}',
+    '\u{00c3}', '\u{00c4}', '\u{00c5}', '\u{00c6}', '\u{00c7}', '\u{00c8}', '\u{00c9}', '\u{00ca}', '\u{00cb}',
+    '\u{00cc}', '\u{00cd}', '\u{00ce}', '\u{00cf}', '\u{00d0}', '\u{00d1}', '\u{00d2}', '\u{00d3}', '\u{00d4}',
+    '\u{00d5}', '\u{00d6}', '\u{00d7}', '\u{00d8}', '\u{00d9}', '\u{00da}', '\u{00db}', '\u{00dc}', '\u{00dd}',
+    '\u{00de}', '\u{00df}', '\u{00e0}', '\u{00e1}', '\u{00e2}', '\u{00e3}', '\u{00e4}', '\u{00e5}', '\u{00e6}',
+    '\u{00e7}', '\u{00e8}', '\u{00e9}', '\u{00ea}', '\u{00eb}', '\u{00ec}', '\u{00ed}', '\u{00ee}', '\u{00ef}',
+    '\u{00f0}', '\u{00f1}', '\u{00f2}', '\u{00f3}', '\u{00f4}', '\u{00f5}', '\u{00f6}', '\u{00f7}', '\u{00f8}',
+    '\u{00f9}', '\u{00fa}', '\u{00fb}', '\u{00fc}', '\u{00fd}', '\u{00fe}', '\u{00ff}',
+];
+
+/// MAC_ROMAN's characters for the codes 0x80 to 0xFF, `\0` where it gives none.
+const MAC_ROMAN: [char; 128] = [
+    '\u{00c4}', '\u{00c5}', '\u{00c7}', '\u{00c9}', '\u{00d1}', '\u{00d6}', '\u{00dc}', '\u{00e1}', '\u{00e0}',
+    '\u{00e2}', '\u{00e4}', '\u{00e3}', '\u{00e5}', '\u{00e7}', '\u{00e9}', '\u{00e8}', '\u{00ea}', '\u{00eb}',
+    '\u{00ed}', '\u{00ec}', '\u{00ee}', '\u{00ef}', '\u{00f1}', '\u{00f3}', '\u{00f2}', '\u{00f4}', '\u{00f6}',
+    '\u{00f5}', '\u{00fa}', '\u{00f9}', '\u{00fb}', '\u{00fc}', '\u{2020}', '\u{00b0}', '\u{00a2}', '\u{00a3}',
+    '\u{00a7}', '\u{2022}', '\u{00b6}', '\u{00df}', '\u{00ae}', '\u{00a9}', '\u{2122}', '\u{00b4}', '\u{00a8}',
+    '\u{2260}', '\u{00c6}', '\u{00d8}', '\u{221e}', '\u{00b1}', '\u{2264}', '\u{2265}', '\u{00a5}', '\u{00b5}',
+    '\u{2202}', '\u{2211}', '\u{220f}', '\u{03c0}', '\u{222b}', '\u{00aa}', '\u{00ba}', '\u{03a9}', '\u{00e6}',
+    '\u{00f8}', '\u{00bf}', '\u{00a1}', '\u{00ac}', '\u{221a}', '\u{0192}', '\u{2248}', '\u{2206}', '\u{00ab}',
+    '\u{00bb}', '\u{2026}', '\u{00a0}', '\u{00c0}', '\u{00c3}', '\u{00d5}', '\u{0152}', '\u{0153}', '\u{2013}',
+    '\u{2014}', '\u{201c}', '\u{201d}', '\u{2018}', '\u{2019}', '\u{00f7}', '\u{25ca}', '\u{00ff}', '\u{0178}',
+    '\u{2044}', '\u{20ac}', '\u{2039}', '\u{203a}', '\u{fb01}', '\u{fb02}', '\u{2021}', '\u{00b7}', '\u{201a}',
+    '\u{201e}', '\u{2030}', '\u{00c2}', '\u{00ca}', '\u{00c1}', '\u{00cb}', '\u{00c8}', '\u{00cd}', '\u{00ce}',
+    '\u{00cf}', '\u{00cc}', '\u{00d3}', '\u{00d4}', '\u{f8ff}', '\u{00d2}', '\u{00da}', '\u{00db}', '\u{00d9}',
+    '\u{0131}', '\u{02c6}', '\u{02dc}', '\u{00af}', '\u{02d8}', '\u{02d9}', '\u{02da}', '\u{00b8}', '\u{02dd}',
+    '\u{02db}', '\u{02c7}',
+];
+
+/// STANDARD's characters for the codes 0x80 to 0xFF, `\0` where it gives none.
+const STANDARD: [char; 128] = [
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\u{00a1}', '\u{00a2}',
+    '\u{00a3}', '\u{2044}', '\u{00a5}', '\u{0192}', '\u{00a7}', '\u{00a4}', '\u{0027}', '\u{201c}', '\u{00ab}',
+    '\u{2039}', '\u{203a}', '\u{fb01}', '\u{fb02}', '\0', '\u{2013}', '\u{2020}', '\u{2021}', '\u{00b7}', '\0',
+    '\u{00b6}', '\u{2022}', '\u{201a}', '\u{201e}', '\u{201d}', '\u{00bb}', '\u{2026}', '\u{2030}', '\0', '\u{00bf}',
+    '\0', '\u{0060}', '\u{00b4}', '\u{02c6}', '\u{02dc}', '\u{00af}', '\u{02d8}', '\u{02d9}', '\u{00a8}', '\0',
+    '\u{02da}', '\u{00b8}', '\0', '\u{02dd}', '\u{02db}', '\u{02c7}', '\u{2014}', '\0', '\0', '\0', '\0', '\0', '\0',
+    '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\u{00c6}', '\0', '\u{00aa}', '\0', '\0', '\0', '\0',
+    '\u{0141}', '\u{00d8}', '\u{0152}', '\u{00ba}', '\0', '\0', '\0', '\0', '\0', '\u{00e6}', '\0', '\0', '\0',
+    '\u{0131}', '\0', '\0', '\u{0142}', '\u{00f8}', '\u{0153}', '\u{00df}', '\0', '\0', '\0', '\0',
+];
 
 /// The object number of the `N G obj` that ends just before `o`, where the bytes before it read so.
 /// `work` counts the bytes it looks at.
@@ -1135,7 +1446,8 @@ mod tests {
             &[
                 ("<< /Type /Catalog /Pages 2 0 R >>", None),
                 (
-                    "<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R >> >> >>",
+                    "<< /Type /Pages /Kids [3 0 R] /Count 1 /Resources << /Font << /F1 5 0 R /F2 6 0 R /F3 7 0 R \
+                     /F4 9 0 R /F5 10 0 R >> >> >>",
                     None,
                 ),
                 ("<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>", None),
@@ -1147,6 +1459,12 @@ mod tests {
                 ("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAB+Sans /Encoding /Identity-H >>", None),
                 ("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", None),
                 ("", Some(cmap.to_vec())),
+                (
+                    "<< /Type /Font /Subtype /Type1 /BaseFont /Arial /Encoding \
+                     << /BaseEncoding /WinAnsiEncoding /Differences [129 /udieresis /g42] >> >>",
+                    None,
+                ),
+                ("<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding /MacRomanEncoding >>", None),
             ],
             "",
         )
@@ -1198,6 +1516,38 @@ mod tests {
             let missed: Vec<&str> = figures.iter().copied().filter(|f| !words.contains(f)).collect();
             assert!(missed.is_empty(), "{file} misses {missed:?}: {words:?}");
         }
+    }
+
+    /// A code its font says nothing of is read as U+FFFD in its word, never dropped, so no word is
+    /// shortened into another and no two figures run into one: through a CMap that lacks it, a
+    /// glyph `/Differences` names that is no letter, and a byte WinAnsi leaves empty. A standard
+    /// encoding's upper half reads as its letters: WinAnsi's, MacRoman's, and the standard
+    /// encoding a standard font takes, its quotes curled.
+    #[test]
+    fn a_code_its_font_does_not_say_is_kept_unread_in_its_word() {
+        let content = b"BT /F1 12 Tf <001200500014> Tj /F4 12 Tf (Restm\x81lls 48\x82 \x80 \x8d) Tj \
+            /F5 12 Tf (gr\x9fn) Tj /F3 12 Tf (schlie\xfbt it\x27s) Tj ET";
+        let words = words("unread.pdf", &page(content)).unwrap();
+        assert!(words.contains("2\u{fffd}4"), "F1's CMap maps no 0050, which is never 24: {words:?}");
+        assert!(!words.contains("24"), "{words:?}");
+        assert!(words.contains("Restm\u{fc}lls 48\u{fffd} \u{20ac} \u{fffd}"), "{words:?}");
+        assert!(words.contains("gr\u{fc}n"), "{words:?}");
+        assert!(words.contains("schlie\u{df}t it\u{2019}s"), "{words:?}");
+    }
+
+    /// Dogfood 13's report, a German one in Helvetica by WinAnsi with no ToUnicode, reads with its
+    /// umlauts, its eszett, and its euro signs, each word whole.
+    #[test]
+    fn a_report_in_winansi_reads_as_its_words() {
+        let bytes =
+            std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/examples/dogfood-13/bericht.pdf")).unwrap();
+        let words = words("bericht.pdf", &bytes).unwrap();
+        for said in
+            ["Restm\u{fc}lls", "schlie\u{df}t", "48 \u{20ac} auf 71 \u{20ac}", "2,4 Mio. \u{20ac}", "3,1 Mio. \u{20ac}"]
+        {
+            assert!(words.contains(said), "{said} in {words:?}");
+        }
+        assert!(!words.contains('\u{fffd}'), "every code it draws is WinAnsi's: {words:?}");
     }
 
     /// Dogfood 17's report, as reportlab writes one, each stream ASCII85 over Flate, in Helvetica.

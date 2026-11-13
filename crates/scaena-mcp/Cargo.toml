@@ -18,7 +18,7 @@ scaena-core = { workspace = true, features = ["syllables"] }
 # The themes that ship, by name, for `deck_create` (PLAN 2.13).
 # Narrative health (PLAN G.9), whose measures are Narrato's.
 # A picture too large for `image_add` made smaller (lift-up 10-24b FUNC-5).
-scaena-ops = { workspace = true, features = ["shipped", "narrato", "smaller"] }
+scaena-ops = { workspace = true, features = ["shipped", "narrato", "pdf", "smaller"] }
 scaena-resources.workspace = true
 scaena-objects.workspace = true
 scaena-sources.workspace = true

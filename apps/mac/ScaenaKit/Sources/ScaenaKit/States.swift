@@ -497,6 +497,9 @@ public struct Rehearsal: Sendable {
     /// The slot the deck's brief asks, where it asks minutes, said beside the beats' plan: `for a
     /// 12-minute slot` (W1's dogfood 17).
     public var slot: String? { slots.lazy.compactMap { $0.story?.slot }.first }
+    /// Where the beats' times are Narrato's estimates alone: the brief's minutes and the estimates'
+    /// total, which the plan is then measured by (editor dogfood 7).
+    public var estimated: ScaenaSession.Slot.Story.Estimated? { slots.lazy.compactMap { $0.story?.estimated }.first }
 
     /// The time the slides rehearsed were planned to take, ms, and the time they took: none where
     /// no slide reached has a plan, so the sheet says times alone.
