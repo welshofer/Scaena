@@ -135,8 +135,10 @@ to look at, apart from this calibration.
     Jamie, What We Learned and The Ask.
   - **warehouse:** 2 of 8 (Background, Training). It misses Agenda, Goals, Project Overview,
     Timeline, Risks and Metrics.
-  - The missed ones are one or two words, set on layouts health leaves out (Big Number, Quote,
-    Statement, Agenda), or have no sentence under them to offer as the claim.
+  - The missed ones fall outside the rule health reads a topic by (three to six words, no verb).
+    Ten are one or two words: The Problem, Results, Jamie, The Ask, Agenda, Goals, Project
+    Overview, Timeline, Risks, Metrics. Two carry a verb: How It Works, What We Learned. A reader
+    takes all twelve as topics.
   - The one it finds on **lanes** is false: "Vote Tuesday to fund the pilot" is the ask, an
     imperative, not a topic.
 
