@@ -4602,15 +4602,14 @@ mod tests {
             let text = if s["name"] == "report.pdf" { report } else { canopy.as_str() };
             s["figures"] = json!(scaena_narrato::source_figures(text));
         }
-        // Slide 2 cites the report, which holds its 31.4% and its 25.8%, and names the canopy, so
-        // canopy.csv too.
+        // Slide 2 cites the report, which holds its 31.4% and its 25.8%.
         let said = |deck: &Value, words: &str| -> Vec<(String, Option<String>, bool)> {
             let mut deck = deck.clone();
             let node = deck["nodes"]["riverton-has-lost-a-fifth-support"].as_object_mut().unwrap();
             node.remove("runs");
             node.insert(
                 "text".into(),
-                json!(format!("Canopy fell from 31.4% of the city in 2016 to 25.8% in 2025. {words}")),
+                json!(format!("Shade fell from 31.4% of the city in 2016 to 25.8% in 2025. {words}")),
             );
             (of(&deck).findings.into_iter())
                 .filter(|f| f.kind == Kind::Source && f.slide == 2)
@@ -4621,7 +4620,7 @@ mod tests {
         assert_eq!(
             said(&deck, "Eastside lost 87 street trees last spring."),
             [(
-                "Slide 2 writes 87 and cites report.pdf and canopy.csv, neither holds it.".to_string(),
+                "Slide 2 writes 87 and cites report.pdf, which does not hold it.".to_string(),
                 Some("87".to_string()),
                 false
             )],
@@ -4639,8 +4638,9 @@ mod tests {
         assert_eq!(unheld.score, of(&deck).score, "a finding no measure reads");
         // The talk's own: worked out from the slide's 31.4% and 25.8%, a goal, said again.
         assert_eq!(said(&deck, "A fall of 18% in a decade."), [], "a change of the slide's own figures");
-        // It leans to silence: 61 is 31.4 and the sheet's 29.6 of 2019, so the talk could have it.
-        assert_eq!(said(&deck, "Eastside lost 61 street trees last spring."), [], "a sum");
+        assert_eq!(said(&deck, "A gap of 5.6 points."), [], "a difference of the slide's own figures, exactly");
+        // A difference rounded is none: 31.4 and the report's 30 make 61.4, never 61.
+        assert_eq!(said(&deck, "Eastside lost 61 street trees last spring.").len(), 1, "61");
         assert_eq!(said(&deck, "Our goal is 35% of the city."), [], "a target");
         assert_eq!(said(&deck, "We will plant 2,500 trees by 2030."), [], "a plan");
         // A deck in another language is not read for its targets, so is found for none.
