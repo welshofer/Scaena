@@ -1654,6 +1654,17 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
           say(`${slide ? `The slide of version ${version.n} not put back` : `Version ${version.n} not restored`}: ${whyNot}`);
           return r;
         }
+        // What the slide shows as it is now, for another slide's sake, said: else it reads as a
+        // restore that did nothing (dogfood 16).
+        const kept = r.kept?.length ? `. ${r.kept.join(". ")}` : "";
+        // Nothing to put back: the deck and its files are already as the version had them. Said so,
+        // and no step to undo made of it, which ⌘Z would take back to the same deck (editor
+        // dogfood 7).
+        if (done.source === view.state.doc.toString() && !done.files.length) {
+          const as = slide ? `${r.slide ?? "The slide"} is as version ${version.n} drew it` : `The deck is as version ${version.n} drew it`;
+          say(`Nothing put back: ${as}${kept}`);
+          return r;
+        }
         // One change, which carries the data files the restore wrote for its undo.
         const effects = [filesWritten.of(done.files), described.of(what(r))];
         anchor();
@@ -1666,9 +1677,6 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
           view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
         }
         const files = r.files.length ? `, with ${r.files.map((f) => f.replace(/^.*\//, "")).join(", ")}` : "";
-        // What the slide shows as it is now, for another slide's sake, said: else it reads as a
-        // restore that did nothing (dogfood 16).
-        const kept = r.kept?.length ? `. ${r.kept.join(". ")}` : "";
         say(`${what(r)}${files}${kept} · ⌘Z undoes it`);
         return r;
       } catch (e) {

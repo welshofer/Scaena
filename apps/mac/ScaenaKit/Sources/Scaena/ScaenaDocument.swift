@@ -271,6 +271,10 @@ final class ScaenaDocument: ReferenceFileDocument {
         let before = editor.source
         let files = try edit()
         editor.reread()
+        // An edit that changed neither the deck nor a file beside it, a restore of a slide the
+        // deck already draws as the version did, makes no step to undo, which would take back to
+        // the same deck (editor dogfood 7), as a data edit that changed nothing makes none.
+        guard before != editor.source || !files.isEmpty else { return }
         keep(before, files: files, undo: undo)
     }
 
