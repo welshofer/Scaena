@@ -275,5 +275,12 @@ async fn spec_is_served_by_section_and_nothing_is_lost() {
     let canvas = read(&client, "scaena://spec/9.2.4").await;
     assert!(canvas.starts_with("#### 9.2.4 The canvas\n"), "{canvas}");
     assert!(read(&client, "scaena://spec").await.contains("\n    - §9.2.4 The canvas: `scaena://spec/9.2.4`\n"));
+    // Narrative health, §7.7, is served by its parts, so each reaches an agent whole with room
+    // to grow under the cap: its findings on sources among them, listed.
+    let health = read(&client, "scaena://spec/7.7").await;
+    assert!(health.contains("- §7.7.3 Figures and their sources: `scaena://spec/7.7.3`\n"), "{health}");
+    assert!(read(&client, "scaena://spec/7.7.3").await.starts_with("#### 7.7.3 Figures and their sources\n"));
+    let listed: Vec<String> = client.list_all_resources().await.unwrap().into_iter().map(|r| r.uri).collect();
+    assert!((1..=6).all(|n| listed.contains(&format!("scaena://spec/7.7.{n}"))), "{listed:?}");
     client.cancel().await.unwrap();
 }
