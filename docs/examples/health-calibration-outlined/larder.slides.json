@@ -1,0 +1,165 @@
+{
+ "executiveSummary": "A seed pitch for Larder, a meal-planning app that plans the week from what a family already has, cutting food waste by a third.",
+ "slides": [
+  {
+   "slideTitle": "Larder: plan the week from your fridge",
+   "subtitle": "Seed round · 2026",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Hi, I'm Sam, co-founder of Larder.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "Opens the pitch",
+   "intent": "Introduce the company",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "A family of four throws away $1,500 of food a year",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "$1,500 a year per family of four",
+    "Source: USDA estimate"
+   ],
+   "speakerNotes": "- That's the problem. Families waste a huge amount of food, and it's money in the bin.",
+   "beatIndex": 0,
+   "beatName": "Problem",
+   "purpose": "States the problem",
+   "intent": "Show the size",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "Grocery prices are up 25% in four years",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "+25% since 2022"
+   ],
+   "speakerNotes": "- And groceries keep getting more expensive.",
+   "beatIndex": 1,
+   "beatName": "Impact",
+   "purpose": "Adds context",
+   "intent": "Raise the stakes",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "There are hundreds of recipe apps",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Mealime",
+    "Paprika",
+    "Yummly",
+    "Many more"
+   ],
+   "speakerNotes": "- There are lots of recipe apps out there.",
+   "beatIndex": 2,
+   "beatName": "Existing Approaches",
+   "purpose": "Lists competitors",
+   "intent": "Show the field",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Larder has a barcode scanner for your pantry",
+   "subtitle": "",
+   "layoutSuggestion": "Image + Text",
+   "keyBullets": [
+    "Scan anything in seconds",
+    "Works offline"
+   ],
+   "speakerNotes": "- You can scan what you have with the barcode scanner, and it works offline.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Shows a feature",
+   "intent": "Demo the scanner",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Larder supports 14 diets",
+   "subtitle": "",
+   "layoutSuggestion": "Icons",
+   "keyBullets": [
+    "Vegan",
+    "Keto",
+    "Gluten-free",
+    "Halal",
+    "Kosher",
+    "Low-sodium"
+   ],
+   "speakerNotes": "- We support fourteen diets, so everyone in the family is covered.",
+   "beatIndex": 3,
+   "beatName": "Solution",
+   "purpose": "Shows a feature",
+   "intent": "Show breadth",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Our app won a design award this spring",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "Best New App, Mobile Design Awards 2026"
+   ],
+   "speakerNotes": "- We're really proud of the design. It won Best New App this spring.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Offers proof",
+   "intent": "Show quality",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "Our team has 30 years of experience between us",
+   "subtitle": "",
+   "layoutSuggestion": "Team",
+   "keyBullets": [
+    "Sam Okafor, CEO: 8 years in grocery retail",
+    "Lena Park, CTO: 12 years in mobile",
+    "Ravi Shah, design: 10 years"
+   ],
+   "speakerNotes": "- Our team has thirty years of combined experience in grocery, mobile, and design.",
+   "beatIndex": 4,
+   "beatName": "Proof",
+   "purpose": "Shows the team",
+   "intent": "Build credibility",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "We are raising $1.5M",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "$1.5M seed",
+    "18 months of runway",
+    "Use: engineering and growth"
+   ],
+   "speakerNotes": "- We're raising one and a half million to fund eighteen months of engineering and growth.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Makes the ask",
+   "intent": "Ask for money",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Questions?",
+   "subtitle": "",
+   "layoutSuggestion": "Q&A",
+   "keyBullets": [],
+   "speakerNotes": "- Happy to take questions.",
+   "beatIndex": 5,
+   "beatName": "Call to Action",
+   "purpose": "Closes",
+   "intent": "Invite questions",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.5
+  }
+ ]
+}

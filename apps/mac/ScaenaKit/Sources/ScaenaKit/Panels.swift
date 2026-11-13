@@ -284,15 +284,21 @@ public struct DataEdited: Decodable, Sendable {
     public let wrote: Bool
     /// The file it is: none for rows written inline.
     public let file: String?
+    /// What the window says of each figure that quoted a row the edit took away, which quotes the
+    /// data no more, its words kept (R1's agent dogfood 10): "Slide 7's “275” quotes the data no
+    /// more". None where the edit dropped no quote.
+    public let unquoted: [String]
 
     private enum Keys: String, CodingKey { case result, wrote }
-    private enum Inner: String, CodingKey { case edited, file, added }
+    private enum Inner: String, CodingKey { case edited, file, added, unquoted }
+    private struct Unquoted: Decodable { let said: String }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
         let result = try fields.nestedContainer(keyedBy: Inner.self, forKey: .result)
         edited = try result.decode(Bool.self, forKey: .edited)
         file = try result.decodeIfPresent(String.self, forKey: .file)
+        unquoted = try (result.decodeIfPresent([Unquoted].self, forKey: .unquoted) ?? []).map(\.said)
         let found = errors(in: try result.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
         refusals = found
         why = messages(found)

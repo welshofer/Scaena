@@ -1,0 +1,165 @@
+{
+ "executiveSummary": "A benefit-dinner talk for Ridley Smiles: a dental van that parks at rural schools reaches children a clinic never sees, and $250 keeps one child out of pain for a year.",
+ "slides": [
+  {
+   "slideTitle": "Ridley Smiles",
+   "subtitle": "Spring benefit dinner · Ridley County",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Good evening, and thank you for coming out on a school night.\n- I want to tell you about Jamie, and about a van.",
+   "beatIndex": 0,
+   "beatName": "Client/Context",
+   "purpose": "Opens the talk",
+   "intent": "Welcome the room",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "The Problem",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "1 in 3 children in Ridley County have never seen a dentist",
+    "Source: county health survey, 2023"
+   ],
+   "speakerNotes": "- One child in three in this county has never sat in a dentist's chair.\n- Jamie was one of them. She was eight when her teacher noticed she was eating lunch on one side of her mouth.",
+   "beatIndex": 0,
+   "beatName": "Client/Context",
+   "purpose": "States the problem",
+   "intent": "Make the scale and the child real",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Access",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Nearest pediatric clinic: 40 miles",
+    "No bus route to it",
+    "A visit costs a parent a day's pay"
+   ],
+   "speakerNotes": "- Jamie's mom works the line at the poultry plant. The nearest clinic that takes children is forty miles away, and there is no bus.\n- Going means a day without pay. So, like a lot of parents here, she waited.",
+   "beatIndex": 1,
+   "beatName": "Challenge",
+   "purpose": "Shows the barrier",
+   "intent": "Explain why the problem persists",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.2
+  },
+  {
+   "slideTitle": "Our Program",
+   "subtitle": "",
+   "layoutSuggestion": "Image + Text",
+   "keyBullets": [
+    "A fully equipped dental van",
+    "Parks at the school one day a month",
+    "A child misses one class, not one day"
+   ],
+   "speakerNotes": "- So we brought the dentist to the school. The van has two chairs, an X-ray, and a hygienist and a dentist.\n- Jamie walked out of math class, across the parking lot, and was back before lunch.",
+   "beatIndex": 2,
+   "beatName": "Approach",
+   "purpose": "Introduces the approach",
+   "intent": "Show the idea",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "How It Works",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Parents sign one form at the start of the year",
+    "The school nurse makes the list",
+    "Cleanings, sealants, and fillings on board",
+    "Anything bigger goes to a partner clinic, with a ride"
+   ],
+   "speakerNotes": "- Parents sign one form in August, and the school nurse does the rest.\n- Most of what children need we do on the van. For anything bigger, we book a partner clinic and send a ride.",
+   "beatIndex": 2,
+   "beatName": "Approach",
+   "purpose": "Explains the method",
+   "intent": "Make it concrete",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Results",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "1,180 children seen in two years",
+    "Untreated decay among them fell from 41% to 19%"
+   ],
+   "speakerNotes": "- In two years the van has seen eleven hundred and eighty children at six schools.\n- When they first came on board, forty-one percent had a cavity no one had treated. A year later it was nineteen.",
+   "beatIndex": 3,
+   "beatName": "Results",
+   "purpose": "Shows results",
+   "intent": "Prove it works",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "Jamie",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "“She eats on both sides now. She smiles in pictures.”",
+    "Jamie's mother"
+   ],
+   "speakerNotes": "- Jamie had three fillings and two sealants on the van.\n- Her mom wrote us a note. I keep it on my desk.",
+   "beatIndex": 3,
+   "beatName": "Results",
+   "purpose": "Brings back the child",
+   "intent": "Let the result be felt",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.9
+  },
+  {
+   "slideTitle": "What We Learned",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "Same day, every month"
+   ],
+   "speakerNotes": "- The one thing that made the biggest difference was boring: the same day every month.\n- When families know the van comes on the second Tuesday, nine children in ten come back for their follow-up.",
+   "beatIndex": 4,
+   "beatName": "Lessons",
+   "purpose": "Shares a lesson",
+   "intent": "Explain what keeps it working",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "The Ask",
+   "subtitle": "",
+   "layoutSuggestion": "The Ask",
+   "keyBullets": [
+    "$250 keeps one child out of pain for a year",
+    "$3,000 covers a school for a month",
+    "Three schools are on the waiting list"
+   ],
+   "speakerNotes": "- Two hundred and fifty dollars covers one child for a year: the visits, the fillings, and the ride if they need it.\n- Three more schools have asked for the van. Tonight, we'd like to say yes to them.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Makes the ask",
+   "intent": "Ask for gifts",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.8
+  },
+  {
+   "slideTitle": "One van, one school day, one child out of pain",
+   "subtitle": "Give tonight at the tables",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "$250 keeps a child like Jamie out of pain for a year"
+   ],
+   "speakerNotes": "- A clinic forty miles away never saw Jamie. A van in her school parking lot did.\n- Two hundred and fifty dollars does that for one more child this year. Thank you.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Closes the talk",
+   "intent": "Land the big idea",
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.9
+  }
+ ]
+}

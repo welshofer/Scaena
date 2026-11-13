@@ -1,0 +1,36 @@
+{
+ "arc": "Learning Journey",
+ "bigIdea": "Bread rises because yeast makes gas and gluten traps it, so when you control time and temperature, you control the loaf.",
+ "beats": [
+  {
+   "name": "Orientation",
+   "claim": "A dense loaf is a timing problem, not a recipe problem.",
+   "slides": 2
+  },
+  {
+   "name": "Foundations",
+   "claim": "Yeast makes the gas, gluten traps it, and warmth sets the pace.",
+   "slides": 3
+  },
+  {
+   "name": "Application",
+   "claim": "Read the dough, not the clock: the poke test tells you when it is ready.",
+   "slides": 2
+  },
+  {
+   "name": "Mastery",
+   "claim": "A cold kitchen needs more time, not more yeast.",
+   "slides": 1
+  },
+  {
+   "name": "Assessment",
+   "claim": "You can tell an underproofed loaf from an overproofed one by its crumb.",
+   "slides": 1
+  },
+  {
+   "name": "Transfer",
+   "claim": "Bake one loaf this week and change only the rise time.",
+   "slides": 1
+  }
+ ]
+}

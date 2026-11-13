@@ -1,0 +1,31 @@
+{
+ "arc": "Data Storytelling",
+ "bigIdea": "Our waits halved because the triage bot answers the easy third of tickets, so the next dollar should go to the bot, not to more agents.",
+ "beats": [
+  {
+   "name": "Context",
+   "claim": "Waiting was customers' top complaint in every survey last year.",
+   "slides": 2
+  },
+  {
+   "name": "Data",
+   "claim": "Median first response fell from 9 hours to 4 after the triage bot launched in July.",
+   "slides": 3
+  },
+  {
+   "name": "Insight",
+   "claim": "The bot resolves a third of tickets with no agent, which frees agents for the hard ones.",
+   "slides": 2
+  },
+  {
+   "name": "Implication",
+   "claim": "Hiring agents for the same gain would cost three times as much.",
+   "slides": 1
+  },
+  {
+   "name": "Action",
+   "claim": "Fund the bot's second phase and hold headcount flat.",
+   "slides": 2
+  }
+ ]
+}

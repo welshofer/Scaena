@@ -111,6 +111,8 @@ struct Notes {
     written: Vec<(usize, String)>,
     /// Each slide whose notes the model gave were not taken, and why (W1's dogfood 6).
     dropped: Vec<(usize, scaena_narrato::notes::Dropped)>,
+    /// Each sentence cut from the notes kept, by its slide (W1's dogfood 17).
+    cut: Vec<(usize, String)>,
     unanswered: Option<String>,
     /// The round last asked, as Swift was handed it, and how many times a busy provider has
     /// answered it for now (lift-up REL-1).
@@ -798,6 +800,7 @@ impl Generating {
                     Ok(read) => {
                         self.notes.written.extend(read.notes);
                         self.notes.dropped.extend(read.dropped);
+                        self.notes.cut.extend(read.cut);
                     }
                     Err(why) => {
                         let (first, last) = (round[0].slide, round[round.len() - 1].slide);
@@ -819,7 +822,7 @@ impl Generating {
                 let taken = notes.written.len();
                 making.noted(notes.written).map_err(said)?;
                 // Each slide whose notes were not taken, and why (W1's dogfood 6).
-                let dropped = scaena_narrato::notes::said(&notes.dropped, &notes.spoken);
+                let dropped = scaena_narrato::notes::said(&notes.dropped, &notes.cut, &notes.spoken);
                 let unanswered = match (notes.unanswered, dropped) {
                     (Some(a), Some(b)) => Some(format!("{a}; {b}")),
                     (a, b) => a.or(b),
