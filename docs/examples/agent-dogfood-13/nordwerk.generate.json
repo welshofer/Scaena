@@ -1,0 +1,48 @@
+{
+ "bundle": "nordwerk",
+ "topic": "Geschäftsjahr 2025 der Nordwerk Logistik GmbH und die Freigabe von 25 weiteren E-Lkw",
+ "audience": "Aufsichtsrat der Nordwerk Logistik GmbH",
+ "goal": "Update Status",
+ "minutes": 15,
+ "language": "German",
+ "modality": "in-person",
+ "voice": "Sachlich und knapp; jede Zahl mit ihrer Quelle.",
+ "sources": [{"file": "in/geschaeftsbericht.pdf"}, {"file": "in/kennzahlen.xlsx"}],
+ "outline": {
+  "bigIdea": "Nordwerk wächst profitabel und sauberer; 25 weitere E-Lkw halten Kurs auf 52 Mio. € Umsatz in 2026.",
+  "beats": [
+   {"name": "Ergebnis", "claim": "2025 wuchs der Umsatz um 7,3 % auf 48,6 Mio. €."},
+   {"name": "Ertrag", "claim": "Die EBIT-Marge erreichte 6,2 %."},
+   {"name": "Betrieb", "claim": "Hamburg erwirtschaftete 18.900 TEUR, den größten Teil des Umsatzes."},
+   {"name": "Nachhaltigkeit", "claim": "Die CO₂-Emissionen je Sendung sanken um 14 %."},
+   {"name": "Antrag", "claim": "Wir bitten um Freigabe von 4,5 Mio. € für 25 weitere E-Lkw."}
+  ]
+ },
+ "slides": {
+  "executiveSummary": "Nordwerk ist 2025 profitabel gewachsen und hat die Emissionen je Sendung gesenkt; der Vorstand bittet um 4,5 Mio. € für 25 weitere E-Lkw.",
+  "slides": [
+   {"slideTitle": "Nordwerk Logistik: Bericht an den Aufsichtsrat", "subtitle": "Geschäftsjahr 2025", "layoutSuggestion": "Title", "keyBullets": [], "beatIndex": 0, "beatName": "Ergebnis", "expectedIntensity": 0.3, "expectedValence": 0.2,
+    "speakerNotes": "Guten Morgen. Ich berichte heute über das Geschäftsjahr 2025 und schließe mit einem Antrag an Sie: der Freigabe für 25 weitere elektrische Lkw."},
+   {"slideTitle": "2025 wuchs der Umsatz um 7,3 % auf 48,6 Mio. €", "layoutSuggestion": "Big Number", "keyBullets": ["48,6 Mio. €", "Umsatz 2025, nach 45,3 Mio. € im Vorjahr"], "beatIndex": 0, "beatName": "Ergebnis", "expectedIntensity": 0.5, "expectedValence": 0.5, "sourceRef": "geschaeftsbericht.pdf",
+    "speakerNotes": "Zuerst das Ergebnis. Der Umsatz stieg auf 48,6 Millionen Euro, nach 45,3 Millionen im Vorjahr. Das ist ein Plus von 7,3 Prozent, getragen vor allem vom Geschäft mit Stückgut im Norden."},
+   {"slideTitle": "Der Umsatz stieg fast jeden Monat, auf 4.450 TEUR im Dezember", "layoutSuggestion": "Line Chart", "keyBullets": ["Umsatz je Monat 2025, in TEUR"], "beatIndex": 0, "beatName": "Ergebnis", "expectedIntensity": 0.5, "expectedValence": 0.4, "sourceRef": "kennzahlen.xlsx",
+    "chartData": {"categories": ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"], "series": [{"name": "Umsatz", "values": [3650, 3720, 3880, 3910, 4010, 4120, 4050, 3980, 4180, 4290, 4360, 4450]}], "sourceId": "Umsatz"},
+    "speakerNotes": "Das Wachstum kam nicht in einem Sprung. Von 3.650 TEUR im Januar stieg der Monatsumsatz auf 4.450 TEUR im Dezember; nur im Sommer gab es eine kurze Delle."},
+   {"slideTitle": "Die EBIT-Marge erreichte 6,2 %", "layoutSuggestion": "Two Numbers", "keyBullets": ["3,0 Mio. € EBIT", "6,2 % EBIT-Marge"], "beatIndex": 1, "beatName": "Ertrag", "expectedIntensity": 0.55, "expectedValence": 0.5, "sourceRef": "kennzahlen.xlsx",
+    "speakerNotes": "Wir sind nicht nur gewachsen, wir haben auch verdient. Das EBIT lag bei 3,0 Millionen Euro, die Marge bei 6,2 Prozent."},
+   {"slideTitle": "87 % unserer Kunden sind zufrieden", "layoutSuggestion": "Big Number", "keyBullets": ["87 %", "der Kunden zufrieden oder sehr zufrieden"], "beatIndex": 1, "beatName": "Ertrag", "expectedIntensity": 0.5, "expectedValence": 0.5, "sourceRef": "geschaeftsbericht.pdf",
+    "speakerNotes": "Die Marge kommt nicht auf Kosten der Kunden. In der Befragung waren 87 Prozent zufrieden oder sehr zufrieden."},
+   {"slideTitle": "Hamburg erwirtschaftete 18.900 TEUR, den größten Teil des Umsatzes", "layoutSuggestion": "Bar Chart", "keyBullets": ["Umsatz je Standort 2025, in TEUR"], "beatIndex": 2, "beatName": "Betrieb", "expectedIntensity": 0.5, "expectedValence": 0.3, "sourceRef": "kennzahlen.xlsx",
+    "chartData": {"categories": ["Hamburg", "Bremen", "Hannover", "Kiel"], "series": [{"name": "Umsatz", "values": [18900, 13600, 10400, 5700]}], "sourceId": "Standorte"},
+    "speakerNotes": "Hamburg bleibt unser größter Standort: 18.900 TEUR, vor Bremen mit 13.600 TEUR. Kiel ist der kleinste, wächst aber am schnellsten."},
+   {"slideTitle": "412 Mitarbeitende an vier Standorten", "layoutSuggestion": "Big Number", "keyBullets": ["412", "Mitarbeitende in Hamburg, Bremen, Hannover und Kiel"], "beatIndex": 2, "beatName": "Betrieb", "expectedIntensity": 0.45, "expectedValence": 0.3, "sourceRef": "kennzahlen.xlsx",
+    "speakerNotes": "Getragen wird das von 412 Mitarbeitenden an vier Standorten, die meisten davon in Hamburg."},
+   {"slideTitle": "Die CO₂-Emissionen je Sendung sanken um 14 %", "layoutSuggestion": "Bullet List", "keyBullets": ["3,2 Mio. € in 18 elektrische Lkw investiert", "Pünktlichkeit im Jahresmittel bei 94,1 %", "Emissionen je Sendung 14 % unter 2024"], "beatIndex": 3, "beatName": "Nachhaltigkeit", "expectedIntensity": 0.6, "expectedValence": 0.6, "sourceRef": "geschaeftsbericht.pdf",
+    "speakerNotes": "Sauberer sind wir auch geworden. Mit 3,2 Millionen Euro haben wir 18 elektrische Lkw angeschafft; die Emissionen je Sendung sanken um 14 Prozent, und die Pünktlichkeit lag dabei bei 94,1 Prozent."},
+   {"slideTitle": "Wir bitten um Freigabe von 4,5 Mio. € für 25 weitere E-Lkw", "layoutSuggestion": "Bullet List", "keyBullets": ["Ziel 2026: 52 Mio. € Umsatz", "EBIT-Marge von 7 %", "Lieferung der Fahrzeuge bis Q3 2026"], "beatIndex": 4, "beatName": "Antrag", "expectedIntensity": 0.75, "expectedValence": 0.6, "sourceRef": "geschaeftsbericht.pdf",
+    "speakerNotes": "Daraus folgt unser Antrag. Wir bitten um die Freigabe von 4,5 Millionen Euro für 25 weitere elektrische Lkw. Sie halten uns auf Kurs zu 52 Millionen Euro Umsatz und einer Marge von 7 Prozent im Jahr 2026."},
+   {"slideTitle": "Vielen Dank", "subtitle": "Fragen?", "layoutSuggestion": "Closing", "keyBullets": ["Vielen Dank", "Fragen?"], "beatIndex": 4, "beatName": "Antrag", "expectedIntensity": 0.4, "expectedValence": 0.5,
+    "speakerNotes": "Vielen Dank. Ich freue mich auf Ihre Fragen."}
+  ]
+ }
+}
