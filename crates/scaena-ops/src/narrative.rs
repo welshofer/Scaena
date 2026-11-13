@@ -3563,7 +3563,9 @@ fn rebroken(
 /// caps them since each is a picture of its own there, but here a divider costs nothing and the
 /// agenda names every part, so each the model asked for stays one. Nor does a Q&A that ends the
 /// talk become a plain closing (dogfood pass 10): it is a closing already, and its seeded
-/// questions, which a closing has no place for, would be set as a list on its backdrop.
+/// questions, which a closing has no place for, would be set as a list on its backdrop. Nor does
+/// a list its writer left unnumbered become a numbered one for variety: numbering says its points
+/// have an order, which they may not (W1 dogfood 18), as [`rebroken`] never numbers them either.
 fn varied(narrative: &Narrative) -> Vec<Varied> {
     let mut varied: Vec<Varied> = narrative.slides.iter().map(as_asked).collect();
     let changes = layouts::vary(&mut varied, true);
@@ -3572,7 +3574,7 @@ fn varied(narrative: &Narrative) -> Vec<Varied> {
         let kept = match c.reason {
             layouts::Reason::SectionCap => true,
             layouts::Reason::BookendClosing => asked.identity() == "qa",
-            _ => false,
+            _ => c.to == "numbered" && asked.identity() != "numbered",
         };
         if kept {
             varied[c.index].layout = asked;
@@ -13112,6 +13114,39 @@ mod tests {
             deck(&narrative(&summary, vec![slides[0].clone(), steps, slides[55].clone()]), &theme, &Pictures::new())
                 .unwrap();
         assert_eq!(made.layouts[1], "numbered");
+    }
+
+    /// Narrato's variety pass breaks a run of one layout, but never by numbering a list its writer
+    /// left unnumbered, which says its points have an order (W1 dogfood 18: "What the shell costs",
+    /// four points of no order, came out 1 to 4 after three lists before it).
+    #[test]
+    fn a_list_left_unnumbered_is_never_numbered_for_variety() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let list = |title: &str| Slide {
+            slide_title: title.into(),
+            layout_suggestion: "Bullet List".into(),
+            key_bullets: vec![
+                "Commands run directly by default".into(),
+                "Use -S for pipes and wildcards".into(),
+                "A shell's startup is subtracted".into(),
+                "Below 5 ms that is noise".into(),
+            ],
+            ..Slide::default()
+        };
+        let cover = Slide {
+            slide_title: "Benchmark like you mean it".into(),
+            layout_suggestion: "Title".into(),
+            ..Slide::default()
+        };
+        let slides = vec![
+            cover,
+            list("What the shell costs"),
+            list("What a run costs"),
+            list("What a warmup costs"),
+            list("What a reference costs"),
+        ];
+        let made = deck(&narrative("Measure until it settles.", slides), &theme, &Pictures::new()).unwrap();
+        assert!(!made.layouts.iter().any(|l| l == "numbered"), "{:?}", made.layouts);
     }
 
     #[test]
