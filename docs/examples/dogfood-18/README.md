@@ -158,7 +158,8 @@ Two health findings are artifacts of how this run was built, not bugs:
 
 - `scripted.py` — the provider on this machine, answering each step from a script.
 - `hyperfine.md` — the pack as `github::compose` wrote it from hyperfine's `git archive`
-  (sharkdp/hyperfine at c5161524), which the talk is grounded in.
+  (sharkdp/hyperfine at c5161524), which the talk is grounded in. It quotes hyperfine's own README
+  and changelog, which are MIT (`LICENSE-MIT-hyperfine`, copied from that repository).
 - `hyperfine.asked.outline.json` — the outline as the model wrote it.
 - `hyperfine.outline.json` — the outline as it was settled by hand.
 - `hyperfine.slides.json` — the 15 slides as they were written, which `--slides` replays with no
