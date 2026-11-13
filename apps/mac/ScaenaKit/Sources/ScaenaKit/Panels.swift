@@ -354,8 +354,12 @@ public struct Compared: Decodable, Sendable {
     public let states: [(state: String, how: String)]
     public let deck: [String]
     public let files: [String]
+    /// What a beat changed, named by the slides it is read on (editor dogfood 7): each label with
+    /// those slides, "Presenter Notes" on "Slide 4", so a beat's notes change is named by its
+    /// slide, not as "the deck's settings".
+    public let story: [(label: String, slides: [String])]
 
-    private enum Keys: String, CodingKey { case states, deck, files }
+    private enum Keys: String, CodingKey { case states, deck, files, story }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -363,6 +367,11 @@ public struct Compared: Decodable, Sendable {
         states = changed.keys.sorted().map { (state: $0, how: Self.how(changed[$0] ?? .null)) }
         deck = (try fields.decodeIfPresent(JSONValue.self, forKey: .deck)?.object ?? [:]).keys.sorted()
         files = try fields.decodeIfPresent([String].self, forKey: .files) ?? []
+        story = (try fields.decodeIfPresent([JSONValue].self, forKey: .story) ?? []).compactMap { entry in
+            guard let pair = entry.array, let label = pair.first?.string else { return nil }
+            let slides = pair.count > 1 ? (pair[1].array?.compactMap(\.string) ?? []) : []
+            return (label: label, slides: slides)
+        }
     }
 
     /// How a state changed, as `StateChange` serializes it: `{"added": true}`, `{"removed": true}`,

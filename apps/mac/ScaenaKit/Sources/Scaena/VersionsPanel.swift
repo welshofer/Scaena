@@ -211,16 +211,29 @@ struct VersionsPanel: View {
 
     /// What changed from a version to the deck now, as a sentence says it.
     private static func since(_ compared: Compared) -> String {
-        if compared.states.isEmpty && compared.deck.isEmpty && compared.files.isEmpty {
+        if compared.states.isEmpty && compared.deck.isEmpty && compared.files.isEmpty && compared.story.isEmpty {
             return "The deck now is as this version was."
         }
         var said: [String] = []
         let n = compared.states.count
         if n > 0 { said.append("\(n) slide\(n == 1 ? "" : "s") changed since") }
+        // A beat's fields, named by the slides they are read on (editor dogfood 7), as
+        // `deck_history` names them: "Presenter Notes on Slide 4".
+        for entry in compared.story { said.append("\(entry.label) on \(Self.and(entry.slides))") }
         if !compared.deck.isEmpty { said.append("the deck's settings changed") }
         if !compared.files.isEmpty {
             said.append("\(compared.files.count) file\(compared.files.count == 1 ? "" : "s") changed")
         }
         return said.joined(separator: "; ").prefix(1).uppercased() + said.joined(separator: "; ").dropFirst()
+    }
+
+    /// `items` in a sentence: "a", "a and b", "a, b, and c".
+    private static func and(_ items: [String]) -> String {
+        switch items.count {
+        case 0: return ""
+        case 1: return items[0]
+        case 2: return "\(items[0]) and \(items[1])"
+        default: return "\(items.dropLast().joined(separator: ", ")), and \(items.last!)"
+        }
     }
 }

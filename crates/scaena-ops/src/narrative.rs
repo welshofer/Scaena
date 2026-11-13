@@ -3222,6 +3222,9 @@ fn assemble(
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
     let (mut outgrown, mut unset): (Vec<Fell>, Vec<Unset>) = (Vec::new(), Vec::new());
+    // Each outline beat whose settled claim an earlier slide's headline states already: a bare
+    // close in it heads itself otherwise, so two beats never make one claim (R1's agent dogfood 12).
+    let mut stated: Vec<usize> = Vec::new();
     for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -3251,6 +3254,7 @@ fn assemble(
             picture,
             idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             claim: claim_of(narrative, beat),
+            stated: stated.contains(&beat),
             icons,
             lang: lang.unwrap_or("en"),
             grounded: (slide.source_ref.as_deref())
@@ -3265,8 +3269,10 @@ fn assemble(
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
         let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
-        let mut closed =
-            slots.claim.filter(|_| slots.claimed_close()).map(|settled| typeset(settled, lang.unwrap_or("en")));
+        let mut closed = slots.close_heading().map(|heading| typeset(heading, lang.unwrap_or("en")));
+        if claim_of(narrative, beat).is_some_and(|c| says(c, &slide.slide_title)) {
+            stated.push(beat);
+        }
         // A layout asked for by name that has no place for every item, set as a list of them all,
         // is said (agent dogfood 2), as a name no layout is called is.
         let asked = slide.layout_suggestion.trim();
@@ -4533,6 +4539,8 @@ fn layout_for(
         "body" if pictured => "bullets-photo",
         // Three or four points each led by its figure, "64% have no car", are figures a room
         // reads at a glance, each on its card with its words under it (W1's dogfood 8).
+        // Two such points stand as two figures, as three and four do (R1's agent dogfood 12).
+        "body" if n == 2 && figured(items) && theme.layouts.contains_key("two-numbers") => "two-numbers",
         "body" if n == 3 && figured(items) && theme.layouts.contains_key("numbers") => "numbers",
         "body" if n == 4 && figured(items) && theme.layouts.contains_key("four-numbers") => "four-numbers",
         "body" => "bullets",
@@ -5663,6 +5671,9 @@ struct Slots<'a> {
     /// The claim the person settled for the slide's beat (narrative FUNC-1): what a closing that
     /// only thanks the room says instead, its ask where the claim asks one (W1's dogfood 8).
     claim: Option<&'a str>,
+    /// Whether an earlier slide's headline states that claim already: a bare close then says the
+    /// big idea instead, so it never makes its ask's claim again (R1's agent dogfood 12).
+    stated: bool,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -5949,7 +5960,20 @@ impl Slots<'_> {
     /// Whether the slide is a closing that only thanks the room, headed instead by its beat's
     /// claim (W1's dogfood 8): a deck ends on what it asks, not on "Thank you".
     fn claimed_close(&self) -> bool {
-        self.layout == "closing" && bare(&self.slide.slide_title) && self.claim.is_some()
+        self.close_heading().is_some()
+    }
+
+    /// What heads a closing that only thanks the room: its beat's claim, else, where an earlier
+    /// slide's headline states that claim already, the deck's big idea (R1's agent dogfood 12);
+    /// none where it has neither, and it keeps its thanks.
+    fn close_heading(&self) -> Option<&str> {
+        if self.layout != "closing" || !bare(&self.slide.slide_title) {
+            return None;
+        }
+        match self.claim {
+            Some(claim) if !self.stated => Some(claim),
+            _ => self.idea,
+        }
     }
 
     /// Whether the slide is a closing that says its ask and only thanks the room under it.
@@ -6308,14 +6332,16 @@ impl Slots<'_> {
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
             // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
             "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
-                self.idea.map(str::to_string).or_else(|| self.title())
+                self.idea.map(|i| typeset(i, self.lang)).or_else(|| self.title())
             }
             // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
             "statement" if layout == "call-to-action" => {
-                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| ask)
+                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| typeset(&ask, self.lang))
             }
-            // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8).
-            "statement" if self.claimed_close() => self.claim.map(str::to_string),
+            // A bare thanks says what heads it, its beat's claim or the big idea, the thanks under
+            // it (W1's dogfood 8; R1's agent dogfood 12), set as the slide's own words are, so
+            // "460.000 €" keeps its figure and its euro on one line: both come from the outline, as typed.
+            "statement" if self.claimed_close() => self.close_heading().map(|c| typeset(c, self.lang)),
             "support" if self.claimed_close() => Some(self.thanks()),
             // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
             "support" if self.thanked_close() => {
@@ -7610,8 +7636,9 @@ fn source(chart: &ChartData, dated: bool) -> Value {
 }
 
 /// Whether `categories` have an order of their own: a figure in one (a year, a quarter, a range,
-/// an age), a month or a day, or a word of a scale.
-fn ordered(categories: &[String]) -> bool {
+/// an age), a month or a day, in English or in the deck's language (`lang`: "Mayo" to
+/// "Septiembre", R1's agent dogfood 12), or a word of a scale.
+fn ordered(categories: &[String], lang: &str) -> bool {
     const ORDERED: [&str; 63] = [
         "low",
         "medium",
@@ -7677,10 +7704,17 @@ fn ordered(categories: &[String]) -> bool {
         "sat",
         "sun",
     ];
+    let locale = scaena_core::format::Locale::of(Some(lang));
+    let named = |w: &str| {
+        (locale.months.iter().chain(&locale.short_months).chain(&locale.days).chain(&locale.short_days))
+            .any(|name| name.trim_end_matches('.').to_lowercase() == w)
+    };
     categories.iter().any(|c| {
         let lower = c.to_lowercase();
         lower.chars().any(|ch| ch.is_ascii_digit())
-            || lower.split(|ch: char| !ch.is_alphanumeric()).any(|w| ORDERED.contains(&w))
+            || lower
+                .split(|ch: char| !ch.is_alphanumeric())
+                .any(|w| ORDERED.contains(&w) || (!w.is_empty() && named(w)))
     })
 }
 
@@ -8089,11 +8123,12 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     };
     // The bar a sentence names: the latest where its words run on from the category they name
     // ("since 2022"), else that one.
-    let lit =
-        |text: &str, one: usize| match (years || ordered(&chart.categories)) && runs_on(text, &chart.categories[one]) {
-            true => chart.categories.len().checked_sub(1),
-            false => Some(one),
-        };
+    let lit = |text: &str, one: usize| match (years || ordered(&chart.categories, lang))
+        && runs_on(text, &chart.categories[one])
+    {
+        true => chart.categories.len().checked_sub(1),
+        false => Some(one),
+    };
     // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
     // dipped in June") (W1's dogfood 8): the claim, ahead of the category a takeaway names for
     // what surrounds it ("Two clients moved their contracts into March", agent dogfood 3).
@@ -8102,7 +8137,8 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     }
     // Two the headline compares, the first its subject ("Une station au nord fait cinq fois moins
     // de trajets qu'au centre" lights Nord, R1's French dogfood 4).
-    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories))) {
+    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories, lang)))
+    {
         return Some(i);
     }
     if let [one] = named.as_slice() {
@@ -8278,7 +8314,7 @@ fn chart_node(
     }
     // Bars of names with no order of their own run longest first, as a designer sorts them;
     // years, quarters, ranges, months, and the words of a scale keep the order they were written in.
-    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories) {
+    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories, lang) {
         node["dataTransform"] = json!([{ "sort": "-value" }]);
     }
     // Names too long to stand under their bars run down the side, the bars across.
@@ -9363,6 +9399,15 @@ mod tests {
         // Each figure said once: its words under it run on from it.
         assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
         assert!(!said.iter().any(|w| w.starts_with("64% ")), "{said:?}");
+        // Two points each led by its figure: two figures, each over its words (R1's agent dogfood 12).
+        let (layout, said) = made(&three[..2]);
+        assert_eq!(layout, "two-numbers", "{said:?}");
+        for words in ["64%", "71%"] {
+            assert!(said.iter().any(|w| w == words), "{words} in {said:?}");
+        }
+        assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
+        let (layout, said) = made(&["3.800 € por fuente instalada", "410 € al año de mantenimiento"]);
+        assert_eq!(layout, "two-numbers", "{said:?}");
         let four = [three[0], three[1], three[2], "612 riders answered the survey"];
         let (layout, said) = made(&four);
         assert_eq!(layout, "four-numbers", "{said:?}");
@@ -9424,7 +9469,13 @@ mod tests {
         assert_eq!(lit(&revenue, "2024 revenue lower than 2025", "en"), Some(1));
         let quarters = stations(["Q1", "Q2", "Q4"]);
         // Quarters are ordered too: "vs" names neither, and the rules light the largest, Q2, as before.
-        assert!(ordered(&quarters.categories));
+        assert!(ordered(&quarters.categories, "en"));
+        // Months are ordered in the deck's language too, as Seville's "Mayo" to "Septiembre"
+        // are (R1's agent dogfood 12); an English deck reads them as names.
+        let meses = ["Mayo", "Junio", "Julio", "Agosto", "Septiembre"].map(String::from);
+        assert!(ordered(&meses, "es"));
+        assert!(!ordered(&meses, "en"));
+        assert!(ordered(&["Lunes", "Martes", "Miércoles", "Jueves"].map(String::from), "es"));
         assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
         assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
     }
@@ -11950,6 +12001,61 @@ mod tests {
         );
     }
 
+    /// A bare close whose beat's claim an earlier slide's headline states already, as an ask's
+    /// does, says the deck's big idea instead, so no two beats make one claim (W425); with no big
+    /// idea, it keeps its thanks (R1's agent dogfood 12: "Aprueben 460.000 €…" then "Gracias").
+    #[test]
+    fn a_bare_close_after_its_claim_says_the_big_idea() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        let k = n.slides.len() - 1;
+        let beat = n.slides[k].beat_index.unwrap();
+        let claim = n.outline.as_ref().unwrap().beats[beat].claim.clone();
+        let idea = n.outline.as_ref().unwrap().big_idea.clone();
+        assert!(!idea.trim().is_empty());
+        n.slides[k - 1].beat_index = Some(beat);
+        n.slides[k - 1].slide_title = claim.trim_end_matches('.').into();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert_eq!(made.layouts[k], "closing");
+        assert!(said.iter().any(|(s, w)| s == "statement" && *w == typeset(&idea, "en")), "{said:#?}");
+        assert!(said.iter().any(|(s, w)| s == "support" && w == "Thank you \u{b7} Questions?"), "{said:#?}");
+        // Made whole, no two beats make one claim.
+        let (made, _) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let same: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W425").collect();
+        assert!(same.is_empty(), "{same:#?}");
+        // With no big idea, the close keeps its own thanks.
+        n.outline.as_mut().unwrap().big_idea = String::new();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(!said.iter().any(|(_, w)| w.contains(claim.trim_end_matches('.'))), "{said:#?}");
+    }
+
+    /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
+    /// Seville's close, "Aprueben 460.000 € …" over "Gracias", kept its plain space before the
+    /// euro and broke "460.000 / €" over two lines, where the ask's own headline kept them joined.
+    #[test]
+    fn the_claim_that_heads_a_bare_close_is_typeset() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        n.brief.language = Some("Spanish".into());
+        n.outline.as_mut().unwrap().beats[5].claim = "Aprueben 460.000 € para llegar a 120 fuentes en 2027.".into();
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Gracias".into();
+        last.key_bullets = vec!["¿Preguntas?".into()];
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(
+            said.iter()
+                .any(|(slot, w)| slot == "statement"
+                    && w == "Aprueben 460.000\u{a0}€ para llegar a 120 fuentes en 2027."),
+            "{said:#?}"
+        );
+    }
+
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says
     /// its beat's claim, the thanks under it, so the deck ends on its ask; where the slide gives
     /// somewhere to act and the claim asks, Call to Action, the claim its words (W1's dogfood 8).
@@ -12230,6 +12336,46 @@ mod tests {
         assert!(!clear(&mut deck, &view, found, &mut held).unwrap());
         assert_eq!(deck["nodes"][&title], before["nodes"][&title]);
         assert_eq!(deck, before);
+    }
+
+    /// A made deck's headings and labels the theme keeps are the slide's words, never prompts left
+    /// (theme format 0.30, W1 dogfood 18): an agenda's "Agenda", a SWOT's four quarters, a Q&A's
+    /// "Questions?", and a closing's "Thank you", each its slot's prompt as the theme writes it,
+    /// draw no W305; a heading the theme does not keep, left as its prompt, is still found.
+    #[test]
+    fn a_made_decks_kept_headings_are_no_prompts_left() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({ "executiveSummary": "Benchmark until the numbers settle.", "slides": [
+            { "slideTitle": "Benchmark like you mean it", "layoutSuggestion": "Title", "keyBullets": [] },
+            { "slideTitle": "Agenda", "layoutSuggestion": "Agenda", "keyBullets": ["Why one run lies", "How hyperfine settles", "What to do Monday"] },
+            { "slideTitle": "Where hyperfine stands", "layoutSuggestion": "SWOT", "keyBullets": [
+                "Strengths: statistics built in", "Weaknesses: one machine at a time",
+                "Opportunities: CI regressions", "Threats: noisy shared runners"] },
+            { "slideTitle": "Questions?", "layoutSuggestion": "Q&A", "keyBullets": ["What about Windows?", "Does it measure memory?"] },
+            { "slideTitle": "Thank you", "layoutSuggestion": "Closing", "keyBullets": ["github.com/sharkdp/hyperfine"] },
+        ]})
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.arc = "Learning Journey".into();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let layouts: Vec<&str> =
+            (built.deck["states"].as_array().unwrap().iter()).filter_map(|s| s["layout"].as_str()).collect();
+        assert_eq!(layouts, ["title-center", "agenda", "swot", "qa", "closing"]);
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
+        assert!(left.is_empty(), "{left:#?}");
+        // The same deck in a theme whose agenda keeps nothing finds its "Agenda" left.
+        let mut unkept: Value = serde_json::from_str(&dusk()).unwrap();
+        unkept["layouts"]["agenda"]["slots"]["header"].as_object_mut().unwrap().remove("kept");
+        let unkept = unkept.to_string();
+        let theme: Theme = serde_json::from_str(&unkept).unwrap();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), unkept, &font).unwrap();
+        let left: Vec<String> =
+            made.created.findings.iter().filter(|f| f.code == "W305").map(|f| f.message.clone()).collect();
+        assert_eq!(left.len(), 1, "{left:#?}");
+        assert!(left[0].contains("\u{201c}Agenda\u{201d}"), "{left:#?}");
     }
 
     /// A quiz's letters and a process's step numbers are their places' labels, which a made deck
@@ -13536,8 +13682,8 @@ mod tests {
         assert!(node.get("maxSize").is_none(), "{node:#}");
         assert!(made.created.findings.iter().all(|f| f.code != "E100" || f.node.as_deref() != Some(id)));
         // Longer than its place takes at its role's least size, it is said by its slide, for the
-        // person to shorten, never rewritten (W1 dogfood 13): on slide 2, and on the bare close
-        // the claim heads, slide 3, alike.
+        // person to shorten, never rewritten (W1 dogfood 13), on slide 2. The bare close after it
+        // in its beat says the big idea, not the claim again (R1's agent dogfood 12).
         let lines = (made.created.findings.iter())
             .find(|f| f.code == "W202" && f.node.as_deref() == Some(id))
             .and_then(|f| f.measure.as_ref()?["lines"].as_u64())
@@ -13546,10 +13692,14 @@ mod tests {
             made.overlong.as_deref(),
             Some(
                 format!(
-                    "the settled claims on slides 2 and 3 stand as written, each in {lines} lines where its place takes 3: shorten them in the outline to fit"
+                    "slide 2's settled claim stands as written, in {lines} lines where its place takes 3: shorten it in the outline to fit"
                 )
                 .as_str()
             )
+        );
+        assert!(
+            doc["nodes"].as_object().unwrap().values().any(|n| n["text"] == "Die Biotonne rechnet sich"),
+            "the close says the big idea"
         );
         // Were it still to run past its place, the fit would be asked to rewrite another text,
         // never the claim.

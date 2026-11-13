@@ -321,3 +321,18 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(edited != first)
     #expect(edited.theme == first.theme, "the same file, written otherwise")
 }
+
+/// A compare carries what a beat changed, named by the slides it is read on (editor dogfood 7):
+/// `story` decodes each label with its slides, so the panel says "Presenter Notes on Slide 4"
+/// instead of "the deck's settings changed".
+@Test func aCompareNamesTheSlideABeatsNotesChangedOn() throws {
+    let json = Data(#"""
+    {"from": {"n": 1, "id": "1@a"}, "states": {}, "deck": {}, "files": [],
+     "story": [["Presenter Notes", ["Slide 4", "Slide 5"]], ["Claim", ["Slide 2"]]]}
+    """#.utf8)
+    let compared = try JSONDecoder().decode(Compared.self, from: json)
+    #expect(compared.deck.isEmpty && compared.states.isEmpty)
+    #expect(compared.story.map(\.label) == ["Presenter Notes", "Claim"])
+    #expect(compared.story.first?.slides == ["Slide 4", "Slide 5"])
+    #expect(compared.story.last?.slides == ["Slide 2"])
+}
