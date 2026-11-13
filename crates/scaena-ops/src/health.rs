@@ -4792,7 +4792,7 @@ mod tests {
         let canopy = std::fs::read_to_string(root().join("docs/examples/dogfood-17/bundle/data/canopy.csv")).unwrap();
         for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
             let text = if s["name"] == "report.pdf" { report } else { canopy.as_str() };
-            s["figures"] = json!(scaena_narrato::source_figures(text));
+            s["figures"] = json!(scaena_narrato::source_figures(text, None));
         }
         // Slide 2 cites the report, which holds its 31.4% and its 25.8%.
         let said = |deck: &Value, words: &str| -> Vec<(String, Option<String>, bool)> {
