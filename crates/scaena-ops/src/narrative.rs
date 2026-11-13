@@ -6308,14 +6308,16 @@ impl Slots<'_> {
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
             // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
             "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
-                self.idea.map(str::to_string).or_else(|| self.title())
+                self.idea.map(|i| typeset(i, self.lang)).or_else(|| self.title())
             }
             // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
             "statement" if layout == "call-to-action" => {
-                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| ask)
+                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| typeset(&ask, self.lang))
             }
-            // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8).
-            "statement" if self.claimed_close() => self.claim.map(str::to_string),
+            // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8), set as
+            // the slide's own words are, so "460.000 €" keeps its figure and its euro on one line
+            // (R1's agent dogfood 12): the claim and the big idea come from the outline, as typed.
+            "statement" if self.claimed_close() => self.claim.map(|c| typeset(c, self.lang)),
             "support" if self.claimed_close() => Some(self.thanks()),
             // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
             "support" if self.thanked_close() => {
@@ -11947,6 +11949,29 @@ mod tests {
                 .unwrap()
                 .values()
                 .any(|n| n["text"] == "Discounts haven\u{2019}t moved the number")
+        );
+    }
+
+    /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
+    /// Seville's close, "Aprueben 460.000 € …" over "Gracias", kept its plain space before the
+    /// euro and broke "460.000 / €" over two lines, where the ask's own headline kept them joined.
+    #[test]
+    fn the_claim_that_heads_a_bare_close_is_typeset() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        n.brief.language = Some("Spanish".into());
+        n.outline.as_mut().unwrap().beats[5].claim = "Aprueben 460.000 € para llegar a 120 fuentes en 2027.".into();
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Gracias".into();
+        last.key_bullets = vec!["¿Preguntas?".into()];
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(
+            said.iter()
+                .any(|(slot, w)| slot == "statement"
+                    && w == "Aprueben 460.000\u{a0}€ para llegar a 120 fuentes en 2027."),
+            "{said:#?}"
         );
     }
 
