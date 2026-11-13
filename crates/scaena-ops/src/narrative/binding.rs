@@ -372,12 +372,19 @@ pub fn bind(
         node["y"]["field"] = json!(names[0]);
     }
     let y = node["y"]["field"].as_str().unwrap_or("value").to_string();
+    // Bound to dates, the chart runs in time: a sort by its value, which bars of names with no
+    // order of their own take, is dropped (R1's agent dogfood 12: Seville's months, May to
+    // September, were drawn longest first).
+    let in_time = table.types[x] == ColumnType::Date || dated.is_some();
     for step in node.get("dataTransform").and_then(Value::as_array).into_iter().flatten() {
         // A sort the chart asks by its value sorts the value bound.
         let mut step = step.clone();
         if let Some(by) = step.get("sort").and_then(Value::as_str).map(str::to_string) {
             let desc = by.starts_with('-');
             if by.trim_start_matches('-') == "value" {
+                if in_time {
+                    continue;
+                }
                 step["sort"] = json!(format!("{}{y}", if desc { "-" } else { "" }));
             }
         }
@@ -631,6 +638,20 @@ mod tests {
         let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2500.0]);
         let why = bind(&mut node, &chart, &deck, &files, "sunday-visits").unwrap_err();
         assert!(why.contains("2500") && why.contains("2475"), "{why}");
+    }
+
+    /// A chart bound to a date column runs in time: the sort by value that bars of names with no
+    /// order of their own take is dropped (R1's agent dogfood 12: Seville's months, bound to the
+    /// pilot's dates, were drawn longest first).
+    #[test]
+    fn a_chart_bound_to_dates_is_never_sorted_by_its_values() {
+        let (deck, files) = deck_with(SUNDAYS);
+        let (mut node, chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2475.0]);
+        node["chart"] = json!("bar");
+        node["dataTransform"] = json!([{ "sort": "-value" }]);
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "sunday-visits"), Ok(None));
+        assert_eq!(node["x"]["field"], json!("month"));
+        assert!(node.get("dataTransform").is_none(), "{:#}", node["dataTransform"]);
     }
 
     /// A month named without its year that a file holds in two years names neither: the chart
