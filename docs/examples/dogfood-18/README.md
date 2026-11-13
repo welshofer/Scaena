@@ -5,7 +5,8 @@ command-line tools with [hyperfine](https://github.com/sharkdp/hyperfine). It is
 of a code-heavy deck — four code slides, their languages detected, a walkthrough stepped through
 one block — and the first of `--source github:OWNER/REPO`.
 
-Built at main 205915f1, release CLI.
+Made with a release CLI built at main 434d8e3b. Health was read again at main 3fda55d6, after
+#1275, and the two readings differ where #1275 changed it (see "For Jay").
 
 ## How it was run, in two halves
 
@@ -122,15 +123,19 @@ Each has its own pull request off main.
 
 Neither was built here.
 
-- **Health counts a code block's lines as list points.** Balance is 70, and three of its findings
-  are about code slides: "slides 4, 7 and 10 list the fewest points" (each a code slide making one
-  "point"), and "Slide 10 makes 9 points in one place" (the Rust block's nine lines).
-  **#1132** covers exactly this: a code text is read as shown, not said. This run is a second
-  calibration for it.
+- **Health counts a code slide in balance.** At 434d8e3b, health read the code blocks as list
+  points: "slides 4, 7 and 10 list the fewest points" (each a code slide making one "point"), and
+  "Slide 10 makes 9 points in one place" (the Rust block's nine lines). At 3fda55d6, after #1275,
+  neither finding is there: `dense` and `thin` count no code text's lines. Balance still reads 70,
+  "1 point each, over 11 of the 15 slides, those made to list points", because the three code
+  slides are still among the slides it averages. **#1132** takes them out of it: a code text is
+  read as shown, not said. This run is a second calibration for it.
 - **The source check fires on citation alone.** Each beat here cites `source:hyperfine.md`, so
   every figure counts as sourced. Adding "it cut our CI benchmarks from 14 to 6 minutes", a figure
   the repository does not hold, raised nothing. **#1283** finds a figure cited to the wrong source
-  where another source holds it; a figure *no* source holds is the stricter check with Jay.
+  where another source holds it. A figure *no* source holds, cited all the same, is the known limit
+  of that check, n′: the stricter n, as first written, misfired on figures a slide computes and
+  on targets no source states, so it stays as it is.
 
 ## Open questions
 
