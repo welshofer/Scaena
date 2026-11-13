@@ -163,3 +163,11 @@ claim, bigIdea and label findings fire. On them:
   89) from the three a reader ranks above them;
 - the label warnings undercount topic headlines by two-thirds, so weighing them as they stand
   would barely move vans or warehouse.
+
+## Open
+
+- **A close that asserts a big idea its slides never showed.** Support's close says "The bot
+  halved our waits", and no slide before it shows the waits or the bot. Health's `bigIdea` check
+  reads the close's words against the big idea, finds them, and is satisfied. Telling an earned
+  close from an asserted one needs reading what the slides before it show, not matching words,
+  so it is left open here rather than given a rule.
