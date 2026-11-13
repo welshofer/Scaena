@@ -151,11 +151,22 @@ export function changes(c: Compared, words?: Lexicon, slide: (state: string) => 
       out.push(`${which ?? "A slide"}: ${[...fields, ...nodes].join("; ")}`);
     }
   }
+  // A beat's fields changed, named by the slides it is read on, as `deck_history` names them
+  // (editor dogfood 7): "Presenter Notes on Slide 4", so a beat's notes change is not lumped under
+  // "the deck's story".
+  for (const [label, slides] of c.story ?? []) out.push(`${label} on ${and(slides)}`);
   for (const field of Object.keys(c.deck)) {
     out.push(field === "order" ? "The slides' order changed" : `The deck's ${DECK[field] ?? phrase(field).toLowerCase()} changed`);
   }
   for (const path of c.files) out.push(`${path.replace(/^.*\//, "")} changed`);
   return out;
+}
+
+/** `items` in a sentence: "a", "a and b", "a, b, and c" — as the engine joins them. */
+function and(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 /** The panel in `into`, over `stage`. */

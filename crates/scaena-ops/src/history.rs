@@ -274,6 +274,33 @@ fn and(items: &[String]) -> String {
     }
 }
 
+/// What a beat changed from `was` to `is`, named by the slides it is read on (editor dogfood 7):
+/// each label with those slides in the deck's order, "Presenter Notes" on "Slide 4", as
+/// `deck_history` names them; and whether the spine changed otherwise than by a present beat's
+/// fields (a section retitled or reordered, a beat added, taken away, or moved), which stays named
+/// as "the deck's story". What the editors' version compare names a beat's notes change by.
+pub fn story_changes(was: &Deck, is: &Deck) -> (Vec<(String, Vec<String>)>, bool) {
+    let (told, rest) = beats(was, is);
+    let order = scaena_core::words::slides(is);
+    let mut story: Vec<(String, Vec<String>)> = Vec::new();
+    for (label, state) in told {
+        if !is.states.iter().any(|s| s.id == state) {
+            continue;
+        }
+        let slide = scaena_core::words::slide(is, &state);
+        let slide = slide.split(", step ").next().unwrap_or(&slide).to_string();
+        match story.iter_mut().find(|(l, _)| *l == label) {
+            Some((_, slides)) if slides.contains(&slide) => {}
+            Some((_, slides)) => slides.push(slide),
+            None => story.push((label, vec![slide])),
+        }
+    }
+    for (_, slides) in story.iter_mut() {
+        scaena_core::sort::by_key(slides, |slide| order.iter().position(|o| o == slide));
+    }
+    (story, rest)
+}
+
 /// What changed in the spine's beats from `was` to `is`, as a slide's: each field of a beat both
 /// have that changed, its label with each state the beat tells in `is`, "Presenter Notes" for its
 /// notes; and whether anything else changed, a beat or a section added, taken away, moved, or
@@ -463,6 +490,13 @@ pub struct Compared {
     /// The files it is drawn from whose bytes changed, data files and the theme, by their
     /// paths.
     pub files: Vec<String>,
+    /// What a beat changed, its notes and its claim among them, named by the slides it is read on
+    /// (editor dogfood 7): each label with those slides, "Presenter Notes" on "Slide 4", as
+    /// `deck_history` words it. The spine stays under `deck` only for what no beat's slides tell
+    /// (a section retitled or reordered, a beat added, taken away, or moved), so a change to the
+    /// notes of a beat the deck still tells is named by its slide, not as "the deck's story".
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub story: Vec<(String, Vec<String>)>,
 }
 
 /// What changed from `from` to `to`, state by state, and in the deck's own fields.
@@ -609,17 +643,27 @@ pub fn diff(b: &Bundle, from: &str, to: Option<&str>) -> Result<Compared, OpsErr
     let mut deck = deck;
     // The spine and the fonts by what changed of them, never each whole twice (R1's agent
     // dogfood 6: 3 KB of ridgeline's 7.4 KB was its spine, before and after).
+    let mut story: Vec<(String, Vec<String>)> = Vec::new();
     if deck.contains_key("spine") {
-        let (now, then) = spine_changed(&then_deck, &now_deck);
-        deck.insert("spine".into(), now);
-        before.insert("spine".into(), then);
+        // A beat's fields that changed, named by the slides it is read on, as `deck_history` names
+        // them (editor dogfood 7): the spine stays under `deck` only for what no slide tells.
+        let (told, rest) = story_changes(&then_deck, &now_deck);
+        story = told;
+        if rest {
+            let (now, then) = spine_changed(&then_deck, &now_deck);
+            deck.insert("spine".into(), now);
+            before.insert("spine".into(), then);
+        } else {
+            deck.shift_remove("spine");
+            before.shift_remove("spine");
+        }
     }
     if deck.contains_key("fonts") {
         let (added, gone) = fonts_changed(&then_deck, &now_deck);
         deck.insert("fonts".into(), added);
         before.insert("fonts".into(), gone);
     }
-    Ok(Compared { from: earlier, to: later, states, deck, before, files })
+    Ok(Compared { from: earlier, to: later, states, deck, before, files, story })
 }
 
 /// What changed of the spine from `was` to `is`, as the later and the earlier versions have it:
@@ -813,9 +857,11 @@ pub fn slide_restored(
     held: &BTreeMap<String, Vec<u8>>,
     slide: &str,
 ) -> Result<(Restored, Option<Write>), OpsError> {
-    let (deck, files, kept) = slide_back(&b.deck, was, held, slide, version.n)?;
+    let (deck, files, kept, beat_kept) = slide_back(&b.deck, was, held, slide, version.n)?;
     let said = put_back(&deck, slide);
-    let kept = kept_said(&deck, slide, &kept);
+    // Each node kept for another slide, then each beat-notes-kept sentence (editor dogfood 7).
+    let mut kept = kept_said(&deck, slide, &kept);
+    kept.extend(beat_kept);
     let (mut restored, write_it) = restored(b, version, deck, files)?;
     restored.slide = said;
     restored.kept = kept;
@@ -834,7 +880,7 @@ fn slide_back(
     held: &BTreeMap<String, Vec<u8>>,
     state: &str,
     n: usize,
-) -> Result<(Deck, BTreeMap<String, Vec<u8>>, Vec<String>), OpsError> {
+) -> Result<(Deck, BTreeMap<String, Vec<u8>>, Vec<String>, Vec<String>), OpsError> {
     let slides = was.slides();
     let Some(k) = (slides.iter()).position(|s| s.iter().any(|&i| was.states[i].id == state)) else {
         let near = scaena_core::patch::nearest("states", state, was.states.iter().map(|s| s.id.as_str()));
@@ -867,6 +913,9 @@ fn slide_back(
     // Its nodes: each the deck lacks, or shows on no other slide, as the version held it.
     let shown: Vec<&String> = back.iter().flat_map(|s| s.props.keys()).collect();
     let mut kept: Vec<String> = Vec::new();
+    // Sentences that say a beat's notes were kept as they are now, where its beat tells other
+    // slides too (editor dogfood 7).
+    let mut beat_kept: Vec<String> = Vec::new();
     for id in shown {
         let Some(node) = was.nodes.get(id) else { continue };
         let elsewhere =
@@ -941,8 +990,23 @@ fn slide_back(
         let told: Vec<String> =
             spine.sections.iter().flat_map(|s| &s.beats).flat_map(|b| b.states.iter().cloned()).collect();
         if let Some((a, i)) = present(spine) {
-            let kept = &mut spine.sections[a].beats[i].states;
-            *kept = among(&beat.states, kept, &ids);
+            let merged = among(&beat.states, &spine.sections[a].beats[i].states, &ids);
+            // The beat tells this slide alone where every state it now tells is one the slide put
+            // back: its notes are the slide's, so they come back from the version; where it tells
+            // other slides too, its notes stay as they are now, and the restore says so by them
+            // (editor dogfood 7). The claim stays as it is now, as #1172 keeps it.
+            let others: Vec<String> = merged.iter().filter(|st| !ids.contains(&st.as_str())).cloned().collect();
+            if others.is_empty() {
+                if spine.sections[a].beats[i].notes != beat.notes {
+                    spine.sections[a].beats[i].notes = beat.notes.clone();
+                }
+            } else if spine.sections[a].beats[i].notes != beat.notes && beat.notes.is_some() {
+                let nums = slide_numbers(now, &ids, &others);
+                if let Some((them, show)) = slides_phrase(&nums) {
+                    beat_kept.push(format!("its beat's notes kept as they are now, since {them} {show} them too"));
+                }
+            }
+            spine.sections[a].beats[i].states = merged;
         } else {
             beat.states.retain(|s| ids.contains(&s.as_str()) || (states.contains(s) && !told.contains(s)));
             if let Some(a) = spine.sections.iter().position(|s| s.id == sec.id) {
@@ -960,7 +1024,52 @@ fn slide_back(
         }
         spine.sections.retain(|s| !s.beats.is_empty());
     }
-    Ok((deck, files, kept))
+    Ok((deck, files, kept, beat_kept))
+}
+
+/// The numbers of the slides `others`, states of `deck`, as a person counts them, each once, in
+/// order; `ours`, the restored slide's states, are left out (editor dogfood 7).
+fn slide_numbers(deck: &Deck, ours: &[&str], others: &[String]) -> Vec<usize> {
+    let mut numbers: Vec<&str> = Vec::new();
+    for s in &deck.states {
+        let slide = deck.slide_of(s);
+        if numbers.last() != Some(&slide) {
+            numbers.push(slide);
+        }
+    }
+    let number = |state: &str| {
+        let slide = deck.states.iter().find(|s| s.id == state).map(|s| deck.slide_of(s))?;
+        numbers.iter().position(|n| *n == slide).map(|i| i + 1)
+    };
+    let mut out: Vec<usize> = Vec::new();
+    for st in others {
+        if ours.contains(&st.as_str()) {
+            continue;
+        }
+        if let Some(n) = number(st)
+            && !out.contains(&n)
+        {
+            out.push(n);
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
+/// `slides`, by their numbers, as a sentence names them and whether they are one or many:
+/// "Slide 4" and "shows", "Slides 4 and 5" and "show", "Slides 4, 5, and 6" and "show"; none
+/// where the list is empty.
+fn slides_phrase(slides: &[usize]) -> Option<(String, &'static str)> {
+    match slides {
+        [] => None,
+        [one] => Some((format!("Slide {one}"), "shows")),
+        [first, rest @ ..] if rest.len() == 1 => Some((format!("Slides {first} and {}", rest[0]), "show")),
+        many => {
+            let (last, head) = many.split_last()?;
+            let head: Vec<String> = head.iter().map(usize::to_string).collect();
+            Some((format!("Slides {}, and {last}", head.join(", ")), "show"))
+        }
+    }
 }
 
 /// Each of `kept`, a node the slide that holds `state` shows in `deck` as it is now, said by its
@@ -998,16 +1107,7 @@ fn kept_said(deck: &Deck, state: &str, kept: &[String]) -> Vec<String> {
         } else {
             name
         };
-        let (them, show) = match others.as_slice() {
-            [] => continue,
-            [one] => (format!("Slide {one}"), "shows"),
-            [first, rest @ ..] if rest.len() == 1 => (format!("Slides {first} and {}", rest[0]), "show"),
-            many => {
-                let (last, head) = many.split_last().unwrap_or((&0, &[]));
-                let head: Vec<String> = head.iter().map(usize::to_string).collect();
-                (format!("Slides {}, and {last}", head.join(", ")), "show")
-            }
-        };
+        let Some((them, show)) = slides_phrase(&others) else { continue };
         out.push(format!("{named} kept as it is now, since {them} {show} it too"));
     }
     out
