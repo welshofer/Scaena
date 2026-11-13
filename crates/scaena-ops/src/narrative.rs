@@ -2308,7 +2308,7 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
 
 /// Whether `text` says `claim` in its words, its marks, case, and spacing aside: a headline that
 /// states its beat's settled claim, typeset or with its full stop taken off.
-fn says(claim: &str, text: &str) -> bool {
+pub(crate) fn says(claim: &str, text: &str) -> bool {
     let claim = letters(claim);
     !claim.is_empty() && claim == letters(text)
 }
