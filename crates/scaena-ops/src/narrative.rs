@@ -3233,7 +3233,14 @@ fn assemble(
         // A layout asked for by name that has no place for every item, set as a list of them all,
         // is said (agent dogfood 2), as a name no layout is called is.
         let asked = slide.layout_suggestion.trim();
-        let own = as_asked(slide).layout.identity();
+        // Narrato's names for a layout the theme calls otherwise (R1's agent dogfood 11: a Big
+        // Number is Narrato's `metric`).
+        let own = match as_asked(slide).layout.identity() {
+            "metric" => "big-number",
+            "vs" => "head-to-head",
+            "3horizons" => "three-horizons",
+            own => own,
+        };
         if layouts::known(asked)
             && matches!(layout.as_str(), "bullets" | "numbered")
             && own != layout
@@ -3264,7 +3271,10 @@ fn assemble(
             // place for every item is (R1's agent dogfood 11: a Big Number of three figures).
             if layouts::known(asked) && !outgrown.iter().any(|f| f.slide == i + 1) {
                 let why = match holds(theme, &layout, items.len()) {
-                    false => format!("`{layout}` has no place for {} items, so it was set as a list of them all", items.len()),
+                    false => format!(
+                        "`{layout}` has no place for {} items, so it was set as a list of them all",
+                        items.len()
+                    ),
                     true => format!(
                         "`{layout}` would have drawn a figure other than as written, so it was set as a list of its items, their words as written"
                     ),
@@ -3309,7 +3319,8 @@ fn assemble(
             .flat_map(|(_, n)| [&n["x"]["title"], &n["y"]["title"]])
             .filter_map(Value::as_str)
             .any(|t| letters(t).contains(&subtitle));
-        let cover = matches!(layout.as_str(), "title" | "title-center" | "title-split") || layout.starts_with("section");
+        let cover =
+            matches!(layout.as_str(), "title" | "title-center" | "title-split") || layout.starts_with("section");
         if !subtitle.is_empty() && !cover && !titled && !words.iter().any(|w| w.contains(&subtitle)) {
             unset.push(Unset { slide: i + 1, words: slide.subtitle.trim().to_string(), layout: layout.clone() });
         }
@@ -9832,14 +9843,18 @@ mod tests {
             { "slideTitle": "Add both this sprint", "layoutSuggestion": "Closing", "keyBullets": [] }
         ] });
         let written = scaena_narrato::answer::slides(&answer.to_string()).unwrap();
-        assert_eq!(written.slides[2].chart_unread.as_deref(), Some("`datasets`, `labels`"));
+        assert_eq!(written.slides[2].chart_unread.as_deref(), Some("`labels`, `datasets`"));
         let m = deck(&narrative(&written.executive_summary, written.slides), &theme, &Pictures::new()).unwrap();
-        let fell: Vec<(usize, &str, &str)> = m.fell.iter().map(|f| (f.slide, f.asked.as_str(), f.why.as_str())).collect();
+        let fell: Vec<(usize, &str, &str)> =
+            m.fell.iter().map(|f| (f.slide, f.asked.as_str(), f.why.as_str())).collect();
         assert_eq!(fell.len(), 2, "{fell:?}");
         assert_eq!((fell[0].0, fell[0].1), (2, "Big Number"), "{fell:?}");
         assert!(fell[0].2.contains("`big-number`") && fell[0].2.contains("list"), "{fell:?}");
         assert_eq!((fell[1].0, fell[1].1), (3, "Bar Chart"), "{fell:?}");
-        assert!(fell[1].2.contains("\"categories\"") && fell[1].2.ends_with("it gave `datasets`, `labels`"), "{fell:?}");
+        assert!(
+            fell[1].2.contains("\"categories\"") && fell[1].2.ends_with("it gave `labels`, `datasets`"),
+            "{fell:?}"
+        );
         // A code slide's file name, which names its language and stands nowhere on it, is said.
         assert_eq!(m.layouts[3], "title-code");
         let unset: Vec<(usize, &str)> = m.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
