@@ -626,6 +626,12 @@ pub struct Slot {
     /// keeps the layout's prompt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<Prompt>,
+    /// Whether the slot's prompt reads as finished copy a slide may keep as it is (theme format
+    /// 0.30, W1 dogfood 18): a heading ("Agenda", "Questions?", "Thank you") or a label the layout
+    /// is made of (a SWOT's "Strengths", a month's name), so lint's W305 never finds it left to
+    /// type over. A prompt meant to be typed over ("Your name · the date", "Another") is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<bool>,
     /// The slot reaches the canvas's edge on each side where its tracks meet the edge of the grid
     /// (theme format 0.11, PLAN 3.30): a picture that bleeds, off the page or one side of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
