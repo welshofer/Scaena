@@ -34,7 +34,7 @@ scaena generate lanes "A protected-lane pilot on Harmon Avenue, for the city cou
   --audience "the city council's transportation committee" --goal Persuade --minutes 12 --persona government
 scaena generate sourdough "Why bread rises: a Saturday class for home bakers" \
   --slides sourdough.slides.json --from-outline sourdough.outline.json --no-look --no-notes --pictures none \
-  --audience "home bakers" --goal Educate --minutes 20 --persona students-educators
+  --audience "home bakers" --goal Educate --minutes 10 --persona students-educators
 scaena generate support "Support's Q3 update: waits halved after the triage bot" \
   --slides support.slides.json --from-outline support.outline.json --no-look --no-notes --pictures none \
   --audience "the VP of Customer Experience and her staff" --goal "Update Status" --minutes 10 --persona executives
@@ -68,3 +68,96 @@ record shows it: the commit that adds this section comes before the one that add
 a point on the three axes above, and the ranking follows those choices. The order of the middle
 three (vans, support, larder) is a judgment between a topic-headline deck that tells a story and
 two claim-headline decks that drift. A second reader might reasonably put vans second.
+
+## What health says
+
+Each deck was built as above, then read by `scaena health BUNDLE --json`. Health ran on main as of
+`cef71d62`. One brief changed before the build, and the ranking above doesn't depend on it:
+sourdough's brief asked 20 minutes, and a 20-minute brief asks 11–15 slides, which `generate`
+refused for a 10-slide deck. It asks 10 minutes instead.
+
+| deck | reader's rank | health score | health's rank | without the cap | rank without it |
+| --- | --- | --- | --- | --- | --- |
+| lanes | 1 | 81 (capped) | 5 | 95 | 1 |
+| sourdough | 2 | 93 | 1 | 93 | 2–3 |
+| vans | 3 | 80 (capped) | 6 | 93 | 2–3 |
+| support | 4 | 89 | 2–3 | 89 | 4–5 |
+| larder | 5 | 87 | 4 | 87 | 6 |
+| warehouse | 6 | 89 | 2–3 | 89 | 4–5 |
+
+ρ against the reader (Spearman, tied scores at their average rank) is **−0.20 as scored** and
+**+0.88 without the cap**.
+
+| deck | pacing | balance | fidelity | intensity | tone | claim | bigIdea | label |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| lanes | 95 | 97 | 92 | 83 | 63 | 0 | 0 | 1 |
+| sourdough | 100 | 97 | 83 | 92 | 70 | 0 | 0 | 0 |
+| vans | 100 | 93 | 86 | 80 | 70 | 0 | 0 | 2 |
+| support | 100 | 82 | 88 | 91 | 70 | 2 | 0 | 0 |
+| larder | 100 | 90 | 74 | 92 | 78 | 2 | 1 | 0 |
+| warehouse | 100 | 97 | 73 | 88 | 71 | 0 | 1 | 2 |
+
+The last three columns count warnings of the three kinds the Story asks for most. None of them
+moves the score, which is the question this calibration was made to answer.
+
+### The cap decides the order
+
+Lanes and vans, the reader's first and third, are capped at 81 and 80 by one lint error each.
+Both are errors the builder left, not the author:
+
+- **lanes, slide 5.** The Statement layout sets "A twelve-year-old could ride to Lincoln Middle
+  School on Harmon by June" in four lines that need 530 units of a 432-unit box (E100), and the
+  build's fit pass didn't fix it.
+- **vans, slide 10.** The closing slide stands on the theme's backdrop shader, as a made deck's
+  close does, and its statement reads 2.77:1 against it, where display text needs 3:1 (E111).
+
+A reader of the built deck would see an overflowing statement and a faint close, so the cap
+isn't wrong to find them. But it puts the two strongest stories below the four weaker ones.
+Without it, health follows the reader closely, warehouse aside. Both errors are for the builder
+to look at, apart from this calibration.
+
+### What the outline findings catch
+
+- **Claims the slides don't carry.**
+  - On **support**, health finds two: Data (slides 3–5) and Insight (6–7), the two parts that
+    drift furthest.
+  - On **larder**, it also finds two: Impact (slide 3) and Proof (7–8).
+  - It misses larder's Existing Approaches and Solution. Their slides share a word with the
+    claim ("recipe apps", "Larder"), but where the claim promises what the product does, the
+    slides only tour features.
+- **A big idea the close never lands.**
+  - It finds both bare closes, larder's and warehouse's.
+  - It doesn't find support's close unearned. Support's close does say its big idea; the slides
+    before it never showed it. Health reads the close's words, not whether the deck earned them.
+- **Topic headlines.** It finds 5 warnings, and a reader counts 16 topic headlines on content
+  slides:
+  - **vans:** 2 of 8 (Access, Our Program). It misses The Problem, How It Works, Results,
+    Jamie, What We Learned and The Ask.
+  - **warehouse:** 2 of 8 (Background, Training). It misses Agenda, Goals, Project Overview,
+    Timeline, Risks and Metrics.
+  - The missed ones are one or two words, set on layouts health leaves out (Big Number, Quote,
+    Statement, Agenda), or have no sentence under them to offer as the claim.
+  - The one it finds on **lanes** is false: "Vote Tuesday to fund the pilot" is the ask, an
+    imperative, not a topic.
+
+### What else disagrees with the reader
+
+- **Warehouse ties support at 89, above larder.** Its notes read nine slides aloud (one warning),
+  its headlines are topics, and its close is bare. None of that moves the score, and warehouse's
+  balance is 97, the best of the six, because every slide has notes and a list.
+- **Tone is lowest on the strongest deck.** Lanes has six tone warnings and tone at 63: its
+  slides are about crashes, near misses and cost, so they "read graver than written". It is the
+  pattern the first calibration found on proof and problem slides.
+- **Fidelity does follow the reader at the bottom.** Warehouse (73) and larder (74) are the two
+  lowest, but fidelity is a quarter of a score the cap overrides.
+
+### For R2
+
+These six decks are the case the first calibration couldn't make. Each keeps its outline, so the
+claim, bigIdea and label findings fire. On them:
+
+- the score that would follow the reader is the one without the cap (+0.88);
+- weighing the claim and bigIdea warnings would separate support, larder and warehouse (89, 87,
+  89) from the three a reader ranks above them;
+- the label warnings undercount topic headlines by two-thirds, so weighing them as they stand
+  would barely move vans or warehouse.
