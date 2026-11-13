@@ -238,6 +238,13 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(restored.kept.count == 1)
     #expect(restored.kept.first?.hasPrefix("\u{201C}Scaena anew\u{201D} kept as it is now, since Slide ") == true)
     #expect(restored.kept.first?.hasSuffix(" shows it too") == true)
+    // Its only changed node, the title, the closing slide shows too, so nothing is put back: the
+    // deck and its files are unchanged, and an editor makes no step to undo of it (editor dogfood
+    // 7). The kept note is still said.
+    let before = try session.source()
+    let again = try session.restoreVersion("1", slide: "cover")
+    #expect(again.applied && again.files.isEmpty && again.kept.count == 1)
+    #expect(try session.source() == before)
 }
 
 /// A version is shown away from the window (lift-up 20261110 PERF-3): replayed, compared, and drawn
