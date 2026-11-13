@@ -6615,6 +6615,10 @@ mod tests {
         assert_eq!(named("Kosten: 240 TEUR für zwei Stellen"), one("240 TEUR", "k\u{20ac}"));
         assert_eq!(named("Kosten: 240 k\u{20ac} für zwei Stellen"), one("240 k\u{20ac}", "k\u{20ac}"));
         assert_eq!(named("40 miles of trail, 38% more"), [one("40", "mile"), one("38%", "%")].concat());
+        // A code a PDF's font said nothing of, read as U+FFFD, is no unit and no currency: the
+        // figure beside it is its number alone, set apart from it or joined to it, and the word
+        // after an unread code is no unit of the figure before it.
+        assert_eq!(named("von 48 \u{fffd} auf 71\u{fffd}."), [one("48", ""), one("71", "")].concat());
         // On the German board deck, made from a source, slide 8's unsourced figure is named whole.
         let board = || {
             vec![scaena_narrato::Provenance {
