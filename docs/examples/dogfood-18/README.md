@@ -146,7 +146,9 @@ Neither was built here.
   command and no MCP tool, so an agent writing a code talk must hand-write `add_state` patches
   with `code/focus` props. They are the natural shape of a `patch` op.
 - **Code is set small.** A three-line block sits in a card that hugs it, leaving much of the slide
-  empty. Whether a short block should grow is Jay's call.
+  empty. Whether a short block should grow is Jay's call. `code-before-after.png` shows slide 4 as
+  made (the code role's 32 px on a 1920 slide) over the same block at 56 px, set by a one-off
+  override for the comparison alone.
 
 ## Not findings
 
@@ -167,5 +169,7 @@ Two health findings are artifacts of how this run was built, not bugs:
   and changelog, which are MIT (`LICENSE-MIT-hyperfine`, copied from that repository).
 - `hyperfine.asked.outline.json` — the outline as the model wrote it.
 - `hyperfine.outline.json` — the outline as it was settled by hand.
+- `code-before-after.png` — slide 4's code block as made, and the same block larger, for the
+  call on code size.
 - `hyperfine.slides.json` — the 15 slides as they were written, which `--slides` replays with no
   call to a model.
