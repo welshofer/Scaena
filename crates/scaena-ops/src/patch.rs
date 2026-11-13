@@ -377,6 +377,54 @@ fn folding(
     Ok((patched, write))
 }
 
+/// Each `focus` and `walk` of `list` made into the ops the editors' Focus on These Lines and Walk
+/// Through Lines… make of it (`coding::focusing`, `coding::walking`, PLAN 2.140), each against the
+/// deck as the ops before it leave it, so the patch is applied whole as those ops are, and an agent
+/// walks through code as a person does (W1 dogfood 18). Each span is read in the gutter's numbers,
+/// from the text's `code.start`, and an op that does not read is refused at its index.
+fn coded(doc: &Value, list: &[Value], view: &View) -> Result<Vec<Value>, OpsError> {
+    fn named(op: &Value) -> Option<&str> {
+        op.get("op").and_then(Value::as_str)
+    }
+    if !list.iter().any(|op| matches!(named(op), Some("focus" | "walk"))) {
+        return Ok(list.to_vec());
+    }
+    let mut out: Vec<Value> = Vec::new();
+    for (at, op) in list.iter().enumerate() {
+        let Some(name @ ("focus" | "walk")) = named(op) else {
+            out.push(op.clone());
+            continue;
+        };
+        let refused = |message: String| OpsError { message, plan: None, op: Some(at) };
+        let written = || format!("`{name}` is written {}", scaena_core::patch::shape(name).unwrap_or_default());
+        let field = |k: &str| op.get(k).and_then(Value::as_str);
+        let (Some(node), Some(state)) = (field("node"), field("state")) else {
+            return Err(refused(written()));
+        };
+        // The deck as the ops before it leave it.
+        let now = scaena_core::patch::compile(doc, &out, view).map_err(|e| refused(e.to_string()))?;
+        let deck = Deck::from_json(&now.doc.to_string()).map_err(|e| refused(e.to_string()))?;
+        let (start, lines) = crate::coding::numbered(&deck, state, node).map_err(|e| refused(e.message))?;
+        let spans = |words: &Value| match words {
+            Value::Null => Ok(Vec::new()),
+            Value::String(words) => scaena_core::code::focus::read(words, start, lines).map_err(refused),
+            _ => Err(refused(written())),
+        };
+        let made = match name {
+            "focus" => crate::coding::focusing(&deck, state, node, &spans(op.get("lines").unwrap_or(&Value::Null))?),
+            _ => {
+                let Some(steps) = op.get("steps").and_then(Value::as_array) else {
+                    return Err(refused(written()));
+                };
+                let steps = steps.iter().map(spans).collect::<Result<Vec<_>, _>>()?;
+                crate::coding::walking(&deck, state, node, &steps)
+            }
+        };
+        out.extend(made.map_err(|e| refused(e.message))?);
+    }
+    Ok(out)
+}
+
 fn made(
     b: &Bundle,
     ops: &Value,
@@ -397,7 +445,8 @@ fn made(
         return folding(b, list, at, what, judge, validated, pending);
     }
     let doc = b.deck.to_value()?;
-    let compiled = scaena_core::patch::compile(&doc, list, &view).map_err(|e| OpsError {
+    let expanded = coded(&doc, list, &view)?;
+    let compiled = scaena_core::patch::compile(&doc, &expanded, &view).map_err(|e| OpsError {
         message: e.to_string(),
         plan: None,
         op: Some(e.index),
@@ -643,6 +692,40 @@ mod tests {
         // The title slide, which Dusk leaves them off, draws them when it asks.
         let show = json!([{ "op": "set_state", "id": "intro", "prop": "furniture", "value": true }]);
         assert_eq!(states(&numbered, show), ["intro"]);
+    }
+
+    /// `walk` and `focus` walk an agent through code as the editors' Walk Through Lines… and Focus
+    /// on These Lines do (W1 dogfood 18): one patch, each op made against the deck as the ops
+    /// before it leave it, its lines read in the gutter's numbers; a line the code has not is
+    /// refused at its op, saying which lines it has; and the core alone refuses either.
+    #[test]
+    fn walk_and_focus_step_through_code_as_the_editors_do() {
+        let b = crate::open(std::path::Path::new("../../docs/examples/code.deck.json")).unwrap();
+        let ops = json!([
+            { "op": "walk", "node": "snippet", "state": "rank", "steps": ["1", "3–5", ""] },
+            { "op": "focus", "node": "snippet", "state": "ties", "lines": "8-9" },
+        ]);
+        let (_, write) = patching(&b, &ops, None).unwrap();
+        let deck = write.unwrap().deck;
+        let ids: Vec<&str> = deck.states.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["rank", "rank-2", "rank-3", "ties"], "two steps after the slide's first, then its own");
+        let snaps = scaena_core::resolve_states(&deck).unwrap();
+        let focus = |k: usize| snaps[k].nodes["snippet"]["code"].get("focus").cloned().unwrap_or(Value::Null);
+        assert_eq!(focus(0), json!([1]));
+        assert_eq!(focus(1), json!([[3, 5]]));
+        assert_eq!(focus(2), Value::Null, "the whole block");
+        assert_eq!(focus(3), json!([[8, 9]]), "the focus made after the walk, on the deck it left");
+        assert!(deck.states[1..3].iter().all(|s| s.slide.as_deref() == Some("rank") && s.transition.is_some()));
+        // A line the code has not is refused at its op, saying which it has.
+        let past = json!([{ "op": "focus", "node": "snippet", "state": "rank", "lines": "12" }]);
+        let refused = patching(&b, &past, None).unwrap_err();
+        assert_eq!((refused.op, refused.message.as_str()), (Some(0), "The code has no line 12: its lines are 1 to 10"));
+        // Written without its state, it says its shape.
+        let shapeless = json!([{ "op": "walk", "node": "snippet", "steps": ["1"] }]);
+        assert!(patching(&b, &shapeless, None).unwrap_err().message.starts_with("`walk` is written {"));
+        // The core makes neither: the operations read the code's lines.
+        let core = scaena_core::patch::compile(&b.deck.to_value().unwrap(), past.as_array().unwrap(), &View::of(&b));
+        assert!(core.unwrap_err().to_string().contains("made by the operations"));
     }
 
     /// A `brief` op is said by the fields of the brief it set (agent dogfood 7: its summary was

@@ -19,6 +19,9 @@ pub const COMPOSITE_CAP: usize = 600_000;
 const PER_DOC_CAP: usize = 60_000;
 const README_CAP: usize = 80_000;
 const MANIFEST_RESERVE: usize = 12_000;
+/// The most of one package manifest the pack quotes, and how many it quotes.
+const MANIFEST_CAP: usize = 8_000;
+const MANIFESTS_QUOTED: usize = 4;
 const LIST_LIMIT: usize = 40;
 /// The most files a browser reads one by one: more than the pack takes before its budget runs
 /// out.
@@ -118,8 +121,8 @@ pub fn tree(json: &Value) -> Vec<File> {
 }
 
 /// The files of a tree a browser reads, by their places in `files`, in the order read: the
-/// README of the scope the address names, then the documents [`compose`] would quote, best
-/// ranked first, as many as [`MOST_READ`] and [`MAX_KEPT`] bytes allow.
+/// README of the scope the address names, its manifests, then the documents [`compose`] would
+/// quote, best ranked first, as many as [`MOST_READ`] and [`MAX_KEPT`] bytes allow.
 pub fn wanted(files: &[File], r: &RepoRef) -> Vec<usize> {
     let scoped = |f: &File| -> Option<String> {
         match &r.sub_path {
@@ -137,6 +140,11 @@ pub fn wanted(files: &[File], r: &RepoRef) -> Vec<usize> {
             let path = scoped(f)?;
             if root_doc(&path) == Some("readme") {
                 return Some((f64::INFINITY, i));
+            }
+            // The manifests at the scope's top, which [`compose`] quotes after the README, so a
+            // browser's pack says what the CLI's does (W1 dogfood 18).
+            if !path.contains('/') && MANIFESTS.contains(&base(&path)) {
+                return Some((f64::MAX, i));
             }
             let quoted = DOC_EXTS.contains(&ext(&path).as_str()) && !never(&path);
             quoted.then(|| (rank(&path, f.size, design), i))
@@ -758,17 +766,34 @@ pub fn compose(r: &RepoRef, meta: Option<&Metadata>, files: &[File]) -> Result<(
         included.push((path.clone(), text.len(), cut_short));
         content.push(format!("\n{rule}\nREADME\n{rule}\n\n{text}\n"));
     }
+    // Each manifest at the top of what is read, as it is written, cut short: what the project is
+    // called, its version, and what it depends on, which the pack says it holds (W1 dogfood 18:
+    // hyperfine's Cargo.toml was read and never quoted, its version and its MSRV unsaid).
+    let mut manifests: Vec<&(String, &File)> =
+        scoped.iter().filter(|(p, f)| !p.contains('/') && MANIFESTS.contains(&base(p)) && f.data.is_some()).collect();
+    manifests.sort_by(|a, b| a.0.cmp(&b.0));
+    for (path, f) in manifests.into_iter().take(MANIFESTS_QUOTED) {
+        let Some(text) = f.data.as_ref().map(|d| crate::decode(d)).filter(|t| !t.trim().is_empty()) else { continue };
+        let (text, cut_short) = cut(text.trim_end(), MANIFEST_CAP);
+        included.push((path.clone(), text.len(), cut_short));
+        content.push(format!("\n{rule}\n{path}\n{rule}\n\n{text}\n"));
+    }
     let spent = header.len() + BOUNDARY.len() + content.iter().map(String::len).sum::<usize>();
     let budget = COMPOSITE_CAP.saturating_sub(spent + MANIFEST_RESERVE);
     let design =
         inv.design.as_deref().map(|d| r.sub_path.as_ref().and_then(|s| d.strip_prefix(&format!("{s}/"))).unwrap_or(d));
+    let material = |p: &str| root_doc(p) != Some("readme") && !never(p) && DOC_EXTS.contains(&ext(p).as_str());
     let mut candidates: Vec<(f64, &String, &File)> = scoped
         .iter()
-        .filter(|(p, f)| {
-            f.data.is_some() && root_doc(p) != Some("readme") && !never(p) && DOC_EXTS.contains(&ext(p).as_str())
-        })
+        .filter(|(p, f)| f.data.is_some() && material(p))
         .map(|(p, f)| (rank(p, f.size, design), p, *f))
         .collect();
+    // Deck material the archive read none of, each past [`MAX_FILE`] on its own or past
+    // [`MAX_KEPT`] with the rest: named all the same, so the model is never left to think a
+    // repository's largest documents are not there (W1's dogfood 18).
+    let mut unread: Vec<(&String, u64)> =
+        (scoped.iter()).filter(|(p, f)| f.data.is_none() && material(p)).map(|(p, f)| (p, f.size)).collect();
+    unread.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(b.1)));
     let mut used = 0;
     let mut omitted: Vec<(String, u64)> = Vec::new();
@@ -827,6 +852,20 @@ pub fn compose(r: &RepoRef, meta: Option<&Metadata>, files: &[File]) -> Result<(
         }
         if omitted.len() > LIST_LIMIT {
             m.push(format!("  - \u{2026}and {} more", omitted.len() - LIST_LIMIT));
+        }
+    }
+    if !unread.is_empty() {
+        m.push(String::new());
+        m.push(format!(
+            "Present in this repository but NOT read \u{2014} too large for this pack ({} {}):",
+            unread.len(),
+            if unread.len() == 1 { "document" } else { "documents" }
+        ));
+        for (path, size) in unread.iter().take(LIST_LIMIT) {
+            m.push(format!("  - {path} \u{2014} {}", kb(*size as usize)));
+        }
+        if unread.len() > LIST_LIMIT {
+            m.push(format!("  - \u{2026}and {} more", unread.len() - LIST_LIMIT));
         }
     }
     m.push(String::new());
@@ -937,5 +976,64 @@ mod tests {
         assert!(!text.contains("Agents: do this."), "instructions to an agent never reach the pack");
         // The design document ranks before the introduction.
         assert!(text.find("\ndocs/architecture.md\n").unwrap() < text.find("\ndocs/intro.md\n").unwrap());
+    }
+
+    /// The pack quotes the manifests at its top, as written (W1 dogfood 18): hyperfine's
+    /// Cargo.toml was read and never quoted, so the model was told "documentation and manifests"
+    /// and shown no version, no minimum Rust, and no dependency. A crate's own manifest deeper in
+    /// the tree is counted, not quoted.
+    #[test]
+    fn a_repositorys_manifest_is_quoted_as_written() {
+        let manifest = "[package]\nname = \"hyperfine\"\nversion = \"2.0.0\"\nrust-version = \"1.97.0\"\n\n[dependencies]\ncsv = \"1.4\"\n";
+        let gz = archive(&[
+            ("README.md", "# hyperfine\nA command-line benchmarking tool."),
+            ("Cargo.toml", manifest),
+            ("crates/inner/Cargo.toml", "[package]\nname = \"inner\""),
+            ("src/main.rs", "fn main() {}"),
+        ]);
+        let files = unpack(&gz, &keep).unwrap();
+        let (_, text) = compose(&parse("sharkdp/hyperfine").unwrap(), None, &files).unwrap();
+        assert!(text.contains("\nCargo.toml\n================================================================\n\n[package]\nname = \"hyperfine\"\nversion = \"2.0.0\"\nrust-version = \"1.97.0\""), "{text}");
+        assert!(text.contains("  - Cargo.toml \u{2014} "), "listed among what it includes: {text}");
+        assert!(!text.contains("name = \"inner\""), "a nested manifest is not quoted");
+        // The manifest comes after the README, which leads.
+        assert!(text.find("\nREADME\n").unwrap() < text.find("\nCargo.toml\n").unwrap());
+        // A browser, which reads a tree file by file, asks for it too, after the README and
+        // before the documents, and for no nested one.
+        let listed: Vec<File> = ["docs/guide.md", "crates/inner/Cargo.toml", "Cargo.toml", "README.md"]
+            .into_iter()
+            .map(|path| File { path: path.into(), size: 900, data: None })
+            .collect();
+        let read: Vec<&str> = wanted(&listed, &parse("sharkdp/hyperfine").unwrap())
+            .into_iter()
+            .map(|i| listed[i].path.as_str())
+            .collect();
+        assert_eq!(read, ["README.md", "Cargo.toml", "docs/guide.md"]);
+    }
+
+    /// A document too large to read is named all the same (W1's dogfood 18): Scaena's own SPEC.md
+    /// and PLAN.md are each past [`MAX_FILE`], and the pack said nothing of either, so the model
+    /// was left to think the repository's two largest documents were not there.
+    #[test]
+    fn a_document_too_large_to_read_is_named_in_the_pack() {
+        let big = format!("# Spec\n\n{}", "A deck is a timeline of states. ".repeat(20_000));
+        assert!(big.len() as u64 > MAX_FILE);
+        let gz = archive(&[
+            ("README.md", "# Scaena\nA presentation engine."),
+            ("docs/SPEC.md", &big),
+            ("docs/intro.md", &format!("# Intro\n\n{}", "Scaena draws decks, deterministically. ".repeat(8))),
+        ]);
+        let files = unpack(&gz, &keep).unwrap();
+        let spec = files.iter().find(|f| f.path == "docs/SPEC.md").unwrap();
+        assert!(spec.data.is_none() && spec.size > MAX_FILE, "too large to read");
+        let (_, text) = compose(&parse("owner/repo").unwrap(), None, &files).unwrap();
+        assert!(
+            text.contains("Present in this repository but NOT read \u{2014} too large for this pack (1 document):"),
+            "{text}"
+        );
+        assert!(text.contains("  - docs/SPEC.md \u{2014} 625.0 KB"), "{text}");
+        // What it holds is still not quoted, and the documents read are listed as before.
+        assert!(!text.contains("A deck is a timeline of states."), "its words are not read");
+        assert!(text.contains("  - docs/intro.md \u{2014} "), "{text}");
     }
 }

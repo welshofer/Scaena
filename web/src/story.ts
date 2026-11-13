@@ -704,6 +704,57 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       button.addEventListener("click", () => void editor.field(state, field));
       actions.append(button);
     }
+    // A part's claim or the big idea a to-do asks for is edited here, in its words as the settled
+    // outline holds them, with no model: one patch where health says it is held, one step to undo
+    // (editor dogfood 7).
+    for (const f of run) {
+      if ((f.field !== "claim" && f.field !== "bigIdea") || !f.path || f.settled === undefined) continue;
+      const { path, settled } = f;
+      const claim = f.field === "claim";
+      const open = document.createElement("button");
+      open.type = "button";
+      open.dataset.settle = f.field;
+      open.textContent = claim ? "Edit its claim" : "Edit the big idea";
+      open.ariaExpanded = "false";
+      const form = document.createElement("form");
+      form.dataset.settling = f.field;
+      form.hidden = true;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.ariaLabel = claim ? `The claim the outline settled for slide ${slide}'s part of the talk` : "The big idea the outline settled";
+      form.append(input);
+      const close = () => {
+        form.hidden = true;
+        open.ariaExpanded = "false";
+        open.focus();
+      };
+      open.addEventListener("click", () => {
+        if (!form.hidden) return close();
+        form.hidden = false;
+        open.ariaExpanded = "true";
+        input.value = settled;
+        input.focus();
+        input.select();
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        e.stopPropagation();
+        close();
+      });
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const value = input.value.trim();
+        if (!value || value === settled.trim()) return close();
+        const done = claim ? `Slide ${slide}'s part of the talk claims “${value}”` : `The big idea is “${value}”`;
+        try {
+          await editor.make([{ op: "replace", path, value }], `${done} · ⌘Z undoes it`);
+        } catch (err) {
+          editor.say(`Not settled: ${said(err)}`);
+        }
+      });
+      actions.append(open, form);
+    }
     // A slide that says again what an earlier one said offers to fold into that one, beside the cut
     // its to-do names (R1's #1161).
     const earlier = [...new Set(run.map((f) => f.into).filter((i): i is string => i !== undefined))]

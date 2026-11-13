@@ -1,0 +1,37 @@
+{
+  "arc": "Learning Journey",
+  "reasoning": "A talk that teaches a tool.",
+  "bigIdea": "Measure a command until its numbers settle, and compare it against a reference, never once by hand.",
+  "beats": [
+    {
+      "name": "Orientation: What we’ll learn and why it matters",
+      "claim": "A benchmark you run once tells you nothing; hyperfine runs it until the numbers settle.",
+      "slides": 2
+    },
+    {
+      "name": "Foundations: Core concepts and terminology",
+      "claim": "Hyperfine runs every command at least 10 times and aims for about 3 seconds of measurement.",
+      "slides": 2
+    },
+    {
+      "name": "Application: Worked examples",
+      "claim": "Warmup runs and prepare commands decide whether you measure a warm cache or a cold one.",
+      "slides": 2
+    },
+    {
+      "name": "Mastery: Edge cases and pitfalls",
+      "claim": "Run fast commands without a shell, and hyperfine has no startup to correct for.",
+      "slides": 2
+    },
+    {
+      "name": "Assessment: Quick checks for understanding",
+      "claim": "In hyperfine's own example, fd finds the files 9.8x faster than find.",
+      "slides": 2
+    },
+    {
+      "name": "Transfer: How to apply in the real world",
+      "claim": "Compare your branches with a parameter list and a setup command, not by hand.",
+      "slides": 3
+    }
+  ]
+}

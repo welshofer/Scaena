@@ -17,16 +17,19 @@ export type Source =
    * storage, and kept there. */
   | { zip: ArrayBuffer; name: string }
   /** A bundle's files by their paths inside it, and its name: a single-file export's, which
-   * carries them (PLAN 2.5). Kept nowhere. It plays `states`, in that order, or every state
-   * without them. */
-  | { files: Record<string, ArrayBuffer>; name: string; states?: string[] }
+   * carries them (PLAN 2.5), or a deck From a prompt… made. Kept nowhere. It plays `states`, in
+   * that order, or every state without them. With `begins`, a deck the editor made: its history
+   * begins at its first save, as `deck_generate` begins one. */
+  | { files: Record<string, ArrayBuffer>; name: string; states?: string[]; begins?: boolean }
   /** A new deck (PLAN 2.12), as `deck_create` makes one: one of the themes that ship
    * (`themes.ts`, by its name), the fonts it names, and one state with nothing on it, titled
-   * `title`. Kept nowhere until it is saved. */
+   * `title`. Kept nowhere until it is saved, its history beginning at that save, as `deck_create`
+   * begins one. */
   | { create: { theme: string; title: string } }
   /** A bundle's files as a worker held them when its engine stopped on a panic (lift-up STAB-2),
-   * and where it is kept, if anywhere: a fresh worker goes on from them, and saves there. */
-  | { recovered: Record<string, ArrayBuffer>; name: string; kept?: Kept };
+   * and where it is kept, if anywhere: a fresh worker goes on from them, and saves there. With
+   * `begins`, a deck the editor made and has not saved, whose history begins at its first save. */
+  | { recovered: Record<string, ArrayBuffer>; name: string; kept?: Kept; begins?: boolean };
 
 /** Where a recovered bundle is kept: the browser's storage by name, a folder on disk by its handle,
  * or the folder `scaena serve` serves it from, by the deck's URL and the page's id. */
@@ -130,6 +133,8 @@ export interface StoryPlace {
   planned?: number;
   before: number;
   slot?: string;
+  /** Where every beat's time is Narrato's estimate and the brief asks minutes: the minutes and the estimates' total, seconds; `planned` and `before` are then the slot's (editor dogfood 7). */
+  estimated?: { minutes: number; total: number };
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */
@@ -1002,9 +1007,11 @@ export interface HealthFinding {
   /** The figure a `source` finding found no source for, as the slide writes it. */
   figure?: string;
   /** The one field of the slide the finding asks to edit, where it asks for one, so an editor opens it without reading the ask. */
-  field?: "headline" | "notes" | "intensity" | "claim";
+  field?: "headline" | "notes" | "intensity" | "claim" | "bigIdea";
   /** The slide, by its first state, a `story` finding's slide says again, which it may be folded into (R1's #1161). */
   into?: string;
+  /** The claim or the big idea as the settled outline holds it, at `path`, where `field` is `claim` or `bigIdea`: what the Story row edits in place (editor dogfood 7). */
+  settled?: string;
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */
@@ -2423,7 +2430,9 @@ export type FromWorker =
   /** A file taken out: what the deck came to, shown and linted as an edit is. */
   | { type: "removed"; id: number; edited: Edited }
   /** The bundle's versions, oldest first; none where it keeps no history. */
-  | { type: "versions"; id: number; versions: Version[] | null }
+  /** `versions` null where the bundle keeps no history; `begins` where it keeps none yet and its
+   * first save begins one: a deck the editor made. */
+  | { type: "versions"; id: number; versions: Version[] | null; begins?: boolean }
   /** A version shown: its states, each as a person counts it (`said`, PLAN 2.99), and the one
    * drawn, as a PNG; or why it is not drawn (a file it names the bundle no longer holds). */
   | { type: "version"; id: number; states: string[]; said: string[]; state: string; png?: ArrayBuffer; why?: string }
