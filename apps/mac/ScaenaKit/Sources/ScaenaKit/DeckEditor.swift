@@ -165,9 +165,9 @@ public final class DeckEditor {
     @ObservationIgnored var themeEditing: (() -> Void)?
     /// For a test: told, as a theme edit is made, whether it is made on the main thread.
     @ObservationIgnored var themedOn: (@Sendable (_ main: Bool) -> Void)?
-    /// Each state drawn small, by its id and the width asked, with the digest of its drawing at
-    /// rest: the strip's, the presenter's next, and a remote's stand side by side (lift-up PERF-2).
-    @ObservationIgnored private var drawings: [Drawn: (digest: String, image: CGImage)] = [:]
+    /// Each state drawn small, by its id and the width asked, with the rest key of what it was drawn
+    /// from: the strip's, the presenter's next, and a remote's stand side by side (lift-up PERF-2).
+    @ObservationIgnored private var drawings: [Drawn: (rest: String, image: CGImage)] = [:]
     /// The drawings by when each was last asked for, the least recent first: past `drawingsKept`,
     /// it is let go.
     @ObservationIgnored private var asked: [Drawn] = []
@@ -492,14 +492,15 @@ public final class DeckEditor {
         return began == compiled ? health : nil
     }
 
-    /// `state` drawn at rest `width` pixels wide by the CPU painter: drawn again only when its
-    /// drawing changed, as the browser's strip draws it (PLAN 2.35).
+    /// `state` drawn at rest `width` pixels wide by the CPU painter: drawn again only when what it
+    /// is drawn from changed, as the browser's strip draws it (PLAN 2.35), kept by its rest key,
+    /// which lays nothing out (#1262's follow-up).
     public func drawing(_ state: String, width: Int) -> CGImage? {
-        guard let digest = try? session.digest(state: state) else { return nil }
+        guard let rest = try? session.rest(state: state) else { return nil }
         let key = Drawn(state: state, width: width)
-        if let image = kept(key, digest) { return image }
+        if let image = kept(key, rest) { return image }
         guard let image = try? session.pixels(state, width: width).image else { return nil }
-        keep(key, digest, image)
+        keep(key, rest, image)
         return image
     }
 
@@ -508,15 +509,18 @@ public final class DeckEditor {
     /// a time, by an engine kept while the deck stands, while the caller's actor (the window's, or
     /// the stage's) goes on answering. Kept as `drawing` keeps it, where the deck still draws as
     /// it did when asked. Where the source did not compile to a deck that validates, drawn here.
+    /// What it is kept by is its rest key, which lays nothing out: its digest laid a state edited
+    /// out on the caller's actor before it was drawn away, as each thumbnail of a slide edited was
+    /// asked for (#1262's follow-up).
     public func drawingAway(_ state: String, width: Int, isolation: isolated (any Actor)? = #isolation) async -> CGImage? {
-        guard let digest = try? session.digest(state: state) else { return nil }
+        guard let rest = try? session.rest(state: state) else { return nil }
         let key = Drawn(state: state, width: width)
-        if let image = kept(key, digest) { return image }
+        if let image = kept(key, rest) { return image }
         guard let laying = drawingFrom() else { return drawing(state, width: width) }
         let format = self.format
         let painted = await drawer.draw { try laying.pixels(format: format, state: state, width: width) }
         guard let image = painted?.image else { return nil }
-        if (try? session.digest(state: state)) == digest { keep(key, digest, image) }
+        if (try? session.rest(state: state)) == rest { keep(key, rest, image) }
         return image
     }
 
@@ -704,18 +708,18 @@ public final class DeckEditor {
         return CGImageDestinationFinalize(made) ? data as Data : nil
     }
 
-    /// The drawing kept for `key`, where it is of the drawing `digest` names: asked for now.
-    private func kept(_ key: Drawn, _ digest: String) -> CGImage? {
-        guard let kept = drawings[key], kept.digest == digest else { return nil }
+    /// The drawing kept for `key`, where it is of the drawing `rest` keys: asked for now.
+    private func kept(_ key: Drawn, _ rest: String) -> CGImage? {
+        guard let kept = drawings[key], kept.rest == rest else { return nil }
         if let at = asked.firstIndex(of: key) { asked.remove(at: at) }
         asked.append(key)
         return kept.image
     }
 
-    /// Keep `image` for `key`, of the drawing `digest` names, the least recently asked for let
-    /// go past `drawingsKept`.
-    private func keep(_ key: Drawn, _ digest: String, _ image: CGImage) {
-        if drawings.updateValue((digest, image), forKey: key) != nil, let at = asked.firstIndex(of: key) {
+    /// Keep `image` for `key`, of the drawing `rest` keys, the least recently asked for let go past
+    /// `drawingsKept`.
+    private func keep(_ key: Drawn, _ rest: String, _ image: CGImage) {
+        if drawings.updateValue((rest, image), forKey: key) != nil, let at = asked.firstIndex(of: key) {
             asked.remove(at: at)
         }
         asked.append(key)

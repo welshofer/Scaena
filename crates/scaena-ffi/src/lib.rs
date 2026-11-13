@@ -1973,6 +1973,9 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "files" => json!(s.files()),
         "imageFiles" => json!(s.image_files()),
         "digest" => json!(s.digest(arg("state")?).map_err(said)?),
+        // What a state at rest is drawn from, as a key, laying nothing out: what the slides down
+        // the side keep a drawing by, each drawn away from the window (#1262's follow-up).
+        "rest" => json!(s.rest(arg("state")?).map_err(said)?),
         // The deck as a movie of `fps` frames a second (lift-up 20261031 FUNC-2): `{frames, fps,
         // durationMs}`, refused where it would run 0 ms or past a day, as the CLI's is.
         "movie" => s.movie(fps(args, method)?).map_err(said)?,
