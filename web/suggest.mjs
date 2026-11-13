@@ -160,7 +160,11 @@ try {
   check(again[0]?.layout === "narrow-figure" && again[0]?.pressed === "true", `judged again, narrow-figure is pressed: ${again.map((b) => `${b.layout} ${b.pressed}`).join(", ")}`);
   await page.mouse.move(5, 5);
   await previewing(undefined);
-  check(!(await shot()).equals(before), "the canvas shows the layout chosen");
+  // The worker repaints the layout chosen once it has done what the edit asked of it, the
+  // deck's health among it: wait for the canvas to differ, as long as the walk waits elsewhere.
+  let chosen = await shot();
+  for (const end = Date.now() + 30000; chosen.equals(before) && Date.now() < end; chosen = await shot()) await page.waitForTimeout(250);
+  check(!chosen.equals(before), "the canvas shows the layout chosen");
   await undo();
   await page.waitForFunction((s) => window.scaena.source() === s, original, { timeout: 30000 }).catch(() => {});
   check((await source()) === original, "one undo takes it back");

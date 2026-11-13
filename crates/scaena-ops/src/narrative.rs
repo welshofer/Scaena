@@ -1308,6 +1308,54 @@ pub fn generate_drawn(
     Ok((made, Some(write)))
 }
 
+/// A bundle `deck_create` made that `deck_generate` may fill (W1's dogfood 19): one slide, the
+/// blank one it starts with, and no spine. Its theme is the deck's, and each data file it holds
+/// is given again as it was attached. Anything more is refused, saying why and that
+/// `deck_generate` makes a bundle itself.
+pub struct Blank {
+    pub bundle: crate::Bundle,
+    /// The theme file the deck names, in the bundle.
+    pub theme: PathBuf,
+    /// Each data source the bundle holds, as it was attached, and its file's bytes.
+    pub data: Vec<(Attach, Vec<u8>)>,
+}
+
+/// `dir`, where a deck is to be made from slides: nothing there yet (`None`), a [`Blank`] bundle
+/// to fill, or refused.
+pub fn fillable(dir: &Path) -> Result<Option<Blank>, OpsError> {
+    let Err(not) = crate::create::vacant(dir) else { return Ok(None) };
+    let refused = |why: String| {
+        OpsError::new(format!(
+            "{}; deck_generate makes a bundle itself, in its `theme` with its `data`, or fills one deck_create made              that holds only its blank slide{why}",
+            not.message.trim_end_matches(": a new bundle needs a place of its own")
+        ))
+    };
+    if !dir.join("deck.json").is_file() {
+        return Err(refused(String::new()));
+    }
+    let bundle = crate::open(dir)?;
+    let slides = bundle.deck.states.len();
+    let beats: usize = (bundle.deck.spine.iter()).flat_map(|s| s.sections.iter()).map(|s| s.beats.len()).sum();
+    if slides != 1 || beats > 0 {
+        let held = match (slides, beats) {
+            (1, b) => format!("its spine tells {b} beat{}", if b == 1 { "" } else { "s" }),
+            (n, _) => format!("it holds {n} states"),
+        };
+        return Err(refused(format!(": {held}")));
+    }
+    let theme = (bundle.deck.theme.as_ref().and_then(Value::as_str))
+        .map(PathBuf::from)
+        .ok_or_else(|| refused(": its deck names its theme inline".into()))?;
+    let mut data = Vec::new();
+    for (id, source) in &bundle.deck.data {
+        let Some(path) = source.source.as_str() else { continue };
+        let bytes = bundle.files.read(path).with_context(|| format!("reading {path}"))?;
+        let file = PathBuf::from(Path::new(path).file_name().unwrap_or_default());
+        data.push((Attach { id: id.clone(), file, schema: source.schema.clone(), parse: source.parse.clone() }, bytes));
+    }
+    Ok(Some(Blank { bundle, theme, data }))
+}
+
 /// A deck made from slides written elsewhere, with no call (`scaena generate --slides`,
 /// `deck_generate`): `slides` is the JSON Narrato writes the slides in (`executiveSummary` and
 /// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
@@ -1331,8 +1379,22 @@ pub fn from_slides(
     outline: Option<&Outline>,
     data: &[(Attach, Vec<u8>)],
     grounds: &[scaena_sources::Source],
+    blank: Option<&Blank>,
 ) -> Result<Generated, OpsError> {
-    crate::create::vacant(dir)?;
+    // A bundle deck_create made, its blank slide alone, is filled, its data files given again
+    // where the call does not give one by that id; else the bundle is new.
+    let mut data = data.to_vec();
+    match blank {
+        Some(blank) => {
+            for (req, bytes) in &blank.data {
+                if !data.iter().any(|(given, _)| given.id == req.id) {
+                    data.push((req.clone(), bytes.clone()));
+                }
+            }
+        }
+        None => crate::create::vacant(dir)?,
+    }
+    let data = data.as_slice();
     // A source that is a data file given, by its file's name, is that data file: kept once, as
     // the data source it is attached as, and listed once among the deck's sources (W1's dogfood
     // 19: `resultats.csv` given both ways was kept as `resultats` and `resultats-2`).
@@ -1462,7 +1524,12 @@ pub fn from_slides(
         }
         made.notes = budgeted(&write.deck).ok();
         made.slides = slides_told(&write.deck);
-        crate::create::make(dir, write)?;
+        match blank {
+            // Written over the blank deck as any edit is, the change recorded in the history
+            // deck_create began.
+            Some(blank) => crate::lint::write(&blank.bundle, write)?,
+            None => crate::create::make(dir, write)?,
+        }
     }
     Ok(made)
 }
@@ -2315,7 +2382,7 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
 
 /// Whether `text` says `claim` in its words, its marks, case, and spacing aside: a headline that
 /// states its beat's settled claim, typeset or with its full stop taken off.
-fn says(claim: &str, text: &str) -> bool {
+pub(crate) fn says(claim: &str, text: &str) -> bool {
     let claim = letters(claim);
     !claim.is_empty() && claim == letters(text)
 }
@@ -3229,6 +3296,9 @@ fn assemble(
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
     let (mut outgrown, mut unset): (Vec<Fell>, Vec<Unset>) = (Vec::new(), Vec::new());
+    // Each outline beat whose settled claim an earlier slide's headline states already: a bare
+    // close in it heads itself otherwise, so two beats never make one claim (R1's agent dogfood 12).
+    let mut stated: Vec<usize> = Vec::new();
     for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -3258,6 +3328,7 @@ fn assemble(
             picture,
             idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             claim: claim_of(narrative, beat),
+            stated: stated.contains(&beat),
             icons,
             lang: lang.unwrap_or("en"),
             grounded: (slide.source_ref.as_deref())
@@ -3272,8 +3343,10 @@ fn assemble(
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
         let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
-        let mut closed =
-            slots.claim.filter(|_| slots.claimed_close()).map(|settled| typeset(settled, lang.unwrap_or("en")));
+        let mut closed = slots.close_heading().map(|heading| typeset(heading, lang.unwrap_or("en")));
+        if claim_of(narrative, beat).is_some_and(|c| says(c, &slide.slide_title)) {
+            stated.push(beat);
+        }
         // A layout asked for by name that has no place for every item, set as a list of them all,
         // is said (agent dogfood 2), as a name no layout is called is.
         let asked = slide.layout_suggestion.trim();
@@ -4600,6 +4673,10 @@ fn layout_for(
         "quiz" if questions(items) && n == 3 && theme.layouts.contains_key("cards") => "cards",
         "quiz" if questions(items) => "faq",
         "quiz" => "quiz",
+        // The works cited, numbered in small type (W1's dogfood 19), never the years they were
+        // published as figures on cards.
+        "references" if theme.layouts.contains_key("references") => "references",
+        "references" => "numbered",
         "steps" if n <= 3 => "how-it-works",
         // Four steps, each in a card of its own under its number, as a deck's process is drawn.
         "steps" if n == 4 => "numbered-cards",
@@ -5672,6 +5749,9 @@ struct Slots<'a> {
     /// The claim the person settled for the slide's beat (narrative FUNC-1): what a closing that
     /// only thanks the room says instead, its ask where the claim asks one (W1's dogfood 8).
     claim: Option<&'a str>,
+    /// Whether an earlier slide's headline states that claim already: a bare close then says the
+    /// big idea instead, so it never makes its ask's claim again (R1's agent dogfood 12).
+    stated: bool,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -5958,7 +6038,20 @@ impl Slots<'_> {
     /// Whether the slide is a closing that only thanks the room, headed instead by its beat's
     /// claim (W1's dogfood 8): a deck ends on what it asks, not on "Thank you".
     fn claimed_close(&self) -> bool {
-        self.layout == "closing" && bare(&self.slide.slide_title) && self.claim.is_some()
+        self.close_heading().is_some()
+    }
+
+    /// What heads a closing that only thanks the room: its beat's claim, else, where an earlier
+    /// slide's headline states that claim already, the deck's big idea (R1's agent dogfood 12);
+    /// none where it has neither, and it keeps its thanks.
+    fn close_heading(&self) -> Option<&str> {
+        if self.layout != "closing" || !bare(&self.slide.slide_title) {
+            return None;
+        }
+        match self.claim {
+            Some(claim) if !self.stated => Some(claim),
+            _ => self.idea,
+        }
     }
 
     /// Whether the slide is a closing that says its ask and only thanks the room under it.
@@ -6323,10 +6416,10 @@ impl Slots<'_> {
             "statement" if layout == "call-to-action" => {
                 calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| typeset(&ask, self.lang))
             }
-            // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8), set as
-            // the slide's own words are, so "460.000 €" keeps its figure and its euro on one line
-            // (R1's agent dogfood 12): the claim and the big idea come from the outline, as typed.
-            "statement" if self.claimed_close() => self.claim.map(|c| typeset(c, self.lang)),
+            // A bare thanks says what heads it, its beat's claim or the big idea, the thanks under
+            // it (W1's dogfood 8; R1's agent dogfood 12), set as the slide's own words are, so
+            // "460.000 €" keeps its figure and its euro on one line: both come from the outline, as typed.
+            "statement" if self.claimed_close() => self.close_heading().map(|c| typeset(c, self.lang)),
             "support" if self.claimed_close() => Some(self.thanks()),
             // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
             "support" if self.thanked_close() => {
@@ -11986,6 +12079,38 @@ mod tests {
         );
     }
 
+    /// A bare close whose beat's claim an earlier slide's headline states already, as an ask's
+    /// does, says the deck's big idea instead, so no two beats make one claim (W425); with no big
+    /// idea, it keeps its thanks (R1's agent dogfood 12: "Aprueben 460.000 €…" then "Gracias").
+    #[test]
+    fn a_bare_close_after_its_claim_says_the_big_idea() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        let k = n.slides.len() - 1;
+        let beat = n.slides[k].beat_index.unwrap();
+        let claim = n.outline.as_ref().unwrap().beats[beat].claim.clone();
+        let idea = n.outline.as_ref().unwrap().big_idea.clone();
+        assert!(!idea.trim().is_empty());
+        n.slides[k - 1].beat_index = Some(beat);
+        n.slides[k - 1].slide_title = claim.trim_end_matches('.').into();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert_eq!(made.layouts[k], "closing");
+        assert!(said.iter().any(|(s, w)| s == "statement" && *w == typeset(&idea, "en")), "{said:#?}");
+        assert!(said.iter().any(|(s, w)| s == "support" && w == "Thank you \u{b7} Questions?"), "{said:#?}");
+        // Made whole, no two beats make one claim.
+        let (made, _) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let same: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W425").collect();
+        assert!(same.is_empty(), "{same:#?}");
+        // With no big idea, the close keeps its own thanks.
+        n.outline.as_mut().unwrap().big_idea = String::new();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(!said.iter().any(|(_, w)| w.contains(claim.trim_end_matches('.'))), "{said:#?}");
+    }
+
     /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
     /// Seville's close, "Aprueben 460.000 € …" over "Gracias", kept its plain space before the
     /// euro and broke "460.000 / €" over two lines, where the ask's own headline kept them joined.
@@ -12357,6 +12482,51 @@ mod tests {
         let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
         assert!(left.is_empty(), "{left:#?}");
+    }
+
+    /// W1's dogfood 19: a French paper's talk ends on its works cited, asked for as "References"
+    /// (here written "Références"). No layout was called that, so the slide was set as its items
+    /// read, and the years they were published stood on cards as figures. It takes the library's
+    /// References layout, its works numbered in small type as written, and Bibliography finds it
+    /// too.
+    #[test]
+    fn a_talks_works_cited_take_the_references_layout() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let works = [
+            "Bernard, A. et Lefèvre, M. (2023). Végétaliser la ville. Presses universitaires de Lyon.",
+            "Oke, T. R. (1982). The energetic basis of the urban heat island. Quarterly Journal of the Royal Meteorological Society, 108, 1–24.",
+            "Roussel, M. (2024). Capteurs à bas coût et îlots de chaleur. Revue d’écologie urbaine, 12(3), 45–61.",
+        ];
+        for asked in ["References", "Références", "Bibliography"] {
+            let text = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+                { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+                  "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"] },
+                { "slideTitle": "Références", "layoutSuggestion": asked, "keyBullets": works },
+                { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+            ]})
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.brief.language = Some("French".into());
+            let built = deck(&n, &theme, &Pictures::new()).unwrap();
+            let states = built.deck["states"].as_array().unwrap();
+            let refs = states.iter().find(|s| s["layout"] == "references").unwrap_or_else(|| {
+                panic!("{asked}: {:?}", states.iter().map(|s| s["layout"].clone()).collect::<Vec<_>>())
+            });
+            assert!(built.fell.iter().all(|f| f.asked != asked), "{asked}: {:?}", built.fell);
+            // Its works, numbered, as written, one text in the layout's place for them.
+            let nodes = &built.deck["nodes"];
+            let body = (refs["props"].as_object().unwrap().keys())
+                .map(|id| &nodes[id.as_str()])
+                .find(|n| n["at"]["in"] == "body")
+                .unwrap_or_else(|| panic!("{asked}: no body in {refs:#}"));
+            let said = body["text"].as_str().map(str::to_string).unwrap_or_else(|| {
+                (body["runs"].as_array().unwrap().iter()).filter_map(|r| r["text"].as_str()).collect::<String>()
+            });
+            assert_eq!(said.replace('\u{a0}', " "), works.join("\n"), "{asked}");
+            assert!(body["list"].as_array().unwrap().iter().all(|i| i["kind"] == "number"), "{asked}: {body:#}");
+        }
     }
 
     #[test]
@@ -13635,8 +13805,8 @@ mod tests {
         assert!(node.get("maxSize").is_none(), "{node:#}");
         assert!(made.created.findings.iter().all(|f| f.code != "E100" || f.node.as_deref() != Some(id)));
         // Longer than its place takes at its role's least size, it is said by its slide, for the
-        // person to shorten, never rewritten (W1 dogfood 13): on slide 2, and on the bare close
-        // the claim heads, slide 3, alike.
+        // person to shorten, never rewritten (W1 dogfood 13), on slide 2. The bare close after it
+        // in its beat says the big idea, not the claim again (R1's agent dogfood 12).
         let lines = (made.created.findings.iter())
             .find(|f| f.code == "W202" && f.node.as_deref() == Some(id))
             .and_then(|f| f.measure.as_ref()?["lines"].as_u64())
@@ -13645,10 +13815,14 @@ mod tests {
             made.overlong.as_deref(),
             Some(
                 format!(
-                    "the settled claims on slides 2 and 3 stand as written, each in {lines} lines where its place takes 3: shorten them in the outline to fit"
+                    "slide 2's settled claim stands as written, in {lines} lines where its place takes 3: shorten it in the outline to fit"
                 )
                 .as_str()
             )
+        );
+        assert!(
+            doc["nodes"].as_object().unwrap().values().any(|n| n["text"] == "Die Biotonne rechnet sich"),
+            "the close says the big idea"
         );
         // Were it still to run past its place, the fit would be asked to rewrite another text,
         // never the claim.

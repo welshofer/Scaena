@@ -1,0 +1,94 @@
+{
+ "deck_create": {
+  "bundle": "toits",
+  "theme": "salon",
+  "title": "Toitures végétalisées et îlots de fraîcheur"
+ },
+ "data_attach": {
+  "bundle": "toits",
+  "id": "resultats",
+  "file": "resultats.csv"
+ },
+ "deck_generate": {
+  "bundle": "toitures",
+  "theme": "salon",
+  "language": "French",
+  "topic": "Toitures végétalisées et îlots de fraîcheur à Lyon",
+  "audience": "Chercheurs en écologie urbaine, lors d’un colloque",
+  "goal": "Inform",
+  "minutes": 15,
+  "modality": "in-person",
+  "slides": "(slides.json)",
+  "outline": {
+   "bigIdea": "Verdir les toits est le levier le plus rentable contre les îlots de chaleur d’un quartier.",
+   "beats": [
+    {
+     "name": "Contexte",
+     "claim": "La ville stocke la chaleur du jour et la rend la nuit."
+    },
+    {
+     "name": "Méthode",
+     "claim": "412 toits équipés de capteurs pendant quatorze semaines."
+    },
+    {
+     "name": "Résultats",
+     "claim": "Chaque tranche de 100 000 m² végétalisés abaisse la température de 1,3 °C."
+    },
+    {
+     "name": "Discussion",
+     "claim": "La flore compte autant que la surface."
+    },
+    {
+     "name": "Recommandations",
+     "claim": "Verdir les toits, en commençant par les quartiers les moins couverts."
+    }
+   ]
+  },
+  "sources": [
+   {
+    "file": "toitures.pdf"
+   },
+   {
+    "file": "resultats.csv"
+   }
+  ],
+  "data": [
+   {
+    "id": "resultats",
+    "file": "resultats.csv"
+   }
+  ]
+ },
+ "then": [
+  {
+   "tool": "deck_health",
+   "args": {
+    "bundle": "toitures"
+   }
+  },
+  {
+   "tool": "deck_lint",
+   "args": {
+    "bundle": "toitures",
+    "fix": true
+   }
+  },
+  {
+   "tool": "deck_export",
+   "args": {
+    "bundle": "toitures",
+    "format": "pdf",
+    "out": "toitures-notes.pdf",
+    "notes": true
+   }
+  },
+  {
+   "tool": "deck_export",
+   "args": {
+    "bundle": "toitures",
+    "format": "png",
+    "out": "png"
+   }
+  }
+ ]
+}

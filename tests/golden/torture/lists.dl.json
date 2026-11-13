@@ -287,7 +287,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"1.","glyphs":[
           [261,-0.5625,40.65625],
           [310,21.84375,40.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[0,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Numbers count by level\n","glyphs":[
@@ -319,7 +319,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"2.","glyphs":[
           [262,-0.5625,94.65625],
           [310,21.84375,94.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[1,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"The count goes on\n","glyphs":[
@@ -346,7 +346,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"a.","glyphs":[
           [124,48.203125,148.65625],
           [310,69.84375,148.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[2,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"A sub-step, lettered\n","glyphs":[
@@ -376,7 +376,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"b.","glyphs":[
           [134,46.15625,202.65625],
           [310,69.84375,202.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[3,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Another\n","glyphs":[
@@ -393,7 +393,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"i.","glyphs":[
           [163,105.203125,256.65625],
           [310,117.84375,256.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[4,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"And one in roman numerals\n","glyphs":[
@@ -428,7 +428,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"3.","glyphs":[
           [263,-0.5625,310.65625],
           [310,21.84375,310.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[5,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"The outer count goes on where it was\n","glyphs":[
@@ -511,7 +511,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"1.","glyphs":[
           [261,-0.5625,418.65625],
           [310,21.84375,418.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[7,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"One\n","glyphs":[
@@ -524,7 +524,7 @@
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"2.","glyphs":[
           [262,-0.5625,472.65625],
           [310,21.84375,472.65625]
-        ],"clusters":[0,0]}}
+        ],"clusters":[0,1]}}
       ]}},
       {"layer":{"node":null,"cell":[8,1],"label":null,"transform":[1.0,0.0,0.0,1.0,0.0,0.0],"opacity":1.0,"blend":"normal","clip":null,"ops":[
         {"glyphs":{"font":0,"size":40.0,"coords":[0,2643,0,0],"paint":{"solid":"#16140FFF"},"text":"Two","glyphs":[
