@@ -3333,7 +3333,14 @@ fn said(text: &str, starts: &[usize], run: &GlyphRun) -> (String, Vec<u32>) {
     if run.hyphen {
         return ("\u{AD}".to_string(), vec![0; clusters.len()]);
     }
+    // A marker says itself a glyph a character where it shapes so, "1." as "1" and ".", so a
+    // reader that maps each glyph to its text keeps a figure's glyph for the figure alone
+    // (W1's dogfood 19: a list's "1." made every tabular one copy as "1."); else all of it.
     if let Some(marker) = &run.mark {
+        let chars: Vec<u32> = marker.char_indices().map(|(i, _)| i as u32).collect();
+        if !run.rtl && chars.len() == clusters.len() {
+            return (marker.clone(), chars);
+        }
         return (marker.clone(), vec![0; clusters.len()]);
     }
     let (Some(&lo), Some(&last)) = (clusters.iter().min(), clusters.iter().max()) else {
