@@ -603,7 +603,7 @@ pub(crate) mod tests {
     }
 
     /// A bundle on disk as a page holds it: every file of it, by its path inside it.
-    fn files(path: &str) -> BTreeMap<String, Vec<u8>> {
+    pub(crate) fn files(path: &str) -> BTreeMap<String, Vec<u8>> {
         let bundle = Bundle::open(Path::new(path)).unwrap();
         bundle.files.list().unwrap().into_iter().map(|p| (p.clone(), bundle.read(&p).unwrap())).collect()
     }

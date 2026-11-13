@@ -912,6 +912,9 @@ export interface Restored {
   states: string[];
   /** With a slide asked, the slide put back, by its number and headline in the deck it makes. */
   slide?: string;
+  /** With a slide asked, each object it shows as it is now since another slide shows it too,
+   * in a sentence (dogfood 16). */
+  kept?: string[];
 }
 
 /** A file an edit wrote beside the deck, a data file a restore wrote or the theme a theme edit

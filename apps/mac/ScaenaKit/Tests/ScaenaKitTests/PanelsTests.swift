@@ -220,6 +220,24 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(source.contains("Scaena anew"))
     #expect(!source.contains("Now: The slide"))
     #expect(throws: ScaenaError.self) { try session.restoreVersion("1", slide: "nowhere") }
+    #expect(restored.kept.isEmpty)
+}
+
+/// B1's cover put back (dogfood 16): its title, which the closing slide shows too, keeps its words
+/// now, and the restore says so, by those words and that slide.
+@Test func aSlidePutBackSaysWhatItKeptForAnotherSlide() throws {
+    let session = try ScaenaSession(directory: b1)
+    try session.keepHistory()
+    let editor = DeckEditor(session: session)
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_000), subset: false))
+    try editor.typed([["op": "replace_text", "node": "title", "state": "cover", "from": 6, "to": 6, "text": " anew"]])
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_300), subset: false))
+    let restored = try session.restoreVersion("1", slide: "cover")
+    #expect(restored.applied)
+    #expect(try session.source().contains("Scaena anew"))
+    #expect(restored.kept.count == 1)
+    #expect(restored.kept.first?.hasPrefix("\u{201C}Scaena anew\u{201D} kept as it is now, since Slide ") == true)
+    #expect(restored.kept.first?.hasSuffix(" shows it too") == true)
 }
 
 /// A version is shown away from the window (lift-up 20261110 PERF-3): replayed, compared, and drawn

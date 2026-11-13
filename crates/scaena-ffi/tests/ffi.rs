@@ -1898,6 +1898,18 @@ fn versions_are_listed_shown_compared_and_restored_from_the_history() {
     let slide = call(s, "restoreVersion", json!({ "version": "1", "slide": "belief-1", "at": "2026-10-08T12:15:00Z" }));
     assert_eq!(slide["restored"]["applied"], true, "{slide}");
     assert!(slide["restored"]["slide"].as_str().is_some_and(|said| said.starts_with("Slide 3")), "{slide}");
+    assert_eq!(slide["restored"].get("kept"), None, "nothing it shows was kept for another slide: {slide}");
+    // The cover put back: its title, which the closing slide shows too, keeps its words, and says so
+    // (dogfood 16).
+    let cover = call(s, "restoreVersion", json!({ "version": "1", "slide": "cover", "at": "2026-10-08T12:16:00Z" }));
+    let kept = &cover["restored"]["kept"];
+    assert!(
+        kept.as_array().is_some_and(|k| k.len() == 1)
+            && kept[0]
+                .as_str()
+                .is_some_and(|k| k.starts_with("\u{201c}Scaena anew\u{201d} kept as it is now, since Slide ")),
+        "{cover}"
+    );
     let source = call(s, "source", Value::Null);
     let source = source.as_str().unwrap();
     assert!(source.contains("Scaena anew") && !source.contains("Now: The slide"), "{source}");

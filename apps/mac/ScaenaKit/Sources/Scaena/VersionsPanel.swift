@@ -183,7 +183,9 @@ struct VersionsPanel: View {
             if slide != nil {
                 let files = restored.files.map { $0.path.split(separator: "/").last.map(String.init) ?? $0.path }
                 let with = files.isEmpty ? "" : ", with \(files.joined(separator: ", "))"
-                said = "\(restored.slide ?? "The slide") put back from \(of)\(with) · ⌘Z undoes it"
+                // What it shows as it is now, for another slide's sake, said (dogfood 16).
+                let kept = restored.kept.map { ". \($0)" }.joined()
+                said = "\(restored.slide ?? "The slide") put back from \(of)\(with)\(kept) · ⌘Z undoes it"
             }
             return restored.files
         }

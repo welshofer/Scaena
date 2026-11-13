@@ -14,7 +14,8 @@
 //   records the restore in the history, by the user.
 // - Restore This Slide puts back the slide shown alone, saying which before and after: a text only
 //   it shows as the version had it, the rest of the deck as it is now, one change ⌘Z takes back
-//   (dogfood 16).
+//   (dogfood 16). What it shows as it is now since another slide shows it too is said, by its
+//   words and those slides, on the revenue deck's title and on B1's cover.
 // - A version whose deck names a file the bundle no longer holds is refused, and says why.
 // - axe-core finds nothing against WCAG 2.1 AA with a version shown; a bundle that keeps no
 //   history says so, and Keep a history begins one with a save (PLAN 2.87).
@@ -34,6 +35,8 @@ const scaena = (...args) => execFileSync("cargo", ["run", "-q", "-p", "scaena-cl
 // The revenue example, its history begun, and four changes since.
 const root = "target/web-versions";
 const bundle = `${root}/revenue`;
+// B1, its history begun, and its title changed since: the cover and the closing slide show it.
+const b1 = `${root}/b1`;
 await rm(root, { recursive: true, force: true });
 scaena("save", "docs/examples/revenue.deck.json", "--to", bundle, "--history", "--keep-fonts");
 const patch = async (ops) => {
@@ -49,6 +52,9 @@ await copyFile("tests/fixtures/torture.scaena/assets/test-card.png", join(bundle
 await patch([{ op: "add_node", id: "photo", node: { type: "image", src: "assets/card.png" } }]);
 await patch([{ op: "remove_node", id: "photo" }]);
 scaena("files", bundle, "--remove", "assets/card.png");
+scaena("save", "tests/bench/b1.scaena", "--to", b1, "--history", "--keep-fonts");
+await writeFile(join(root, "b1-ops.json"), JSON.stringify([{ op: "set_text", node: "title", text: "Scaena anew" }]));
+scaena("patch", b1, "--ops", join(root, "b1-ops.json"));
 
 const site = await serve();
 const browser = await launch();
@@ -205,7 +211,10 @@ try {
     slid.includes('"This quarter changed the shape of the business."') && slid.includes("Revenue tripled") && /state outro/.test(slid),
     "Restore This Slide puts back that slide's own text, the rest of the deck as it is now",
   );
-  check(/^Slide 1(: [^·]+)? put back from version 1 · ⌘Z undoes it$/.test(await status()), `and says which slide: ${await status()}`);
+  check(
+    /^Slide 1(: [^·]+)? put back from version 1\. “Revenue tripled” kept as it is now, since Slides? [^·]+ shows? it too · ⌘Z undoes it$/.test(await status()),
+    `and says which slide, and that its title, which other slides show, keeps its words: ${await status()}`,
+  );
   const undoTo = async (to) => {
     await page.locator(".cm-content").focus();
     await page.keyboard.press("Control+z");
@@ -290,6 +299,27 @@ try {
       !looked.some((l) => /its words now “[^”]*business/.test(l)),
     `a look alone changed is said so, the text named by its words: ${JSON.stringify(looked)}`,
   );
+
+  // B1's cover put back from its first version: its title, which the closing slide shows too,
+  // keeps its words now, and the status says so, by those words and that slide (dogfood 16).
+  {
+    const deck = await open(`/${b1}/deck.json`);
+    const listed = await deck.evaluate(() => window.scaena.versions.listed());
+    await deck.click(`#versions [data-id="${listed[0].id}"]`);
+    await deck.evaluate(() => window.scaena.versions.settled());
+    await deck.selectOption("#versions [data-state]", "cover");
+    await deck.evaluate(() => window.scaena.versions.settled());
+    await deck.click("#versions [data-restore-slide]");
+    await deck.evaluate(() => window.scaena.versions.settled());
+    await deck.waitForFunction(() => /put back/.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
+    const said = await deck.locator("#status").textContent();
+    check(
+      /^Slide 1(: [^·]+)? put back from version 1\. “Scaena anew” kept as it is now, since Slide \d+ shows it too · ⌘Z undoes it$/.test(said) &&
+        (await deck.evaluate(() => window.scaena.source())).includes('"Scaena anew"'),
+      `B1's cover put back keeps its title for the closing slide, and says so: ${said}`,
+    );
+    await deck.close();
+  }
   await context.close();
 } catch (e) {
   failures.push(String(e));
