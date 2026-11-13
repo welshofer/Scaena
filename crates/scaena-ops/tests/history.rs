@@ -423,7 +423,8 @@ fn a_generic_change_is_said_by_what_it_changed() {
     let mut typed = was.clone();
     typed.nodes.get_mut("title").unwrap().props.insert("text".into(), serde_json::json!("Revenue tripled"));
     assert_eq!(scaena_ops::history::patch_said(&was, &typed, "patch: set_text").unwrap(), None);
-=======
+}
+
 /// A slide put back that the deck already shows as the version drew it puts nothing back
 /// (editor dogfood 7): no state changes what it shows, and nothing is written, so the history
 /// keeps no change of it and an editor makes no step to undo of it. The slide another edit
