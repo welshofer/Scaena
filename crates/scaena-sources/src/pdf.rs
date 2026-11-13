@@ -83,6 +83,14 @@ pub fn held(sources: &[crate::Source]) -> (String, Vec<String>) {
     (all, unread)
 }
 
+/// The words of each PDF among `sources`, by its name, those it could not read left out: what a
+/// deck keeps the figures of, source by source (`Provenance::figures`, W1's dogfood 17).
+pub fn each(sources: &[crate::Source]) -> Vec<(String, String)> {
+    (sources.iter())
+        .filter_map(|source| Some((source.name.clone(), words(&source.name, source.pdf.as_deref()?).ok()?)))
+        .collect()
+}
+
 /// [`words`] within `bounds`.
 pub fn words_within(name: &str, bytes: &[u8], bounds: &Bounds) -> Result<String, SourceError> {
     let mut file = File::new(bytes, bounds);

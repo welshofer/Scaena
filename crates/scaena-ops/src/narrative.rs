@@ -672,6 +672,9 @@ pub struct Grounding {
     pub held: String,
     /// Each PDF whose words were not read, and why.
     pub unread: Vec<String>,
+    /// The words each PDF draws, by its name, whose figures the deck keeps source by source
+    /// ([`provenance`]), with ops' `pdf` feature; else none.
+    pub words: Vec<(String, String)>,
 }
 
 /// `sources` packed as Vzestup packs them (`scaena_sources::ground`): the first given the room
@@ -689,24 +692,47 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
         })
         .collect();
     #[cfg(feature = "pdf")]
-    let (held, unread) = scaena_sources::pdf::held(sources);
+    let ((held, unread), words) = (scaena_sources::pdf::held(sources), scaena_sources::pdf::each(sources));
     #[cfg(not(feature = "pdf"))]
-    let (held, unread) = (String::new(), Vec::new());
-    Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread })
+    let ((held, unread), words) = ((String::new(), Vec::new()), Vec::new());
+    Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread, words })
 }
 
 /// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
-/// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short.
-pub fn provenance(given: &[Given]) -> Vec<Provenance> {
+/// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short; and the
+/// figures it holds (W1's dogfood 17), read from `read`, the sources as read, and `pdfs`, the words
+/// each PDF draws by its name (`scaena_sources::pdf::each`), so health holds a slide that cites it
+/// to them.
+pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -> Vec<Provenance> {
     (given.iter())
-        .map(|g| Provenance {
-            name: g.name.clone(),
-            kind: g.kind.to_string(),
-            url: g.url.clone(),
-            bytes: g.bytes,
-            truncated: g.truncated,
+        .map(|g| {
+            let mut text: String = (read.iter().filter(|s| s.name == g.name)).map(|s| s.text.as_str()).collect();
+            for (_, words) in pdfs.iter().filter(|(name, _)| *name == g.name) {
+                text.push('\n');
+                text.push_str(words);
+            }
+            Provenance {
+                name: g.name.clone(),
+                kind: g.kind.to_string(),
+                url: g.url.clone(),
+                bytes: g.bytes,
+                truncated: g.truncated,
+                figures: scaena_narrato::source_figures(&text),
+            }
         })
         .collect()
+}
+
+/// What `source` says, for its figures: its text, and the words it draws where it is a PDF and
+/// ops' `pdf` feature reads them.
+fn grounded_words(source: &Source) -> String {
+    #[cfg(feature = "pdf")]
+    if let Some(pdf) = &source.pdf {
+        return scaena_sources::pdf::words(&source.name, pdf)
+            .map(|w| format!("{}\n{w}", source.text))
+            .unwrap_or_else(|_| source.text.clone());
+    }
+    source.text.clone()
 }
 
 /// How a beat cites the source its slide names (narrative FUNC-3): by the source's address where
@@ -1348,6 +1374,7 @@ pub fn from_slides(
                 url: None,
                 bytes: bytes.len(),
                 truncated: false,
+                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes)),
             })
             .chain(grounds.iter().map(|s| Provenance {
                 name: s.name.clone(),
@@ -1355,6 +1382,7 @@ pub fn from_slides(
                 url: scaena_sources::address(&s.name, s.kind),
                 bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
                 truncated: false,
+                figures: scaena_narrato::source_figures(&grounded_words(s)),
             }))
             .collect();
         generation.give_sources(given);
@@ -14111,6 +14139,26 @@ mod tests {
         assert!(refused.starts_with("Source \"https://example.org/a\" (text)"), "{refused}");
     }
 
+    /// Each source keeps the figures it holds, a PDF's from the words it draws where ops' `pdf`
+    /// feature reads them, so health holds a slide that cites it to them (W1's dogfood 17).
+    #[test]
+    fn each_source_keeps_its_figures() {
+        let report = std::fs::read(root().join("docs/examples/dogfood-17/report.pdf")).unwrap();
+        let pdf = Source { pdf: Some(report), ..source("report.pdf", Kind::Pdf, "") };
+        let sheet = source("canopy.csv", Kind::Csv, "year,canopy_pct\n2016,31.4\n2025,25.8\n");
+        let read = [pdf, sheet];
+        let g = grounding(&read, Provider::Anthropic).unwrap();
+        let kept = provenance(&g.given, &read, &g.words);
+        assert_eq!(kept[1].figures, ["25.8", "31.4", "2016", "2025"]);
+        if cfg!(feature = "pdf") {
+            assert!(kept[0].figures.contains(&"7560".to_string()) && kept[0].figures.contains(&"9".to_string()));
+        } else {
+            assert!(kept[0].figures.is_empty());
+        }
+        let deck: Value = serde_json::to_value(&kept[1]).unwrap();
+        assert_eq!(deck["figures"][0], "25.8");
+    }
+
     /// With ops' `pdf` feature, the CLI's, each PDF's words are held for the notes' figures, and a
     /// PDF whose words cannot be read is said (W1's dogfood 17); the browser's modules hold none.
     #[test]
@@ -14177,7 +14225,7 @@ mod tests {
             slide.source_ref = named.map(str::to_string);
         }
         let mut n = narrative(&summary, slides);
-        n.sources = provenance(&g.given);
+        n.sources = provenance(&g.given, &[], &[]);
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let deck = write.unwrap().deck.to_value().unwrap();
         let sources = &deck["meta"]["narrative"]["sources"];
@@ -14229,7 +14277,7 @@ mod tests {
         slides.truncate(8);
         let made = |slides: Vec<Slide>| -> Vec<String> {
             let mut n = narrative(&summary, slides);
-            n.sources = provenance(&g.given);
+            n.sources = provenance(&g.given, &[], &[]);
             let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
             let deck = write.unwrap().deck.to_value().unwrap();
             let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();

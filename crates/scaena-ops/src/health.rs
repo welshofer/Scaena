@@ -3100,6 +3100,66 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
     };
     let mut unsourced: Vec<(String, String)> = Vec::new();
+    // The figures each source the deck keeps them for holds (deck format 0.41, W1's dogfood 17),
+    // with every way a beat cites it: `source:NAME`, its address, and the data the deck keeps of
+    // its file (`@id`). A deck made before 0.41 keeps none, and reads as it did.
+    let kept: Vec<(String, Vec<String>, Vec<f64>)> =
+        (narrative.and_then(|n| n.get("sources")).and_then(Value::as_array))
+            .into_iter()
+            .flatten()
+            .filter_map(|source| {
+                let name = source.get("name")?.as_str()?;
+                let values: Vec<f64> =
+                    (source.get("figures")?.as_array()?.iter()).filter_map(|v| v.as_str()?.parse().ok()).collect();
+                if values.is_empty() {
+                    return None;
+                }
+                let mut ways = vec![format!("{}{name}", scaena_core::document::SOURCE_CITED)];
+                ways.extend(source.get("url").and_then(Value::as_str).map(str::to_string));
+                for (id, data) in &deck.data {
+                    if data.source.as_str().and_then(|path| path.rsplit('/').next()) == Some(name) {
+                        ways.push(format!("@{id}"));
+                    }
+                }
+                Some((name.to_string(), ways, values))
+            })
+            .collect();
+    let holds = |values: &[f64], f: &Figure| {
+        let read = scaena_narrato::figures(&f.shown);
+        !read.is_empty() && read.iter().any(|v| values.iter().any(|h| (h - v).abs() < 1e-9))
+    };
+    // A figure a slide writes where every source its beat cites keeps its figures and none holds
+    // it, and another the deck keeps does (W1's dogfood 17: the canopy deck's 9°F, cited to
+    // canopy.csv, is the report's): the slide's first, with the sources it cites, by their places
+    // in `kept`, the one that holds it, and its evidence's place in the spine. A figure no source
+    // the deck keeps holds, worked out from the sources (a change, a sum) or the talk's own (a
+    // target, an ask), is no finding.
+    let miscited = |i: usize, shown: &str, written: &[Figure]| -> Option<(usize, String, Vec<usize>, usize)> {
+        let (.., beat) = slides.get(i)?.beat?;
+        let mut citing: Vec<usize> = Vec::new();
+        for e in &beat.evidence {
+            let k = kept.iter().position(|(_, ways, _)| ways.contains(e))?;
+            if !citing.contains(&k) {
+                citing.push(k);
+            }
+        }
+        for (k, (name, ..)) in kept.iter().enumerate() {
+            if names_source(shown, &[source_words(name)]) && !citing.contains(&k) {
+                citing.push(k);
+            }
+        }
+        if citing.is_empty() {
+            return None;
+        }
+        written.iter().find_map(|f| {
+            if citing.iter().any(|&k| holds(&kept[k].2, f)) {
+                return None;
+            }
+            let holder = (0..kept.len()).find(|k| !citing.contains(k) && holds(&kept[*k].2, f))?;
+            Some((i, f.shown.clone(), citing.clone(), holder))
+        })
+    };
+    let mut wrongly: Vec<(usize, String, Vec<usize>, usize)> = Vec::new();
     if !sources.is_empty() {
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
         // sourced is sourced where it is said again (W1's dogfood 5).
@@ -3115,6 +3175,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 || names_source(&shown, &sources);
             let written = figures(&shown);
             if cited {
+                if let Some(wrong) = miscited(i, &shown, &written) {
+                    wrongly.push(wrong);
+                }
                 known.extend(written.into_iter().map(|f| (f.value, f.unit)));
                 continue;
             }
@@ -3152,6 +3215,44 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             };
             find(&read[first].id, Severity::Warning, Kind::Source, says, ask, None);
         }
+    }
+    // Each figure a slide cites the wrong source for, with the one that holds it cited in place of
+    // a source the slide's other figures do not need, else beside the rest.
+    for (i, figure, citing, holder) in wrongly {
+        let k = i + 1;
+        let (section, b, beat) = slides[i].beat.expect("a slide that cites a source has a beat");
+        let named = |c: &[usize]| -> String {
+            let names: Vec<&str> = c.iter().map(|&c| kept[c].0.as_str()).collect();
+            match names.as_slice() {
+                [one] => one.to_string(),
+                [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+                [] => String::new(),
+            }
+        };
+        let (cited, does) = (named(&citing), if citing.len() > 1 { "neither holds" } else { "which does not hold" });
+        let does = if citing.len() > 2 { "none of which holds" } else { does };
+        let holder_name = &kept[holder].0;
+        let to = format!("{}{holder_name}", scaena_core::document::SOURCE_CITED);
+        let at = format!("/spine/sections/{section}/beats/{b}/evidence");
+        // A `source:` the slide cites that holds none of its other figures is the one replaced.
+        let others = figures(&format!("{}\n{}", read[i].title, read[i].body));
+        let spare = beat.evidence.iter().position(|e| {
+            let Some(c) = kept.iter().position(|(_, ways, _)| ways[0] == *e) else { return false };
+            !others.iter().any(|f| f.shown != figure && holds(&kept[c].2, f))
+        });
+        let patch = match spare {
+            Some(j) => json!({ "op": "replace", "path": format!("{at}/{j}"), "value": to }),
+            None => json!({ "op": "add", "path": format!("{at}/-"), "value": to }),
+        };
+        unsourced.push((read[i].id.clone(), figure.clone()));
+        find(
+            &read[i].id,
+            Severity::Warning,
+            Kind::Source,
+            format!("Slide {k} writes {figure} and cites {cited}, {does} it; {holder_name} does."),
+            format!("Cite {holder_name} for {figure} on slide {k}, or say on it where {figure} comes from."),
+            Some(Fix { says: format!("Cite {holder_name}"), patch: vec![patch] }),
+        );
     }
     // A talk that runs short of the slot its slides are given, or past it, found on its shortest
     // beat or its longest, with the beats that run so named (lift-up FUNC-1).
@@ -4271,6 +4372,78 @@ mod tests {
             let h = of(&outlined_deck(name, |_| {}));
             assert!(unbuilt(&h).iter().all(|(s, ..)| *s == Severity::Warning), "{name}: {:#?}", unbuilt(&h));
         }
+    }
+
+    /// A figure a slide cites to a source the deck keeps, which does not hold it, while another it
+    /// keeps does, is found with the one that holds it, cited by its fix (W1's dogfood 17: the
+    /// canopy deck, as worked, cites its sheet for the report's 9°F, and the report for about 450
+    /// trees a year, which only the sheet says). It moves no score, and a deck that keeps no
+    /// source's figures, made before format 0.41, reads as it did.
+    #[test]
+    fn a_figure_cited_to_a_source_that_does_not_hold_it_is_found_with_the_one_that_does() {
+        let path = root().join("docs/examples/dogfood-17/bundle/deck.worked.json");
+        let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let cited = |h: &Health| -> Vec<(usize, String, Option<String>)> {
+            (h.findings.iter())
+                .filter(|f| f.kind == Kind::Source)
+                .map(|f| (f.slide, f.says.clone(), f.fix.as_ref().map(|x| x.says.clone())))
+                .collect()
+        };
+        let before = of(&deck);
+        assert_eq!(cited(&before), [], "no figures kept, as before 0.41");
+        // The figures the generator keeps of the report's words and the sheet's cells.
+        let report = "Riverton's tree canopy covered 25.8% of the city in 2025, down from 31.4% in 2016.\n\
+            Over ten years the city removed 7,560 street trees and planted 4,370.\n\
+            Eastside fell from 22% to 14%.\n\
+            Surface temperatures on Eastside blocks ran 9 degrees Fahrenheit hotter.\n\
+            A young tree takes about 15 years to cast the shade of the tree it replaces.\n\
+            Riverton's trees remove an estimated 410 tonnes of air pollution a year and intercept 180 million gallons of stormwater.\n\
+            The division values these services at $6.2 million a year.\n\
+            A planting program of 1,500 trees a year would cost $2.1 million a year and return the canopy to 30% by 2040.";
+        let canopy = std::fs::read_to_string(root().join("docs/examples/dogfood-17/bundle/data/canopy.csv")).unwrap();
+        for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
+            let text = if s["name"] == "report.pdf" { report } else { canopy.as_str() };
+            s["figures"] = json!(scaena_narrato::source_figures(text));
+        }
+        let h = of(&deck);
+        assert_eq!(
+            cited(&h),
+            [
+                (
+                    3,
+                    "Slide 3 writes 9°F and cites canopy.csv, which does not hold it; report.pdf does.".to_string(),
+                    Some("Cite report.pdf".to_string())
+                ),
+                (
+                    4,
+                    "Slide 4 writes 450 and cites report.pdf, which does not hold it; canopy.csv does.".to_string(),
+                    Some("Cite canopy.csv".to_string())
+                ),
+            ]
+        );
+        assert_eq!(h.score, before.score, "a finding no measure reads");
+        let three = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == 3).unwrap();
+        assert_eq!(three.figure.as_deref(), Some("9°F"));
+        assert!(three.ask.starts_with("Cite report.pdf for 9°F on slide 3, or say on it where"), "{}", three.ask);
+        // Each fix answers its finding: the sheet's slide cites the report beside the sheet, which
+        // its other figures need, and the report's slide cites the sheet in the report's place.
+        for f in h.findings.iter().filter(|f| f.kind == Kind::Source) {
+            let mut fixed = deck.clone();
+            scaena_core::patch::apply(&mut fixed, &f.fix.as_ref().unwrap().patch).unwrap();
+            assert!(!cited(&of(&fixed)).iter().any(|(k, ..)| *k == f.slide), "{:?}", f.fix);
+        }
+        let op = |k: usize| {
+            let f = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == k).unwrap();
+            f.fix.as_ref().unwrap().patch[0]["op"].as_str().unwrap().to_string()
+        };
+        assert_eq!((op(3), op(4)), ("add".to_string(), "replace".to_string()));
+        // A source that keeps no figures leaves the slides that cite it unjudged, and holds none.
+        for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
+            if s["name"] == "canopy.csv" {
+                s.as_object_mut().unwrap().remove("figures");
+            }
+        }
+        assert_eq!(cited(&of(&deck)), []);
     }
 
     /// A slide that draws a chart and says nothing in words is asked for its notes, never said to
@@ -6389,6 +6562,7 @@ mod tests {
                 url: None,
                 bytes: 1,
                 truncated: false,
+                figures: Vec::new(),
             }]
         };
         let unsourced = |deck: &Value| -> Vec<(usize, String, String)> {
@@ -6477,6 +6651,7 @@ mod tests {
             url: None,
             bytes: 1,
             truncated: false,
+            figures: Vec::new(),
         });
         let found = unsourced(&grounded_dogfood("fleet", "", two, |_| {}));
         assert_eq!(found.len(), 1, "{found:?}");
@@ -6539,6 +6714,7 @@ mod tests {
                 url: None,
                 bytes: 1,
                 truncated: false,
+                figures: Vec::new(),
             }]
         };
         let shown = |text: &str| figures(text).into_iter().map(|f| f.shown).collect::<Vec<_>>();
@@ -6623,6 +6799,7 @@ mod tests {
                 url: None,
                 bytes: 1,
                 truncated: false,
+                figures: Vec::new(),
             }]
         };
         let said = |slides: &mut Vec<answer::Slide>| {

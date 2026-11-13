@@ -485,3 +485,42 @@ With the second set, health finds 12 of the 16 topic headlines the reader counts
 - **Each option moves ρ between −0.04 and +0.07 on six decks.** One swap of neighbours is about 0.1. The table can show which options hold the reader's order, but not that any option is better than the base by a measured margin.
 - **The 13 calibration decks still can't test them.** None keeps an outline or has a warning of these kinds, so ρ there stays +0.65 under every option.
 - **No recommendation.** The cap's noise is gone; the question stays Jay's.
+
+## A figure the cited source doesn't hold
+
+W1's dogfood 17 asked whether a figure should count as backed only where a source its slide cites holds it ("proposal n"). Until now, health backed every figure on a slide whose beat cites any source, since a bundle keeps no source's words to check against.
+
+### How it was measured
+
+Five decks have sources, each built with no model called:
+- dogfood 17, as made and as worked (`report.pdf`, `canopy.csv`);
+- dogfood 9's and dogfood 10's board updates (`board.csv`);
+- dogfood 13's biotonne deck (`bericht.pdf`, `abfall.csv`), through its scripted provider.
+
+Each source's figures were read from its words and cells, a PDF's with `scaena_sources::pdf::words` (#1266). A slide's figure counts as held where the sources its beat cites hold the same value, read by the figure reader the notes check uses.
+
+None of the 19 calibration decks is made from sources, so the check never runs on them. ρ is unchanged: +0.65 on the 13 and +0.93 on the 6.
+
+`source` findings feed no measure, so no deck's score moves under either rule.
+
+### n as asked, and n′
+
+**n** finds every figure on a cited slide that the cited sources don't hold. **n′** finds only those that another of the deck's sources does hold, and asks to cite that one.
+
+| deck | `source` findings today | n | n right | n wrong | n′ | n′ right | n′ wrong |
+|---|---|---|---|---|---|---|---|
+| d17 as made | 0 | 1 | 1 | 0 | 1 | 1 | 0 |
+| d17 as worked | 0 | 2 | 2 | 0 | 2 | 2 | 0 |
+| d9 board | 2 | 7 | 0 | 5 | 2 | — | 0 |
+| d10 board | 5 | 9 | 0 | 4 | 5 | — | 0 |
+| d13 biotonne | 0 | 0 | — | — | 0 | — | — |
+
+- **What n gets right.** Dogfood 17's slide 3 writes 9°F and cites `canopy.csv`, and the report holds it. Slide 4's "about 450 trees a year" cites the report, which never says 450; the sheet's 2022 planting does.
+- **What n gets wrong.** Six are figures worked out from the sheet: 10%, 47%, 42%, +23 customers, −11%, and −$12.3M. Three are the talk's own: an ask ($600K) and two targets (under 10 days, 12). A reader asks neither kind for a source.
+- **n′ keeps the three right and none of the nine.** The board decks and biotonne read exactly as today.
+
+n′ is built: `meta.narrative.sources[].figures` (deck format 0.41) and the `source` finding with its fix, Cite the source that holds the figure. On the decks above it finds what the table's n′ column says, and each fix clears its finding.
+
+### What a source keeps
+
+Each source keeps its figures alone, each value once: biotonne's `bericht.pdf` keeps 15 (93 bytes), its `abfall.csv` 15 (120 bytes), and dogfood 9's `board.csv` 36 (241 bytes). The reader's ü, ß and € in `bericht.pdf` are dropped (its font has no ToUnicode for them); its figures read.
