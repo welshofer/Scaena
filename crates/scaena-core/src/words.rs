@@ -551,6 +551,8 @@ const OPS: &[(&str, &str)] = &[
     ("move_slide", "a slide moved"),
     ("remove_slide", "a slide deleted"),
     ("fold_slide", "a slide folded into the one before"),
+    ("focus", "code's lines put in focus"),
+    ("walk", "code walked through, a step for each set of lines"),
     ("retheme", "the theme changed"),
     ("furnish", "the slide numbers and footer set"),
     ("brief", "the brief changed"),

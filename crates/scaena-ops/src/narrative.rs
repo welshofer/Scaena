@@ -6330,14 +6330,16 @@ impl Slots<'_> {
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
             // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
             "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
-                self.idea.map(str::to_string).or_else(|| self.title())
+                self.idea.map(|i| typeset(i, self.lang)).or_else(|| self.title())
             }
             // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
             "statement" if layout == "call-to-action" => {
-                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| ask)
+                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| typeset(&ask, self.lang))
             }
-            // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8).
-            "statement" if self.claimed_close() => self.close_heading().map(str::to_string),
+            // A bare thanks says what heads it, its beat's claim or the big idea, the thanks under
+            // it (W1's dogfood 8; R1's agent dogfood 12), set as the slide's own words are, so
+            // "460.000 €" keeps its figure and its euro on one line: both come from the outline, as typed.
+            "statement" if self.claimed_close() => self.close_heading().map(|c| typeset(c, self.lang)),
             "support" if self.claimed_close() => Some(self.thanks()),
             // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
             "support" if self.thanked_close() => {
@@ -12004,6 +12006,29 @@ mod tests {
         assert!(!said.iter().any(|(_, w)| w.contains(claim.trim_end_matches('.'))), "{said:#?}");
     }
 
+    /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
+    /// Seville's close, "Aprueben 460.000 € …" over "Gracias", kept its plain space before the
+    /// euro and broke "460.000 / €" over two lines, where the ask's own headline kept them joined.
+    #[test]
+    fn the_claim_that_heads_a_bare_close_is_typeset() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        n.brief.language = Some("Spanish".into());
+        n.outline.as_mut().unwrap().beats[5].claim = "Aprueben 460.000 € para llegar a 120 fuentes en 2027.".into();
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Gracias".into();
+        last.key_bullets = vec!["¿Preguntas?".into()];
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(
+            said.iter()
+                .any(|(slot, w)| slot == "statement"
+                    && w == "Aprueben 460.000\u{a0}€ para llegar a 120 fuentes en 2027."),
+            "{said:#?}"
+        );
+    }
+
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says
     /// its beat's claim, the thanks under it, so the deck ends on its ask; where the slide gives
     /// somewhere to act and the claim asks, Call to Action, the claim its words (W1's dogfood 8).
@@ -12284,6 +12309,46 @@ mod tests {
         assert!(!clear(&mut deck, &view, found, &mut held).unwrap());
         assert_eq!(deck["nodes"][&title], before["nodes"][&title]);
         assert_eq!(deck, before);
+    }
+
+    /// A made deck's headings and labels the theme keeps are the slide's words, never prompts left
+    /// (theme format 0.30, W1 dogfood 18): an agenda's "Agenda", a SWOT's four quarters, a Q&A's
+    /// "Questions?", and a closing's "Thank you", each its slot's prompt as the theme writes it,
+    /// draw no W305; a heading the theme does not keep, left as its prompt, is still found.
+    #[test]
+    fn a_made_decks_kept_headings_are_no_prompts_left() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({ "executiveSummary": "Benchmark until the numbers settle.", "slides": [
+            { "slideTitle": "Benchmark like you mean it", "layoutSuggestion": "Title", "keyBullets": [] },
+            { "slideTitle": "Agenda", "layoutSuggestion": "Agenda", "keyBullets": ["Why one run lies", "How hyperfine settles", "What to do Monday"] },
+            { "slideTitle": "Where hyperfine stands", "layoutSuggestion": "SWOT", "keyBullets": [
+                "Strengths: statistics built in", "Weaknesses: one machine at a time",
+                "Opportunities: CI regressions", "Threats: noisy shared runners"] },
+            { "slideTitle": "Questions?", "layoutSuggestion": "Q&A", "keyBullets": ["What about Windows?", "Does it measure memory?"] },
+            { "slideTitle": "Thank you", "layoutSuggestion": "Closing", "keyBullets": ["github.com/sharkdp/hyperfine"] },
+        ]})
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.arc = "Learning Journey".into();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let layouts: Vec<&str> =
+            (built.deck["states"].as_array().unwrap().iter()).filter_map(|s| s["layout"].as_str()).collect();
+        assert_eq!(layouts, ["title-center", "agenda", "swot", "qa", "closing"]);
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
+        assert!(left.is_empty(), "{left:#?}");
+        // The same deck in a theme whose agenda keeps nothing finds its "Agenda" left.
+        let mut unkept: Value = serde_json::from_str(&dusk()).unwrap();
+        unkept["layouts"]["agenda"]["slots"]["header"].as_object_mut().unwrap().remove("kept");
+        let unkept = unkept.to_string();
+        let theme: Theme = serde_json::from_str(&unkept).unwrap();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), unkept, &font).unwrap();
+        let left: Vec<String> =
+            made.created.findings.iter().filter(|f| f.code == "W305").map(|f| f.message.clone()).collect();
+        assert_eq!(left.len(), 1, "{left:#?}");
+        assert!(left[0].contains("\u{201c}Agenda\u{201d}"), "{left:#?}");
     }
 
     /// A quiz's letters and a process's step numbers are their places' labels, which a made deck

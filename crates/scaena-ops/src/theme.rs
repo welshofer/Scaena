@@ -920,7 +920,8 @@ fn drawable(layout: &Value, presets: Option<&serde_json::Map<String, Value>>) ->
 
 /// `own`, a layout the copy has, given what the library's `theirs` says of it where it says
 /// nothing: its name, section, and description, and each slot's prompt and example, where that
-/// slot takes words as the library's does or a picture as it does. Whether it was given any.
+/// slot takes words as the library's does or a picture as it does, and `kept` where it says the
+/// library's prompt. Whether it was given any.
 fn given(own: &Value, theirs: &Value, presets: Option<&serde_json::Map<String, Value>>) -> (Value, bool) {
     let mut out = own.clone();
     let mut named = false;
@@ -947,6 +948,12 @@ fn given(own: &Value, theirs: &Value, presets: Option<&serde_json::Map<String, V
                 s.insert(field.to_string(), v.clone());
                 named = true;
             }
+        }
+        // A prompt the library marks as finished copy is so in the copy too, where the copy says
+        // the same words there (theme format 0.30, W1 dogfood 18): a heading a person kept.
+        if !s.contains_key("kept") && t.get("kept") == Some(&Value::Bool(true)) && s.get("prompt") == t.get("prompt") {
+            s.insert("kept".into(), Value::Bool(true));
+            named = true;
         }
     }
     (out, named)

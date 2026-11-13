@@ -755,17 +755,82 @@ fn clock(word: &str) -> bool {
         && minutes.parse::<u32>().is_ok_and(|m| m < 60)
 }
 
-/// Whether `text` names one of `sources` by its name's words, its extension aside, in their order
-/// ("the season report" names `season-report.pdf`), as a panel reads a slide that says where a
-/// figure is from.
-fn names_source(text: &str, sources: &[Vec<String>]) -> bool {
-    let words: Vec<String> = text
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(str::to_string)
-        .collect();
-    sources.iter().filter(|name| !name.is_empty()).any(|name| words.windows(name.len()).any(|w| w == name.as_slice()))
+/// The words a slide labels its source with, in each language a made deck writes them in
+/// (`narrative::own`), lowercase: "Source: lines" names `lines.csv`; and English's "from" and its
+/// kin, as an ask's "naming the source" is answered ("from the pilot", W1's dogfood 5).
+const SOURCE_LABELS: &[&str] = &[
+    "according to",
+    "from",
+    "per",
+    "sources",
+    "source",
+    "fuentes",
+    "fuente",
+    "quellen",
+    "quelle",
+    "fontes",
+    "fonte",
+    "bronnen",
+    "bron",
+    "zdroje",
+    "zdroj",
+    "źródła",
+    "źródło",
+    "джерела",
+    "джерело",
+    "出典",
+    "来源",
+    "출처",
+    "المصدر",
+    "स्रोत",
+];
+
+/// Whether `text` names one of the sources `names` by its name's words, its extension aside, in
+/// their order ("the season report" names `season-report.pdf`), as a panel reads a slide that says
+/// where a figure is from. A name of one word is an ordinary word as often as a name ("2,100 lines
+/// replaced" says nothing of `lines.csv`, editor dogfood 8): it names its source only as the whole
+/// file name ("lines.csv"), or after a word that labels a source ("Source: lines", "Fuente:
+/// piloto.csv").
+fn names_source(text: &str, names: &[String]) -> bool {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    names.iter().any(|name| {
+        let named = source_words(name);
+        match named.as_slice() {
+            [] => false,
+            [one] => {
+                // The whole file name, its extension with it.
+                let whole = source_words_whole(name);
+                (whole.len() > 1 && words.windows(whole.len()).any(|w| w.iter().eq(whole.iter())))
+                    || labelled(&lower, one)
+            }
+            _ => words.windows(named.len()).any(|w| w.iter().eq(named.iter())),
+        }
+    })
+}
+
+/// Whether `lower` says `word` right after a word that labels a source, the label's punctuation
+/// and spaces between, and a "the": "source: lines", "出典：lines", "from the pilot".
+fn labelled(lower: &str, word: &str) -> bool {
+    SOURCE_LABELS.iter().any(|label| {
+        lower.match_indices(label).any(|(at, _)| {
+            // The label a word of its own: not the end of a longer word.
+            if lower[..at].chars().next_back().is_some_and(char::is_alphanumeric)
+                || lower[at + label.len()..].chars().next().is_some_and(char::is_alphanumeric)
+            {
+                return false;
+            }
+            let after =
+                lower[at + label.len()..].trim_start_matches(|c: char| c.is_whitespace() || ":：-–—".contains(c));
+            let after = after.strip_prefix("the ").unwrap_or(after);
+            after.starts_with(word) && !after[word.len()..].chars().next().is_some_and(char::is_alphanumeric)
+        })
+    })
+}
+
+/// A source's name as its words, its extension among them: "lines.csv" is "lines csv".
+fn source_words_whole(name: &str) -> Vec<String> {
+    name.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_string).collect()
 }
 
 /// A source's name as the words a slide would say it in: "season-report.pdf" is "season report".
@@ -1573,6 +1638,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         layout.is_some_and(|l| FRAMING.contains(&l) || CLOSING.contains(&l)) || closing.contains(&read[i].id)
     };
+    // A quiz asks the room what the talk has told it: it says an earlier slide's words again by
+    // design, so it is never found repeating one, nor named among the slides that add least (W1's
+    // dogfood 18: a quiz on a cold cache, after the slide that told it).
+    let recalls =
+        |i: usize| slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref()).is_some_and(|l| l == "quiz");
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
@@ -2945,9 +3015,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // offers to fold it into.
     let mut repeats: Vec<(String, String)> = Vec::new();
     for i in 1..read.len() {
+        if recalls(i) {
+            continue;
+        }
         let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
-        let Some((at, shared)) =
-            std::iter::once(i - 1).chain(earlier).find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
+        let Some((at, shared)) = (std::iter::once(i - 1).chain(earlier))
+            .filter(|&j| !recalls(j))
+            .find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
         else {
             continue;
         };
@@ -3027,9 +3101,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             // alone named a coherent talk's best-joined slides, its hook among them, and missed
             // one that said again a slide two back (agent dogfood 7).
             let pairs = &m.coherence.pair_similarities;
-            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).filter(|&i| !framing(i) && !closes(i)).collect();
+            let mut cut: Vec<usize> =
+                (1..n.saturating_sub(1)).filter(|&i| !framing(i) && !closes(i) && !recalls(i)).collect();
             scaena_core::sort::by_key(&mut cut, |&i| {
-                let said = (0..i).filter(|&j| !framing(j)).map(|j| already(&read[j], &read[i])).fold(0.0, f64::max);
+                let said = (0..i)
+                    .filter(|&j| !framing(j) && !recalls(j))
+                    .map(|j| already(&read[j], &read[i]))
+                    .fold(0.0, f64::max);
                 let turned = pairs.get(i - 1).copied().unwrap_or(0.0);
                 (std::cmp::Reverse((said * 1e6) as i64), std::cmp::Reverse((turned * 1e6) as i64))
             });
@@ -3087,10 +3165,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // A figure a slide writes in a deck made from its sources, where the slide names none of them
     // (W1's dogfood 4): its beat cites no source, no address, and no data the deck keeps, so the
     // figure was the model's word alone, or a source's the slide never says.
-    let sources: Vec<Vec<String>> = (narrative.and_then(|n| n.get("sources")).and_then(Value::as_array))
+    let sources: Vec<String> = (narrative.and_then(|n| n.get("sources")).and_then(Value::as_array))
         .map(|all| {
             (all.iter())
-                .flat_map(|s| ["name", "title"].map(|k| s.get(k).and_then(Value::as_str).map(source_words)))
+                .flat_map(|s| ["name", "title"].map(|k| s.get(k).and_then(Value::as_str).map(str::to_string)))
                 .flatten()
                 .collect()
         })
@@ -3164,7 +3242,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             }
         }
         for (k, (name, ..)) in kept.iter().enumerate() {
-            if names_source(shown, &[source_words(name)]) && !citing.contains(&k) {
+            if names_source(shown, std::slice::from_ref(name)) && !citing.contains(&k) {
                 citing.push(k);
             }
         }
@@ -4475,6 +4553,20 @@ mod tests {
             f.fix.as_ref().unwrap().patch[0]["op"].as_str().unwrap().to_string()
         };
         assert_eq!((op(3), op(4)), ("add".to_string(), "replace".to_string()));
+        // A source named by one ordinary word is not named by a slide that says the word (editor
+        // dogfood 8: "2,100 lines replaced" named `lines.csv`): slide 4 saying "canopy" still cites
+        // only the report, and is found; saying "Source: canopy" cites the sheet, and is not.
+        let said = |deck: &mut Value, body: &str| {
+            deck["nodes"]["current-planting-efforts-body"]["text"] = json!(body);
+        };
+        let mut worded = deck.clone();
+        said(
+            &mut worded,
+            "About 450 trees planted a year\nThe canopy keeps shrinking\nNo watering after the first summer",
+        );
+        assert!(cited(&of(&worded)).iter().any(|(k, ..)| *k == 4), "{:?}", cited(&of(&worded)));
+        said(&mut worded, "About 450 trees planted a year\nSource: canopy\nNo watering after the first summer");
+        assert!(!cited(&of(&worded)).iter().any(|(k, ..)| *k == 4), "{:?}", cited(&of(&worded)));
         // A source that keeps no figures leaves the slides that cite it unjudged, and holds none.
         for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
             if s["name"] == "canopy.csv" {
@@ -6446,6 +6538,24 @@ mod tests {
             slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
         };
         assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
+        // A quiz says an earlier slide's words again by design (W1's dogfood 18): slide 7 as a
+        // quiz on the same hours and minutes, its answers slide 6's own points lettered, is no
+        // repeat, and is named among no slides to cut.
+        let quizzed = |slides: &mut Vec<answer::Slide>| {
+            let answers: Vec<String> = (slides[5].key_bullets.iter().take(3).enumerate())
+                .map(|(k, b)| format!("{}: {b}", char::from(b'A' + k as u8)))
+                .collect();
+            slides[6].layout_suggestion = "Quiz".into();
+            slides[6].key_bullets = answers;
+        };
+        let made = dogfood("fleet", "", quizzed);
+        let quiz = (made["states"].as_array().unwrap().iter())
+            .find(|s| s["layout"] == "quiz")
+            .expect("slide 7 is set as a quiz");
+        assert!(quiz["id"].as_str().unwrap().starts_with("planning"), "{}", quiz["id"]);
+        let h = of(&made);
+        assert!(again(&h).is_empty(), "{:?}", again(&h));
+        assert!(!h.findings.iter().any(|f| f.says.contains("add least") && f.slide == 7), "{:#?}", h.findings);
     }
 
     /// A slide that says again what a slide two or more back said, another between them, is found
@@ -6751,8 +6861,24 @@ mod tests {
             assert_eq!(shown(written)[0].1, "240", "{written}");
             assert_eq!(shown(written)[0].2, "k\u{20ac}", "{written}");
         }
-        assert!(names_source("on page 11 of the season report", &[source_words("season-report.pdf")]));
-        assert!(!names_source("the season was long", &[source_words("season-report.pdf")]));
+        let named = |text: &str, name: &str| names_source(text, &[name.to_string()]);
+        assert!(named("on page 11 of the season report", "season-report.pdf"));
+        assert!(!named("the season was long", "season-report.pdf"));
+        // A name of one word names its source as its whole file name, or after a word that labels
+        // a source, in any language a made deck writes one in; an ordinary word does not (editor
+        // dogfood 8).
+        assert!(!named("2,100 lines replaced in 2025", "lines.csv"));
+        assert!(named("Counted in lines.csv, 2025", "lines.csv"));
+        assert!(named("Source: lines", "lines.csv"));
+        assert!(named("Fuente: piloto.csv", "piloto.csv"));
+        assert!(named("Quelle: umsatz", "umsatz.csv"));
+        assert!(named("出典：lines", "lines.csv"));
+        assert!(named("स्रोत: lines", "lines.csv"));
+        assert!(!named("Source: linesman's notes", "lines.csv"));
+        assert!(!named("Opensource lines", "lines.csv"));
+        assert!(named("less fuel spend, from the pilot", "pilot.csv"));
+        assert!(named("per the inventory, 2025", "inventory.xlsx"));
+        assert!(!named("lines fell from 2,100 to 1,900", "lines.csv"));
     }
 
     /// A date's day is no figure to source, as each language writes a date (W2's health read:
