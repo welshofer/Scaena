@@ -7610,8 +7610,9 @@ fn source(chart: &ChartData, dated: bool) -> Value {
 }
 
 /// Whether `categories` have an order of their own: a figure in one (a year, a quarter, a range,
-/// an age), a month or a day, or a word of a scale.
-fn ordered(categories: &[String]) -> bool {
+/// an age), a month or a day, in English or in the deck's language (`lang`: "Mayo" to
+/// "Septiembre", R1's agent dogfood 12), or a word of a scale.
+fn ordered(categories: &[String], lang: &str) -> bool {
     const ORDERED: [&str; 63] = [
         "low",
         "medium",
@@ -7677,10 +7678,17 @@ fn ordered(categories: &[String]) -> bool {
         "sat",
         "sun",
     ];
+    let locale = scaena_core::format::Locale::of(Some(lang));
+    let named = |w: &str| {
+        (locale.months.iter().chain(&locale.short_months).chain(&locale.days).chain(&locale.short_days))
+            .any(|name| name.trim_end_matches('.').to_lowercase() == w)
+    };
     categories.iter().any(|c| {
         let lower = c.to_lowercase();
         lower.chars().any(|ch| ch.is_ascii_digit())
-            || lower.split(|ch: char| !ch.is_alphanumeric()).any(|w| ORDERED.contains(&w))
+            || lower
+                .split(|ch: char| !ch.is_alphanumeric())
+                .any(|w| ORDERED.contains(&w) || (!w.is_empty() && named(w)))
     })
 }
 
@@ -8089,11 +8097,12 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     };
     // The bar a sentence names: the latest where its words run on from the category they name
     // ("since 2022"), else that one.
-    let lit =
-        |text: &str, one: usize| match (years || ordered(&chart.categories)) && runs_on(text, &chart.categories[one]) {
-            true => chart.categories.len().checked_sub(1),
-            false => Some(one),
-        };
+    let lit = |text: &str, one: usize| match (years || ordered(&chart.categories, lang))
+        && runs_on(text, &chart.categories[one])
+    {
+        true => chart.categories.len().checked_sub(1),
+        false => Some(one),
+    };
     // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
     // dipped in June") (W1's dogfood 8): the claim, ahead of the category a takeaway names for
     // what surrounds it ("Two clients moved their contracts into March", agent dogfood 3).
@@ -8102,7 +8111,8 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     }
     // Two the headline compares, the first its subject ("Une station au nord fait cinq fois moins
     // de trajets qu'au centre" lights Nord, R1's French dogfood 4).
-    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories))) {
+    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories, lang)))
+    {
         return Some(i);
     }
     if let [one] = named.as_slice() {
@@ -8278,7 +8288,7 @@ fn chart_node(
     }
     // Bars of names with no order of their own run longest first, as a designer sorts them;
     // years, quarters, ranges, months, and the words of a scale keep the order they were written in.
-    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories) {
+    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories, lang) {
         node["dataTransform"] = json!([{ "sort": "-value" }]);
     }
     // Names too long to stand under their bars run down the side, the bars across.
@@ -9424,7 +9434,13 @@ mod tests {
         assert_eq!(lit(&revenue, "2024 revenue lower than 2025", "en"), Some(1));
         let quarters = stations(["Q1", "Q2", "Q4"]);
         // Quarters are ordered too: "vs" names neither, and the rules light the largest, Q2, as before.
-        assert!(ordered(&quarters.categories));
+        assert!(ordered(&quarters.categories, "en"));
+        // Months are ordered in the deck's language too, as Seville's "Mayo" to "Septiembre"
+        // are (R1's agent dogfood 12); an English deck reads them as names.
+        let meses = ["Mayo", "Junio", "Julio", "Agosto", "Septiembre"].map(String::from);
+        assert!(ordered(&meses, "es"));
+        assert!(!ordered(&meses, "en"));
+        assert!(ordered(&["Lunes", "Martes", "Miércoles", "Jueves"].map(String::from), "es"));
         assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
         assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
     }
