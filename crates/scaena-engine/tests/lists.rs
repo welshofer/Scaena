@@ -103,6 +103,31 @@ fn items_hang_at_their_indent_with_their_markers() {
     assert_eq!(cells, [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1], [4, 1]]);
 }
 
+/// Each glyph of a marker says its own character, "1." as "1" and ".": a PDF maps each glyph to
+/// one text, so a marker's "1" that said "1." made every figure set in that glyph copy as "1.",
+/// "100 000" as "1.00 000" (W1's dogfood 19).
+#[test]
+fn a_markers_glyphs_each_say_their_own_character() {
+    let list = json!([{ "kind": "number" }, { "kind": "number" }, null, null, null]);
+    let (_, dl) = at_rest(&deck(node(list)));
+    fn said(ops: &[Op], out: &mut Vec<(String, Vec<u32>)>) {
+        for op in ops {
+            match op {
+                Op::Glyphs { text, clusters, .. } => out.push((text.clone(), clusters.clone())),
+                Op::Layer { ops, .. } => said(ops, out),
+                _ => {}
+            }
+        }
+    }
+    let mut runs = Vec::new();
+    said(&dl.ops, &mut runs);
+    let marks: Vec<&(String, Vec<u32>)> = runs.iter().filter(|(t, _)| t == "1." || t == "2.").collect();
+    assert_eq!(marks.len(), 2, "{runs:?}");
+    for (text, clusters) in marks {
+        assert_eq!(clusters, &[0, 1], "{text}");
+    }
+}
+
 #[test]
 fn a_text_that_is_no_list_is_laid_out_as_it_was() {
     let (plain, plain_dl) = at_rest(&deck(node(Value::Null)));
