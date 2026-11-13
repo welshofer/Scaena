@@ -27,8 +27,9 @@ export interface Copy {
   key?: string;
 }
 
-/** How a deck kept nowhere opens again. */
-export type Reopen = { create: { theme: string; title: string } } | { files: string[] };
+/** How a deck kept nowhere opens again: `begins` where the editor made it, its history beginning
+ * at its first save. */
+export type Reopen = { create: { theme: string; title: string } } | { files: string[]; begins?: boolean };
 
 /** The record `copy.json` holds. */
 type Record_ = Omit<Copy, "source">;
