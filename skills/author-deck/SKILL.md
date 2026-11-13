@@ -113,6 +113,7 @@ Errors:
      - `remove_slide` and `move_slide` keep the spine whole: a beat a removal empties goes, and a beat that tells only the slide moves with it.
      - `fold_slide` folds a slide that says again what the slide before it said into that slide, or, with `into`, what an earlier slide said into that one (the `into` a health `story` finding names), as the editors' Fold does: its words join that slide's, its notes follow, and its claim joins that beat's notes. It stands alone in its patch; dry-run it first, and `folded.says` says what goes where.
      - `add_state` with `beat` adds a build to its beat.
+     - `focus` sets a code text's lines in focus in a state, the rest set back, as the editors' Focus on These Lines does; `walk` walks a code text through from a state, a step of its slide for each set of lines after the first, as their Walk Through Lines… does. Lines are written as the gutter numbers them ("11–13, 16"), and `null`, or `""` in `walk`'s `steps`, shows the whole block; the states after them are as they were.
    - A patch applies whole or not at all. One that would make the deck invalid is refused, and the error names the op that failed.
    - Each op is written as **The ops, as written** below shows it; one that does not read says its shape after why.
 9. **Look.**
@@ -152,6 +153,8 @@ Each semantic op of a patch (`deck_patch`'s `ops`, `scaena patch`), its required
 { "op": "duplicate_slide", "slide": STATE }
 { "op": "remove_slide", "slide": STATE }
 { "op": "fold_slide", "slide": STATE, "into"?: STATE }
+{ "op": "focus", "node": ID, "state": STATE, "lines"?: "11–13, 16" | null }
+{ "op": "walk", "node": ID, "state": STATE, "steps": ["1", "3–5", "", …] }
 { "op": "rename_state", "id": STATE, "to": STATE }
 { "op": "set_state", "id": STATE, "prop": "layout" | "hold" | "notes" | "furniture" | "transition" | "transition/KEY", "value": VALUE, "fork"?: BOOL }
 { "op": "furnish", "number"?: BOOL, "footer"?: TEXT }
