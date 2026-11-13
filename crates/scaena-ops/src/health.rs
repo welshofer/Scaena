@@ -453,7 +453,9 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
             let said = said.trim();
             let aside = matches!(props.get("semantic").and_then(Value::as_str), Some("navigation" | "decoration"))
                 || props.get("role").and_then(Value::as_str) == Some("kicker");
-            if said.is_empty() || said == title || aside {
+            // The title said again, in its words whatever its spacing or marks ("460.000\u{a0}€"
+            // where the claim keeps a plain space), is the title, never a point of the body.
+            if said.is_empty() || said == title || crate::narrative::says(&title, said) || aside {
                 continue;
             }
             // Code's lines are no points: a block of ten lines is one thing shown, as a chart is.
@@ -5985,6 +5987,36 @@ mod tests {
     /// found dense for its many lines nor thin for its few, as a chart's slide is not. On fleet,
     /// slide 9 is dense and, thinned, slide 4 thin; each of their texts under the headline made
     /// code, neither is found, and the score does not move, since warnings carry none.
+    /// A headline that says its beat's claim with other spacing than the claim keeps, a no-break
+    /// space where the claim has a plain one, is the title, never a point of the body, as it is
+    /// where the two match byte for byte (R1's agent dogfood 12: the close's "460.000\u{a0}€").
+    #[test]
+    fn a_headline_spaced_otherwise_than_its_claim_is_still_the_title() {
+        let mut deck = outlined_deck("lanes", |_| {});
+        let d = Deck::from_value(&deck).unwrap();
+        let sl = slides(&d);
+        let snaps = resolve_states(&d).unwrap();
+        // A slide whose beat's claim a text of it says, byte for byte.
+        let (k, id, claim) = (sl.iter().enumerate())
+            .find_map(|(k, slide)| {
+                let claim = slide.beat.map(|(.., b)| b.claim.trim().to_string()).filter(|c| c.contains(' '))?;
+                let last = *slide.states.last()?;
+                let id =
+                    (snaps[last].nodes.iter()).find(|(_, p)| words(p).trim() == claim).map(|(id, _)| id.clone())?;
+                Some((k, id, claim))
+            })
+            .expect("a slide headed by its beat's claim");
+        let read = readings(&d, &sl).unwrap().0;
+        assert!(!read[k].body.contains(&claim), "{:?}", read[k].body);
+        // Spaced otherwise, it is the title all the same.
+        let spaced = claim.replace(' ', "\u{a0}");
+        deck["nodes"][id.as_str()]["text"] = json!(spaced);
+        let d = Deck::from_value(&deck).unwrap();
+        let read = readings(&d, &slides(&d)).unwrap().0;
+        assert_eq!(read[k].title, claim);
+        assert!(!read[k].body.contains(&spaced), "{:?}", read[k].body);
+    }
+
     #[test]
     fn code_makes_no_points_a_room_reads() {
         let coded = |mut deck: Value, k: usize| {
