@@ -141,23 +141,18 @@ struct ThemePanel: View {
             })
     }
 
+    /// The deck put in the theme `picked`, one that ships by `ships:` and its name, made away from
+    /// the window, which goes on answering while the deck is linted in both themes (#1262's
+    /// follow-up).
     private func retheme(_ picked: String) {
-        var (recolored, refitted) = (0, 0)
-        let made = edits.beside("Theme Change") {
-            let session = editor.session
-            let themed =
-                try picked.hasPrefix("ships:")
-                ? session.retheme(ships: String(picked.dropFirst("ships:".count))) : session.retheme(path: picked)
-            guard themed.applied else {
-                throw Refused("not re-themed", themed.refusals, by: editor, otherwise: "the deck would not open in it")
-            }
-            (recolored, refitted) = (themed.recolored, themed.refitted)
-            return []
-        }
-        // A text the theme left too faint was set in its color that reads where it stands (PLAN 2.82),
-        // and one it set past its box, or over another, was fitted as lint's fix fits it.
-        if made && recolored + refitted > 0 {
-            let name = picked.hasPrefix("ships:") ? Words.phrase(String(picked.dropFirst("ships:".count))) : Words.theme(picked)
+        let ships = picked.hasPrefix("ships:") ? String(picked.dropFirst("ships:".count)) : nil
+        Task { @MainActor in
+            guard let themed = await edits.rethemeMade(ships.map { Retheming.ships($0) } ?? .path(picked)) else { return }
+            // A text the theme left too faint was set in its color that reads where it stands (PLAN
+            // 2.82), and one it set past its box, or over another, was fitted as lint's fix fits it.
+            let (recolored, refitted) = (themed.recolored, themed.refitted)
+            guard recolored + refitted > 0 else { return }
+            let name = ships.map { Words.phrase($0) } ?? Words.theme(picked)
             let said = [
                 recolored > 0 ? "\(recolored) text\(recolored == 1 ? "" : "s") recolored to read" : nil,
                 refitted > 0 ? "\(refitted) text\(refitted == 1 ? "" : "s") fitted to \(refitted == 1 ? "its box" : "their boxes")" : nil,

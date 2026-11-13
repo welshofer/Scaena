@@ -39,6 +39,29 @@ import Testing
     #expect(png.starts(with: [0x89, 0x50, 0x4E, 0x47]), "a PNG")
 }
 
+/// A state drawn small is kept by its rest key, which lays nothing out (#1262's follow-up): its
+/// digest laid a state edited out on the window's thread before the thumbnail was drawn away. The
+/// key changes with an edit of its state, and not with one of another.
+@Test @MainActor func aDrawingIsKeptByItsRestKeyWhichAnEditOfItsStateChanges() async throws {
+    let editor = DeckEditor(session: try ScaenaSession(directory: b1))
+    let (goal, cover) = (try editor.session.rest(state: "goal"), try editor.session.rest(state: "cover"))
+    #expect(goal != cover, "two states drawn otherwise key otherwise")
+    #expect(try editor.session.rest(state: "goal") == goal, "asked again, alike")
+    let drawn = try #require(await editor.drawingAway("cover", width: 160))
+
+    editor.shown = "cover"
+    let typed: JSONValue = [
+        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
+    ]
+    try editor.make([typed])
+    #expect(try editor.session.rest(state: "goal") == goal, "an edit elsewhere leaves it")
+    #expect(try editor.session.rest(state: "cover") != cover, "an edit of the state keys it anew")
+    let again = try #require(await editor.drawingAway("cover", width: 160))
+    #expect(again !== drawn, "drawn again")
+    #expect(again.dataProvider?.data as Data? == (try editor.session.pixels("cover", width: 160)).rgba)
+    #expect(await editor.drawingAway("cover", width: 160) === again, "and kept")
+}
+
 /// The Format tab's rounds of drawing asked for in a burst (lift-up 10-25c PERF-4): each outdates
 /// the ones before it, which are not drawn, so a burst of edits draws once, for the last.
 @Test @MainActor func aBurstOfLayoutRoundsDrawsOnlyTheLast() async throws {

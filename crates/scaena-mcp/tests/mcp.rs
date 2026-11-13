@@ -2320,6 +2320,75 @@ async fn deck_generates_sources_are_held_to_a_gigabyte_together() {
     client.cancel().await.unwrap();
 }
 
+/// French slides on a paper's results, the results' CSV beside them: what W1's dogfood 19 gave
+/// `deck_generate`.
+fn toitures() -> (Value, &'static str) {
+    let slides = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+        { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Confluence gagne 2,4 °C, Vaise à peine 0,7 °C", "layoutSuggestion": "Bar Chart",
+          "keyBullets": ["Baisse moyenne de la température de surface, en °C"],
+          "chartData": { "categories": ["Confluence", "Part-Dieu", "Croix-Rousse", "Gerland", "Vaise"],
+                         "series": [{ "name": "Baisse", "values": [2.4, 1.6, 1.1, 1.9, 0.7] }],
+                         "sourceId": "resultats" } },
+        { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"],
+          "sourceRef": "resultats.csv" },
+        { "slideTitle": "La flore compte autant que la surface", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Les sédums résistent à la canicule", "Les graminées se dessèchent"] },
+        { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+    ] });
+    let csv = "quartier,toitures_m2,baisse_c,part_surface_pct\nConfluence,184500,2.4,11.2\nPart-Dieu,97300,1.6,6.8\nCroix-Rousse,61200,1.1,4.3\nGerland,142800,1.9,8.9\nVaise,38400,0.7,3.7\n";
+    (slides, csv)
+}
+
+/// W1's dogfood 19: an agent made its deck the way the tools read, `deck_create` in Salon, then
+/// `data_attach` of its results, then `deck_generate` from the slides it wrote, into the same
+/// bundle, and was refused: "a new bundle needs a place of its own". `deck_generate` fills a
+/// bundle `deck_create` made that holds only its blank slide, in its theme, with the data it
+/// holds, the change recorded in the history deck_create began. A bundle holding more, or asked
+/// in another theme, is refused, saying why and that deck_generate makes a bundle itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generate_fills_the_blank_bundle_deck_create_made() {
+    let dir = scratch("generate-fills");
+    let (slides, csv) = toitures();
+    std::fs::write(dir.join("resultats.csv"), csv).unwrap();
+    let client = connect_in(&dir).await;
+    let at = |name: &str| path(&dir.join(name));
+    let (toits, started, blank) = (at("toitures"), at("started"), at("blank"));
+    ok(&client, "deck_create", json!({ "bundle": toits, "theme": "salon", "title": "Toitures" })).await;
+    ok(&client, "data_attach", json!({ "bundle": toits, "id": "resultats", "file": at("resultats.csv") })).await;
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": toits, "language": "French", "slides": slides, "sources": [{ "file": at("resultats.csv") }] }),
+    )
+    .await;
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("toitures/deck.json")).unwrap()).unwrap();
+    // The slides written, in the bundle's own theme, its chart drawn from the data it held.
+    assert!(d["states"].as_array().unwrap().len() >= 5, "{made:#}");
+    assert_eq!(d["theme"], json!("themes/salon.theme.json"));
+    assert_eq!(d["data"]["resultats"]["source"], json!("data/resultats.csv"), "{:#}", d["data"]);
+    assert!(made["unbound"].as_array().is_none_or(Vec::is_empty), "{made:#}");
+    // One history: created, attached, then generated.
+    let history = ok(&client, "deck_history", json!({ "bundle": toits })).await;
+    assert_eq!(history["versions"].as_array().map(Vec::len), Some(3), "{history:#}");
+
+    // A bundle that holds more than the blank slide is refused, saying why.
+    ok(&client, "deck_create", json!({ "bundle": started, "theme": "salon", "title": "Toitures" })).await;
+    ok(&client, "state_start", json!({ "bundle": started, "state": "start", "layout": "bullets" })).await;
+    let refused = call(&client, "deck_generate", json!({ "bundle": started, "slides": slides })).await;
+    assert_eq!(refused.is_error, Some(true));
+    let said = text(&refused);
+    assert!(said.contains("deck_generate makes a bundle itself") && said.contains("it holds 2 states"), "{said}");
+    // So is a blank bundle asked in another theme.
+    ok(&client, "deck_create", json!({ "bundle": blank, "theme": "salon", "title": "Toitures" })).await;
+    let other = call(&client, "deck_generate", json!({ "bundle": blank, "slides": slides, "theme": "ember" })).await;
+    assert_eq!(other.is_error, Some(true));
+    assert!(text(&other).contains("fills it in its own theme"), "{}", text(&other));
+    ok(&client, "deck_generate", json!({ "bundle": blank, "slides": slides, "theme": "salon" })).await;
+    client.cancel().await.unwrap();
+}
+
 /// W1's dogfood 19: a paper's results asked for as "Table", two series of figures by quartier,
 /// fell to a one-line list: no layout was called that, and the table was not drawn at all. It
 /// takes the library's Table layout, a table of its figures, a row for each quartier and a

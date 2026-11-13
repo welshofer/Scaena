@@ -977,6 +977,18 @@ impl Session {
         Ok(digest)
     }
 
+    /// What `state` at rest is drawn from, in the format shown, as a key: the one [`Session::digest`]
+    /// keeps its digest by, worked out with nothing laid out at rest or drawn. Two states that key
+    /// alike draw alike, so a client keeps a drawing of a state by it and draws one again only
+    /// where it changed, the drawing made away from the session (#1262's follow-up): a digest of a
+    /// state edited lays it out where it is asked, on the Mac the window's thread.
+    pub fn rest(&mut self, state: &str) -> Result<String, Error> {
+        let slot = self.kept_timeline()?.slot(state).ok_or_else(|| EngineError::UnknownState(state.to_string()))?;
+        // Its shaders' clock as it comes to rest, as `digest` draws it.
+        let time = (slot.start + slot.span) / 1000.0;
+        Ok(format!("{:016x}", self.rest_key(state, time)?))
+    }
+
     /// A hash of everything `state` at rest is drawn from, at `time` seconds on the global
     /// timeline ([`scaena_engine::render::rest_key`]): the format shown, how often the bundle's
     /// files have changed, and what every state is drawn from and each state resolved, worked
@@ -3118,6 +3130,27 @@ fn story_places(deck: &Deck, timeline: &Timeline) -> HashMap<String, StoryPlace>
 
 #[cfg(test)]
 mod tests {
+    /// A state's rest key is worked out with nothing laid out at rest or drawn (#1262's follow-up),
+    /// is the key its digest is kept by, and changes with the format shown.
+    #[test]
+    fn a_states_rest_key_lays_nothing_out_and_keys_its_digest() {
+        let mut s = revenue();
+        let states = s.states();
+        let keys: Vec<String> = states.iter().map(|state| s.rest(state).unwrap()).collect();
+        assert!(s.rest.is_none() && s.digests.is_empty(), "nothing laid out at rest, nor drawn");
+        for (state, key) in states.iter().zip(&keys) {
+            assert_eq!(&s.rest(state).unwrap(), key, "{state} keys alike asked again");
+        }
+        s.digest(&states[0]).unwrap();
+        let key = u64::from_str_radix(&keys[0], 16).unwrap();
+        assert!(s.digests.contains_key(&key), "its digest is kept by its rest key");
+        assert_eq!(s.rest(&states[0]).unwrap(), keys[0], "drawn, it keys as before");
+        if let Some(format) = s.deck.formats.first().cloned() {
+            s.set_format(Some(&format)).unwrap();
+            assert_ne!(s.rest(&states[0]).unwrap(), keys[0], "another format draws it otherwise");
+        }
+    }
+
     /// The files' edition counts each write and each file taken out, and nothing else (lift-up
     /// STAB-2): what a worker keeps its copy of the files in step by.
     #[test]

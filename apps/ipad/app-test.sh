@@ -54,6 +54,26 @@ said="$root/target/ipad/log.txt"
 xcrun simctl spawn "$udid" log stream --level debug --style compact \
   --predicate 'subsystem == "com.welshofer.Scaena" OR (process == "ScaenaApp" AND (messageType == error OR messageType == fault)) OR (process == "ScaenaApp" AND subsystem == "com.apple.SwiftUI" AND category == "Changed Body Properties")' >"$said" 2>&1 &
 logging=$!
+# Each time XCTest finds the app's main thread busy (its "main thread busy for 30.0s", which ends a
+# test as a query that timed out), a sample of the app's threads then, three at most, kept beside
+# the screenshots: what the window's thread was doing, which no screenshot or log line says.
+busy="$root/target/ipad/busy"
+rm -rf "$busy"
+mkdir -p "$busy"
+sampled() {
+  local seen=0 n=0 now pid
+  while sleep 2; do
+    now=$(grep -c 'main thread busy for' "$said" 2>/dev/null || true)
+    [ "${now:-0}" -gt "$seen" ] || continue
+    seen=$now
+    n=$((n + 1))
+    [ "$n" -le 3 ] || continue
+    pid=$(pgrep -nx ScaenaApp) || continue
+    sample "$pid" 3 10 -mayDie -file "$busy/main-busy-$n.txt" >/dev/null 2>&1 || true
+  done
+}
+sampled &
+sampling=$!
 status=0
 # A test held up past ten minutes fails by its name, its screenshot and result bundle kept, and the
 # run goes on to the next: a hang no longer takes the job to its limit unseen. The slowest test
@@ -69,7 +89,7 @@ echo "--- the UI tests with the software keyboard" >>"$said"
 TEST_RUNNER_SCAENA_KEYBOARD=software tests -resultBundlePath "$softly" "${software[@]/#/-only-testing:}"
 echo "--- the UI tests with no software keyboard" >>"$said"
 TEST_RUNNER_SCAENA_KEYBOARD=hardware tests -resultBundlePath "$results" "${software[@]/#/-skip-testing:}"
-kill "$logging" 2>/dev/null || true
+kill "$logging" "$sampling" 2>/dev/null || true
 [ "$status" -eq 0 ] || engine_log
 # The two passes as one result bundle, so their counts, failures, and screenshots are read as one
 # run's; where the second pass left no bundle, the first is read alone.
@@ -84,6 +104,7 @@ elif [ -d "$softly" ]; then
 fi
 "$here/results.sh" "$results" "$root/target/ipad/shots"
 cp "$said" "$root/target/ipad/shots/log.txt" 2>/dev/null || true
+cp "$busy"/main-busy-*.txt "$root/target/ipad/shots/" 2>/dev/null || true
 # What SwiftUI finds wrong in how the app's views are made (a change handler run twice in a frame,
 # say) fails the run, the fault named: no tap or shot of the tests shows it.
 if grep -F '[com.apple.SwiftUI:Invalid Configuration]' "$said" 2>/dev/null; then

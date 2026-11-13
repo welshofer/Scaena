@@ -35,10 +35,17 @@ fn stem(name: &str) -> String {
 /// currency's letters before its sign are its unit too: "Receita (R$ mi)" measures "Receita"
 /// (W1's dogfood 11). What it is measured per is its unit too, "je Tonne" as `_t`, and a German
 /// name's umlauts are read as a file's name writes them: "Gebühr je Tonne" measures `gebuehr`,
-/// as `gebuehr_eur_t` does (W1 dogfood 13).
+/// as `gebuehr_eur_t` does (W1 dogfood 13). A Romance name's accents are read as a file's name
+/// drops them, and the word that joins two of its words is no word of what it measures: "Baisse
+/// de température" measures `baisse_temperature_c`, as "Taux de chômage" does `taux_chomage` (W1's
+/// dogfood 19). A temperature's unit is its unit too, `_c` and "(°C)".
 fn measured(name: &str) -> String {
     const PER: [&str; 5] = ["je", "pro", "per", "par", "por"];
-    const MASSES: [&str; 2] = ["t", "kg"];
+    const MASSES: [&str; 6] = ["t", "kg", "c", "degc", "celsius", "f"];
+    const JOINING: [&str; 21] = [
+        "de", "du", "des", "d", "la", "le", "les", "l", "of", "the", "del", "da", "do", "di", "dos", "das", "e", "el",
+        "los", "las", "il",
+    ];
     let name = ["R$", "r$", "US$", "us$"].iter().fold(name.to_string(), |n, sign| n.replace(sign, " brl "));
     let name = (name.to_lowercase().chars()).fold(String::new(), |mut out, c| {
         match c {
@@ -46,6 +53,16 @@ fn measured(name: &str) -> String {
             '\u{f6}' => out.push_str("oe"),
             '\u{fc}' => out.push_str("ue"),
             '\u{df}' => out.push_str("ss"),
+            '\u{153}' => out.push_str("oe"),
+            '\u{e6}' => out.push_str("ae"),
+            '\u{e0}'..='\u{e3}' | '\u{e5}' => out.push('a'),
+            '\u{e7}' => out.push('c'),
+            '\u{e8}'..='\u{eb}' => out.push('e'),
+            '\u{ec}'..='\u{ef}' => out.push('i'),
+            '\u{f1}' => out.push('n'),
+            '\u{f2}'..='\u{f5}' => out.push('o'),
+            '\u{f9}'..='\u{fb}' => out.push('u'),
+            '\u{fd}' | '\u{ff}' => out.push('y'),
             c => out.push(c),
         }
         out
@@ -58,6 +75,11 @@ fn measured(name: &str) -> String {
         // "je Tonne", "per capita": the word after it is what it is measured per.
         if PER.contains(&w) && at + 1 < words.len() && at > 0 {
             at += 2;
+            continue;
+        }
+        // "Baisse de température": a word that joins two others measures nothing.
+        if JOINING.contains(&w) && at > 0 && at + 1 < words.len() {
+            at += 1;
             continue;
         }
         if !super::quoting::UNITS.contains(&w) && !(MASSES.contains(&w) && at > 0) {
@@ -897,6 +919,45 @@ mod tests {
         assert_eq!(measured("Straße"), measured("strasse"));
         assert_eq!(measured("Restmüll (t)"), "restmuell");
         assert_eq!(measured("Umsatz (Mio. EUR)"), "umsatz");
+    }
+
+    const RESULTATS: &str = "quartier,toitures_m2,baisse_temperature_c,part_surface_pct\nConfluence,184500,2.4,11.2\nPart-Dieu,97300,1.6,6.8\nCroix-Rousse,61200,1.1,4.3\nGerland,142800,1.9,8.9\nVaise,38400,0.7,3.7\n";
+
+    /// W1's dogfood 19: a French paper's results, its columns written without accents, its
+    /// slide's series with them and with the word that joins them: "Baisse de température" was
+    /// drawn from the slide's own rows, unbound, beside a file that held them.
+    #[test]
+    fn a_french_series_binds_to_its_column_its_accents_and_joining_words_aside() {
+        let mut doc: Value = serde_json::from_str(include_str!("../../../../docs/examples/revenue.deck.json")).unwrap();
+        doc["data"]["resultats"] = json!({ "source": "data/resultats.csv", "schema": {
+            "quartier": "string", "toitures_m2": "number", "baisse_temperature_c": "number", "part_surface_pct": "number"
+        } });
+        let deck = Deck::from_json(&doc.to_string()).unwrap();
+        let files = BTreeMap::from([("data/resultats.csv".to_string(), RESULTATS.as_bytes().to_vec())]);
+        for (series, values, column) in [
+            ("Baisse de température", [2.4, 1.6, 1.1, 1.9, 0.7], "baisse_temperature_c"),
+            ("Part de la surface (%)", [11.2, 6.8, 4.3, 8.9, 3.7], "part_surface_pct"),
+        ] {
+            let mut node = json!({
+                "type": "chart", "chart": "bar", "data": "@own",
+                "x": { "field": "category", "type": "ordinal" },
+                "y": { "field": "value", "type": "quantitative" }
+            });
+            let chart = ChartData {
+                categories: ["Confluence", "Part-Dieu", "Croix-Rousse", "Gerland", "Vaise"].map(String::from).to_vec(),
+                series: vec![Series { name: Some(series.into()), values: values.iter().map(|v| Some(*v)).collect() }],
+                unit: None,
+                source_id: Some("resultats".into()),
+            };
+            let bound = bind(&mut node, &chart, &deck, &files, "resultats");
+            assert!(bound.is_ok(), "{series}: {bound:?}");
+            assert_eq!(node["y"]["field"], json!(column), "{series}");
+        }
+        assert_eq!(measured("Taux de chômage"), measured("taux_chomage"));
+        assert_eq!(measured("Œuvres reçues"), measured("oeuvres_recues"));
+        // A word that joins nothing is a word of the name: "De" alone, "Part de" at its end.
+        assert_eq!(measured("Part de"), "partde");
+        assert_eq!(measured("Baisse de température (°C)"), "baissetemperature");
     }
 
     /// W1 dogfood 13: a German file writes its umlauts out and its unit per tonne as `_t`, and a
