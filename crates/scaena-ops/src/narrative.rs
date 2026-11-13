@@ -1438,12 +1438,24 @@ fn speak(
     };
     let mut written = Vec::new();
     let mut dropped = Vec::new();
+    let mut cut = Vec::new();
     let mut unanswered: Option<String> = None;
+    // The figures the deck's sources hold, and its data files', which the notes may say though
+    // no slide writes them (W1's dogfood 17).
+    let mut held = generation.held();
+    for (path, bytes) in &write.files {
+        if path.starts_with("data/")
+            && let Ok(text) = std::str::from_utf8(bytes)
+        {
+            held.add(text);
+        }
+    }
     match (noting, key) {
-        (Noting::Answered(text), _) => match scaena_narrato::notes::read_all(text, &spoken) {
+        (Noting::Answered(text), _) => match scaena_narrato::notes::read_held(text, &spoken, &held) {
             Ok(read) => {
                 written = read.notes;
                 dropped = read.dropped;
+                cut = read.cut;
             }
             Err(why) => unanswered = Some(why),
         },
@@ -1458,10 +1470,12 @@ fn speak(
             let requests: Vec<Request> = asked.iter().map(|(_, r)| r.clone()).collect();
             let replies = asked_again(&requests, transport, say);
             for ((round, _), reply) in asked.into_iter().zip(replies) {
-                match generation.notes_answer(reply.status, &reply.status_text, &reply.body, &spoken[round.clone()]) {
+                let round_spoken = &spoken[round.clone()];
+                match generation.notes_answer_held(reply.status, &reply.status_text, &reply.body, round_spoken, &held) {
                     Ok(read) => {
                         written.extend(read.notes);
                         dropped.extend(read.dropped);
+                        cut.extend(read.cut);
                     }
                     Err(why) => {
                         let (first, last) = (spoken[round.start].slide, spoken[round.end - 1].slide);
@@ -1483,7 +1497,7 @@ fn speak(
     }
     // Each slide whose notes were not taken, and why, after the rounds not answered (W1's
     // dogfood 6).
-    let why = scaena_narrato::notes::said(&dropped, &spoken);
+    let why = scaena_narrato::notes::said(&dropped, &cut, &spoken);
     made.unnoted = match (unanswered, why) {
         (Some(a), Some(b)) => Some(format!("{a}; {b}")),
         (a, b) => a.or(b),
@@ -2649,6 +2663,29 @@ fn settle(mut doc: Value, found: Vec<Finding>, view: &View) -> Result<Settled, O
     }
     let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
     let findings = if fixed.is_empty() { found } else { lint_in(&deck, view)?.findings };
+    // A text lint's fix leaves past its place, its shrink refused for the lines it would still
+    // set past its `maxLines` (W202): it shrinks to its place all the same, an error being worse
+    // than a warning, and a settled claim too long for its lines is the person's to shorten
+    // ([`claims_long`]; W2's calibration, lanes).
+    let unfixed: Vec<&Finding> = (findings.iter())
+        .filter(|f| f.code == "E100" && f.fix.is_none())
+        .filter(|f| f.node.as_deref().is_some_and(|n| doc["nodes"][n]["type"] == "text"))
+        .collect();
+    if unfixed.is_empty() {
+        return Ok(Settled { fixed, deck, findings });
+    }
+    let mut shrunk = doc.clone();
+    for f in &unfixed {
+        let node = f.node.as_deref().unwrap_or_default();
+        shrunk["nodes"][node]["fit"] = json!("shrink");
+    }
+    let tried = Deck::from_json(&shrunk.to_string()).context("the deck shrunk to fit")?;
+    let after = lint_in(&tried, view)?.findings;
+    let overflows = |fs: &[Finding]| fs.iter().filter(|f| f.code == "E100").count();
+    if errors(&after) < errors(&findings) && overflows(&after) < overflows(&findings) {
+        fixed.extend(unfixed.into_iter().cloned());
+        return Ok(Settled { fixed, deck: tried, findings: after });
+    }
     Ok(Settled { fixed, deck, findings })
 }
 
@@ -2858,6 +2895,18 @@ fn grounded(doc: &Value, theme: &Theme, view: &View) -> Result<Option<Value>, Op
         let patch = crate::backgrounds::setting(&deck, theme, view, &state, Some(GROUND))?;
         let after = scaena_core::patch::compile(&doc, &patch, view)
             .map_err(|e| OpsError::new(format!("the {GROUND} behind `{state}`: {e}")))?;
+        // A text no color of the theme reads in over it, a large one across the whole gradient,
+        // leaves the slide on its plain surface (W2's calibration, vans: 2.77:1).
+        let grounded = Deck::from_json(&after.doc.to_string()).context("the deck on its backdrop")?;
+        let slid: Vec<&str> = (grounded.states.iter())
+            .filter(|st| Some(grounded.slide_of(st)) == slide.as_deref())
+            .map(|st| st.id.as_str())
+            .collect();
+        let faint = |fs: &[Finding]| fs.iter().filter(|f| matches!(f.code.as_str(), "E110" | "E111")).count();
+        let before = faint(&crate::lint::lint_states_in(&deck, view, &slid)?.findings);
+        if faint(&crate::lint::lint_states_in(&grounded, view, &slid)?.findings) > before {
+            continue;
+        }
         doc = after.doc;
         changed = true;
     }
@@ -9496,9 +9545,10 @@ mod tests {
     fn a_made_decks_notes_are_written_for_its_talk() {
         let slides = std::fs::read_to_string(root().join("tests/fixtures/dogfood/keynote.slides.json")).unwrap();
         let answered = std::fs::read_to_string(root().join("tests/fixtures/dogfood/keynote.notes.json")).unwrap();
-        let make = |noting: Noting| {
+        let make_from = |noting: Noting, sources: Option<&str>| {
             let mut brief = Brief::new("Keynote: how a Maine fishing town built its own microgrid");
             brief.length = "11-15 slides".into();
+            brief.source_content = sources.map(String::from);
             let settings = Settings { provider: Provider::Anthropic, model: String::new(), base: None, browser: false };
             let mut g = Generation::new(brief, settings).unwrap();
             g.choose_arc(Some("Hero's Journey"));
@@ -9520,6 +9570,7 @@ mod tests {
             .unwrap();
             (made, write.unwrap().deck)
         };
+        let make = |noting: Noting| make_from(noting, None);
         let beats = |deck: &Deck| -> Vec<(String, f64)> {
             let spine = deck.spine.as_ref().unwrap();
             (spine.sections.iter().flat_map(|s| &s.beats))
@@ -9553,19 +9604,24 @@ mod tests {
         // Notes only: every slide draws as it did.
         let (was, now) = (drafted.to_value().unwrap(), spoken.to_value().unwrap());
         assert_eq!((&was["nodes"], &was["states"]), (&now["nodes"], &now["states"]));
-        // The spoken words would be the slides' own figures: notes that write one no slide does are
-        // not taken.
+        // The spoken words would be the slides' own figures: a sentence that writes one no slide
+        // does is cut, and the notes are kept without it (W1's dogfood 17).
         let invented = answered.replacen("1,900", "2,400", 1);
-        let (made, _) = make(Noting::Answered(&invented));
-        assert_eq!(made.noted.len(), 12, "{:?}", made.noted);
-        // And say so, by its slide, and what it keeps (W1's dogfood 6).
-        let left = (1..=13).find(|k| !made.noted.contains(k)).unwrap();
+        let (made, cut) = make(Noting::Answered(&invented));
+        assert_eq!(made.noted, (1..=13).collect::<Vec<_>>());
+        let opening = &beats(&cut)[0].0;
+        assert!(!opening.contains("2,400") && opening.starts_with("Good morning. It has a harbor"), "{opening}");
+        // And say so, by its slide, and the sentence cut (W1's dogfood 6).
         assert_eq!(
             made.unnoted.as_deref(),
             Some(
-                format!("Slide {left}'s notes with a figure the slide does not write, Narrato's drafts kept").as_str()
+                "Slide 1's notes kept without a sentence with a figure the slide does not write: \u{201c}I want to tell you about a fishing town of 2,400 people on the coast of Maine\u{2026}\u{201d}"
             )
         );
+        // A figure the deck's sources write is written: the notes are kept whole.
+        let (made, sourced) = make_from(Noting::Answered(&invented), Some("Port Alder, Maine: population 2,400."));
+        assert_eq!((made.noted.len(), made.unnoted), (13, None));
+        assert!(beats(&sourced)[0].0.contains("2,400 people"));
     }
 
     #[test]
@@ -11432,6 +11488,54 @@ mod tests {
         assert_eq!(*cited[1], json!(["@visits"]));
         assert_eq!(*cited[2], json!(["@other"]));
         assert!(cited[3].is_null());
+    }
+
+    /// W2's outlined calibration: two decks built from slides and their settled outline that lint
+    /// found errors in once made. Lanes' statement, a settled claim too long for its three lines,
+    /// shrinks to its place, its lines left to W202; vans' close, whose statement no theme color
+    /// reads in over the backdrop at 172 pt, stands on its plain surface.
+    #[test]
+    fn a_deck_made_from_an_outline_leaves_no_lint_error() {
+        let read = |name: &str| std::fs::read_to_string(root().join(format!("tests/fixtures/dogfood/{name}"))).unwrap();
+        let mut errors: Vec<String> = Vec::new();
+        for (deck, topic, audience, goal, persona) in [
+            (
+                "lanes",
+                "A protected-lane pilot on Harmon Avenue, for the city council's transportation committee",
+                "the city council's transportation committee",
+                "Persuade",
+                "government",
+            ),
+            (
+                "vans",
+                "Ridley Smiles: a dental van for rural schools, at the spring benefit dinner",
+                "donors at the spring benefit dinner",
+                "Inspire",
+                "conference-public",
+            ),
+        ] {
+            let written = answer::slides(&read(&format!("{deck}.slides.json"))).unwrap();
+            let outline: Value = serde_json::from_str(&read(&format!("{deck}.outline.json"))).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.arc = outline["arc"].as_str().unwrap().into();
+            n.outline = Some(serde_json::from_value(outline).unwrap());
+            n.brief = Brief {
+                topic: topic.into(),
+                audience: audience.into(),
+                goal: goal.into(),
+                minutes: Some(12),
+                persona_id: Some(persona.into()),
+                ..Brief::default()
+            };
+            let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            errors.extend(
+                (made.created.findings.iter())
+                    .filter(|f| f.severity == scaena_core::Severity::Error)
+                    .map(|f| format!("{deck}: {} {}", f.code, f.message)),
+            );
+            assert!(write.is_some(), "{deck}");
+        }
+        assert!(errors.is_empty(), "{errors:#?}");
     }
 
     /// A made deck's beats claim what each slide's headline says once it is made (W1's dogfood

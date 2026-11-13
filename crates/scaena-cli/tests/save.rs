@@ -66,16 +66,17 @@ fn a_saved_torture_deck_draws_its_golden_frames() {
     let dir = scratch("torture");
     let zip = dir.join("torture.scaena");
     let renamed = save(TORTURE, &zip);
-    assert_eq!(renamed.len(), 15, "every font and image is renamed by its content: {renamed:?}");
+    assert_eq!(renamed.len(), 18, "every font and image is renamed by its content: {renamed:?}");
     let fonts = renamed.iter().filter(|(_, new)| new.starts_with("fonts/") && new.ends_with(".ttf")).count();
     let image = ("assets/test-card.png".to_string(), format!("assets/{}.png", TEST_CARD_SHA256));
     // The seven photos keep what they are: JPEGs, each named by its bytes (PLAN 2.66).
     let photos = renamed.iter().filter(|(old, new)| old.ends_with(".jpg") && new.ends_with(".jpg")).count();
-    assert_eq!((fonts, renamed.contains(&image), photos), (6, true, 7), "{renamed:?}");
+    assert_eq!((fonts, renamed.contains(&image), photos), (9, true, 7), "{renamed:?}");
     // The scripts and features most likely to break in a subset: joining, bidi, marks,
     // color glyphs, ligatures, kerning, hanging quotes, variable axes, code's tabs and the mark
     // that runs it left to right; the images, found under their new names; and a map's label and
-    // credit, which the subset keeps the characters of (ADR-0030).
+    // credit, which the subset keeps the characters of (ADR-0030); and Japanese, Chinese, and
+    // Korean, each in a subset of its script's font (case 71).
     for state in [
         "bidi-arabic",
         "bidi-hebrew",
@@ -90,6 +91,7 @@ fn a_saved_torture_deck_draws_its_golden_frames() {
         "code",
         "images",
         "maps",
+        "cjk",
     ] {
         let golden = std::fs::read_to_string(format!("{GOLDEN}/{state}.dl.json")).unwrap();
         assert_eq!(frame(&zip, state, &dir, &renamed), golden, "{state}");

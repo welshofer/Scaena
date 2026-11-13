@@ -13,7 +13,7 @@ through its role's family fallback chain to a bundle font, and each case uses
 exactly the fonts it is meant to test (a kill case that silently fell back would
 be testing the wrong thing).
 
-    pip install fonttools==4.66.1
+    pip install fonttools==4.66.1 uharfbuzz==0.57.0
     python3 scripts/build_torture_fonts.py           # rebuild fonts, then check
     python3 scripts/build_torture_fonts.py --cache ~/.cache/scaena-fonts   # reuse verified downloads
     python3 scripts/build_torture_fonts.py --check   # check only
@@ -35,6 +35,9 @@ BUNDLE = ROOT / "tests/fixtures/torture.scaena"
 FONTS = BUNDLE / "fonts"
 COMMIT = "9710da1eacb3be272583c3224dcb70f9da6eadbb"
 FONTTOOLS = "4.66.1"
+# fontTools packs GSUB and GPOS with HarfBuzz's repacker where uharfbuzz is installed, and by its
+# own packer where it is not: the same tables, other bytes. The committed subsets were packed by it.
+UHARFBUZZ = "0.57.0"
 
 # bundle file -> (google/fonts path, upstream sha256, PLAN 0.2 role)
 SOURCES = {
@@ -68,7 +71,27 @@ SOURCES = {
         "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
         "code, set as written (PLAN 2.131)",
     ),
+    # The scripts' fonts a deck in Japanese, Chinese, or Korean takes (`scaena_ops::scripts`, the
+    # same files and sha256), each subset to its case's own characters alone (case 71).
+    "NotoSansJP-VF.ttf": (
+        "ofl/notosansjp/NotoSansJP[wght].ttf",
+        "c2f3b4d463500a2ddcd3849cded1fceeb9fd6d1c32e6cbecd568453ba50fc68f",
+        "Japanese line breaking: phrases, particles, counters (case 71)",
+    ),
+    "NotoSansSC-VF.ttf": (
+        "ofl/notosanssc/NotoSansSC[wght].ttf",
+        "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+        "Chinese: a balanced headline (case 71)",
+    ),
+    "NotoSansKR-VF.ttf": (
+        "ofl/notosanskr/NotoSansKR[wght].ttf",
+        "194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252",
+        "Korean: breaks between words (case 71)",
+    ),
 }
+# The fonts subset to the characters of the text nodes set in them alone, not the whole deck's and
+# the Latin ranges: each is a script's, and stays small.
+OWN_TEXT = {"NotoSansJP-VF.ttf", "NotoSansSC-VF.ttf", "NotoSansKR-VF.ttf"}
 LICENSES = {  # OFL text shipped beside each font (OFL 1.1 requires it to travel with the font)
     "OFL-RobotoSerif.txt": ("ofl/robotoserif/OFL.txt", "34dbfbb43e0b4fdeef445d77b9ac0b988e5ad7a9bbf16808c97b66c66d51f553"),
     "OFL-EBGaramond.txt": ("ofl/ebgaramond/OFL.txt", "0985066662eb755ed3683ae5482a81a9195b49ce3f7e165cc2388b3dbece7dd7"),
@@ -76,6 +99,17 @@ LICENSES = {  # OFL text shipped beside each font (OFL 1.1 requires it to travel
     "OFL-NotoSansArabic.txt": ("ofl/notosansarabic/OFL.txt", "07fc70bfeb985cc1a87a8587d0a0c80bab11c86c9dc3fd95b6f0cb332f983e96"),
     "OFL-NotoColorEmoji.txt": ("ofl/notocoloremoji/OFL.txt", "ac564676d10054a8445923dfc2dfb13c042d97888bd27c1b6ec6dfe89a9d8d62"),
     "OFL-JetBrainsMono.txt": ("ofl/jetbrainsmono/OFL.txt", "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d"),
+    "OFL-NotoSansJP.txt": ("ofl/notosansjp/OFL.txt", "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"),
+    "OFL-NotoSansSC.txt": ("ofl/notosanssc/OFL.txt", "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"),
+    "OFL-NotoSansKR.txt": ("ofl/notosanskr/OFL.txt", "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"),
+}
+# Characters each committed subset carries past the deck's drawn text, kept so a rebuild renumbers
+# no glyph: ế and ệ, and the minus in JetBrains Mono, were once drawn and are now only in a case's
+# notes. A glyph id that moved would move every golden the font draws.
+KEPT = {
+    "RobotoSerif-VF.ttf": "\u1ebf\u1ec7",
+    "EBGaramond-VF.ttf": "\u1ebf\u1ec7",
+    "JetBrainsMono-VF.ttf": "\u1ebf\u1ec7\u2212",
 }
 EXTRA_RANGES = [(0x20, 0x7E), (0xA0, 0x17F), (0x2010, 0x203A), (0x20AC, 0x20AC)]
 # Characters that select or join rather than draw; shaping consumes them.
@@ -122,14 +156,35 @@ def deck_strings(value):
     if isinstance(value, str):
         yield value
     elif isinstance(value, dict):
-        for v in value.values():
-            yield from deck_strings(v)
+        # A presenter's notes are never drawn, so no subset holds them.
+        for key, v in value.items():
+            if key != "notes":
+                yield from deck_strings(v)
     elif isinstance(value, list):
         for v in value:
             yield from deck_strings(v)
 
 
-def build(deck: dict, cache: Path | None) -> None:
+def own_text(deck: dict, theme: dict, name: str) -> set[int]:
+    """The characters of the text nodes whose role's family is the font `name`."""
+    families = theme["type"]["families"]
+    roles = theme["type"]["roles"]
+    keys = {key for key, fam in families.items() if fam["file"] == f"fonts/{name}"}
+    out = set()
+    for node in deck["nodes"].values():
+        role = roles.get(node.get("role", ""), {})
+        if node.get("type") == "text" and role.get("family") in keys:
+            out |= {ord(c) for s in deck_strings(node.get("text", "")) for c in s}
+    for state in deck["states"]:
+        for node_id, props in state.get("props", {}).items():
+            node = deck["nodes"].get(node_id, {})
+            role = roles.get(props.get("role", node.get("role", "")), {})
+            if node.get("type") == "text" and role.get("family") in keys and "text" in props:
+                out |= {ord(c) for c in props["text"]}
+    return out - IGNORABLE
+
+
+def build(deck: dict, theme: dict, cache: Path | None) -> None:
     import io
 
     import fontTools
@@ -138,6 +193,15 @@ def build(deck: dict, cache: Path | None) -> None:
 
     if fontTools.version != FONTTOOLS:
         print(f"warning: fontTools {fontTools.version}, pinned {FONTTOOLS}; subset bytes may differ", file=sys.stderr)
+    try:
+        import uharfbuzz
+
+        if uharfbuzz.__version__ != UHARFBUZZ:
+            print(f"warning: uharfbuzz {uharfbuzz.__version__}, pinned {UHARFBUZZ}; GSUB and GPOS may pack otherwise",
+                  file=sys.stderr)
+    except ImportError:
+        print(f"warning: no uharfbuzz (pinned {UHARFBUZZ}): GSUB and GPOS pack otherwise than committed",
+              file=sys.stderr)
     unicodes = {ord(c) for s in deck_strings(deck) for c in s}
     for lo, hi in EXTRA_RANGES:
         unicodes.update(range(lo, hi + 1))
@@ -155,7 +219,8 @@ def build(deck: dict, cache: Path | None) -> None:
             opts.drop_tables = opts.drop_tables + ["SVG"]  # fontTools matches stripped tags
         font = TTFont(io.BytesIO(data), recalcTimestamp=False)
         sub = subset.Subsetter(opts)
-        sub.populate(unicodes=unicodes)
+        kept = {ord(c) for c in KEPT.get(name, "")}
+        sub.populate(unicodes=own_text(deck, theme, name) if name in OWN_TEXT else unicodes | kept)
         sub.subset(font)
         out = io.BytesIO()
         font.save(out)
@@ -166,7 +231,7 @@ def build(deck: dict, cache: Path | None) -> None:
     lines = [
         "# Torture-deck fonts: provenance",
         "",
-        f"Built by `scripts/build_torture_fonts.py` (fontTools {FONTTOOLS}) from "
+        f"Built by `scripts/build_torture_fonts.py` (fontTools {FONTTOOLS}, uharfbuzz {UHARFBUZZ}) from "
         f"[google/fonts](https://github.com/google/fonts) at commit `{COMMIT}`. Do not edit by hand; rerun the script.",
         "",
         "| Bundle file | Upstream path | Upstream sha256 | Subset sha256 | Upstream → subset | PLAN 0.2 role |",
@@ -177,7 +242,10 @@ def build(deck: dict, cache: Path | None) -> None:
     ranges = " ∪ ".join(f"U+{lo:04X}–{hi:04X}" if lo != hi else f"U+{lo:04X}" for lo, hi in EXTRA_RANGES)
     lines += [
         "",
-        f"**Subset:** every character in `deck.json` ∪ {ranges}. All OpenType layout features, all name records, "
+        f"**Subset:** every character the deck draws ∪ {ranges}, and each font's `KEPT` characters, which its "
+        "committed subset carries, so a rebuild renumbers no glyph; the Noto Sans JP, SC, and KR subsets hold only "
+        "the characters of the text set in them (case 71). A presenter's notes are part of no subset: they are never "
+        "drawn. All OpenType layout features, all name records, "
         "variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only "
         "color format any painter (vello, vello_cpu, PDF) can choose.",
         "",
@@ -257,7 +325,7 @@ def main() -> None:
     deck = json.loads((BUNDLE / "deck.json").read_text(encoding="utf-8"))
     theme = json.loads((BUNDLE / "theme.json").read_text(encoding="utf-8"))
     if not args.check:
-        build(deck, args.cache)
+        build(deck, theme, args.cache)
     sys.exit(0 if check(deck, theme) else 1)
 
 
