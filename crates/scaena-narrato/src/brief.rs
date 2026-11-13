@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 /// The goals a deck may have.
 pub const GOALS: [&str; 6] = ["Inform", "Persuade", "Inspire", "Sell", "Educate", "Update Status"];
 
-/// The lengths a deck may be asked at.
-pub const LENGTHS: [&str; 5] = ["5-10 slides", "11-15 slides", "16-25 slides", "26-40 slides", "41+ slides"];
+/// The lengths a deck may be asked at, and the one a talk of so many minutes takes: Scaena's
+/// own, the `brief` op's and a deck's alike.
+pub use scaena_core::patch::{LENGTHS, length_for_minutes};
 
 /// How a deck may be delivered: an id, and what the prompt is sent, its label and what it means.
 pub const MODALITIES: [(&str, &str); 7] = [
@@ -334,16 +335,6 @@ pub fn maximum_slides(length: &str) -> Option<usize> {
     }
 }
 
-/// The length a talk of `minutes` takes (Narrato's `LENGTH_BY_MINUTES`): two hours is held to
-/// 26–40 slides, more being too heavy to draft at once.
-pub fn length_for_minutes(minutes: u32) -> &'static str {
-    match minutes {
-        0..=15 => "5-10 slides",
-        16..=30 => "11-15 slides",
-        31..=45 => "16-25 slides",
-        _ => "26-40 slides",
-    }
-}
 
 /// The minutes a talk of at least `least` slides is given, the inverse of [`length_for_minutes`]:
 /// up to 15 for 5–10 slides, 16–30 for 11–15, 31–45 for 16–25, and 46 or more past them (lift-up
