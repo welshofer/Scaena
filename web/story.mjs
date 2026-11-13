@@ -101,7 +101,7 @@ try {
   const counts = new Map();
   for (const f of triaged.more) counts.set(f.kind, (counts.get(f.kind) ?? 0) + 1);
   // Each kind as the Story's folded count names it (`KIND` in web/src/story.ts).
-  const named = {
+  const kindSaid = {
     bigIdea: "big idea",
     layout: "broken slide",
     look: "change let go",
@@ -109,7 +109,7 @@ try {
     label: "topic headline",
     thin: "thin slide",
   };
-  const expected = `${triaged.more.length} more: ${[...counts].sort(([, a], [, b]) => b - a).map(([k, n]) => `${n} ${named[k] ?? k}`).join(", ")}`;
+  const expected = `${triaged.more.length} more: ${[...counts].sort(([, a], [, b]) => b - a).map(([k, n]) => `${n} ${kindSaid[k] ?? k}`).join(", ")}`;
   const summary = (await page.textContent("#story [data-more] summary")).trim();
   check(summary === expected, `the rest fold under one count by kind: ${summary}`);
   const first = page.locator("#story [data-more] li[data-slide] [data-show]").first();
