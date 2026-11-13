@@ -208,7 +208,7 @@ pub fn normalize(raw: &Value) -> Slide {
         chart_unread: raw.get("chartData").filter(|c| !c.is_null() && chart_data(c).is_none()).map(|c| match c {
             Value::Object(given) if given.is_empty() => "an empty object".to_string(),
             Value::Object(given) => given.keys().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
-            other => format!("{}", other.to_string().chars().take(40).collect::<String>()),
+            other => other.to_string().chars().take(40).collect::<String>(),
         }),
     }
 }

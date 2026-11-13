@@ -11194,10 +11194,13 @@ mod tests {
         let silent = made("");
         assert_eq!(silent.layouts[1], "architecture");
         let unset: Vec<(usize, &str)> = silent.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
-        assert_eq!(unset, [(2, "Checkout service: Go, 40 pods")]);
-        // Said in the slide's notes, it is not left out.
+        // Its subtitle too, which an architecture sets nowhere (R1's agent dogfood 11).
+        let subtitle = "How a checkout request flows today";
+        assert_eq!(unset, [(2, "Checkout service: Go, 40 pods"), (2, subtitle)]);
+        // Said in the slide's notes, the figure is not left out.
         let noted = made("Checkout runs on Go, 40 pods behind the gateway.");
-        assert!(noted.unset.is_empty(), "{:?}", noted.unset);
+        let unset: Vec<(usize, &str)> = noted.unset.iter().map(|u| (u.slide, u.words.as_str())).collect();
+        assert_eq!(unset, [(2, subtitle)]);
     }
 
     #[test]
