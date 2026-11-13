@@ -789,6 +789,7 @@ pub const MARKED: &[(&str, &str)] = &[
     ("W231", "Its font has no italic, so it's set upright."),
     ("W232", "Its font has no bold, so it's set in its own weight."),
     ("W303", "The slide's number or footer is drawn over it."),
+    ("W305", "It still says the words its layout started it with."),
     ("W310", "Some of the chart's labels overlap."),
     ("W311", "A background effect is behind this chart."),
     ("W312", "Some of the chart's text is too small to read."),

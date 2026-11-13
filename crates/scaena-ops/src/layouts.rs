@@ -139,10 +139,15 @@ fn fit(snapshot: &scaena_core::Snapshot, theme: &Theme, layout: &str) -> (usize,
     (empty, recast)
 }
 
-/// `suggestion` with what lint finds in `state` counted: `findings`' errors and warnings there.
+/// `suggestion` with what lint finds in `state` counted: `findings`' errors and warnings there,
+/// but a slot's prompt left as its words (W305), which says how far the slide is written, not how
+/// the layout fits it, and would count against the layout it was started in alone.
 pub fn counted(suggestion: Suggestion, state: &str, findings: &[Finding]) -> Suggestion {
-    let here =
-        |severity| findings.iter().filter(|f| f.state.as_deref() == Some(state) && f.severity == severity).count();
+    let here = |severity| {
+        (findings.iter())
+            .filter(|f| f.state.as_deref() == Some(state) && f.severity == severity && f.code != "W305")
+            .count()
+    };
     Suggestion { errors: here(Severity::Error), warnings: here(Severity::Warning), ..suggestion }
 }
 
