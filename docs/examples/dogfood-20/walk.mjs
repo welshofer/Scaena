@@ -54,13 +54,13 @@ const DRAFT = {
   Reveal: [
     { slideTitle: "ソラカーゴ、298,000円", layoutSuggestion: "Big Number", keyBullets: ["298,000円 税込、標準バッテリー込み"], sourceRef: "brief.pptx" },
     { slideTitle: "一台で、軽バンの近距離をまかなう", layoutSuggestion: "Three Column", keyBullets: ["航続距離80km", "最大積載量120kg", "充電4時間"], sourceRef: "brief.pptx" },
-    { slideTitle: "CO₂を1台あたり年間1.2トン削減", layoutSuggestion: "Statement", keyBullets: ["軽バン1台を置き換えた場合の試算"], sourceRef: "brief.pptx" },
   ],
   Proof: [
     { slideTitle: "横浜の実証で配達件数は1.8倍", layoutSuggestion: "Bullet List", keyBullets: ["1日あたりの配達件数は軽バンの1.8倍", "燃料費は1台あたり年間42万円の削減", "配達員12名のうち11名が継続を希望"], sourceRef: "brief.pptx" },
     { slideTitle: "販売店の粗利率は22%", layoutSuggestion: "Bullet List", keyBullets: ["試乗車1台を発売前に提供", "整備研修は2日間、全国6会場", "初回発注は5台から"], sourceRef: "brief.pptx" },
   ],
   Implications: [
+    { slideTitle: "CO₂を1台あたり年間1.2トン削減", layoutSuggestion: "Statement", keyBullets: ["軽バン1台を置き換えた場合の試算"], sourceRef: "brief.pptx" },
     { slideTitle: "4月15日、街の配送が変わる", layoutSuggestion: "Bullet List", keyBullets: ["今月中に試乗車を申し込む", "整備研修の日程を決める", "地域の配送会社に声をかける"] },
     { slideTitle: "ありがとうございました", layoutSuggestion: "Closing", keyBullets: ["ご質問をどうぞ", "partners@hikari-mobility.example.jp"] },
   ],
@@ -311,6 +311,8 @@ try {
   await page.waitForFunction(() => document.querySelector("#prompting-goal").options.length > 0, null, { timeout: 60000 });
   await page.fill("#prompting-topic", "ソラカーゴ発売：街の配送を車から自転車へ");
   await page.fill("#prompting-audience", "全国の販売店パートナー");
+  // Language is under More, as a person finds it.
+  await page.locator("#prompting-language").locator("xpath=ancestor::details/summary").click();
   await page.selectOption("#prompting-language", "Japanese");
   const goals = await page.locator("#prompting-goal option").evaluateAll((o) => o.map((x) => x.value));
   await page.selectOption("#prompting-goal", goals.find((g) => /persuade/i.test(g)) ?? goals[0]);
