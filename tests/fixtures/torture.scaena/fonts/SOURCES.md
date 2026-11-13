@@ -1,6 +1,6 @@
 # Torture-deck fonts: provenance
 
-Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1) from [google/fonts](https://github.com/google/fonts) at commit `9710da1eacb3be272583c3224dcb70f9da6eadbb`. Do not edit by hand; rerun the script.
+Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1, uharfbuzz 0.57.0) from [google/fonts](https://github.com/google/fonts) at commit `9710da1eacb3be272583c3224dcb70f9da6eadbb`. Do not edit by hand; rerun the script.
 
 | Bundle file | Upstream path | Upstream sha256 | Subset sha256 | Upstream → subset | PLAN 0.2 role |
 |---|---|---|---|---|---|
@@ -14,6 +14,6 @@ Built by `scripts/build_torture_fonts.py` (fontTools 4.66.1) from [google/fonts]
 | `NotoSansSC-VF.ttf` | `ofl/notosanssc/NotoSansSC[wght].ttf` | `a3041811a78c361b…` | `fee586f4a32917d5…` | 17355 KB → 9 KB | Chinese: a balanced headline (case 71) |
 | `NotoSansKR-VF.ttf` | `ofl/notosanskr/NotoSansKR[wght].ttf` | `194018e6b2b293a7…` | `74c29cfbe668f723…` | 10170 KB → 6 KB | Korean: breaks between words (case 71) |
 
-**Subset:** every character in `deck.json` ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC; the Noto Sans JP, SC, and KR subsets hold only the characters of the text set in them (case 71). All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
+**Subset:** every character the deck draws ∪ U+0020–007E ∪ U+00A0–017F ∪ U+2010–203A ∪ U+20AC, and each font's `KEPT` characters, which its committed subset carries, so a rebuild renumbers no glyph; the Noto Sans JP, SC, and KR subsets hold only the characters of the text set in them (case 71). A presenter's notes are part of no subset: they are never drawn. All OpenType layout features, all name records, variations and hinting kept. Noto Color Emoji additionally drops its `SVG ` table, so COLRv1 is the only color format any painter (vello, vello_cpu, PDF) can choose.
 
 **Licenses:** SIL Open Font License 1.1, no Reserved Font Names; each `OFL-*.txt` beside the fonts is the upstream license file (sha256-pinned in the script).
