@@ -3896,6 +3896,11 @@ fn cuenta(headline: &str) -> Option<usize> {
         let Some(n) = n else { continue };
         // A ratio's second number ("dos de cada tres", "uno de cada doce") counts nothing listed.
         let back = |k: usize| i.checked_sub(k).map(|j| words[j].as_str());
+        // A figure after a definite article names a set the room knows ("Las 12 fuentes del
+        // piloto"), not what the slide lists; a number in words still counts ("Los tres errores").
+        if back(1).is_some_and(|a| ["el", "la", "los", "las"].contains(&a)) && w.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
         if back(1) == Some("cada") && back(2) == Some("de") && back(3).is_some_and(number) {
             continue;
         }
@@ -3978,6 +3983,11 @@ fn counts(headline: &str) -> Option<usize> {
         // A ratio's second number ("one in twelve", "two of three") counts nothing listed.
         let number = |w: &str| w == "one" || WORDS.contains(&w) || w.parse::<f64>().is_ok();
         if i >= 2 && matches!(words[i - 1].as_str(), "in" | "of" | "out") && number(&words[i - 2]) {
+            continue;
+        }
+        // A figure after "the" names a set the room knows ("The 12 fountains served 66,400
+        // liters"), not what the slide lists; a number in words still counts ("The three traps").
+        if i >= 1 && words[i - 1] == "the" && w.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
         let next = words.get(i + 1).map(String::as_str);
@@ -5877,6 +5887,9 @@ mod tests {
         // In Spanish and in Japanese, by their own numbers and counters (W2's health read).
         assert_eq!(counts_in("Tres barrios concentran la mitad de las fugas", Some("Spanish")), Some(3));
         assert_eq!(counts_in("El plan avanza en tres fases", Some("es")), Some(3));
+        assert_eq!(counts_in("Los tres errores que cuestan el verano", Some("es")), Some(3));
+        assert_eq!(counts("The 12 fountains served 66,400 liters"), None);
+        assert_eq!(counts("The three traps that make reviews useless"), Some(3));
         assert_eq!(counts_in("利用が増えた理由は三つあります", Some("Japanese")), Some(3));
         assert_eq!(counts_in("3つのポイント", Some("ja")), Some(3));
         assert_eq!(counts_in("５つの提案", Some("ja-JP")), Some(5));
@@ -5885,6 +5898,8 @@ mod tests {
             "Con 2,3 M€ en tres años reducimos a la mitad el agua",
             "Dos de cada tres hogares ahorran",
             "Pedimos al pleno aprobar 2,3 M€",
+            // A figure after its article names a set (R1's agent dogfood 12).
+            "Las 12 fuentes del piloto sirvieron 66.400 litros en cinco meses",
         ] {
             assert_eq!(counts_in(none, Some("Spanish")), None, "{none}");
         }
