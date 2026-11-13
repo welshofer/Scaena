@@ -2432,46 +2432,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             None,
         );
     }
-    for (k, (name, claim)) in outlined.iter().enumerate() {
-        let of = of_beat(k);
-        if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
-            continue;
-        }
-        // The beat is named once, in what the finding says, as a part of the talk, so a beat
-        // named as a heading ("Call to Action") never reads as a title over its claim (W1's
-        // dogfood 6); the ask says "this part".
-        // In another language than English the outline's name is the arc's, in English ("Call to
-        // Action"), so the part is named by the section its slides stand in, titled in the
-        // deck's language by its divider, else by its place (W1's dogfood 7).
-        let titled = || {
-            let (section, _, _) = slides[of[0]].beat?;
-            let title = deck.spine.as_ref()?.sections.get(section)?.title.as_deref()?.trim();
-            (!title.is_empty()).then(|| title.to_string())
-        };
-        let name = match english {
-            true => Some(name.clone()).filter(|n| !n.is_empty()),
-            false => titled(),
-        };
-        let part = match name {
-            None => format!("part {} of the talk", k + 1),
-            Some(name) => format!("the {} part of the talk", headed(&name)),
-        };
-        let claim = unstopped(claim);
-        let slides = spanned(&of);
-        let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
-        let mut said = slides.clone();
-        said[..1].make_ascii_uppercase();
-        find(
-            &read[of[0]].id,
-            Severity::Warning,
-            Kind::Claim,
-            format!("{said} {does} nothing of the claim settled for {part}, \u{201c}{claim}\u{201d}."),
-            format!(
-                "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
-            ),
-            None,
-        );
-    }
+    // The close as the big idea reads it, worked out before the claims are, so a close asked for
+    // both is asked once to say both (W1's dogfood 17: each fix raised the other, four times).
+    let mut close_unlanded: Option<Vec<usize>> = None;
+    let mut close_unread: Option<(String, Vec<usize>)> = None;
     if let Some(idea) = &big_idea {
         // The close is the deck's last run of closing slides, as the calm close reads it, with the
         // slide just before it where that slide is in the run's beat, where a talk lands its idea
@@ -2508,9 +2472,72 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // not read for the big idea, and says so, rather than passing or failing on words split
         // where its letters leave ASCII ("schließt") and joining words counted as telling.
         let named = language.filter(|_| !english).map(|l| language_named(l).unwrap_or_else(|| l.to_string()));
+        match (named, closes) {
+            (Some(name), Some(of)) => close_unread = Some((name, of)),
+            (None, Some(of)) if lands(&of) == Some(false) => close_unlanded = Some(of),
+            _ => {}
+        }
+    }
+    // The claims settled for the slides of the close that the big idea is asked of too, with the
+    // part each is settled for: said in the big idea's ask, as the idea is in theirs.
+    let mut close_claims: Vec<String> = Vec::new();
+    for (k, (name, claim)) in outlined.iter().enumerate() {
+        let of = of_beat(k);
+        if unspaced || claim.is_empty() || of.is_empty() || shares(claim, &of) != Some(false) {
+            continue;
+        }
+        // The beat is named once, in what the finding says, as a part of the talk, so a beat
+        // named as a heading ("Call to Action") never reads as a title over its claim (W1's
+        // dogfood 6); the ask says "this part".
+        // In another language than English the outline's name is the arc's, in English ("Call to
+        // Action"), so the part is named by the section its slides stand in, titled in the
+        // deck's language by its divider, else by its place (W1's dogfood 7).
+        let titled = || {
+            let (section, _, _) = slides[of[0]].beat?;
+            let title = deck.spine.as_ref()?.sections.get(section)?.title.as_deref()?.trim();
+            (!title.is_empty()).then(|| title.to_string())
+        };
+        let name = match english {
+            true => Some(name.clone()).filter(|n| !n.is_empty()),
+            false => titled(),
+        };
+        let part = match name {
+            None => format!("part {} of the talk", k + 1),
+            Some(name) => format!("the {} part of the talk", headed(&name)),
+        };
+        let claim = unstopped(claim);
+        let slides = spanned(&of);
+        let (does, carry) = if of.len() > 1 { ("say", "they carry") } else { ("says", "it carries") };
+        let mut said = slides.clone();
+        said[..1].make_ascii_uppercase();
+        // Where the close is asked to land the big idea too, the claim and the idea are asked of
+        // it once, together.
+        let both = close_unlanded.as_ref().filter(|close| of.iter().any(|i| close.contains(i)));
+        let ask = match (both, &big_idea) {
+            (Some(_), Some(idea)) => {
+                close_claims.push(claim.to_string());
+                format!(
+                    "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}, and the close is to land the big idea, \u{201c}{}\u{201d}. Rewrite {slides} so {carry} both, or tell me what to settle instead.",
+                    unstopped(idea)
+                )
+            }
+            _ => format!(
+                "Check the claim: the outline settled that this part of the talk leaves the audience believing \u{201c}{claim}\u{201d}. Rewrite {slides} so {carry} it, or tell me what to settle instead."
+            ),
+        };
+        find(
+            &read[of[0]].id,
+            Severity::Warning,
+            Kind::Claim,
+            format!("{said} {does} nothing of the claim settled for {part}, \u{201c}{claim}\u{201d}."),
+            ask,
+            None,
+        );
+    }
+    if let Some(idea) = &big_idea {
         let quoted = unstopped(idea);
-        if let (Some(name), Some(of)) = (named, closes.as_ref()) {
-            let slides = spanned(of);
+        if let Some((name, of)) = close_unread {
+            let slides = spanned(&of);
             find(
                 &read[of[0]].id,
                 Severity::Info,
@@ -2523,15 +2550,22 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 ),
                 None,
             );
-        } else if let Some(of) = closes.filter(|of| lands(of) == Some(false)) {
+        } else if let Some(of) = close_unlanded {
             let slides = spanned(&of);
+            let also = match close_claims.as_slice() {
+                [] => String::new(),
+                claims => format!(
+                    ", and so it carries the claim the outline settled for it, {}",
+                    claims.iter().map(|c| format!("\u{201c}{c}\u{201d}")).collect::<Vec<_>>().join(" and ")
+                ),
+            };
             find(
                 &read[of[0]].id,
                 Severity::Warning,
                 Kind::BigIdea,
                 format!("The close, {slides}, never lands the big idea: \u{201c}{quoted}\u{201d}"),
                 format!(
-                    "The big idea is \u{201c}{quoted}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it."
+                    "The big idea is \u{201c}{quoted}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it{also}."
                 ),
                 None,
             );
@@ -6596,6 +6630,40 @@ mod tests {
         assert!(claim.ask.contains("\u{201c}Penguins juggle marmalade quietly\u{201d}. Rewrite"), "{}", claim.ask);
         let big = missed.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
         assert!(big.says.starts_with("The close, slide") && big.ask.starts_with("The big idea is"), "{big:?}");
+        // A claim settled for another part than the close is asked of its own slides alone.
+        assert!(!claim.ask.contains("Zebras") && !big.ask.contains("Penguins"), "{}\n{}", claim.ask, big.ask);
+        // The closing part's claim and the big idea, both missed on the close, are each asked of it
+        // together, so a fix for one is not found wanting by the other (W1's dogfood 17).
+        let closing_beat = written[close];
+        let mut both = deck.clone();
+        both["meta"]["narrative"]["outline"]["beats"][closing_beat]["claim"] =
+            json!("Fund the plan in the 2027 budget.");
+        let twice = of(&both);
+        let claim = (twice.findings.iter())
+            .find(|f| f.kind == Kind::Claim && f.says.contains("Fund the plan"))
+            .unwrap_or_else(|| panic!("{:#?}", twice.findings));
+        let big = twice.findings.iter().find(|f| f.kind == Kind::BigIdea).unwrap();
+        assert!(
+            claim.ask.contains("\u{201c}Fund the plan in the 2027 budget\u{201d}, and the close is to land the big idea, \u{201c}Zebras orchestrate symphonies underwater\u{201d}")
+                && claim.ask.contains("carry both"),
+            "{}",
+            claim.ask
+        );
+        assert!(
+            big.ask.ends_with(
+                "so the talk ends by landing it, and so it carries the claim the outline settled for it, \u{201c}Fund the plan in the 2027 budget\u{201d}."
+            ),
+            "{}",
+            big.ask
+        );
+        // What each finds is as it was: the same findings, on the same slides.
+        let found = |h: &Health| -> Vec<(Kind, usize, String)> {
+            (h.findings.iter())
+                .filter(|f| matches!(f.kind, Kind::Claim | Kind::BigIdea))
+                .map(|f| (f.kind, f.slide, f.says.clone()))
+                .collect()
+        };
+        assert_eq!(found(&twice).len(), 3, "{:#?}", found(&twice));
         // A big idea in another script has no words to read by: nothing is found of it.
         deck["meta"]["narrative"]["outline"]["bigIdea"] = json!("気候変動は止められる");
         assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::BigIdea));
