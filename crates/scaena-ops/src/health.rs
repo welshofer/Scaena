@@ -2529,6 +2529,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         }
         Some(of.iter().any(|&i| !content_words(&format!("{} {}", read[i].title, read[i].body)).is_disjoint(&said)))
     };
+    // The big idea's telling words, less those the deck's title holds or every part says, where
+    // no content slide before the close, `of`, says two of them together, said as the finding says
+    // it; nothing where one does, or where the idea tells nothing past the deck's name. A slide that builds toward the idea says two of its words at once; one in
+    // passing builds nothing (W2's outlined calibration: support's slides say “agents”, “tickets”,
+    // and a “third floor”, one a slide, and never the waits the bot halved).
+    let unbuilt = |idea: &str, of: &[usize]| -> Option<&'static str> {
+        let mut telling = telling_words(idea);
+        telling.retain(|w| !common.contains(w));
+        let before: Vec<usize> =
+            (0..of.iter().copied().min().unwrap_or_default()).filter(|&i| read[i].eligible() && !framing(i)).collect();
+        if telling.is_empty() || before.is_empty() {
+            return None;
+        }
+        let (together, said) = match telling.len() > 3 {
+            true => (2, "none says two of its words together"),
+            false => (1, "none says a word of it"),
+        };
+        let built = before.iter().any(|&i| {
+            let mut words = content_words(&format!("{} {}", read[i].title, read[i].body));
+            words.retain(|w| telling.contains(w));
+            words.len() >= together
+        });
+        (!built).then_some(said)
+    };
     let spanned = |of: &[usize]| match (of.first(), of.last()) {
         (Some(a), Some(b)) if a != b => format!("slides {}\u{2013}{}", a + 1, b + 1),
         _ => format!("slide {}", of[0] + 1),
@@ -2697,6 +2721,26 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 format!("The close, {slides}, never lands the big idea: \u{201c}{quoted}\u{201d}"),
                 format!(
                     "The big idea is \u{201c}{quoted}\u{201d}. Rewrite the closing {slides} so the talk ends by landing it{also}."
+                ),
+                None,
+            );
+        } else if let Some((of, true)) = &close
+            && let Some(none) = unbuilt(idea, of)
+        {
+            // A close that lands the idea where no slide before it builds toward it asserts what
+            // the talk never showed (W2's outlined calibration: support's close says the bot
+            // halved the waits, and no slide before it shows a wait or the bot). An info: the big
+            // idea is the outline's, and no measure reads it.
+            let slides = spanned(of);
+            find(
+                &read[of[0]].id,
+                Severity::Info,
+                Kind::BigIdea,
+                format!(
+                    "The close, {slides}, lands the big idea, but no slide before it builds toward it: {none}, so the talk asserts it without showing it."
+                ),
+                format!(
+                    "The big idea is \u{201c}{quoted}\u{201d}. Show it in the body of the talk, on a slide or two before the close, or change the close to land what the talk shows."
                 ),
                 None,
             );
@@ -4165,6 +4209,68 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// One of W2's outlined calibration decks (`docs/examples/health-calibration-outlined`), made
+    /// from its slides and its outline as `scaena generate --slides --from-outline` makes it, its
+    /// slides first changed by `change`.
+    fn outlined_deck(name: &str, change: impl FnOnce(&mut Vec<answer::Slide>)) -> Value {
+        let dir = root().join("docs/examples/health-calibration-outlined");
+        let text = std::fs::read_to_string(dir.join(format!("{name}.slides.json"))).unwrap();
+        let mut written = answer::slides(&text).unwrap();
+        change(&mut written.slides);
+        let outline: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(format!("{name}.outline.json"))).unwrap()).unwrap();
+        let narrative = Narrative {
+            arc: outline["arc"].as_str().unwrap().into(),
+            arc_reasoning: String::new(),
+            executive_summary: written.executive_summary,
+            slides: written.slides,
+            truncated: false,
+            icons: Default::default(),
+            sources: Vec::new(),
+            outline: Some(serde_json::from_value(outline).unwrap()),
+            brief: Brief { topic: name.into(), length: "5-10 slides".into(), ..Brief::default() },
+        };
+        let dusk = std::fs::read_to_string(root().join("docs/examples/themes/dusk.theme.json")).unwrap();
+        let theme: Theme = serde_json::from_str(&dusk).unwrap();
+        deck(&narrative, &theme, &Pictures::new()).unwrap().deck
+    }
+
+    /// A close that lands the big idea where no slide before it builds toward it, says two of its
+    /// words together, is an info on the close, and none once a slide shows it (W2's outlined
+    /// calibration: support's close says the bot halved the waits, and its slides between report
+    /// the move, the hiring, and the on-call rota, a word of the idea at most on each).
+    #[test]
+    fn a_close_that_asserts_an_idea_no_slide_built_is_told_so() {
+        let unbuilt = |h: &Health| -> Vec<(Severity, usize, String, String)> {
+            (h.findings.iter())
+                .filter(|f| f.kind == Kind::BigIdea)
+                .map(|f| (f.severity, f.slide, f.says.clone(), f.ask.clone()))
+                .collect()
+        };
+        let support = of(&outlined_deck("support", |_| {}));
+        let found = unbuilt(&support);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let (severity, slide, says, ask) = &found[0];
+        assert_eq!((*severity, *slide), (Severity::Info, 9), "{found:#?}");
+        assert_eq!(
+            says,
+            "The close, slides 9\u{2013}10, lands the big idea, but no slide before it builds toward it: none says two of its words together, so the talk asserts it without showing it."
+        );
+        assert!(ask.starts_with("The big idea is \u{201c}Our waits halved because the triage bot"), "{ask}");
+        assert!(ask.ends_with("Show it in the body of the talk, on a slide or two before the close, or change the close to land what the talk shows."), "{ask}");
+        // A slide that shows the bot at work builds toward it.
+        let shown = of(&outlined_deck("support", |slides| {
+            slides[4].key_bullets.push("The triage bot answers a third of tickets on its own".into());
+        }));
+        assert_eq!(unbuilt(&shown), [], "{:#?}", shown.findings);
+        // The other five: two closes that miss the idea are warned of as before, and the three
+        // that land it build toward it.
+        for name in ["lanes", "sourdough", "vans", "larder", "warehouse"] {
+            let h = of(&outlined_deck(name, |_| {}));
+            assert!(unbuilt(&h).iter().all(|(s, ..)| *s == Severity::Warning), "{name}: {:#?}", unbuilt(&h));
+        }
     }
 
     /// A slide that draws a chart and says nothing in words is asked for its notes, never said to
@@ -5964,7 +6070,10 @@ mod tests {
         let closed = |title: &'static str| {
             move |slides: &mut Vec<answer::Slide>| slides.last_mut().unwrap().slide_title = title.into()
         };
-        let landed = |h: &Health| !h.findings.iter().any(|f| f.kind == Kind::BigIdea);
+        // Landed, as the warning reads it: the keynote's talk is of a fishing town's power, so no
+        // slide before its close builds toward a library's idea, and the info says so.
+        let landed =
+            |h: &Health| !h.findings.iter().any(|f| f.kind == Kind::BigIdea && f.severity == Severity::Warning);
         assert!(!landed(&of(&dogfood("keynote", idea, |_| {}))), "the keynote's close says only \"people\"");
         assert!(landed(&of(&dogfood("keynote", idea, closed("Go where people already are")))));
         assert!(!landed(&of(&dogfood("keynote", idea, closed("People already know us")))), "said in passing");
@@ -6024,7 +6133,9 @@ mod tests {
         // The thesis that stands just before the close, in its beat, lands it, the steps between
         // them taken out; left in the beat before, it is that beat's (dogfood 4).
         let fine = "Resilience is built by neighbors, not delivered to them";
-        let found = |h: &Health| h.findings.iter().filter(|f| f.kind == Kind::BigIdea).count();
+        let found = |h: &Health| {
+            h.findings.iter().filter(|f| f.kind == Kind::BigIdea && f.severity == Severity::Warning).count()
+        };
         let stepless = |slides: &mut Vec<answer::Slide>| {
             let at = slides.len() - 2;
             slides.remove(at);
