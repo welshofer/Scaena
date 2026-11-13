@@ -3418,14 +3418,38 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // but these joins its finding, never one of its own (R1's agent dogfood 12: the ask's
         // "460.000 € … 120 fuentes", then the close's "120 fuentes … 460.000 €").
         let mut covered: Vec<((String, String), usize)> = Vec::new();
+        // A cover, a divider, or an agenda says ahead what the talk will source: a figure it writes
+        // that a later slide citing a source writes too is sourced there (R1's Spanish re-measure,
+        // D: the cover's "de 12 a 120 fuentes").
+        let cites = |i: usize, shown: &str| {
+            slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
+                || names_source(shown, &sources)
+        };
+        let ahead = |i: usize| {
+            slides[i]
+                .states
+                .iter()
+                .find_map(|&k| deck.states[k].layout.as_deref())
+                .is_some_and(|l| FRAMING.contains(&l))
+        };
+        // By its value alone: a range said ahead gives its unit to its far end ("de 12 a 120
+        // fuentes"), where the slide that sources it writes "12 fuentes".
+        let later = |i: usize| -> Vec<String> {
+            (read.iter().enumerate().skip(i + 1))
+                .filter(|&(j, s)| !cites_works(j) && cites(j, &format!("{}\n{}", s.title, s.body)))
+                .flat_map(|(_, s)| figures(&format!("{}\n{}", s.title, s.body)))
+                .map(|f| f.value)
+                .collect()
+        };
         for (i, s) in read.iter().enumerate() {
             if cites_works(i) {
                 continue;
             }
             let shown = format!("{}\n{}", s.title, s.body);
-            let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
-                || names_source(&shown, &sources);
+            let cited = cites(i, &shown);
             let written = figures(&shown);
+            let sourced: Vec<String> = if ahead(i) { later(i) } else { Vec::new() };
+            let written: Vec<Figure> = written.into_iter().filter(|f| !sourced.contains(&f.value)).collect();
             if cited {
                 if let Some(wrong) = misheld(i, &shown, &written, &known) {
                     wrongly.push(wrong);
@@ -4743,6 +4767,33 @@ mod tests {
         for report in [spanish, english] {
             assert_eq!(found(&kept(report), 6), None, "{report}");
         }
+    }
+
+    /// A cover, a divider, or an agenda says ahead of the talk what a later slide sources (R1's
+    /// Spanish re-measure, D): the Seville cover's "de 12 a 120 fuentes" was asked where 12 came
+    /// from, which slides 4 and 5 cite. A figure no later slide citing a source writes is still
+    /// asked.
+    #[test]
+    fn a_covers_figure_a_later_slide_sources_is_sourced() {
+        let path = root().join("docs/examples/agent-dogfood-12/fuentes.deck.json");
+        let made: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let found = |deck: &Value, k: usize| -> Vec<String> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Source && f.slide == k).map(|f| f.says).collect()
+        };
+        let cover = "agua-para-quien-sale-con-subtitle";
+        let mut twelve = made.clone();
+        twelve["nodes"][cover]["text"] = json!("Propuesta al Pleno: 12 fuentes");
+        assert_eq!(found(&twelve, 1), Vec::<String>::new());
+        // As the made deck says it, a range whose far end the talk plans: 12 is sourced, and 120,
+        // the proposal's, is the ask's to say (E).
+        assert!(found(&made, 1).iter().all(|f| !f.contains("writes 12,")), "{:?}", found(&made, 1));
+        // A figure the talk never sources is asked on the cover still.
+        let mut new = made.clone();
+        new["nodes"][cover]["text"] = json!("Propuesta al Pleno: 12 fuentes, 37 barrios");
+        assert_eq!(
+            found(&new, 1),
+            ["Slide 1 writes 37, and cites neither of the deck's sources, informe.pdf and piloto.csv, for it."]
+        );
     }
 
     /// A figure a slide cites to a source the deck keeps, which does not hold it, while another it
