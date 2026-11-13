@@ -782,13 +782,18 @@ pub fn compose(r: &RepoRef, meta: Option<&Metadata>, files: &[File]) -> Result<(
     let budget = COMPOSITE_CAP.saturating_sub(spent + MANIFEST_RESERVE);
     let design =
         inv.design.as_deref().map(|d| r.sub_path.as_ref().and_then(|s| d.strip_prefix(&format!("{s}/"))).unwrap_or(d));
+    let material = |p: &str| root_doc(p) != Some("readme") && !never(p) && DOC_EXTS.contains(&ext(p).as_str());
     let mut candidates: Vec<(f64, &String, &File)> = scoped
         .iter()
-        .filter(|(p, f)| {
-            f.data.is_some() && root_doc(p) != Some("readme") && !never(p) && DOC_EXTS.contains(&ext(p).as_str())
-        })
+        .filter(|(p, f)| f.data.is_some() && material(p))
         .map(|(p, f)| (rank(p, f.size, design), p, *f))
         .collect();
+    // Deck material the archive read none of, each past [`MAX_FILE`] on its own or past
+    // [`MAX_KEPT`] with the rest: named all the same, so the model is never left to think a
+    // repository's largest documents are not there (W1's dogfood 18).
+    let mut unread: Vec<(&String, u64)> =
+        (scoped.iter()).filter(|(p, f)| f.data.is_none() && material(p)).map(|(p, f)| (p, f.size)).collect();
+    unread.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
     candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(b.1)));
     let mut used = 0;
     let mut omitted: Vec<(String, u64)> = Vec::new();
@@ -847,6 +852,20 @@ pub fn compose(r: &RepoRef, meta: Option<&Metadata>, files: &[File]) -> Result<(
         }
         if omitted.len() > LIST_LIMIT {
             m.push(format!("  - \u{2026}and {} more", omitted.len() - LIST_LIMIT));
+        }
+    }
+    if !unread.is_empty() {
+        m.push(String::new());
+        m.push(format!(
+            "Present in this repository but NOT read \u{2014} too large for this pack ({} {}):",
+            unread.len(),
+            if unread.len() == 1 { "document" } else { "documents" }
+        ));
+        for (path, size) in unread.iter().take(LIST_LIMIT) {
+            m.push(format!("  - {path} \u{2014} {}", kb(*size as usize)));
+        }
+        if unread.len() > LIST_LIMIT {
+            m.push(format!("  - \u{2026}and {} more", unread.len() - LIST_LIMIT));
         }
     }
     m.push(String::new());
@@ -990,5 +1009,31 @@ mod tests {
             .map(|i| listed[i].path.as_str())
             .collect();
         assert_eq!(read, ["README.md", "Cargo.toml", "docs/guide.md"]);
+    }
+
+    /// A document too large to read is named all the same (W1's dogfood 18): Scaena's own SPEC.md
+    /// and PLAN.md are each past [`MAX_FILE`], and the pack said nothing of either, so the model
+    /// was left to think the repository's two largest documents were not there.
+    #[test]
+    fn a_document_too_large_to_read_is_named_in_the_pack() {
+        let big = format!("# Spec\n\n{}", "A deck is a timeline of states. ".repeat(20_000));
+        assert!(big.len() as u64 > MAX_FILE);
+        let gz = archive(&[
+            ("README.md", "# Scaena\nA presentation engine."),
+            ("docs/SPEC.md", &big),
+            ("docs/intro.md", &format!("# Intro\n\n{}", "Scaena draws decks, deterministically. ".repeat(8))),
+        ]);
+        let files = unpack(&gz, &keep).unwrap();
+        let spec = files.iter().find(|f| f.path == "docs/SPEC.md").unwrap();
+        assert!(spec.data.is_none() && spec.size > MAX_FILE, "too large to read");
+        let (_, text) = compose(&parse("owner/repo").unwrap(), None, &files).unwrap();
+        assert!(
+            text.contains("Present in this repository but NOT read \u{2014} too large for this pack (1 document):"),
+            "{text}"
+        );
+        assert!(text.contains("  - docs/SPEC.md \u{2014} 625.0 KB"), "{text}");
+        // What it holds is still not quoted, and the documents read are listed as before.
+        assert!(!text.contains("A deck is a timeline of states."), "its words are not read");
+        assert!(text.contains("  - docs/intro.md \u{2014} "), "{text}");
     }
 }

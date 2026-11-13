@@ -8014,9 +8014,14 @@ fn two(slide: &Slide) -> bool {
         .is_some_and(|c| c.categories.len() == 2 && c.series.len() == 1 && c.series[0].values.len() == 2)
 }
 
-/// The decimals of the most precise of `chart`'s values, two at most: 2.0 beside 1.1.
+/// The decimals of the most precise of `chart`'s values, four at most: 2.0 beside 1.1, and
+/// 2.275 beside 0.232, as its writer wrote them, never 2.27 (W1 dogfood 18). A made deck draws no
+/// figure its writer did not write (DF7-1), so a label rounds only past the fourth place.
 fn decimals(chart: &ChartData) -> usize {
-    let places = |v: f64| (0..=2usize).find(|d| (v * 10f64.powi(*d as i32)).fract().abs() < 1e-9).unwrap_or(2);
+    // Whole at `d` places: within a float's noise of the nearest integer, from either side (2.275
+    // is 2274.9999999999995 thousandths).
+    let whole = |x: f64| (x - x.round()).abs() <= 1e-9 * x.abs().max(1.0);
+    let places = |v: f64| (0..=4usize).find(|d| whole(v * 10f64.powi(*d as i32))).unwrap_or(4);
     chart.series.iter().flat_map(|s| s.values.iter().flatten()).map(|v| places(*v)).max().unwrap_or(0)
 }
 
@@ -13162,6 +13167,27 @@ mod tests {
         assert_eq!(placed.len(), 1);
         assert_eq!(unmade.len(), 2);
         assert!(unmade.iter().all(|u| u.contains("out of credit")), "{unmade:?}");
+    }
+
+    /// A chart's figures are drawn to the places its writer wrote them, four at most (W1 dogfood
+    /// 18): hyperfine's README times fd at 0.232 s and find at 2.275 s, never 0.23 and 2.27.
+    #[test]
+    fn a_charts_figures_keep_the_places_written() {
+        let chart = |values: &[f64]| ChartData {
+            categories: values.iter().map(|v| v.to_string()).collect(),
+            series: vec![scaena_narrato::answer::Series {
+                name: None,
+                values: values.iter().copied().map(Some).collect(),
+            }],
+            ..ChartData::default()
+        };
+        assert_eq!(decimals(&chart(&[2.275, 1.427, 0.232])), 3);
+        assert_eq!(decimals(&chart(&[2.0, 1.1])), 1);
+        assert_eq!(decimals(&chart(&[48.0, 52.0, 71.0])), 0);
+        assert_eq!(decimals(&chart(&[0.1 + 0.2])), 1, "a float's noise is no place written");
+        assert_eq!(decimals(&chart(&[1.4826])), 4);
+        assert_eq!(decimals(&chart(&[1.234_56])), 4, "rounded past the fourth place");
+        assert_eq!(at_places(2.275, decimals(&chart(&[2.275, 0.232])), None, "en"), "2.275");
     }
 
     #[test]

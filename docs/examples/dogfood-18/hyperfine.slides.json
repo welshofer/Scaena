@@ -1,0 +1,213 @@
+{
+ "executiveSummary": "Measure a command until its numbers settle, and compare it against a reference, never once by hand.",
+ "slides": [
+  {
+   "beatIndex": 0,
+   "beatName": "Orientation: What we’ll learn and why it matters",
+   "subtitle": "Measuring command-line performance with hyperfine",
+   "keyBullets": [],
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Benchmark like you mean it",
+   "layoutSuggestion": "Title"
+  },
+  {
+   "beatIndex": 0,
+   "beatName": "Orientation: What we’ll learn and why it matters",
+   "subtitle": "",
+   "keyBullets": [],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "A benchmark you run once tells you nothing; hyperfine runs it until the numbers settle",
+   "layoutSuggestion": "Statement"
+  },
+  {
+   "beatIndex": 1,
+   "beatName": "Foundations: Core concepts and terminology",
+   "subtitle": "",
+   "keyBullets": [],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Hyperfine runs every command at least 10 times and aims for about 3 seconds of measurement",
+   "layoutSuggestion": "Statement"
+  },
+  {
+   "beatIndex": 1,
+   "beatName": "Foundations: Core concepts and terminology",
+   "subtitle": "run.sh",
+   "keyBullets": [
+    "hyperfine 'sleep 0.3'\nhyperfine --runs 5 'sleep 0.3'\nhyperfine 'hexdump file' 'xxd file'"
+   ],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Hyperfine picks the run count for you",
+   "layoutSuggestion": "Code"
+  },
+  {
+   "beatIndex": 2,
+   "beatName": "Application: Worked examples",
+   "subtitle": "",
+   "keyBullets": [],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Warmup runs and prepare commands decide whether you measure a warm cache or a cold one",
+   "layoutSuggestion": "Statement"
+  },
+  {
+   "beatIndex": 2,
+   "beatName": "Application: Worked examples",
+   "subtitle": "",
+   "keyBullets": [
+    "Warm: --warmup 3 runs the command three times before measuring",
+    "Cold: --prepare clears the page cache before each run"
+   ],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Warm cache or cold",
+   "layoutSuggestion": "Two Column"
+  },
+  {
+   "beatIndex": 2,
+   "beatName": "Application: Worked examples",
+   "subtitle": "cache.sh",
+   "keyBullets": [
+    "hyperfine -S --warmup 3 'grep -R TODO *'\nhyperfine -S --prepare 'sync; echo 3 | sudo tee /proc/sys/vm/drop_caches' 'grep -R TODO *'"
+   ],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "One flag for each",
+   "layoutSuggestion": "Code"
+  },
+  {
+   "beatIndex": 3,
+   "beatName": "Mastery: Edge cases and pitfalls",
+   "subtitle": "",
+   "keyBullets": [],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Below 5 ms, a shell's startup is more noise than your command: run it without one",
+   "layoutSuggestion": "Statement"
+  },
+  {
+   "beatIndex": 3,
+   "beatName": "Mastery: Edge cases and pitfalls",
+   "subtitle": "",
+   "keyBullets": [
+    "Commands run directly by default: --shell=none",
+    "Use -S for pipes, redirections, and wildcards",
+    "With a shell, hyperfine subtracts its startup time",
+    "Below 5 ms, that correction is noise of its own"
+   ],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "What the shell costs",
+   "layoutSuggestion": "Bullet List"
+  },
+  {
+   "beatIndex": 3,
+   "beatName": "Mastery: Edge cases and pitfalls",
+   "subtitle": "src/outlier_detection.rs",
+   "keyBullets": [
+    "pub const OUTLIER_THRESHOLD: f64 = 1.4826 * 10.0;\n\npub fn num_outliers(xs: &[f64]) -> usize {\n    if xs.is_empty() {\n        return 0;\n    }\n    let scores = modified_zscores_f64(xs);\n    scores.iter().filter(|&&s| s.abs() > OUTLIER_THRESHOLD).count()\n}"
+   ],
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "An outlier is ten deviations out",
+   "layoutSuggestion": "Code"
+  },
+  {
+   "beatIndex": 4,
+   "beatName": "Assessment: Quick checks for understanding",
+   "subtitle": "",
+   "keyBullets": [
+    "Mean wall time in seconds, from hyperfine's README"
+   ],
+   "expectedIntensity": 0.8,
+   "expectedValence": 0.6,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "fd finds the files 9.8x faster than find",
+   "layoutSuggestion": "Bar Chart",
+   "chartData": {
+    "categories": [
+     "find -iregex",
+     "find -iname",
+     "fd"
+    ],
+    "series": [
+     {
+      "name": "Mean wall time (s)",
+      "values": [
+       2.275,
+       1.427,
+       0.232
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "beatIndex": 4,
+   "beatName": "Assessment: Quick checks for understanding",
+   "subtitle": "",
+   "keyBullets": [
+    "Which option benchmarks a cold cache?",
+    "A: --warmup",
+    "B: --prepare",
+    "C: --runs"
+   ],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Check yourself",
+   "layoutSuggestion": "Quiz"
+  },
+  {
+   "beatIndex": 5,
+   "beatName": "Transfer: How to apply in the real world",
+   "subtitle": "",
+   "keyBullets": [],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Compare your branches with a parameter list and a setup command, not by hand",
+   "layoutSuggestion": "Statement"
+  },
+  {
+   "beatIndex": 5,
+   "beatName": "Transfer: How to apply in the real world",
+   "subtitle": "compare.sh",
+   "keyBullets": [
+    "hyperfine \\\n    --parameter-list branch main,performance-improvements \\\n    --setup 'git switch {branch}' \\\n    'python main.py'"
+   ],
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Benchmark two branches in one command",
+   "layoutSuggestion": "Code"
+  },
+  {
+   "beatIndex": 5,
+   "beatName": "Transfer: How to apply in the real world",
+   "subtitle": "",
+   "keyBullets": [
+    "Questions?",
+    "github.com/sharkdp/hyperfine"
+   ],
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.3,
+   "sourceRef": "hyperfine.md",
+   "slideTitle": "Thank you",
+   "layoutSuggestion": "Closing"
+  }
+ ]
+}

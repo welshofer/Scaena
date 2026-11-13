@@ -234,6 +234,9 @@ pub enum Field {
     Intensity,
     /// The claim the settled outline holds for the part of the talk it opens.
     Claim,
+    /// The big idea the settled outline names, which the close is to land.
+    #[serde(rename = "bigIdea")]
+    BigIdea,
 }
 
 /// Something to look at on one slide: what it says, what to ask the assistant, and, where one
@@ -258,7 +261,10 @@ pub struct Finding {
     /// Where in `deck.json` the plan an `arc` finding asks changed is written, a JSON pointer to
     /// its beat's `media.narrato.intensity`, for an agent that edits the deck by patches; the
     /// editors set it by the slide's Intensity (R1's MCP dogfood). No patch: what to plan is
-    /// the person's (ADR-0032, item 4).
+    /// the person's (ADR-0032, item 4). For a `claim` or a `bigIdea` finding that asks for its
+    /// `field`, where the settled outline holds the claim or the big idea
+    /// (`/meta/narrative/outline/beats/N/claim`, `/meta/narrative/outline/bigIdea`), which the
+    /// editors' Story rows edit in place, with no model (editor dogfood 7).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// The one field the finding asks to edit, where it asks for one: a slide's headline, its
@@ -271,6 +277,10 @@ pub struct Finding {
     /// (`scaena_ops::states::folding`'s `into`, R1's #1161).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub into: Option<String>,
+    /// The claim or the big idea as the settled outline holds it, at `path`, where `field` is
+    /// `Claim` or `BigIdea`: what an editor shows to edit (editor dogfood 7).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settled: Option<String>,
 }
 
 /// A fix: what it does, in a few words, and the patch that does it.
@@ -1937,6 +1947,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 path: None,
                 field: None,
                 into: None,
+                settled: None,
             });
         }
     };
@@ -3411,8 +3422,24 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             Kind::Arc => Some(Field::Intensity),
             Kind::Intensity if of(&plan_strays) => Some(Field::Intensity),
             Kind::Claim if f.severity == Severity::Warning => Some(Field::Claim),
+            Kind::BigIdea if f.severity == Severity::Warning => Some(Field::BigIdea),
             _ => None,
         };
+    }
+    // A claim or the big idea asked for is edited where the settled outline holds it, by its
+    // pointer and its words (editor dogfood 7): the claim of the outline's part the slide opens.
+    for f in findings.iter_mut() {
+        let at = match f.field {
+            Some(Field::Claim) => (place.get(f.state.as_str()))
+                .and_then(|&i| read[i].narrative_meta.as_ref()?.beat_index)
+                .map(|k| format!("/outline/beats/{k}/claim")),
+            Some(Field::BigIdea) => Some("/outline/bigIdea".to_string()),
+            _ => None,
+        };
+        let Some(at) = at else { continue };
+        let Some(text) = narrative.and_then(|n| n.pointer(&at)).and_then(Value::as_str) else { continue };
+        f.path = Some(format!("/meta/narrative{at}"));
+        f.settled = Some(text.to_string());
     }
     // Each finding of a slide said again names the earlier slide it may be folded into.
     for f in findings.iter_mut().filter(|f| f.kind == Kind::Story && f.says.contains(" says again what slide ")) {
@@ -7523,6 +7550,7 @@ mod tests {
                     Kind::Arc => (!f.says.contains("after the talk's peak")).then_some(Field::Intensity),
                     Kind::Intensity => f.ask.contains("set its Intensity").then_some(Field::Intensity),
                     Kind::Claim => (f.severity == Severity::Warning).then_some(Field::Claim),
+                    Kind::BigIdea => (f.severity == Severity::Warning).then_some(Field::BigIdea),
                     _ => None,
                 };
                 assert_eq!(f.field, want, "{f:#?}");
@@ -7540,6 +7568,48 @@ mod tests {
             assert!(seen.contains(&field), "{field:?} said nowhere: {seen:?}");
         }
         assert_eq!(serde_json::to_value(Field::Headline).unwrap(), json!("headline"));
+        assert_eq!(serde_json::to_value(Field::BigIdea).unwrap(), json!("bigIdea"));
+    }
+
+    /// A part's claim and the big idea a finding asks for are where the settled outline holds
+    /// them (editor dogfood 7): each such finding names its `path` in `deck.json` and the words
+    /// there, so an editor's Story row edits them in place with no model; the claim settled
+    /// again as the slides say it, one patch at that path, is carried, the score as it was.
+    #[test]
+    fn a_claim_and_the_big_idea_asked_for_are_where_the_outline_holds_them() {
+        let mut deck = outlined_deck("larder", |_| {});
+        let h = of(&deck);
+        let asked: Vec<&Finding> =
+            h.findings.iter().filter(|f| matches!(f.field, Some(Field::Claim | Field::BigIdea))).collect();
+        assert!(asked.iter().any(|f| f.field == Some(Field::Claim)), "{:#?}", h.findings);
+        assert!(asked.iter().any(|f| f.field == Some(Field::BigIdea)), "{:#?}", h.findings);
+        for f in &asked {
+            let path = f.path.as_deref().unwrap_or_else(|| panic!("no path: {f:#?}"));
+            let want = match f.field {
+                Some(Field::BigIdea) => "/meta/narrative/outline/bigIdea".to_string(),
+                _ => {
+                    let k = path.trim_start_matches("/meta/narrative/outline/beats/").trim_end_matches("/claim");
+                    format!("/meta/narrative/outline/beats/{k}/claim")
+                }
+            };
+            assert_eq!(path, want, "{f:#?}");
+            assert_eq!(deck.pointer(path).and_then(Value::as_str), f.settled.as_deref(), "{f:#?}");
+            // The finding quotes the words it names.
+            let settled = f.settled.as_deref().unwrap();
+            assert!(f.says.contains(settled.trim_end_matches('.')), "{f:#?}");
+        }
+        // The first claim settled again as its slide's headline says it: carried, nothing else moved.
+        let claim = asked.iter().find(|f| f.field == Some(Field::Claim)).unwrap();
+        let (path, slide) = (claim.path.clone().unwrap(), claim.slide);
+        let title = h.slides[slide - 1].title.clone();
+        *deck.pointer_mut(&path).unwrap() = json!(title);
+        let after = of(&deck);
+        assert!(
+            !after.findings.iter().any(|f| f.kind == Kind::Claim && f.slide == slide),
+            "{:#?}",
+            after.findings.iter().filter(|f| f.kind == Kind::Claim).collect::<Vec<_>>()
+        );
+        assert_eq!(after.score, h.score);
     }
 
     /// A long tail (the calibration against a reader): slides that run on after the talk's peak

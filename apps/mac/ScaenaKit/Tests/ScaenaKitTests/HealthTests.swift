@@ -317,5 +317,23 @@ private func read(slides: Int, _ findings: [(Int, String, String)]) throws -> He
     #expect(try finding(#"{\#(base), "kind": "arc", "path": "/spine/sections/0/beats/1/media/narrato/intensity"}"#).formatField == "intensity")
     #expect(try finding(#"{\#(base), "kind": "label", "field": "headline"}"#).formatField == nil)
     #expect(try finding(#"{\#(base), "kind": "claim", "field": "claim"}"#).formatField == nil)
+    #expect(try finding(#"{\#(base), "kind": "bigIdea", "field": "bigIdea"}"#).formatField == nil)
     #expect(try finding(#"{\#(base), "kind": "dense"}"#).formatField == nil)
+}
+
+/// A claim or big-idea finding carries where the settled outline holds it and its words, which the
+/// Story panel edits in place (editor dogfood 7): `field` is `claim` or `bigIdea`, `path` points
+/// into the outline, `settled` holds the text, and `formatField` stays nil so no Format field is
+/// offered for it.
+@Test func aClaimOrBigIdeaFindingCarriesTheSettledWordsToEdit() throws {
+    let finding = { (json: String) in try JSONDecoder().decode(Health.Finding.self, from: Data(json.utf8)) }
+    let base = #""state": "s3", "slide": 3, "severity": "warning", "says": "", "ask": """#
+    let claim = try finding(
+        #"{\#(base), "kind": "claim", "field": "claim", "path": "/meta/narrative/outline/beats/1/claim", "settled": "Larder plans the week"}"#)
+    #expect(claim.field == "claim" && claim.formatField == nil)
+    #expect(claim.path == "/meta/narrative/outline/beats/1/claim" && claim.settled == "Larder plans the week")
+    let idea = try finding(
+        #"{\#(base), "kind": "bigIdea", "field": "bigIdea", "path": "/meta/narrative/outline/bigIdea", "settled": "They keep paying"}"#)
+    #expect(idea.field == "bigIdea" && idea.formatField == nil)
+    #expect(idea.path == "/meta/narrative/outline/bigIdea" && idea.settled == "They keep paying")
 }

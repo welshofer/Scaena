@@ -437,7 +437,7 @@ export function prompting(
   /** What this dialog's runs have paid for, kept while it is open (lift-up 20261110 REL-1). */
   let paid: Paid = {};
   /** A deck made that would not open, kept to download. */
-  let unopened: { files: Record<string, ArrayBuffer>; name: string } | undefined;
+  let unopened: { files: Record<string, ArrayBuffer>; name: string; begins: boolean } | undefined;
   /** Go on from what was made, offered where a run that failed paid for something. */
   const offered = () => {
     const line = running ? undefined : kept(paid);
@@ -863,10 +863,10 @@ export function prompting(
       // Opened before the dialog closes: a deck that would not open is kept to download, not lost
       // with the dialog (lift-up 20261110 REL-1).
       try {
-        await open({ files: deck.files, name: deck.name });
+        await open({ files: deck.files, name: deck.name, begins: true });
       } catch (err) {
         if (worker !== making) return;
-        unopened = { files: deck.files, name: deck.name };
+        unopened = { files: deck.files, name: deck.name, begins: true };
         step(`The deck was made but would not open: ${err instanceof Error ? err.message : String(err)}. Download it to keep it.`, true);
         busy(false);
         download.focus();
