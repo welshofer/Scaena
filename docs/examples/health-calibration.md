@@ -521,6 +521,26 @@ None of the 19 calibration decks is made from sources, so the check never runs o
 
 n′ is built: `meta.narrative.sources[].figures` (deck format 0.41) and the `source` finding with its fix, Cite the source that holds the figure. On the decks above it finds what the table's n′ column says, and each fix clears its finding.
 
+### A source named by one word
+
+The check above counts a source as cited wherever the slide names it. A name of one word was matched wherever the slide used the word. So editor dogfood 8's slide 4, "2,100 lines replaced in 2025", named `lines.csv`, and its miscited 2,100 went unfound. Now a one-word name counts as named only:
+- as its whole file name ("lines.csv");
+- after a word that labels a source: "Source: lines", "Fuente: piloto.csv", "from the pilot".
+
+A name of two words or more matches as before ("the season report"). The same rule decides when a slide that cites nothing still names its source, for a figure no source backs. Re-counted on main `126ea91a`:
+
+| deck | `source` findings before | after | score |
+|---|---|---|---|
+| d17 as made | 1 | 1 | 84 |
+| d17 as worked | 2 | 2 | 86 |
+| d9 board | 2 | 2 | 89 |
+| d10 board | 5 | 5 | 92 |
+| d13 biotonne | 0 | 0 | 80 |
+
+- **Editor dogfood 8.** Its slide 4 is now found: "Slide 4 writes 2,100 and cites report.pdf, which does not hold it; lines.csv does."
+- **The five decks above.** Nothing changes on them. No slide on them says a one-word source's name in its prose while the figure on it goes unbacked.
+- **Biotonne's `bericht.pdf`** keeps 11 figures here, not the 15 counted above, since #1284 reads its letters anew. Its findings are none either way.
+
 ### What a source keeps
 
 Each source keeps its figures alone, each value once: biotonne's `bericht.pdf` keeps 15 (93 bytes), its `abfall.csv` 15 (120 bytes), and dogfood 9's `board.csv` 36 (241 bytes). The reader's ü, ß and € in `bericht.pdf` are dropped (its font has no ToUnicode for them); its figures read.
