@@ -405,10 +405,11 @@ try {
     await deck.evaluate(() => window.scaena.versions.settled());
     await deck.waitForFunction(() => /put back/i.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
     // The status line may carry the lint's summary after it, as it does once a lint begun before
-    // the restore ends (" — No issues").
+    // the restore ends: `${told} — ${found}` (web/src/editor.ts), `found` being `counted()`
+    // (web/src/marks.ts), "No issues" or "1 problem, 2 warnings, 3 notes". Nothing else may follow.
     const said = await deck.locator("#status").textContent();
     check(
-      /^Nothing put back: Slide 1(: [^·]+)? is as version 1 drew it\. “Scaena anew” kept as it is now, since Slide \d+ shows it too( — .+)?$/.test(said) &&
+      /^Nothing put back: Slide 1(: [^·]+)? is as version 1 drew it\. “Scaena anew” kept as it is now, since Slide \d+ shows it too( — (No issues|\d+ (problem|warning|note)s?(, \d+ (problem|warning|note)s?)*))?$/.test(said) &&
         (await deck.evaluate(() => window.scaena.source())).includes('"Scaena anew"'),
       `B1's cover put back keeps its title for the closing slide, and says so: ${said}`,
     );
