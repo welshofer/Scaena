@@ -125,6 +125,7 @@ struct DataPanel: View {
     private func change(_ name: String, _ rows: [RowEdit], file: String?) {
         let session = editor.session
         var dropped: [String] = []
+        var stale: [String] = []
         let made = { () throws -> Void in
             let edited = try session.dataEdit(name, rows)
             guard edited.edited else {
@@ -132,10 +133,16 @@ struct DataPanel: View {
                 throw Refused("\(source) not changed", edited.refusals, by: editor, otherwise: "it reads so already")
             }
             dropped = edited.unquoted
+            stale = edited.stale
         }
         problem = nil
         said = nil
-        defer { if !dropped.isEmpty { said = "\(dropped.joined(separator: "; ")) · ⌘Z brings it back" } }
+        defer {
+            // A quote dropped is undone by ⌘Z; words still writing the old value are the person's.
+            let back = dropped.isEmpty ? [] : ["\(dropped.joined(separator: "; ")) · ⌘Z brings it back"]
+            let told = back + stale
+            if !told.isEmpty { said = told.joined(separator: ". ") }
+        }
         if file == nil {
             edits.beside("Data Change") {
                 try made()

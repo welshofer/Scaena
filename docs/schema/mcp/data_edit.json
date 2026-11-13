@@ -125,6 +125,17 @@
           "said": { "type": "string" }
         },
         "required": ["node", "slides", "words", "said"]
+      },
+      "StillSaid": {
+        "type": "object",
+        "properties": {
+          "was": { "type": "string" },
+          "now": { "type": "string" },
+          "what": { "type": "string" },
+          "slides": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "said": { "type": "string" }
+        },
+        "required": ["was", "now", "what", "slides", "said"]
       }
     },
     "required": ["edited", "source", "sheet", "added", "removed", "errors", "refused"],
@@ -139,7 +150,8 @@
       "errors": { "type": "integer", "minimum": 0 },
       "refused": { "type": "boolean" },
       "quoted": { "type": "array", "items": { "type": "string" } },
-      "unquoted": { "type": "array", "items": { "$ref": "#/$defs/Unquoted" } }
+      "unquoted": { "type": "array", "items": { "$ref": "#/$defs/Unquoted" } },
+      "stale": { "type": "array", "items": { "$ref": "#/$defs/StillSaid" } }
     }
   }
 }

@@ -258,7 +258,10 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
           // is, with the undo that brings the row and the quote back (R1's agent dogfood 10).
           const unquoted = result.unquoted ?? [];
           const set = quoted.length ? `${done}; what ${figures} quotes set again` : done;
-          const told = unquoted.length ? `${set}. ${unquoted.map((u) => u.said).join("; ")} · ${MOD}Z brings it back` : set;
+          const back = unquoted.length ? `${set}. ${unquoted.map((u) => u.said).join("; ")} · ${MOD}Z brings it back` : set;
+          // Words that still write the cell's old value are the person's to change: said, not set.
+          const stale = result.stale ?? [];
+          const told = stale.length ? `${back}. ${stale.map((s) => s.said).join("; ")}` : back;
           if (result.file && !quoted.length && !unquoted.length) editor.took(edited);
           else editor.apply(source, edited, told);
           editor.say(told);

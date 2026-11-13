@@ -288,17 +288,21 @@ public struct DataEdited: Decodable, Sendable {
     /// data no more, its words kept (R1's agent dogfood 10): "Slide 7's “275” quotes the data no
     /// more". None where the edit dropped no quote.
     public let unquoted: [String]
+    /// What the window says of words that still write an edited cell's old value, which the edit
+    /// leaves as written: "Slide 9's notes still say 4,605". None where nothing does.
+    public let stale: [String]
 
     private enum Keys: String, CodingKey { case result, wrote }
-    private enum Inner: String, CodingKey { case edited, file, added, unquoted }
-    private struct Unquoted: Decodable { let said: String }
+    private enum Inner: String, CodingKey { case edited, file, added, unquoted, stale }
+    private struct Said: Decodable { let said: String }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
         let result = try fields.nestedContainer(keyedBy: Inner.self, forKey: .result)
         edited = try result.decode(Bool.self, forKey: .edited)
         file = try result.decodeIfPresent(String.self, forKey: .file)
-        unquoted = try (result.decodeIfPresent([Unquoted].self, forKey: .unquoted) ?? []).map(\.said)
+        unquoted = try (result.decodeIfPresent([Said].self, forKey: .unquoted) ?? []).map(\.said)
+        stale = try (result.decodeIfPresent([Said].self, forKey: .stale) ?? []).map(\.said)
         let found = errors(in: try result.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
         refusals = found
         why = messages(found)

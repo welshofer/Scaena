@@ -2132,6 +2132,9 @@ export interface DataEdited {
   /** Each text that quoted, by its index, a row the edits took away: its figure kept as words,
    * quoting nothing now, with the slides that show it and what the status line says of it. */
   unquoted?: { node: string; slides: number[]; words: string; said: string }[];
+  /** Words that still write an edited cell's old value, a slide's text, a description, notes, or
+   * a claim, with what the status line says of them: "Slide 9's notes still say 4,605". */
+  stale?: { was: string; now: string; what: string; slides: number[]; said: string }[];
 }
 
 /** A value of a data source a run quotes (ADR-0019, PLAN 2.72). */
