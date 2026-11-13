@@ -2407,8 +2407,31 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let of_beat = |k: usize| -> Vec<usize> {
         (0..read.len()).filter(|&i| read[i].narrative_meta.as_ref().and_then(|m| m.beat_index) == Some(k)).collect()
     };
+    // Words the deck's title holds, or that the slides of every part say (its product's name,
+    // "Larder"), tell no part's claim from another's: a part whose slides share only them with its
+    // claim carries none of its promise (W2's outlined calibration: larder's Solution part).
+    let mut common = content_words(deck.meta.as_ref().and_then(|m| m.title.as_deref()).unwrap_or_default());
+    let parts: Vec<std::collections::BTreeSet<String>> = (0..outlined.len())
+        .map(of_beat)
+        .filter(|of| !of.is_empty())
+        .map(|of| {
+            let mut words = std::collections::BTreeSet::new();
+            for i in of {
+                words.append(&mut content_words(&format!("{} {}", read[i].title, read[i].body)));
+            }
+            words
+        })
+        .collect();
+    if let [first, rest @ ..] = parts.as_slice()
+        && !rest.is_empty()
+    {
+        let mut everywhere = first.clone();
+        everywhere.retain(|w| rest.iter().all(|p| p.contains(w)));
+        common.append(&mut everywhere);
+    }
     let shares = |sentence: &str, of: &[usize]| -> Option<bool> {
-        let said = content_words(sentence);
+        let mut said = content_words(sentence);
+        said.retain(|w| !common.contains(w));
         if said.is_empty() {
             return None;
         }
@@ -6547,6 +6570,39 @@ mod tests {
     /// and whose close says its big idea is found carrying both, and the big idea is given for the
     /// editors to show; a claim no slide of its beat says, and a big idea the close never says,
     /// are each found on the beat's first slide, with what to ask.
+    /// A part's slides that share with its claim only a word the deck's title holds, or one
+    /// every part's slides say, carry none of its promise (W2's outlined calibration: larder's
+    /// Solution part shared the product's name with its claim, and was missed).
+    #[test]
+    fn a_claim_carried_only_by_a_shared_name_is_not_carried() {
+        let mut deck = climate();
+        let h = of(&deck);
+        let written: Vec<usize> = (h.slides.iter())
+            .map(|s| {
+                let at = format!("{}/media/narrato/beatIndex", beat_of(&deck, &s.state));
+                deck.pointer(&at).and_then(Value::as_u64).unwrap() as usize
+            })
+            .collect();
+        let first_of = |k: usize| written.iter().position(|&w| w == k).unwrap();
+        let beats: Vec<Value> = (h.beats.iter().enumerate())
+            .map(|(k, name)| json!({ "name": name, "claim": h.slides[first_of(k)].title, "slides": 1 }))
+            .collect();
+        deck["meta"]["narrative"]["outline"] = json!({ "bigIdea": h.slides[h.slides.len() - 1].title, "beats": beats });
+        // A word beat 1's headline says, made the deck's title, beside words no slide says.
+        let name = content_words(&h.slides[first_of(1)].title).into_iter().next().expect("a word of beat 1's headline");
+        deck["meta"]["title"] = json!(format!("The {name} talk"));
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!(format!("{name} penguins juggle marmalade"));
+        let found = of(&deck);
+        assert!(
+            found.findings.iter().any(|f| f.kind == Kind::Claim && f.says.contains("penguins juggle marmalade")),
+            "{name}: {:#?}",
+            found.findings.iter().filter(|f| f.kind == Kind::Claim).collect::<Vec<_>>()
+        );
+        // A claim of the title's words alone says nothing either way.
+        deck["meta"]["narrative"]["outline"]["beats"][1]["claim"] = json!(name);
+        assert!(!of(&deck).findings.iter().any(|f| f.kind == Kind::Claim), "a claim of shared words alone");
+    }
+
     #[test]
     fn health_reads_the_settled_outline() {
         let mut deck = climate();
