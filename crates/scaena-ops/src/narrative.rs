@@ -3052,16 +3052,21 @@ fn reclosed(doc: &mut Value, theme: &Theme, view: &View, findings: &[Finding]) -
 /// ([`overflowing`]), so the person is told to shorten it. None where every claim fits.
 fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsError> {
     let doc = deck.to_value()?;
-    let settled: Vec<&str> = (doc["meta"]["narrative"]["outline"]["beats"].as_array().into_iter().flatten())
-        .filter_map(|b| b["claim"].as_str())
-        .chain(doc["meta"]["narrative"]["outline"]["bigIdea"].as_str())
-        .collect();
+    let outline = &doc["meta"]["narrative"]["outline"];
+    let settled: Vec<&str> =
+        (outline["beats"].as_array().into_iter().flatten()).filter_map(|b| b["claim"].as_str()).collect();
+    let idea = outline["bigIdea"].as_str().filter(|i| !i.trim().is_empty());
     let slides = deck.slides();
-    let mut said: Vec<(usize, String)> = Vec::new();
+    // Each slide whose settled claim, or the deck's big idea, runs past its place: how, and
+    // whether it is the big idea, named as what it is (R1's agent dogfood 13: a close that states
+    // it, which the person shortens in the outline's big idea, not in a beat's claim).
+    let mut said: Vec<(usize, String, bool)> = Vec::new();
     for f in findings.iter().filter(|f| matches!(f.code.as_str(), "E100" | "W202")) {
         let Some(id) = f.node.as_deref() else { continue };
         let Some(text) = doc["nodes"][id]["text"].as_str() else { continue };
-        if !settled.iter().any(|claim| says(claim, text)) {
+        let claimed = settled.iter().any(|claim| says(claim, text));
+        let ideal = !claimed && idea.is_some_and(|i| says(i, text));
+        if !claimed && !ideal {
             continue;
         }
         let Some(slide) = (f.state.as_deref())
@@ -3071,7 +3076,7 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         else {
             continue;
         };
-        if said.iter().any(|(n, _)| *n == slide) {
+        if said.iter().any(|(n, ..)| *n == slide) {
             continue;
         }
         let how = match (f.code.as_str(), f.measure.as_ref()) {
@@ -3081,10 +3086,11 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
             },
             _ => "past its place".to_string(),
         };
-        said.push((slide, how));
+        said.push((slide, how, ideal));
     }
-    scaena_core::sort::by_key(&mut said, |(n, _)| *n);
-    Ok(match said.as_slice() {
+    scaena_core::sort::by_key(&mut said, |(n, ..)| *n);
+    let claims: Vec<(usize, String)> = said.iter().filter(|s| !s.2).map(|(n, h, _)| (*n, h.clone())).collect();
+    let claims = match claims.as_slice() {
         [] => None,
         [(slide, how)] => {
             Some(format!("slide {slide}'s settled claim stands as written, {how}: shorten it in the outline to fit"))
@@ -3092,7 +3098,7 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         // Each said alike: "the settled claims on slides 3, 5 and 7 stand as written, each in 4
         // lines where its place takes 3".
         [(_, how), rest @ ..] if rest.iter().all(|(_, h)| h == how) => {
-            let slides: Vec<String> = said.iter().map(|(n, _)| n.to_string()).collect();
+            let slides: Vec<String> = claims.iter().map(|(n, _)| n.to_string()).collect();
             Some(format!(
                 "the settled claims on slides {} stand as written, each {how}: shorten them in the outline to fit",
                 and_list(&slides)
@@ -3100,10 +3106,15 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         }
         _ => {
             let each: Vec<String> =
-                said.iter().map(|(n, how)| format!("slide {n}'s settled claim stands as written, {how}")).collect();
+                claims.iter().map(|(n, how)| format!("slide {n}'s settled claim stands as written, {how}")).collect();
             Some(format!("{}: shorten them in the outline to fit", each.join("; ")))
         }
-    })
+    };
+    let ideas = (said.iter().filter(|s| s.2)).map(|(n, how, _)| {
+        format!("slide {n} states the deck's big idea, too long for its place ({how}): shorten it in the outline")
+    });
+    let all: Vec<String> = claims.into_iter().chain(ideas).collect();
+    Ok((!all.is_empty()).then(|| all.join("; ")))
 }
 
 /// The theme's shader preset a made deck's cover and close stand on where no picture was made for
@@ -12347,11 +12358,11 @@ mod tests {
         assert!(made.created.findings.iter().all(|f| f.code != "W425"), "{:#?}", made.created.findings);
         let long = overflowing(&write.deck, &made.created.findings).unwrap();
         assert!(long.iter().all(|l| l.id != id), "the fit rewrites the big idea: {long:#?}");
-        assert!(
-            made.overlong.as_deref().is_some_and(|o| o.contains(&format!("slide {}", k + 1))),
-            "{:?}",
-            made.overlong
-        );
+        // Named as what it is, the big idea, never a beat's settled claim.
+        let said = made.overlong.unwrap_or_default();
+        let head = format!("slide {} states the deck's big idea, too long for its place (", k + 1);
+        assert!(said.starts_with(&head) && said.ends_with("): shorten it in the outline"), "{said}");
+        assert!(!said.contains("settled claim"), "{said}");
     }
 
     /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
