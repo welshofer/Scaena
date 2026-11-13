@@ -1481,8 +1481,14 @@ fn capitalized(text: &str) -> String {
 pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Health, OpsError> {
     let narrative = deck.meta.as_ref().and_then(|m| m.extra.get("narrative"));
     let arc_name = narrative.and_then(|n| n.get("arc")).and_then(Value::as_str).map(str::to_string);
-    let asked =
-        (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
+    // A brief that asks minutes and no length asks the slides those minutes take, as a deck made
+    // from it is given them (W1 dogfood 10), so its count is held to them (agent dogfood 6).
+    let asked_minutes = (narrative.and_then(|n| n.pointer("/brief/minutes")).and_then(Value::as_f64))
+        .filter(|m| m.is_finite() && *m >= 1.0)
+        .map(|m| m.round() as u32);
+    let asked = (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str))
+        .and_then(asked)
+        .or_else(|| asked_minutes.and_then(|m| asked(scaena_narrato::brief::length_for_minutes(m))));
     let slides = slides(deck);
     let (read, most, set, coded) = readings(deck, &slides)?;
     let n = read.len();
@@ -1572,9 +1578,6 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // The time the talk is given: the minutes its brief asks, where it asks them (R1's MCP
     // dogfood: a 2-minute talk read as filling a slot of up to 15), within a fifth short of them
     // and a tenth past; else the slot its slides' range is given.
-    let asked_minutes = (narrative.and_then(|n| n.pointer("/brief/minutes")).and_then(Value::as_f64))
-        .filter(|m| m.is_finite() && *m >= 1.0)
-        .map(|m| m.round() as u32);
     // Each with how the line beside the count says it.
     // The time given as the finding says it, as its ask says it, its bounds, and as the line
     // beside the count says it.
@@ -4608,6 +4611,25 @@ mod tests {
                 beat["duration"] = json!(seconds);
             }
         }
+    }
+
+    /// A brief that asks minutes and no length holds the slides to the length those minutes take,
+    /// as a deck made from it is given them (agent dogfood 6): ten minutes are 5–10 slides, not the
+    /// 18 a talk of no length is paced for, and the count says so.
+    #[test]
+    fn a_brief_that_asks_minutes_alone_paces_its_slides_by_them() {
+        let mut deck = climate();
+        let n = of(&deck).slides.len();
+        let brief = deck["meta"]["narrative"]["brief"].as_object_mut().unwrap();
+        brief.remove("length");
+        brief.insert("minutes".into(), json!(10));
+        let h = of(&deck);
+        assert!(!h.pacing.says.contains("no length asked"), "{}", h.pacing.says);
+        let mut asked = deck.clone();
+        asked["meta"]["narrative"]["brief"]["length"] = json!("5-10 slides");
+        let given = of(&asked);
+        assert_eq!((h.pacing.score, h.score), (given.pacing.score, given.score), "{n} slides");
+        assert_eq!(h.pacing.says.split(',').next(), given.pacing.says.split(',').next());
     }
 
     /// The minutes a brief asks are the talk's slot where it asks them (R1's MCP dogfood): a
