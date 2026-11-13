@@ -1308,6 +1308,54 @@ pub fn generate_drawn(
     Ok((made, Some(write)))
 }
 
+/// A bundle `deck_create` made that `deck_generate` may fill (W1's dogfood 19): one slide, the
+/// blank one it starts with, and no spine. Its theme is the deck's, and each data file it holds
+/// is given again as it was attached. Anything more is refused, saying why and that
+/// `deck_generate` makes a bundle itself.
+pub struct Blank {
+    pub bundle: crate::Bundle,
+    /// The theme file the deck names, in the bundle.
+    pub theme: PathBuf,
+    /// Each data source the bundle holds, as it was attached, and its file's bytes.
+    pub data: Vec<(Attach, Vec<u8>)>,
+}
+
+/// `dir`, where a deck is to be made from slides: nothing there yet (`None`), a [`Blank`] bundle
+/// to fill, or refused.
+pub fn fillable(dir: &Path) -> Result<Option<Blank>, OpsError> {
+    let Err(not) = crate::create::vacant(dir) else { return Ok(None) };
+    let refused = |why: String| {
+        OpsError::new(format!(
+            "{}; deck_generate makes a bundle itself, in its `theme` with its `data`, or fills one deck_create made              that holds only its blank slide{why}",
+            not.message.trim_end_matches(": a new bundle needs a place of its own")
+        ))
+    };
+    if !dir.join("deck.json").is_file() {
+        return Err(refused(String::new()));
+    }
+    let bundle = crate::open(dir)?;
+    let slides = bundle.deck.states.len();
+    let beats: usize = (bundle.deck.spine.iter()).flat_map(|s| s.sections.iter()).map(|s| s.beats.len()).sum();
+    if slides != 1 || beats > 0 {
+        let held = match (slides, beats) {
+            (1, b) => format!("its spine tells {b} beat{}", if b == 1 { "" } else { "s" }),
+            (n, _) => format!("it holds {n} states"),
+        };
+        return Err(refused(format!(": {held}")));
+    }
+    let theme = (bundle.deck.theme.as_ref().and_then(Value::as_str))
+        .map(PathBuf::from)
+        .ok_or_else(|| refused(": its deck names its theme inline".into()))?;
+    let mut data = Vec::new();
+    for (id, source) in &bundle.deck.data {
+        let Some(path) = source.source.as_str() else { continue };
+        let bytes = bundle.files.read(path).with_context(|| format!("reading {path}"))?;
+        let file = PathBuf::from(Path::new(path).file_name().unwrap_or_default());
+        data.push((Attach { id: id.clone(), file, schema: source.schema.clone(), parse: source.parse.clone() }, bytes));
+    }
+    Ok(Some(Blank { bundle, theme, data }))
+}
+
 /// A deck made from slides written elsewhere, with no call (`scaena generate --slides`,
 /// `deck_generate`): `slides` is the JSON Narrato writes the slides in (`executiveSummary` and
 /// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
@@ -1331,8 +1379,22 @@ pub fn from_slides(
     outline: Option<&Outline>,
     data: &[(Attach, Vec<u8>)],
     grounds: &[scaena_sources::Source],
+    blank: Option<&Blank>,
 ) -> Result<Generated, OpsError> {
-    crate::create::vacant(dir)?;
+    // A bundle deck_create made, its blank slide alone, is filled, its data files given again
+    // where the call does not give one by that id; else the bundle is new.
+    let mut data = data.to_vec();
+    match blank {
+        Some(blank) => {
+            for (req, bytes) in &blank.data {
+                if !data.iter().any(|(given, _)| given.id == req.id) {
+                    data.push((req.clone(), bytes.clone()));
+                }
+            }
+        }
+        None => crate::create::vacant(dir)?,
+    }
+    let data = data.as_slice();
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
     // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
     // A word for a number is refused, naming the slide and the field.
@@ -1455,7 +1517,12 @@ pub fn from_slides(
         }
         made.notes = budgeted(&write.deck).ok();
         made.slides = slides_told(&write.deck);
-        crate::create::make(dir, write)?;
+        match blank {
+            // Written over the blank deck as any edit is, the change recorded in the history
+            // deck_create began.
+            Some(blank) => crate::lint::write(&blank.bundle, write)?,
+            None => crate::create::make(dir, write)?,
+        }
     }
     Ok(made)
 }
