@@ -67,6 +67,22 @@ import Testing
     #expect(try await snapshot.exported(.html(name: "Torture", notes: true)) == kept)
 }
 
+/// A PNG's width read as the browser's Export… field reads it, and the PNG made at it: a whole
+/// number from 1 to 8192 pixels, the height keeping the canvas's aspect (lift-up 20261031 FUNC-2).
+@Test func aPNGIsMadeAtTheWidthItsSheetAsks() async throws {
+    #expect(PNGWidth.width("1280") == 1280 && PNGWidth.width(" 640 ") == 640 && PNGWidth.width("1") == 1)
+    #expect(PNGWidth.width("0") == nil && PNGWidth.width("8193") == nil)
+    #expect(PNGWidth.width("12.5") == nil && PNGWidth.width("wide") == nil)
+    let made = PNGWidth.pixels(width: 640, canvas: CGSize(width: 1920, height: 1080))
+    #expect(made.width == 640 && made.height == 360, "\(made)")
+    let session = try ScaenaSession(directory: b1)
+    let png = try await session.snapshot().exported(.png(state: "cover", width: 640))
+    // A PNG's header says its size: its width and height, big-endian, after its signature and
+    // the IHDR chunk's length and type.
+    let size = { (at: Int) in png[at..<(at + 4)].reduce(0) { $0 << 8 | Int($1) } }
+    #expect(size(16) == 640 && size(20) == 360, "\(size(16)) × \(size(20))")
+}
+
 /// Every slide as PNGs in one zip, each named by its number (PLAN 2.122), as Share offers it.
 @Test func everySlideExportsAsPNGsInOneZip() throws {
     let session = try ScaenaSession(directory: b1)

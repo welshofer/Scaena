@@ -1448,6 +1448,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     // A big number's slide is headed by its figure before its meaning, the figure its point, so
     // it names no topic however few its words.
+    let mut shown_heads = Vec::with_capacity(read.len());
     let (heading, led): (Vec<String>, Vec<bool>) = (read.iter().enumerate())
         .map(|(i, s)| {
             let last = slides.get(i).and_then(|sl| sl.states.last()).map(|&l| &snaps[l]);
@@ -1462,7 +1463,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
             });
             let led = shown.is_some() && shown != plain;
-            (shown.unwrap_or_else(|| s.title.trim().to_string()), led)
+            let heard = shown.unwrap_or_else(|| s.title.trim().to_string());
+            // The headline as the slide shows it, a figure beside it not joined to it, which a
+            // finding quotes (W1's dogfood 17: "25.8: Canopy cover, 2016–2025").
+            shown_heads.push(plain.filter(|p| !p.is_empty()).unwrap_or_else(|| heard.clone()));
+            (heard, led)
         })
         .unzip();
     // The language the deck is written in, its brief's, else its own: the lexicons read English
@@ -1916,7 +1921,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
             // a made slide's beat claim is its headline, so "Some history" passes as one, its
             // claim in a bullet. The line is the headline to say, never written for the writer.
-            let title = heading[i].trim();
+            let title = shown_heads[i].trim();
             find(
                 &s.id,
                 Severity::Warning,
@@ -1943,7 +1948,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         }
-        if s.body.trim().is_empty() && s.notes.trim().is_empty() {
+        // A slide that draws a chart, a picture, or a table shows something past its headline, and
+        // what it lacks is its notes alone (W1 dogfood 16: a chart dropped on a blank slide was
+        // said to say nothing past a headline it did not have).
+        if s.body.trim().is_empty() && s.notes.trim().is_empty() && !s.drawn {
             // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
             // it lacks is the notes, never more on the slide.
             let (says, ask) = if s.one_idea {
@@ -2689,7 +2697,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         }
-        if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
+        if (!s.body.trim().is_empty() || s.drawn) && s.notes.trim().is_empty() {
             unnoted.push(i);
         }
         if reads_aloud(s) {
@@ -2863,6 +2871,30 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 .collect()
         })
         .unwrap_or_default();
+    // The deck's sources as a person names them, by name, else title, else address: what a finding
+    // says the slide cites none of, never that the figure came from them (R1's agent dogfood 9).
+    let named: Vec<String> = (narrative.and_then(|n| n.get("sources")).and_then(Value::as_array))
+        .map(|all| {
+            (all.iter())
+                .filter_map(|s| {
+                    ["name", "title", "url"].iter().find_map(|k| s.get(*k).and_then(Value::as_str).map(str::trim))
+                })
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let uncited = match named.as_slice() {
+        [] => "cites none of the deck's sources for it".to_string(),
+        [one] => format!("does not cite the deck's source, {one}, for it"),
+        [a, b] => format!("cites neither of the deck's sources, {a} and {b}, for it"),
+        [rest @ .., last] if rest.len() < 4 => {
+            format!("cites none of the deck's sources, {}, and {last}, for it", rest.join(", "))
+        }
+        [first, second, third, more @ ..] => {
+            format!("cites none of the deck's sources, {first}, {second}, {third}, and {} more, for it", more.len())
+        }
+    };
     let mut unsourced: Vec<(String, String)> = Vec::new();
     if !sources.is_empty() {
         // The figures a slide that cites a source writes, by value and unit: one an earlier slide
@@ -2898,9 +2930,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             unsourced.push((read[first].id.clone(), figure.clone()));
             let (says, ask) = match on.len() {
                 1 => (
-                    format!(
-                        "Slide {k} writes {figure}, and names no source for it, though the deck was made from its sources."
-                    ),
+                    format!("Slide {k} writes {figure}, and {uncited}."),
                     format!(
                         "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from."
                     ),
@@ -2909,9 +2939,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     let (again, many) = slides_named(&on[1..]);
                     let does = if many { "do" } else { "does" };
                     (
-                        format!(
-                            "Slide {k} writes {figure}, as {again} {does}, and names no source for it, though the deck was made from its sources."
-                        ),
+                        format!("Slide {k} writes {figure}, as {again} {does}, and {uncited}."),
                         format!(
                             "Say on slide {k} where {figure} comes from, naming the source, or cite the source it is from: that sources it on {again} too."
                         ),
@@ -3977,6 +4005,36 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A slide that draws a chart and says nothing in words is asked for its notes, never said to
+    /// say nothing past its headline (W1 dogfood 16: a chart dropped on a blank slide was).
+    #[test]
+    fn a_slide_that_draws_a_chart_is_asked_for_notes_alone() {
+        let mut deck: Value = serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        for st in deck["states"].as_array_mut().unwrap() {
+            // The revenue slide shows its chart alone: no headline, no note, no notes.
+            if st["id"] == "revenue" || st["id"] == "mix" {
+                st.as_object_mut().unwrap().remove("notes");
+                st["props"].as_object_mut().unwrap().remove("note");
+                st["props"].as_object_mut().unwrap().remove("title");
+            }
+            if st["id"] == "revenue" {
+                st["remove"] = json!(["subtitle", "bg", "title"]);
+            }
+            if st["id"] == "close" {
+                st["props"]["title"] = json!({});
+            }
+        }
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        let h = of(&deck);
+        assert!(h.findings.iter().all(|f| !(f.kind == Kind::Empty && f.slide == 2)), "{:#?}", h.findings);
+        let noted = h.findings.iter().find(|f| f.kind == Kind::Notes && f.says.ends_with("no notes for you."));
+        assert!(noted.is_some_and(|f| f.says.contains("2")), "{:#?}", h.findings);
     }
 
     /// A slide built by hand as a grid of cards makes a point a card (R1's dogfood 6): ridgeline's
@@ -5970,7 +6028,7 @@ mod tests {
         assert_eq!(found.len(), 1, "{found:?}");
         let (slide, says, ask) = &found[0];
         assert_eq!(*slide, 8);
-        assert_eq!(says, "Slide 8 writes 38%, and names no source for it, though the deck was made from its sources.");
+        assert_eq!(says, "Slide 8 writes 38%, and does not cite the deck's source, pilot.csv, for it.");
         assert_eq!(ask, "Say on slide 8 where 38% comes from, naming the source, or cite the source it is from.");
         let figured = of(&made).findings.into_iter().find(|f| f.kind == Kind::Source).and_then(|f| f.figure);
         assert_eq!(figured.as_deref(), Some("38%"), "the finding says its figure");
@@ -6017,7 +6075,7 @@ mod tests {
         assert_eq!(*slide, 7);
         assert_eq!(
             says,
-            "Slide 7 writes 38%, as slide 8 does, and names no source for it, though the deck was made from its sources."
+            "Slide 7 writes 38%, as slide 8 does, and does not cite the deck's source, pilot.csv, for it."
         );
         assert_eq!(
             ask,
@@ -6029,6 +6087,21 @@ mod tests {
             slides[6].source_ref = Some("pilot.csv".into());
         };
         assert!(unsourced(&grounded_dogfood("fleet", "", pilot(), both)).is_empty());
+        // Made from more than one source, the finding names each, and claims none of them holds it.
+        let mut two = pilot();
+        two.push(scaena_narrato::Provenance {
+            name: "season.pdf".into(),
+            kind: "pdf".into(),
+            url: None,
+            bytes: 1,
+            truncated: false,
+        });
+        let found = unsourced(&grounded_dogfood("fleet", "", two, |_| {}));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].1,
+            "Slide 8 writes 38%, and cites neither of the deck's sources, pilot.csv and season.pdf, for it."
+        );
         let shown = |text: &str| figures(text).into_iter().map(|f| (f.shown, f.value, f.unit)).collect::<Vec<_>>();
         assert!(shown("Q3 by product, p99 latency, Week 1, 3 steps, November 2026").is_empty());
         assert_eq!(shown("Costs fell to $1.4M (2.5x less)")[0], ("$1.4M".into(), "1.4".into(), "$".into()));
@@ -6178,7 +6251,7 @@ mod tests {
         let h = of(&grounded_dogfood("board-de", "", board(), said));
         let source = h.findings.iter().find(|f| f.kind == Kind::Source && f.slide == 8).expect("slide 8's figure");
         let says = source.says.replace(['\u{a0}', '\u{202f}'], " ");
-        assert!(says.starts_with("Slide 8 writes 40 %, and names no source"), "{says}");
+        assert!(says == "Slide 8 writes 40 %, and does not cite the deck's source, bericht.pdf, for it.", "{says}");
     }
 
     /// The close takes the slide before its run only where that slide is in the run's beat
@@ -7437,5 +7510,40 @@ mod tests {
         assert_eq!(asked("41+ slides"), Some((41, None)));
         assert_eq!(asked("soon"), None);
         assert_eq!(range(41, None), "41 or more");
+    }
+    /// A topic headline over its claim is quoted as the slide shows it (W1's dogfood 17): a line
+    /// chart's callout figure stands beside its headline, and the reader hears the two together,
+    /// "25.8%: Canopy cover, 2016–2025", but the words to replace are the headline's alone.
+    #[test]
+    fn a_topic_headline_beside_its_figure_is_quoted_as_shown() {
+        let chart = |slides: &mut Vec<answer::Slide>| {
+            let third = &mut slides[2];
+            third.slide_title = "Canopy cover, 2016–2025".into();
+            third.layout_suggestion = "Line Chart".into();
+            third.key_bullets = vec!["Canopy cover fell every year since 2016".into(), "The city lost 4 points".into()];
+            third.chart_data = Some(answer::ChartData {
+                categories: (2016..=2025).map(|y| y.to_string()).collect(),
+                series: vec![answer::Series {
+                    name: Some("Canopy".into()),
+                    values: [29.8, 29.4, 29.0, 28.5, 28.1, 27.6, 27.2, 26.7, 26.3, 25.8].map(Some).to_vec(),
+                }],
+                unit: Some("%".into()),
+                source_id: None,
+            });
+        };
+        let deck = dogfood("keynote", "", chart);
+        let d = Deck::from_value(&deck).unwrap();
+        let snaps = resolve_states(&d).unwrap();
+        let heard = scaena_core::reading::headline(&d, &snaps[*d.slides()[2].last().unwrap()]);
+        assert_eq!(
+            heard.as_deref(),
+            Some("25.8%: Canopy cover, 2016\u{2013}2025"),
+            "the reader hears the figure first"
+        );
+        let h = of(&deck);
+        let label = (h.findings.iter()).find(|f| f.kind == Kind::Label && f.slide == 3).expect("its claim is under it");
+        let shown = "\u{201C}Canopy cover, 2016\u{2013}2025\u{201D}";
+        assert!(label.says.contains(shown) && label.ask.ends_with(&format!("in place of {shown}.")), "{label:?}");
+        assert!(!label.says.contains("25.8") && !label.ask.contains("25.8"), "{label:?}");
     }
 }

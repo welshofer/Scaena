@@ -355,6 +355,10 @@ pub struct TextLayout {
     /// The paragraphs it lays out and does not draw (PLAN 2.129), from 0: none unless
     /// [`TextLayout::keeping`] left them out.
     pub hidden: Vec<usize>,
+    /// A line of Japanese breaks inside a phrase, at no particle's place ([`particles`]): what a
+    /// word too wide for its line is in English, which `fit: shrink` sets smaller until it stands
+    /// whole (W1 dogfood 15).
+    pub cut: bool,
 }
 
 /// A link's underline under one glyph run (PLAN 2.70): at the font's underline, in the run's
@@ -805,6 +809,13 @@ impl TextEngine {
         let segments = segments(&mut layout, &text, rtl, room);
         let min_words = spec.min_last_line_words.or(base.min_last_line_words).unwrap_or(1) as usize;
         let breaking = Breaking { text: &text, rtl, room, segments: &segments, min_words };
+        // A Japanese phrase stands whole past its measure, as an English word too long for one
+        // does: its lines break as wide as its widest phrase where that is wider, up to the box,
+        // and a phrase cut only where the box cannot hold it (W1 dogfood 15).
+        let max_width = match particles(spec.lang.as_deref()) {
+            Some(_) if max_width < width => widest_phrase(&text, &segments).max(max_width).min(width),
+            _ => max_width,
+        };
         let requested = spec.wrap.unwrap_or(base.wrap);
         let mut fallback = match requested {
             _ if unbroken => None,
@@ -890,6 +901,7 @@ impl TextEngine {
             joins: figure_joins(&text, spec, &cased),
         };
         let mut read = read_layout(&layout, text, fonts, &hyphens, paragraph)?;
+        read.cut = particles(spec.lang.as_deref()).is_some() && cut(&read);
         if empty {
             read.text.clear();
             read.runs.clear();
@@ -1635,6 +1647,43 @@ fn after_particle(before_before: Option<char>, before: char, after: char) -> boo
         && cjk_letter(after)
         && !particle(after)
         && !(before == 'で' && after == 'き')
+}
+
+/// The widest of the Japanese phrases `segments` set: each a run of segments no break ends
+/// but one inside a phrase ([`cuts`]), a particle's place ending one ([`after_particle`]).
+fn widest_phrase(text: &str, segments: &[Segment]) -> f32 {
+    let (mut widest, mut run) = (0.0_f32, 0.0_f32);
+    for segment in segments {
+        let mut back = text[..segment.text.end].chars().rev();
+        let joined = !segment.hard
+            && match (back.next(), text[segment.text.end..].chars().next()) {
+                (Some(before), Some(after)) => in_phrase(before, after) && !after_particle(back.next(), before, after),
+                _ => false,
+            };
+        if joined {
+            run += segment.full;
+        } else {
+            widest = widest.max(run + segment.bare + segment.hyphen);
+            run = 0.0;
+        }
+    }
+    widest.max(run)
+}
+
+/// Whether a line of `laid` breaks inside a Japanese phrase ([`in_phrase`]) where no particle
+/// ends one ([`after_particle`]): only where the phrase is too wide for its line.
+fn cut(laid: &TextLayout) -> bool {
+    laid.lines.windows(2).any(|pair| {
+        let at = pair[0].text.end;
+        if pair[0].paragraph != pair[1].paragraph || at == 0 || at >= laid.text.len() {
+            return false;
+        }
+        let mut back = laid.text[..at].chars().rev();
+        let (Some(before), Some(after)) = (back.next(), laid.text[at..].chars().next()) else {
+            return false;
+        };
+        in_phrase(before, after) && !after_particle(back.next(), before, after)
+    })
 }
 
 /// Whether `segment` ends at the hyphen inside a word, the word going on in the next: a
@@ -2404,6 +2453,7 @@ fn read_layout(
         items: Vec::new(),
         underlines,
         hidden: Vec::new(),
+        cut: false,
     })
 }
 

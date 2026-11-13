@@ -485,7 +485,10 @@ pub fn nearest_in<'k>(owner: &str, whats: &str, id: &str, known: impl Iterator<I
     // by its letters: a slide's id guessed from its beat's, which runs on past it
     // (`…-todo-el-sur` for `…-todo-el`), means the slide, never its step `…-todo-el-2` (agent
     // dogfood 9).
-    let begun = |k: &str| id.starts_with(k) && k.chars().count() * 2 >= id.chars().count();
+    // So is one that runs on past it (`revenue-chart-2` for `revenue-chart`), which a typo of a
+    // step's or a copy's id means, beside a shorter id it begins with (W1's review of #1209):
+    // between those, the nearer by its letters.
+    let begun = |k: &str| (id.starts_with(k) && k.chars().count() * 2 >= id.chars().count()) || k.starts_with(id);
     let near = (known.iter())
         .map(|k| (!begun(k), crate::model::check::distance(id, k), *k))
         .filter(|(_, d, k)| {
@@ -3341,6 +3344,14 @@ mod tests {
         // An id much shorter than the one asked is no prefix it means.
         let short = ["a", "abcdefgh-2"];
         assert_eq!(nearest("states", "abcdefgh-x", short.iter().copied()), "; did you mean `abcdefgh-2`?");
+        // One that runs on past the one asked is meant as much as one it begins with, the nearer
+        // by its letters winning (W1's review of #1209): never `revenue` for `revenue-chart`.
+        let nodes = ["revenue", "revenue-chart-2"];
+        assert_eq!(nearest("nodes", "revenue-chart", nodes.iter().copied()), "; did you mean `revenue-chart-2`?");
+        let nodes = ["title", "title-text-2"];
+        assert_eq!(nearest("nodes", "title-text", nodes.iter().copied()), "; did you mean `title-text-2`?");
+        let nodes = ["intr", "intro-2"];
+        assert_eq!(nearest("nodes", "intro", nodes.iter().copied()), "; did you mean `intr`?");
     }
 
     /// The patch schema takes each key of a transition that `set_state` sets (PLAN 2.111): what an

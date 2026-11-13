@@ -607,6 +607,39 @@ fn a_pdf_with_notes_prints_each_slide_with_its_notes_under_it() {
     assert!(export(&bundle, &req).unwrap_err().to_string().contains("--notes"));
 }
 
+/// A slide's page in a PDF with notes prints each step's notes in turn, each once (W1 dogfood 16):
+/// its first step's notes before a later step's own, never only the last step's, which its page
+/// draws. The revenue example's `mix` builds on `revenue`'s slide.
+#[test]
+fn a_pdf_with_notes_prints_each_steps_notes_under_the_slide() {
+    use scaena_core::displaylist::Op;
+    use scaena_ops::export::{Progress, pdf_laid_out};
+    let mut bundle = scaena_ops::open(Path::new("../../docs/examples/revenue.deck.json")).unwrap();
+    for (state, notes) in [("revenue", "Open on the doubling."), ("mix", "Then point at the orange band.")] {
+        bundle.deck.states.iter_mut().find(|s| s.id == state).unwrap().notes = Some(notes.into());
+    }
+    let (laid, _) = pdf_laid_out(&bundle, None, true, &Progress::default()).unwrap();
+    let said = |list: &scaena_core::displaylist::DisplayList| -> String {
+        let mut words = String::new();
+        for op in &list.ops {
+            if let Op::Layer { node: Some(node), ops, .. } = op
+                && node == scaena_engine::notes::NOTES
+            {
+                for op in ops {
+                    if let Op::Glyphs { text, .. } = op {
+                        words.push_str(text);
+                    }
+                }
+            }
+        }
+        words
+    };
+    let mix: String = laid.pages.iter().filter(|p| p.state == "mix").map(|p| said(&p.list)).collect();
+    let (first, then) = (mix.find("Open on the doubling."), mix.find("Then point at the orange band."));
+    assert!(first.is_some() && then.is_some() && first < then, "both steps' notes, in turn: {mix:?}");
+    assert_eq!(mix.matches("Open on the doubling.").count(), 1, "each once: {mix:?}");
+}
+
 /// A PDF says what the deck says of itself (lift-up 10-24b ATTR-4): its title, its author, its
 /// description as the subject, and when it was made, as the deck's `meta` gives them.
 #[test]

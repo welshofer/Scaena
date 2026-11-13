@@ -160,6 +160,20 @@ try {
   await page.click("#data [data-redo]");
   await page.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length === 12, null, { timeout: 60000 }).catch(() => {});
   check((await rows()) === 12 && (await status()).startsWith("Made again"), `Redo takes it away again: ${await rows()} rows, ${await status()}`);
+  // + Row Above, on the first row, puts the new row first, where + Row never reaches (W1 dogfood 16);
+  // Undo takes it away.
+  const top = await page.evaluate(() => window.scaena.data.shown()?.sheet.rows[0]);
+  await field(0, 0).click();
+  await page.click("#data [data-add-above]");
+  await page.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length === 13, null, { timeout: 60000 }).catch(() => {});
+  const above = await page.evaluate(() => window.scaena.data.shown()?.sheet.rows.slice(0, 2));
+  check(
+    (await rows()) === 13 && JSON.stringify(above[0]) === '["","","",""]' && JSON.stringify(above[1]) === JSON.stringify(top),
+    `+ Row Above on the first row adds an empty row first: ${JSON.stringify(above)} · ${await status()}`,
+  );
+  await page.click("#data [data-undo]");
+  await page.waitForFunction(() => window.scaena.data.shown()?.sheet.rows.length === 12, null, { timeout: 60000 }).catch(() => {});
+  check((await rows()) === 12, `and Undo takes it away: ${await rows()} rows`);
 
   // Saved into the browser's storage: the file `scaena data` writes for the same edits.
   const saved = await page.evaluate(() => window.scaena.save());

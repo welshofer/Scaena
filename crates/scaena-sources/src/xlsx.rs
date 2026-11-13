@@ -138,6 +138,24 @@ fn column(reference: &str) -> Result<Option<usize>, SourceError> {
     Ok(n.checked_sub(1))
 }
 
+/// A number as Excel shows it: at 15 significant digits, the most it keeps, so the
+/// `70.09999999999999` a sum of tenths is stored as reads `70.1`, as its sheet shows it (R1's
+/// dogfood 10). A value those digits hold as stored, or one that does not read as a number,
+/// stays as written.
+fn shown(v: String) -> String {
+    let t = v.trim();
+    let mantissa = t.split(['e', 'E']).next().unwrap_or(t);
+    let digits = mantissa.bytes().filter(u8::is_ascii_digit).skip_while(|&b| b == b'0').count();
+    if digits <= 15 {
+        return v;
+    }
+    let Ok(x) = t.parse::<f64>() else { return v };
+    if !x.is_finite() {
+        return v;
+    }
+    format!("{x:.14e}").parse::<f64>().map_or(v, |held| held.to_string())
+}
+
 /// A sheet's rows, each cell where its reference puts it, the empty cells at a row's end left
 /// out; `workbook` counts the cells the workbook's sheets have read so far, these among them.
 fn rows(doc: &Element, strings: &[String], workbook: &mut usize) -> Result<Vec<Vec<String>>, SourceError> {
@@ -155,6 +173,7 @@ fn rows(doc: &Element, strings: &[String], workbook: &mut usize) -> Result<Vec<V
                 Some("s") => v.trim().parse::<usize>().ok().and_then(|i| strings.get(i)).cloned().unwrap_or_default(),
                 Some("inlineStr") => c.child("is").map(rich).unwrap_or_default(),
                 Some("b") => (if v.trim() == "1" { "TRUE" } else { "FALSE" }).to_string(),
+                Some("n") | None => shown(v),
                 _ => v,
             };
             if at >= cells.len() {
@@ -192,6 +211,20 @@ mod tests {
         // Past the last column a sheet has, however many letters: an error, never an overflow.
         assert!(column("XFE1").is_err());
         assert!(column(&"Z".repeat(40)).is_err());
+    }
+
+    #[test]
+    fn a_number_reads_as_excel_shows_it() {
+        let s = |v: &str| shown(v.to_string());
+        assert_eq!(s("70.09999999999999"), "70.1");
+        assert_eq!(s("0.30000000000000004"), "0.3");
+        assert_eq!(s("-1234.5600000000002"), "-1234.56");
+        // Held as stored: kept as written, an integer, a date's serial, and an exponent alike.
+        assert_eq!(s("12"), "12");
+        assert_eq!(s("45838"), "45838");
+        assert_eq!(s("1.5E-7"), "1.5E-7");
+        assert_eq!(s("0.1234567890123"), "0.1234567890123");
+        assert_eq!(s("n/a"), "n/a");
     }
 
     #[test]

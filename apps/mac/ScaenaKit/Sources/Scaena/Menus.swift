@@ -40,7 +40,8 @@ struct WindowPanes {
     /// movie (lift-up 20261031 FUNC-2); none with no slides.
     var savePDF: (() -> Void)? = nil
     var saveNotes: (() -> Void)? = nil
-    var saveImages: ((Int) -> Void)? = nil
+    /// Save every slide as PNGs, their width asked first (`PicturesSheet`).
+    var saveImages: (() -> Void)? = nil
     var saveHTML: (() -> Void)? = nil
     var saveMovie: (() -> Void)? = nil
     /// The movie with one of the bundle's sound files under it, as the CLI's `--audio` takes one:
@@ -69,7 +70,7 @@ extension FocusedValues {
 /// tabs; then Play Slideshow (⌥⌘P) and Rehearse Slideshow (⌥⌘R); Remote…, which lets a remote play
 /// the deck, and on the iPad, Control a Presentation…, the remote itself (PLAN 4.10). In the File
 /// menu, Export To, as a presentation app's: PDF…, PDF with Notes…, HTML…, HTML with Notes…, Movie…,
-/// and Images, every slide as PNGs at the canvas's size or twice it (lift-up USE-5, 20261031 FUNC-2, FUNC-3).
+/// and Images…, every slide as PNGs at the width its sheet asks (lift-up USE-5, 20261031 FUNC-2, FUNC-3).
 struct WindowCommands: Commands {
     @FocusedValue(\.panes) private var panes
     @Environment(\.openWindow) private var openWindow
@@ -104,11 +105,9 @@ struct WindowCommands: Commands {
                         }
                     }
                 }
-                Menu("Images") {
-                    Button("Actual Size…") { panes?.saveImages?(1) }
-                    Button("Double Size…") { panes?.saveImages?(2) }
-                }
-                .disabled(panes?.saveImages == nil)
+                // Every slide as PNGs, at the width the sheet asks, as the browser's Export… asks it.
+                Button("Images…") { panes?.saveImages?() }
+                    .disabled(panes?.saveImages == nil)
             }
         }
         CommandGroup(before: .toolbar) {
