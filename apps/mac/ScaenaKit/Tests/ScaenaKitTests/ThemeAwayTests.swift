@@ -17,9 +17,11 @@ import Testing
 
     let themedOn = ThemedOn()
     editor.themedOn = { themedOn.take(main: $0) }
-    let made = try #require(await editor.themeEditAway(.ops(AThemeEdit.paper("#2B1B3D"))), "the theme edit was made")
+    let away = try await editor.themeEditAway(.ops(AThemeEdit.paper("#2B1B3D")))
+    let made = try #require(away, "the theme edit was made")
     editor.themedOn = nil
-    #expect(try #require(themedOn.taken, "the theme edit ran") == false, "made on the main thread")
+    let main = try #require(themedOn.taken, "the theme edit ran")
+    #expect(!main, "made on the main thread")
 
     #expect(made.edited.applied && made.source == nil, "a color edits the theme alone")
     let file = try #require(made.edited.files.first)
@@ -50,7 +52,8 @@ import Testing
         tries += 1
         if tries == 1 { edited = Result { try editor.make([typed]) } }
     }
-    let made = try #require(await editor.themeEditAway(.ops(AThemeEdit.paper("#2B1B3D"))))
+    let away = try await editor.themeEditAway(.ops(AThemeEdit.paper("#2B1B3D")))
+    let made = try #require(away, "the theme edit was made")
     editor.themeEditing = nil
     _ = try #require(edited, "the deck was changed while the theme edit was made").get()
     #expect(tries == 2, "made again once the deck changed: \(tries) tries")
@@ -62,7 +65,8 @@ import Testing
     // written.
     let before = try editor.session.themeText()?.text
     let broken: [JSONValue] = [["op": "remove", "path": "/layouts/belief"]]
-    let refused = try #require(await editor.themeEditAway(.ops(broken)))
+    let refusing = try await editor.themeEditAway(.ops(broken))
+    let refused = try #require(refusing, "the theme edit was answered")
     #expect(!refused.edited.applied && refused.edited.refused)
     #expect(try editor.session.themeText()?.text == before, "a refused edit writes nothing")
 }
