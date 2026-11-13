@@ -407,7 +407,7 @@ fn coded(doc: &Value, list: &[Value], view: &View) -> Result<Vec<Value>, OpsErro
         let (start, lines) = crate::coding::numbered(&deck, state, node).map_err(|e| refused(e.message))?;
         let spans = |words: &Value| match words {
             Value::Null => Ok(Vec::new()),
-            Value::String(words) => scaena_core::code::focus::read(words, start, lines).map_err(&refused),
+            Value::String(words) => scaena_core::code::focus::read(words, start, lines).map_err(refused),
             _ => Err(refused(written())),
         };
         let made = match name {
