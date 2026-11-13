@@ -12217,6 +12217,34 @@ mod tests {
         assert_eq!(deck, before);
     }
 
+    /// A quiz's letters and a process's step numbers are their places' labels, which a made deck
+    /// sets as its layout writes them: lint's W305 never finds one a prompt left to type over (W1's
+    /// dogfood 18, a quiz whose "A", "B", and "C" it found).
+    #[test]
+    fn a_made_decks_labels_are_no_prompts_left() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let text = json!({ "executiveSummary": "Measure until the numbers settle.", "slides": [
+            { "slideTitle": "Benchmark like you mean it", "layoutSuggestion": "Title", "keyBullets": [] },
+            { "slideTitle": "Check yourself", "layoutSuggestion": "Quiz",
+              "keyBullets": ["Which option benchmarks a cold cache?", "A: --warmup", "B: --prepare", "C: --runs"] },
+            { "slideTitle": "How a benchmark runs", "layoutSuggestion": "How It Works",
+              "keyBullets": ["Warm up: run it three times first", "Measure: run it until it settles", "Compare: against the first command"] },
+            { "slideTitle": "Run fast commands without a shell", "layoutSuggestion": "Statement", "keyBullets": [] },
+            { "slideTitle": "Measure it before you change it", "layoutSuggestion": "Closing", "keyBullets": ["Questions?"] },
+        ]})
+        .to_string();
+        let written = answer::slides(&text).unwrap();
+        let mut n = narrative(&written.executive_summary, written.slides);
+        n.arc = "Learning Journey".into();
+        let built = deck(&n, &theme, &Pictures::new()).unwrap();
+        let layouts: Vec<&str> =
+            (built.deck["states"].as_array().unwrap().iter()).filter_map(|s| s["layout"].as_str()).collect();
+        assert!(layouts.contains(&"quiz") && layouts.contains(&"how-it-works"), "{layouts:?}");
+        let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
+        assert!(left.is_empty(), "{left:#?}");
+    }
+
     #[test]
     fn a_set_of_texts_side_by_side_is_set_alike_and_as_large_as_its_places_allow() {
         let theme: Theme = serde_json::from_str(&dusk()).unwrap();
