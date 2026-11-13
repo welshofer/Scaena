@@ -2405,10 +2405,11 @@ impl<'a> Drawing<'a> {
 /// than its lines (W202), with the most characters that would fit, by how far it runs over.
 pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsError> {
     let doc = deck.to_value()?;
-    // The claims the person settled, which stand in their words wherever a slide says one: never
-    // the fit's to rewrite (W1 dogfood 13).
+    // The claims the person settled, and the big idea, which stand in their words wherever a slide
+    // says one: never the fit's to rewrite (W1 dogfood 13; R1's agent dogfood 13, a close's).
     let settled: Vec<&str> = (doc["meta"]["narrative"]["outline"]["beats"].as_array().into_iter().flatten())
         .filter_map(|b| b["claim"].as_str())
+        .chain(doc["meta"]["narrative"]["outline"]["bigIdea"].as_str())
         .collect();
     let mut out: Vec<Long> = Vec::new();
     for f in findings {
@@ -2955,6 +2956,11 @@ pub fn making(
         let deck = Deck::from_json(&doc.to_string()).context("the deck set clear")?;
         created.findings = lint_in(&deck, &view)?.findings;
     }
+    // A close whose heading runs past its place, set where a statement holds it.
+    if reclosed(&mut doc, &model, &view, &created.findings)? {
+        let deck = Deck::from_json(&doc.to_string()).context("the close set again")?;
+        created.findings = lint_in(&deck, &view)?.findings;
+    }
     // The cover and the close, where no picture was made for them, on the theme's backdrop.
     if let Some(grounded) = grounded(&doc, &model, &view)? {
         doc = grounded;
@@ -2979,20 +2985,88 @@ pub fn making(
     Ok((made, Some(write)))
 }
 
+/// The finding codes that say a text runs past its place: past its box, past its lines, or past
+/// it at its smallest size.
+const OVERRUN: [&str; 3] = ["E100", "W202", "W203"];
+
+/// A bare close headed by its claim or the deck's big idea that its Closing place cannot hold
+/// (R1's agent dogfood 13: nordwerk's big idea, 100 characters, ran past it in Dusk and Salon,
+/// W202 and W203), set where one does, the thanks under it as before: in Statement, whose place
+/// for one sentence is larger, else in Key Point, which sets its sentence in the headline's role,
+/// three lines of the headline's measure where the display's three lines hold far fewer
+/// characters. Where neither holds it, the close keeps its heading in Closing: never its beat's
+/// claim, which an earlier slide states (W425), and never rewritten by the fit, which holds the
+/// big idea as it holds a settled claim, shrinking it and leaving what still runs past to the
+/// person ([`overflowing`], [`claims_long`]). Whether the deck changed.
+fn reclosed(doc: &mut Value, theme: &Theme, view: &View, findings: &[Finding]) -> Result<bool, OpsError> {
+    // Each layout tried, in order, with the places its heading and its thanks take there.
+    let homes: Vec<(&str, &str, &str)> = [("statement", "statement", "support"), ("key-point", "point", "follow")]
+        .into_iter()
+        .filter(|(layout, ..)| theme.layouts.contains_key(*layout))
+        .collect();
+    let overruns = |found: &[Finding], id: &str| {
+        found.iter().any(|f| f.node.as_deref() == Some(id) && OVERRUN.contains(&f.code.as_str()))
+    };
+    let closes: Vec<(usize, String)> = (doc["states"].as_array().into_iter().flatten().enumerate())
+        .filter(|(_, s)| s["layout"] == "closing")
+        .filter_map(|(k, s)| s["id"].as_str().map(|id| (k, id.to_string())))
+        .filter(|(_, id)| overruns(findings, &format!("{id}-statement")))
+        .collect();
+    let mut changed = false;
+    for (k, state) in closes {
+        let (id, support) = (format!("{state}-statement"), format!("{state}-support"));
+        if !doc["nodes"][&id]["text"].is_string() {
+            continue;
+        }
+        for &(layout, slot, under) in &homes {
+            let mut tried = doc.clone();
+            tried["states"][k]["layout"] = json!(layout);
+            tried["nodes"][&id]["at"]["in"] = json!(slot);
+            if slot != "statement" {
+                // Set in its new place's role, which its old size no longer bounds.
+                let role = theme.layouts[layout].slots.get(slot).and_then(|s| s.role.clone());
+                let node = tried["nodes"][&id].as_object_mut().expect("a text");
+                node.remove("maxSize");
+                match role {
+                    Some(role) => node.insert("role".into(), json!(role)),
+                    None => node.remove("role"),
+                };
+            }
+            if tried["nodes"][&support].is_object() {
+                tried["nodes"][&support]["at"]["in"] = json!(under);
+            }
+            let deck = Deck::from_json(&tried.to_string()).context("the close set again")?;
+            if overruns(&crate::lint::lint_state_in(&deck, view, &state)?.findings, &id) {
+                continue;
+            }
+            *doc = tried;
+            changed = true;
+            break;
+        }
+    }
+    Ok(changed)
+}
+
 /// Each settled claim a slide keeps in the person's words, though it is longer than its place
 /// takes at its role's least size, said by its slide (W1 dogfood 13): the fit never rewrites it
 /// ([`overflowing`]), so the person is told to shorten it. None where every claim fits.
 fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsError> {
     let doc = deck.to_value()?;
-    let settled: Vec<&str> = (doc["meta"]["narrative"]["outline"]["beats"].as_array().into_iter().flatten())
-        .filter_map(|b| b["claim"].as_str())
-        .collect();
+    let outline = &doc["meta"]["narrative"]["outline"];
+    let settled: Vec<&str> =
+        (outline["beats"].as_array().into_iter().flatten()).filter_map(|b| b["claim"].as_str()).collect();
+    let idea = outline["bigIdea"].as_str().filter(|i| !i.trim().is_empty());
     let slides = deck.slides();
-    let mut said: Vec<(usize, String)> = Vec::new();
+    // Each slide whose settled claim, or the deck's big idea, runs past its place: how, and
+    // whether it is the big idea, named as what it is (R1's agent dogfood 13: a close that states
+    // it, which the person shortens in the outline's big idea, not in a beat's claim).
+    let mut said: Vec<(usize, String, bool)> = Vec::new();
     for f in findings.iter().filter(|f| matches!(f.code.as_str(), "E100" | "W202")) {
         let Some(id) = f.node.as_deref() else { continue };
         let Some(text) = doc["nodes"][id]["text"].as_str() else { continue };
-        if !settled.iter().any(|claim| says(claim, text)) {
+        let claimed = settled.iter().any(|claim| says(claim, text));
+        let ideal = !claimed && idea.is_some_and(|i| says(i, text));
+        if !claimed && !ideal {
             continue;
         }
         let Some(slide) = (f.state.as_deref())
@@ -3002,7 +3076,7 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         else {
             continue;
         };
-        if said.iter().any(|(n, _)| *n == slide) {
+        if said.iter().any(|(n, ..)| *n == slide) {
             continue;
         }
         let how = match (f.code.as_str(), f.measure.as_ref()) {
@@ -3012,10 +3086,11 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
             },
             _ => "past its place".to_string(),
         };
-        said.push((slide, how));
+        said.push((slide, how, ideal));
     }
-    scaena_core::sort::by_key(&mut said, |(n, _)| *n);
-    Ok(match said.as_slice() {
+    scaena_core::sort::by_key(&mut said, |(n, ..)| *n);
+    let claims: Vec<(usize, String)> = said.iter().filter(|s| !s.2).map(|(n, h, _)| (*n, h.clone())).collect();
+    let claims = match claims.as_slice() {
         [] => None,
         [(slide, how)] => {
             Some(format!("slide {slide}'s settled claim stands as written, {how}: shorten it in the outline to fit"))
@@ -3023,7 +3098,7 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         // Each said alike: "the settled claims on slides 3, 5 and 7 stand as written, each in 4
         // lines where its place takes 3".
         [(_, how), rest @ ..] if rest.iter().all(|(_, h)| h == how) => {
-            let slides: Vec<String> = said.iter().map(|(n, _)| n.to_string()).collect();
+            let slides: Vec<String> = claims.iter().map(|(n, _)| n.to_string()).collect();
             Some(format!(
                 "the settled claims on slides {} stand as written, each {how}: shorten them in the outline to fit",
                 and_list(&slides)
@@ -3031,10 +3106,15 @@ fn claims_long(deck: &Deck, findings: &[Finding]) -> Result<Option<String>, OpsE
         }
         _ => {
             let each: Vec<String> =
-                said.iter().map(|(n, how)| format!("slide {n}'s settled claim stands as written, {how}")).collect();
+                claims.iter().map(|(n, how)| format!("slide {n}'s settled claim stands as written, {how}")).collect();
             Some(format!("{}: shorten them in the outline to fit", each.join("; ")))
         }
-    })
+    };
+    let ideas = (said.iter().filter(|s| s.2)).map(|(n, how, _)| {
+        format!("slide {n} states the deck's big idea, too long for its place ({how}): shorten it in the outline")
+    });
+    let all: Vec<String> = claims.into_iter().chain(ideas).collect();
+    Ok((!all.is_empty()).then(|| all.join("; ")))
 }
 
 /// The theme's shader preset a made deck's cover and close stand on where no picture was made for
@@ -12218,6 +12298,71 @@ mod tests {
         let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
         let said = shown(&made.deck, &state);
         assert!(!said.iter().any(|(_, w)| w.contains(claim.trim_end_matches('.'))), "{said:#?}");
+    }
+
+    /// A bare close headed by a big idea its Closing place cannot hold is set where one does, the
+    /// thanks under it (R1's agent dogfood 13: nordwerk's 100-character big idea ran past its
+    /// place in Dusk and Salon, W202 and W203), in Dusk and in Salon; where no layout holds it,
+    /// it keeps its big idea, which the fit holds as it holds a settled claim.
+    #[test]
+    fn a_bare_close_is_set_where_its_heading_fits() {
+        let long =
+            "Route 9 riders keep their jobs and their clinic visits; twelve free months cost $1.4M the city holds.";
+        let close = |file: &str, idea: &str| -> (String, Value, Vec<Finding>) {
+            let json = std::fs::read_to_string(root().join("docs/examples/themes").join(file)).unwrap();
+            let mut n = route9();
+            let k = n.slides.len() - 1;
+            let beat = n.slides[k].beat_index.unwrap();
+            let claim = n.outline.as_ref().unwrap().beats[beat].claim.clone();
+            n.slides[k - 1].beat_index = Some(beat);
+            n.slides[k - 1].slide_title = claim.trim_end_matches('.').into();
+            n.outline.as_mut().unwrap().big_idea = idea.into();
+            let (made, write) = generating(&n, Path::new(file), json, &font).unwrap();
+            let deck = write.unwrap().deck.to_value().unwrap();
+            let state = deck["states"].as_array().unwrap().last().unwrap().clone();
+            let id = state["id"].as_str().unwrap().to_string();
+            let found = (made.created.findings.into_iter())
+                .filter(|f| f.node.as_deref() == Some(&format!("{id}-statement")))
+                .collect();
+            (state["layout"].as_str().unwrap().to_string(), json!({ "id": id, "nodes": deck["nodes"] }), found)
+        };
+        for file in ["dusk.theme.json", "salon.theme.json"] {
+            let (layout, at, found) = close(file, long);
+            let id = at["id"].as_str().unwrap();
+            // Dusk's Closing cannot hold it; Salon's, set narrower, holds it as it stands.
+            let moved = matches!(layout.as_str(), "statement" | "key-point");
+            assert!(moved || (file != "dusk.theme.json" && layout == "closing"), "{file}: {layout}");
+            assert_eq!(at["nodes"][format!("{id}-statement")]["text"], typeset(long, "en"), "{file}");
+            assert_eq!(at["nodes"][format!("{id}-support")]["text"], "Thank you \u{b7} Questions?", "{file}");
+            let over: Vec<&str> = found.iter().map(|f| f.code.as_str()).filter(|c| OVERRUN.contains(c)).collect();
+            assert!(over.is_empty(), "{file}: {over:?}");
+        }
+        // A big idea no layout holds keeps its place in Closing, never its beat's claim, which the
+        // slide before states (W425), and is never the fit's to rewrite: the person is told.
+        let endless = [long; 4].join(" ");
+        let json = dusk();
+        let mut n = route9();
+        let k = n.slides.len() - 1;
+        let beat = n.slides[k].beat_index.unwrap();
+        let claim = n.outline.as_ref().unwrap().beats[beat].claim.clone();
+        n.slides[k - 1].beat_index = Some(beat);
+        n.slides[k - 1].slide_title = claim.trim_end_matches('.').into();
+        n.outline.as_mut().unwrap().big_idea = endless.clone();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), json, &font).unwrap();
+        let write = write.unwrap();
+        let deck = write.deck.to_value().unwrap();
+        let state = deck["states"].as_array().unwrap().last().unwrap();
+        let id = format!("{}-statement", state["id"].as_str().unwrap());
+        assert_eq!(state["layout"], "closing");
+        assert_eq!(deck["nodes"][&id]["text"], typeset(&endless, "en"));
+        assert!(made.created.findings.iter().all(|f| f.code != "W425"), "{:#?}", made.created.findings);
+        let long = overflowing(&write.deck, &made.created.findings).unwrap();
+        assert!(long.iter().all(|l| l.id != id), "the fit rewrites the big idea: {long:#?}");
+        // Named as what it is, the big idea, never a beat's settled claim.
+        let said = made.overlong.unwrap_or_default();
+        let head = format!("slide {} states the deck's big idea, too long for its place (", k + 1);
+        assert!(said.starts_with(&head) && said.ends_with("): shorten it in the outline"), "{said}");
+        assert!(!said.contains("settled claim"), "{said}");
     }
 
     /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
