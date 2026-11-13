@@ -3026,6 +3026,20 @@ pub struct StoryPlace {
     /// pace say it beside the beats' plan: `for a 12-minute slot` (W1's dogfood 17). The beats'
     /// plan and the brief's minutes can differ, and the talk is given the brief's.
     pub slot: Option<String>,
+    /// Where every beat's time is Narrato's estimate and the brief asks minutes, the brief's
+    /// minutes and the estimates' total, seconds (editor dogfood 7): `planned` and `before` are
+    /// then the slot's, each beat its estimate's share of it, and the rehearsal says the estimates
+    /// beside the slot. None where a person set a beat's time, or the brief asks no minutes.
+    pub estimated: Option<Estimated>,
+}
+
+/// The brief's slot a deck timed by Narrato's estimates alone is paced over ([`StoryPlace`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Estimated {
+    /// The minutes the brief asks.
+    pub minutes: f64,
+    /// The beats' estimates together, seconds.
+    pub total: f64,
 }
 
 impl StoryPlace {
@@ -3041,6 +3055,9 @@ impl StoryPlace {
         if let Some(slot) = &self.slot {
             out["slot"] = serde_json::json!(slot);
         }
+        if let Some(e) = self.estimated {
+            out["estimated"] = serde_json::json!({ "minutes": e.minutes, "total": e.total });
+        }
         out
     }
 }
@@ -3052,11 +3069,34 @@ fn asked_slot(deck: &Deck) -> Option<String> {
     (minutes.is_finite() && minutes >= 1.0).then(|| format!("for a {}-minute slot", minutes.round() as u64))
 }
 
+/// The brief's minutes and the beats' estimates together, where the brief asks minutes and every
+/// beat timed is timed by Narrato's estimate alone (`media.narrato.estimated`, editor dogfood 7):
+/// a plan no person set, which the presenter's pace and the rehearsal measure by the slot instead.
+fn estimated(deck: &Deck) -> Option<Estimated> {
+    let minutes = deck.meta.as_ref()?.extra.get("narrative")?.pointer("/brief/minutes")?.as_f64()?;
+    if !minutes.is_finite() || minutes < 1.0 {
+        return None;
+    }
+    let mut total = 0.0;
+    for beat in deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats) {
+        let Some(d) = beat.duration.filter(|d| *d > 0.0) else { continue };
+        let guessed = beat.media.as_ref().and_then(|m| m.pointer("/narrato/estimated")).is_some();
+        if !guessed {
+            return None;
+        }
+        total += d;
+    }
+    (total > 0.0).then_some(Estimated { minutes: minutes.round(), total })
+}
+
 /// Each state's place in the talk, by its id: the first beat, in spine order, that names it, as a
 /// chapter takes a state two beats name ([`scaena_core::spine::paced`]).
 fn story_places(deck: &Deck, timeline: &Timeline) -> HashMap<String, StoryPlace> {
     let paced = scaena_core::spine::paced(deck, timeline, scaena_core::spine::Pace::Beats);
     let asked = asked_slot(deck);
+    let estimated = estimated(deck);
+    // Paced over the brief's slot where every beat's time is an estimate: each its share of it.
+    let scale = estimated.map_or(1.0, |e| e.minutes * 60.0 / e.total);
     let mut out = HashMap::new();
     for section in deck.spine.iter().flat_map(|s| &s.sections) {
         for beat in &section.beats {
@@ -3065,9 +3105,10 @@ fn story_places(deck: &Deck, timeline: &Timeline) -> HashMap<String, StoryPlace>
                 out.entry(state.clone()).or_insert_with(|| StoryPlace {
                     section: section.title.clone().filter(|t| !t.trim().is_empty()),
                     claim: beat.claim.clone(),
-                    planned: beat.duration.filter(|d| *d > 0.0),
-                    before: slot.start / 1000.0,
+                    planned: beat.duration.filter(|d| *d > 0.0).map(|d| d * scale),
+                    before: slot.start / 1000.0 * scale,
                     slot: asked.clone(),
+                    estimated,
                 });
             }
         }
@@ -3150,6 +3191,39 @@ mod tests {
         let slots = s.slots().unwrap();
         let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "intro").unwrap();
         assert_eq!(said["story"]["slot"], "for a 12-minute slot");
+    }
+
+    /// A plan of Narrato's estimates alone is paced over the brief's slot (editor dogfood 7): where
+    /// the brief asks minutes and every beat timed is estimated, each state's planned seconds and
+    /// the seconds before it are the slot's, each beat its estimate's share, and the slots say the
+    /// minutes and the estimates' total; one beat a person timed keeps the beats' plan as it is.
+    #[test]
+    fn a_plan_of_estimates_alone_is_paced_over_the_briefs_slot() {
+        let mut s = revenue();
+        let meta = s.deck.meta.get_or_insert_with(Default::default);
+        meta.extra.insert("narrative".into(), serde_json::json!({ "brief": { "minutes": 10 } }));
+        let (intro, mix) = (s.story_place("intro").unwrap().unwrap(), s.story_place("mix").unwrap().unwrap());
+        assert_eq!(intro.estimated, None, "a plan a person set is kept");
+        // Every beat timed made Narrato's estimate.
+        let mut total = 0.0;
+        for beat in s.deck.spine.iter_mut().flat_map(|sp| sp.sections.iter_mut()).flat_map(|sec| sec.beats.iter_mut()) {
+            let Some(d) = beat.duration.filter(|d| *d > 0.0) else { continue };
+            total += d;
+            beat.media = Some(serde_json::json!({ "narrato": { "estimated": d } }));
+        }
+        let scale = 600.0 / total;
+        let (i2, m2) = (s.story_place("intro").unwrap().unwrap(), s.story_place("mix").unwrap().unwrap());
+        assert_eq!(i2.estimated, Some(Estimated { minutes: 10.0, total }));
+        assert!((i2.planned.unwrap() - intro.planned.unwrap() * scale).abs() < 1e-9, "{i2:?}");
+        assert!((m2.before - mix.before * scale).abs() < 1e-9, "{m2:?} against {mix:?}");
+        let slots = s.slots().unwrap();
+        let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "mix").unwrap();
+        assert_eq!(said["story"]["estimated"], serde_json::json!({ "minutes": 10.0, "total": total }));
+        // One beat a person timed: the beats' plan as it was.
+        let first = s.deck.spine.as_mut().unwrap().sections[0].beats.iter_mut().find(|b| b.duration.is_some()).unwrap();
+        first.media = None;
+        let i3 = s.story_place("intro").unwrap().unwrap();
+        assert_eq!((i3.estimated, i3.planned, i3.before), (None, intro.planned, intro.before));
     }
 
     /// The deck as a movie (lift-up 20261031 FUNC-2): the CLI's reel, its frames as long as the
