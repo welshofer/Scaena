@@ -39,6 +39,10 @@ const SOURCE_PANE: &str = "SourcePane.swift";
 /// keys (`UITextField.textDidEndEditingNotification`, PLAN 3.28), and hearing it lays no text out.
 const HEARD: &[&str] = &["UITextField.textDid", "UITextView.textDid"];
 
+/// The two text classes named as classes, whose input view a debug build's UI test run answers as
+/// nothing (`Keyboardless.swift`, #1240): naming them so makes, measures, and draws no text.
+const CLASSES: &str = "[UITextField.self, UITextView.self] as [AnyClass]";
+
 fn swift(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
@@ -62,7 +66,7 @@ fn the_apps_swift_lays_no_text_out() {
         let text = std::fs::read_to_string(file).unwrap();
         for (i, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or_default();
-            let code = HEARD.iter().fold(code.to_string(), |code, heard| code.replace(heard, ""));
+            let code = HEARD.iter().fold(code.replace(CLASSES, ""), |code, heard| code.replace(heard, ""));
             for what in LAYOUT {
                 if code.contains(what) && !(pane && (*what == "NSTextView" || *what == "UITextView")) {
                     found.push(format!("{}:{}: {what}", file.display(), i + 1));
