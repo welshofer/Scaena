@@ -2184,6 +2184,22 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let k = read[*place.get(id)?].narrative_meta.as_ref()?.beat_index?;
         beats.get(k).map(|b| headed(b).to_string()).filter(|b| !b.is_empty())
     };
+    // Fidelity as the score reads it, against the arc's curve where the deck names an arc, else
+    // Vzestup's canonical curve; and whether planning slide `i` at `value` raises it as the other
+    // slides stand. A plan can lower it, the warp aligning the slides afresh (B1's slide 12, read
+    // on the tent at 0.73, planned at 0.70), so a fix is offered only where it raises it (W1's
+    // dogfood 17; no figure moves, only which fixes are offered).
+    let canonical = arc::canonical_curve(read.iter().filter(|s| s.eligible()).count());
+    let fidelity_of = |slides: &[SlideForHealth]| {
+        let against = if arc_name.is_some() { &curve } else { &canonical };
+        arc::fidelity(slides, against, &arc::FidelityOptions::default()).fidelity
+    };
+    let now = fidelity_of(&read);
+    let raises = |i: usize, value: f64| {
+        let mut planned = read.clone();
+        planned[i].narrative_meta.get_or_insert_with(NarrativeMeta::default).expected_intensity = Some(value);
+        fidelity_of(&planned) > now + 1e-9
+    };
     // The slides whose own bend is a finding of its own, apart from a run of them.
     let mut alone: Vec<String> = Vec::new();
     for d in bends.iter().filter(|d| !folded.contains(&d.slide_id.as_str())) {
@@ -2221,7 +2237,15 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 // The plan asked, written where the slide's plan is, for the person to take, and
                 // said as it is written (W2's review of #1186).
                 let value = held(asked, words);
+                let raised = reach && raises(i, value);
                 let ask = match (words, reach) {
+                    _ if reach && !raised && value != calls && raises(i, calls) => format!(
+                        "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), and the plan its words carry, {}, would set the talk further from its curve as the other slides stand: give it words that carry {called}, or move it {moved}{beat}.",
+                        level(value)
+                    ),
+                    _ if reach && !raised => format!(
+                        "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), but planned alone, even at {called}, it would set the talk further from its curve as the other slides stand: move it {moved}{beat}, or plan the slides around it with it."
+                    ),
                     (Some(w), false) => format!(
                         "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}), and its words read {}, further from its place than a plan they carry can come: move it {moved}{beat}.",
                         level(w)
@@ -2235,7 +2259,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                         "Slide {k} is planned at {was}, {than} its place in the story calls for ({called}): plan it {way} by its Intensity{beat}, or move it {moved}."
                     ),
                 };
-                let fix = reach.then(|| at(&d.slide_id, "intensity")).flatten().map(|path| Fix {
+                let fix = raised.then(|| at(&d.slide_id, "intensity")).flatten().map(|path| Fix {
                     says: format!("Plan it at {}", level(value)),
                     patch: vec![json!({ "op": "replace", "path": path, "value": value })],
                 });
@@ -2253,7 +2277,8 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     _ => calls,
                 };
                 let value = held(asked, slides_read.get(i).and_then(|r| r.read));
-                let fix = slides[i].beat.map(|(si, bj, b)| {
+                let raised = raises(i, value);
+                let fix = slides[i].beat.filter(|_| raised).map(|(si, bj, b)| {
                     let base = format!("/spine/sections/{si}/beats/{bj}");
                     let op = match b.media.as_ref() {
                         Some(media) if media.get("narrato").is_some_and(Value::is_object) => {
@@ -2271,11 +2296,24 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     format!(
                         "Slide {k} declares no intensity, where its place in the talk calls for a {way} slide than most."
                     ),
-                    format!(
-                        "Plan slide {k}'s intensity for its place in the story: {} by its Intensity, where the talk's curve stands at {}{beat}.",
-                        level(value),
-                        level(calls)
-                    ),
+                    match raised {
+                        true => format!(
+                            "Plan slide {k}'s intensity for its place in the story: {} by its Intensity, where the talk's curve stands at {}{beat}.",
+                            level(value),
+                            level(calls)
+                        ),
+                        false if value == calls || !raises(i, calls) => format!(
+                            "Slide {k}'s place in the story calls for {}, but planned alone, even at {}, it would set the talk further from its curve while the slides around it are read as a talk usually runs: move it {moved}{beat}, or plan them with it.",
+                            level(calls),
+                            level(calls)
+                        ),
+                        false => format!(
+                            "Slide {k}'s place in the story calls for {}, and the plan its words carry, {}, would set the talk further from its curve as the other slides stand: give it words that carry {}, or move it {moved}{beat}.",
+                            level(calls),
+                            level(value),
+                            level(calls)
+                        ),
+                    },
                     fix,
                 )
             }
@@ -5001,6 +5039,63 @@ mod tests {
     /// curve, words that read far from it would be an intensity gap in the bend's place. The plan
     /// asked is the nearest the curve within the gap the words allow, with a fix that writes it;
     /// where that still bends, the move comes first and no plan is asked. No figure moves.
+    /// A plan is offered only where it raises fidelity as the deck stands (W1's dogfood 17): the
+    /// warp aligns the slides afresh with each plan, so a plan nearer its place can set the talk
+    /// further from its curve. No figure moves; only which fixes are offered.
+    #[test]
+    fn a_plan_is_offered_only_where_it_raises_fidelity() {
+        let fidelity = |h: &Health| h.fidelity.score.unwrap();
+        let arc =
+            |h: &Health, slide: usize| h.findings.iter().find(|f| f.kind == Kind::Arc && f.slide == slide).cloned();
+        // B1 plans nothing, so each slide is read on the tent: slide 12's plan, 0.70, would stand
+        // under the tent's 0.73 at its place. Taking each fix offered in turn, fidelity never falls,
+        // and slide 12 is asked for words or its place, with no plan.
+        let text = std::fs::read_to_string(root().join("tests/bench/b1.scaena/deck.json")).unwrap();
+        let mut deck: Value = serde_json::from_str(&text).unwrap();
+        let mut h = of(&deck);
+        let twelve = arc(&h, 12).expect("slide 12 is found");
+        assert!(twelve.fix.is_none(), "{twelve:#?}");
+        assert!(
+            twelve.ask.contains(
+                "would set the talk further from its curve as the other slides stand: give it words that carry"
+            ),
+            "{}",
+            twelve.ask
+        );
+        let mut taken = 0;
+        while let Some(fix) = h.findings.iter().filter(|f| f.kind == Kind::Arc).find_map(|f| f.fix.clone()) {
+            scaena_core::patch::apply(&mut deck, &fix.patch).unwrap();
+            let after = of(&deck);
+            assert!(
+                fidelity(&after) >= fidelity(&h) && after.score >= h.score,
+                "{} took fidelity {} to {}",
+                fix.says,
+                fidelity(&h),
+                fidelity(&after)
+            );
+            (h, taken) = (after, taken + 1);
+        }
+        assert_eq!((taken, fidelity(&h)), (4, 86));
+        // The QBR's slide 8: the plan its words carry, 0.37, would lower fidelity, and so would its
+        // place's 0.36, so none is offered and the slides around it are asked for too.
+        let deck = dogfood("qbr", "", |_| {});
+        let h = of(&deck);
+        let eight = arc(&h, 8).expect("slide 8 bends");
+        assert!(
+            eight.fix.is_none() && eight.ask.contains("but planned alone, even at 0.36, it would set the talk further from its curve as the other slides stand: move it"),
+            "{eight:#?}"
+        );
+        let mut planned = deck.clone();
+        scaena_core::patch::apply(
+            &mut planned,
+            &[json!({ "op": "replace", "path": eight.path.clone().unwrap(), "value": 0.37 })],
+        )
+        .unwrap();
+        assert!(fidelity(&of(&planned)) < fidelity(&h), "the plan withheld lowers fidelity");
+        // Slide 7's still raises it, and is offered.
+        assert!(arc(&h, 7).and_then(|f| f.fix).is_some_and(|f| f.says == "Plan it at 0.46"));
+    }
+
     #[test]
     fn a_bend_asks_for_a_plan_its_words_can_carry() {
         // Lecture's slide 11 is planned at 0.50 where its place calls for 0.85; its words read 0.50.
@@ -5213,7 +5308,28 @@ mod tests {
         let unplanned: Vec<&Finding> =
             (h.findings.iter()).filter(|f| f.says.contains("declares no intensity")).collect();
         assert!(!unplanned.is_empty(), "{:#?}", h.findings);
-        let f = unplanned[0];
+        // One whose plan would lower fidelity as the deck stands is asked for words, with no plan.
+        // The keynote's slide 7, planned alone even at the 0.37 its place calls for, would set the
+        // talk further from its curve while the slides around it are read on the tent.
+        for f in unplanned.iter().filter(|f| f.fix.is_none()) {
+            assert!(f.ask.contains("it would set the talk further from its curve"), "{}", f.ask);
+        }
+        let seven = unplanned.iter().find(|f| f.slide == 7).expect("slide 7 is unplanned");
+        assert!(
+            seven.fix.is_none()
+                && seven.ask.contains("but planned alone, even at 0.37, it would set the talk further from its curve while the slides around it are read as a talk usually runs: move it"),
+            "{}",
+            seven.ask
+        );
+        // B1 plans nothing: slide 11's plan, the slides around it read on the tent, raises
+        // fidelity, so it is offered, and taken it leaves the slide planned.
+        let text = std::fs::read_to_string(root().join("tests/bench/b1.scaena/deck.json")).unwrap();
+        let deck: Value = serde_json::from_str(&text).unwrap();
+        let h = of(&deck);
+        let f = (h.findings.iter())
+            .find(|f| f.says.contains("declares no intensity") && f.fix.is_some())
+            .expect("an unplanned slide offered its plan");
+        assert_eq!(f.slide, 11);
         let curve = h.slides[f.slide - 1].curve;
         assert!(f.ask.contains(&format!("where the talk's curve stands at {curve:.2}")), "{}", f.ask);
         let fix = f.fix.as_ref().expect("the plan its place calls for, as a fix");
@@ -5234,7 +5350,9 @@ mod tests {
             }
         }
         let h = of(&bare);
-        let f = (h.findings.iter()).find(|f| f.says.contains("declares no intensity")).expect("an unplanned slide");
+        let f = (h.findings.iter())
+            .find(|f| f.says.contains("declares no intensity") && f.fix.is_some())
+            .expect("an unplanned slide");
         let fix = f.fix.as_ref().expect("a fix");
         assert!(fix.patch[0]["path"].as_str().unwrap().ends_with("/media"), "{:?}", fix.patch);
         scaena_core::patch::apply(&mut bare, &fix.patch).unwrap();
