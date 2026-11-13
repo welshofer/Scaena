@@ -55,6 +55,10 @@
 //   in the engine's words as it is held, nothing made; let go, one patch, the bend answered; ⌘Z
 //   takes it back (editor dogfood 3). A slide there that lint finds broken caps the score: the
 //   score says so and what it would be, the slide a button that shows it (W1's dogfood 5).
+// - A part's claim and the big idea, edited in the Story with no key (editor dogfood 7): on the
+//   outlined larder, "Edit its claim" and "Edit the big idea" hold the settled words in a field,
+//   in focus; a claim settled as its slide says it is one patch, said so, the finding answered,
+//   the score as it was; Escape leaves the big idea; ⌘Z takes the claim back.
 // Exits 1 on any failure.
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -1054,6 +1058,84 @@ try {
     const at = lines.findIndex((l) => !!head && l.includes(head));
     const opens = lines.slice(0, at + 1).reverse().find((l) => /^\s*notes "/.test(l) || /^\s*"{3,}\s*$/.test(l)) ?? "";
     check(at >= 0 && /^\s*notes "/.test(opens), `its headline is in those notes: ${opens.trim()} … ${lines[at]?.trim()}`);
+    await page.close();
+  })();
+
+  // A part's claim and the big idea, edited in the Story with no key (editor dogfood 7): on the
+  // outlined calibration's larder, a claim no slide of its part says offers "Edit its claim", and
+  // the close that never lands the big idea "Edit the big idea", each the settled words in a field,
+  // in focus; the claim settled as its slide says it is one patch where the outline holds it, said
+  // so, the finding answered; Escape leaves the big idea as it was; ⌘Z takes the claim back.
+  await (async () => {
+    const bundle = "target/web-story/larder";
+    await rm(bundle, { recursive: true, force: true });
+    const cal = "docs/examples/health-calibration-outlined";
+    execFileSync(
+      "cargo",
+      ["run", "-q", "-p", "scaena-cli", "--locked", "--", "generate", bundle, "Larder",
+        "--slides", `${cal}/larder.slides.json`, "--from-outline", `${cal}/larder.outline.json`,
+        "--no-look", "--no-notes", "--pictures", "none", "--goal", "Persuade", "--minutes", "10"],
+      { stdio: "inherit" },
+    );
+    const page = await context.newPage();
+    page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
+    page.on("console", (m) => m.type() === "error" && failures.push(`console: ${m.text()}`));
+    await page.goto(`${server.origin}/web/dist/editor.html?painter=cpu&source=open&bundle=/${bundle}/deck.json`);
+    await page.waitForFunction(() => window.scaena?.last(), null, { timeout: 120000 });
+    await tab(page, "story");
+    await page.waitForFunction(() => window.scaena.story.health(), null, { timeout: 120000 });
+    await page.click("#story [data-more] summary").catch(() => {});
+    const asked = await page.evaluate(() => window.scaena.story.health().findings.filter((f) => f.field === "claim" || f.field === "bigIdea"));
+    const claim = asked.find((f) => f.field === "claim");
+    const idea = asked.find((f) => f.field === "bigIdea");
+    check(
+      !!claim?.settled && claim.path?.startsWith("/meta/narrative/outline/beats/") && idea?.path === "/meta/narrative/outline/bigIdea" && !!idea.settled,
+      `health names where the outline holds a claim and the big idea: ${JSON.stringify(asked.map((f) => [f.field, f.path]))}`,
+    );
+    const row = (f) => `#story [data-findings] li[data-slide="${f.slide}"]`;
+    const editIt = page.locator(`${row(claim)} button[data-settle="claim"]`);
+    check((await editIt.count()) === 1 && (await editIt.textContent()) === "Edit its claim", `the claim's row offers Edit its claim: ${await editIt.count()}`);
+    const scoreWas = await page.evaluate(() => window.scaena.story.health().score);
+    await editIt.click();
+    const field = page.locator(`${row(claim)} form[data-settling="claim"] input`);
+    check(
+      (await field.inputValue()) === claim.settled && (await field.evaluate((el) => el === document.activeElement)),
+      `its field holds the settled claim, in focus: ${await field.inputValue()}`,
+    );
+    // Settled as its slide's headline says it.
+    const headline = await page.evaluate((k) => window.scaena.story.health().slides[k - 1].title, claim.slide);
+    const was = await page.evaluate(() => window.scaena.source());
+    await field.fill(headline);
+    await field.press("Enter");
+    await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    const said = await page.locator("#status").textContent();
+    check(said.startsWith(`Slide ${claim.slide}'s part of the talk claims “${headline}”`) && said.includes("⌘Z"), `one patch, said: ${said}`);
+    await page
+      .waitForFunction((c) => !window.scaena.story.health()?.findings.some((f) => f.kind === "claim" && f.slide === c.slide && f.settled === c.settled), claim, { timeout: 60000 })
+      .catch(() => {});
+    const after = await page.evaluate(() => window.scaena.story.health());
+    check(
+      !after.findings.some((f) => f.kind === "claim" && f.slide === claim.slide) && after.score === scoreWas,
+      `carried now, the score as it was: ${after.score} (was ${scoreWas})`,
+    );
+    // The big idea's field, left by Escape: nothing made.
+    await page.click("#story [data-more] summary").catch(() => {});
+    const ideaIt = page.locator(`${row(idea)} button[data-settle="bigIdea"]`);
+    check((await ideaIt.count()) === 1 && (await ideaIt.textContent()) === "Edit the big idea", `the close's row offers Edit the big idea: ${await ideaIt.count()}`);
+    await ideaIt.click();
+    const ideaField = page.locator(`${row(idea)} form[data-settling="bigIdea"] input`);
+    check((await ideaField.inputValue()) === idea.settled, `its field holds the big idea: ${await ideaField.inputValue()}`);
+    const before = await page.evaluate(() => window.scaena.source());
+    await ideaField.fill("Something else entirely");
+    await ideaField.press("Escape");
+    check(
+      (await page.locator(`${row(idea)} form[data-settling="bigIdea"]`).isHidden()) && (await page.evaluate(() => window.scaena.source())) === before,
+      "Escape leaves the big idea as it was",
+    );
+    // ⌘Z takes the claim back.
+    await page.keyboard.press("Control+z");
+    await page.waitForFunction((w) => window.scaena.source() === w, was, { timeout: 30000 }).catch(() => {});
+    check((await page.evaluate(() => window.scaena.source())) === was, "⌘Z takes the claim back");
     await page.close();
   })();
 } catch (e) {

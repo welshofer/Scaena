@@ -228,6 +228,38 @@ pub struct Provenance {
     pub url: Option<String>,
     pub bytes: usize,
     pub truncated: bool,
+    /// The figures its words and cells hold, each value once and in order, written plainly
+    /// ("7560", "25.8"), never its words: what health holds a slide that cites it to (W1's
+    /// dogfood 17). None where it holds more than [`MOST_FIGURES`], or where the deck was made
+    /// before format 0.41.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub figures: Vec<String>,
+}
+
+/// The most figures a source keeps in the deck: a source that holds more keeps none, and health
+/// reads the slides that cite it as it reads a deck made before it kept any.
+pub const MOST_FIGURES: usize = 10_000;
+
+/// The figures `text` holds, as a source keeps them ([`Provenance::figures`]): its words' and each
+/// cell's, each value once, in order, written plainly; none past [`MOST_FIGURES`].
+/// A line of cells, between commas, semicolons, or tabs, of four words at most each is a sheet's
+/// row, read cell by cell, so `2021,182000,48` holds 2021, 182000, and 48, never one long number;
+/// any other line is read whole, so "removed 7,560 street trees" holds 7560 alone.
+pub fn source_figures(text: &str) -> Vec<String> {
+    let mut values: Vec<f64> = Vec::new();
+    for line in text.lines() {
+        let cells: Vec<&str> = line.split([',', ';', '\t']).collect();
+        match cells.len() > 1 && cells.iter().all(|c| c.split_whitespace().count() <= 4) {
+            true => cells.iter().for_each(|cell| values.extend(figures(cell))),
+            false => values.extend(figures(line)),
+        }
+    }
+    values.sort_unstable_by(f64::total_cmp);
+    values.dedup();
+    match values.len() > MOST_FIGURES {
+        true => Vec::new(),
+        false => values.iter().map(|v| format!("{v}")).collect(),
+    }
 }
 
 /// An icon a slide's word names (PLAN G.23): its name in its set, and its outline on its view.
@@ -1046,5 +1078,26 @@ impl Generation {
         });
         self.step = Step::Done;
         Ok(self.step)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A source keeps each figure its words and cells hold once, a sheet's row cell by cell and
+    /// prose whole (W1's dogfood 17): never one long number of a row's cells run together.
+    #[test]
+    fn a_source_keeps_its_figures_and_never_a_row_read_as_one() {
+        let csv = "jahr,restmuell_t,gebuehr_eur_t\n2021,182000,48\n2022,186500,52\n";
+        assert_eq!(source_figures(csv), ["48", "52", "2021", "2022", "182000", "186500"]);
+        let prose = "Over ten years the city removed 7,560 street trees and planted 4,370, 9 degrees hotter.";
+        assert_eq!(source_figures(prose), ["9", "4370", "7560"]);
+        // A CSV's line that is a sentence with commas in it reads as words, not as its cells: its
+        // 7,560 is one figure, never a 7 and a 560.
+        let said = "year,note\n2025,\"Over ten years the city removed 7,560 street trees, and planted 4,370\"\n";
+        assert_eq!(source_figures(said), ["2025", "4370", "7560"]);
+        let many: String = (0..=MOST_FIGURES).map(|n| format!("{n}\n")).collect();
+        assert!(source_figures(&many).is_empty(), "past the most, none");
     }
 }

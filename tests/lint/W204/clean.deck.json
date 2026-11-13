@@ -1,5 +1,5 @@
 {
-  "scaena": "0.40",
+  "scaena": "0.41",
   "_comment": "W204 clean: four lines of code, and a step that brings lines 2 and 3 into focus, which it has.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

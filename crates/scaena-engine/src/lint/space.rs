@@ -401,9 +401,10 @@ impl Rule for W304EmptyPlace {
 /// 16). A slide that says nothing but its prompts is still being written and is not judged, as
 /// W304 leaves it. Only a slot's own prompt is matched, so a person's words are never found. One
 /// finding per text and state, in the deck's own format, where the words are the same in every
-/// format; no fix, since only the person knows what to say. A prompt the theme marks `kept`, a
-/// heading or a label that reads as finished copy ("Agenda", a SWOT's "Strengths"), is never found
-/// (theme format 0.30, W1 dogfood 18).
+/// format; no fix, since only the person knows what to say. A prompt that is its place's label, a
+/// quiz's letter or a step's number, is what the slide says there, and is never found; nor is a
+/// prompt the theme marks `kept`, a heading or a label that reads as finished copy ("Agenda", a
+/// SWOT's "Strengths"; theme format 0.30, W1 dogfood 18).
 pub struct W305PromptLeft;
 
 impl Rule for W305PromptLeft {
@@ -429,8 +430,8 @@ impl Rule for W305PromptLeft {
                     && p.get("semantic").and_then(Value::as_str) != Some("decoration")
             });
             // Each text that says its slot's prompt, and whether the theme marks that prompt as
-            // finished copy, a heading or a label the slide keeps: neither a prompt left nor words
-            // of the person's own.
+            // finished copy: a place's label ("A", "01") and a kept heading are what the slide says
+            // there, neither a prompt left nor words of the person's own.
             let saying: Vec<(&String, &str, String, bool)> = shown
                 .clone()
                 .filter_map(|(id, p)| {
@@ -445,7 +446,10 @@ impl Rule for W305PromptLeft {
             let written = shown.clone().any(|(id, p)| {
                 !saying.iter().any(|(p, ..)| *p == id) && !scaena_core::reading::words(p).trim().is_empty()
             });
-            let prompted = saying.into_iter().filter(|(.., kept)| !kept).map(|(id, slot, said, _)| (id, slot, said));
+            let prompted = saying
+                .into_iter()
+                .filter(|(_, _, said, kept)| !kept && !label(said))
+                .map(|(id, slot, said, _)| (id, slot, said));
             if !written {
                 continue;
             }
@@ -466,6 +470,14 @@ impl Rule for W305PromptLeft {
         }
         out
     }
+}
+
+/// Whether a slot's prompt is its place's label, a letter or a number of one or two ("A", "01"), as a
+/// quiz's letters and a process's steps are: what the slide says there as its layout writes it,
+/// never words left to type over (W1's dogfood 18).
+fn label(prompt: &str) -> bool {
+    let prompt = prompt.trim();
+    (1..=2).contains(&prompt.chars().count()) && prompt.chars().all(char::is_alphanumeric)
 }
 
 /// W311: a shader painted behind a chart or a table, where they overlap. Data reads

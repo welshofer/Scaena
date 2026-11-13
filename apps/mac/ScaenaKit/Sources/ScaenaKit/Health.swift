@@ -55,13 +55,18 @@ public struct Health: Decodable, Sendable {
         public let ask: String
         public let fix: Fix?
         /// The one field of the slide it asks to edit, where it asks for one: `headline`, `notes`,
-        /// `intensity`, or `claim` (editor dogfood 6).
+        /// `intensity`, `claim`, or `bigIdea` (editor dogfood 6, 7).
         public let field: String?
-        /// Where the plan it asks about is written, `…/intensity`, for an `arc` finding (#999).
+        /// Where the plan it asks about is written, `…/intensity` for an `arc` finding (#999), or
+        /// where the settled outline holds a `claim` or the `bigIdea` a finding asks for
+        /// (`/meta/narrative/outline/…`), which the Story panel edits in place (editor dogfood 7).
         public var path: String? = nil
         /// The earlier slide a slide that says again what it said may be folded into, by its first
         /// state: what a `story` finding of a repeat offers beside the cut (R1's #1161).
         public var into: String? = nil
+        /// The claim or the big idea as the settled outline holds it, at `path`, where `field` is
+        /// `claim` or `bigIdea`: what the Story panel shows to edit, with no model (editor dogfood 7).
+        public var settled: String? = nil
 
         /// The field of the Format tab its to-do names, as the browser's `fieldOf` reads it: by its
         /// `field`, else by where its `path` says its plan is written; none where it names neither

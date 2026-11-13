@@ -1,5 +1,5 @@
 {
-  "scaena": "0.40",
+  "scaena": "0.41",
   "_comment": "W315 trigger: a line chart whose value axis the author bound at 10, over values that rise to 45: the line and its last values are drawn far above the chart's box.",
   "canvas": {"width": 1920, "height": 1080},
   "theme": "theme.json",

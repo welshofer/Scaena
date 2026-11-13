@@ -195,6 +195,16 @@ public final class ScaenaSession {
             /// The slot the deck's brief asks, where it asks minutes, said beside the beats' plan:
             /// `for a 12-minute slot` (W1's dogfood 17).
             public var slot: String? = nil
+            /// Where every beat's time is Narrato's estimate and the brief asks minutes: the minutes
+            /// and the estimates' total, seconds; `planned` and `before` are then the slot's, each
+            /// beat its estimate's share (editor dogfood 7).
+            public var estimated: Estimated? = nil
+
+            /// The brief's slot a plan of estimates alone is paced over.
+            public struct Estimated: Decodable, Equatable, Sendable {
+                public var minutes: Double
+                public var total: Double
+            }
 
             /// The section and the claim, as the presenter's view says where the talk is:
             /// `Growth · Revenue doubled`.

@@ -893,7 +893,9 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
       }
       case "versions": {
         const module = await history();
-        if (!module) return post({ type: "versions", id: data.id, versions: null });
+        // A deck the editor made keeps no history until its first save begins one; the module
+        // loads at that save, not here.
+        if (!module) return post({ type: "versions", id: data.id, versions: null, begins: player.keepsHistory() });
         const changes = JSON.parse(module.changes(player.file(HISTORY)!)) as Change[];
         const at = (s: number) => (s > 0 ? new Date(s * 1000).toISOString() : null);
         const listed = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
@@ -1271,15 +1273,20 @@ async function load(source: Source) {
   } else if ("create" in source) {
     player = await made(source.create.theme, source.create.title);
     name = nameFor(source.create.title);
+    // Its history begins at its first save, as `deck_create` begins one.
+    player.keepHistory();
   } else if ("files" in source) {
     player = bundleOf(new Map(Object.entries(source.files).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
     name = source.name;
     only = source.states;
+    // A deck From a prompt… made begins its history at its first save, as `deck_generate` does.
+    if (source.begins && !player.files().includes(HISTORY)) player.keepHistory();
   } else if ("recovered" in source) {
     // The files a worker held when its engine stopped (lift-up STAB-2), kept where it kept them.
     player = bundleOf(new Map(Object.entries(source.recovered).map(([path, bytes]) => [path, new Uint8Array(bytes)])));
     name = source.name;
     const kept = source.kept;
+    if (source.begins && !player.files().includes(HISTORY)) player.keepHistory();
     if (kept && "opfs" in kept) home = keptIn(await keptBundle(kept.opfs), "opfs");
     else if (kept && "folder" in kept) home = keptIn(kept.folder, "folder");
     else if (kept) {

@@ -13,6 +13,8 @@
 // - Discard keeps nothing.
 // - A slide gone on from within its animation keeps its advance, never one of no time: the results
 //   say so before Keep, its row too, and Keep leaves it and says so (editor dogfood 4).
+// - A plan of Narrato's estimates alone is measured by the brief's slot, the estimates said beside
+//   it (editor dogfood 7).
 // - A brief that asks minutes has its slot said beside the beats' plan: "for a 12-minute slot"
 //   (W1's dogfood 17).
 // - axe-core finds nothing against WCAG 2.1 AA with the bar shown, or the table.
@@ -292,6 +294,29 @@ try {
   check(
     briefed !== plain && / planned for the 1 reached, for a 12-minute slot: \u2212\d/.test(slotted),
     `the run against the beats' plan, beside the brief's 12-minute slot: ${slotted}`,
+  );
+  await page.locator("#rehearsed button[value=cancel]").click();
+
+  // Every beat's time Narrato's estimate (editor dogfood 7): the run is measured by the brief's
+  // slot, each beat its estimate's share of the 12 minutes, and the estimates, 1:20 in all, are
+  // said beside it as what they are.
+  const guessed = briefed
+    .replace("duration:15s", "duration:15s media:{narrato: {estimated: 15}}")
+    .replace("media infographic:{priority: 1}", "media infographic:{priority: 1} narrato:{estimated: 60}")
+    .replace("duration:5s", "duration:5s media:{narrato: {estimated: 5}}");
+  await page.evaluate((s) => window.scaena.type(s), guessed);
+  await page
+    .waitForFunction(() => window.scaena.last()?.valid && window.scaena.last().slots.some((s) => s.story?.estimated), null, { timeout: 30000, polling: 100 })
+    .catch(() => {});
+  await page.selectOption("#state", "intro");
+  await page.waitForFunction(() => window.scaena.at().index === 0, null, { timeout: 5000 }).catch(() => {});
+  await rehearse();
+  await press("Escape", 1500);
+  await stopped();
+  const sloted = await page.textContent("#rehearsed [data-plan]");
+  check(
+    guessed !== briefed && / of a 12-minute slot for the 1 reached; the beats' estimates come to 1:20: \u2212\d/.test(sloted),
+    `a plan of estimates alone is measured by the brief's slot, the estimates said beside it: ${sloted}`,
   );
   await page.locator("#rehearsed button[value=cancel]").click();
   await context.close();
