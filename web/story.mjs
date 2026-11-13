@@ -941,7 +941,9 @@ try {
 
   // A fold whose words would run past the place they join goes to that slide's notes instead, and
   // its button says so before it is pressed, by the fold's own dry run (W1 dogfood 16): B1's slide
-  // 4 retitled to say slide 3 again, its 97 words too many for slide 3's body.
+  // 4 retitled to say slide 3 again, its 97 words too many for slide 3's body. Its own figures go
+  // with the edit, its kicker's count and its body's slides, decade, and cue: a slide with a figure
+  // of its own moves the talk on, and is no repeat (R1's agent dogfood 12).
   await (async () => {
     const page = await context.newPage();
     page.on("pageerror", (e) => failures.push(`page: ${e.message}`));
@@ -951,8 +953,12 @@ try {
     const source = await page.evaluate(() => window.scaena.source());
     const again = source
       .replace('beat belief-2 "Identity is the primitive."', 'beat belief-2 "The slide was a mistake we inherited."')
-      .replace('headline "Identity is the primitive."', 'headline "The slide was a mistake we inherited."');
+      .replace('headline "Identity is the primitive."', 'headline "The slide was a mistake we inherited."')
+      .replace('"Belief 2 of 10"', '"Belief 1 of 10"')
+      .replace("An object that exists on slide 4 and slide 5 is the same object.", "An object that exists on one slide and the next is the same object.")
+      .replace("Lighting consoles figured this out in the 1980s. Cue 12 goes.", "Lighting consoles figured this out long ago. A cue goes.");
     check(again.split("a mistake we inherited.\"").length === 3, "slide 4's claim and headline are found in the source");
+    check(!/Belief 2 of 10|slide 4 and slide 5|1980s|Cue 12/.test(again), "slide 4's own figures are found in the source and go");
     await page.evaluate((s) => window.scaena.type(s), again);
     await page.waitForFunction(() => window.scaena.story.health()?.findings.some((f) => f.kind === "story" && f.slide === 4), null, { timeout: 120000 }).catch(() => {});
     await page.click("#story [data-more] summary").catch(() => {});
