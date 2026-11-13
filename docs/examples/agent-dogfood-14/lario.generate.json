@@ -1,0 +1,265 @@
+{
+ "bundle": "lario",
+ "topic": "Piano di investimenti 2026–2030 di Acque del Lario per ridurre le perdite di rete",
+ "audience": "Consiglio di amministrazione di Acque del Lario",
+ "goal": "Persuade",
+ "minutes": 15,
+ "language": "Italian",
+ "modality": "in-person",
+ "voice": "Sobrio e preciso; ogni cifra con la sua fonte.",
+ "sources": [
+  {
+   "file": "in/relazione_annuale.pdf"
+  },
+  {
+   "file": "in/dati_gestione.xlsx"
+  }
+ ],
+ "outline": {
+  "bigIdea": "Acque del Lario cresce e investe, ma la rete perde ancora un quarto dell'acqua: un piano da 64 milioni la porta al 18 % entro il 2030.",
+  "beats": [
+   {
+    "name": "Risultati",
+    "claim": "Nel 2025 i ricavi sono saliti a 42,5 milioni di euro."
+   },
+   {
+    "name": "Rete",
+    "claim": "Le perdite idriche restano al 24,1 % dell'acqua immessa."
+   },
+   {
+    "name": "Impianti",
+    "claim": "Como guida con 112 addetti sui 324 dei quattro impianti."
+   },
+   {
+    "name": "Piano",
+    "claim": "Entro il 2030 prevediamo di ridurre le perdite al 18 %."
+   },
+   {
+    "name": "Richiesta",
+    "claim": "Chiediamo al consiglio di approvare un piano da 64 milioni di euro."
+   }
+  ]
+ },
+ "slides": {
+  "executiveSummary": "Acque del Lario cresce ma perde un quarto dell'acqua; chiede 64 milioni per ridurre le perdite al 18 % entro il 2030.",
+  "slides": [
+   {
+    "slideTitle": "Acque del Lario: piano di investimenti 2026–2030",
+    "layoutSuggestion": "Title",
+    "keyBullets": [],
+    "beatIndex": 0,
+    "beatName": "Risultati",
+    "expectedIntensity": 0.3,
+    "expectedValence": 0.2,
+    "speakerNotes": "Buongiorno. Vi presento i risultati del 2025 e chiudo con una richiesta: l'approvazione del piano di investimenti sulla rete.",
+    "subtitle": "Relazione al consiglio di amministrazione"
+   },
+   {
+    "slideTitle": "Nel 2025 i ricavi sono saliti a 42,5 milioni di euro",
+    "layoutSuggestion": "Big Number",
+    "keyBullets": [
+     "42,5 mln €",
+     "ricavi 2025, contro 40,1 milioni nel 2024"
+    ],
+    "beatIndex": 0,
+    "beatName": "Risultati",
+    "expectedIntensity": 0.5,
+    "expectedValence": 0.5,
+    "speakerNotes": "Partiamo dai conti. I ricavi sono cresciuti a 42,5 milioni di euro, da 40,1 milioni nell'anno precedente.",
+    "sourceRef": "relazione_annuale.pdf"
+   },
+   {
+    "slideTitle": "I ricavi seguono l'estate, con un picco di 4.380 keur a luglio",
+    "layoutSuggestion": "Line Chart",
+    "keyBullets": [
+     "Ricavi mensili 2025, in keur"
+    ],
+    "beatIndex": 0,
+    "beatName": "Risultati",
+    "expectedIntensity": 0.5,
+    "expectedValence": 0.4,
+    "speakerNotes": "La crescita non è uniforme. L'estate porta i consumi, e con loro i ricavi: luglio tocca 4.380 migliaia di euro.",
+    "sourceRef": "dati_gestione.xlsx",
+    "chartData": {
+     "categories": [
+      "Gen",
+      "Feb",
+      "Mar",
+      "Apr",
+      "Mag",
+      "Giu",
+      "Lug",
+      "Ago",
+      "Set",
+      "Ott",
+      "Nov",
+      "Dic"
+     ],
+     "series": [
+      {
+       "name": "Ricavi",
+       "values": [
+        3120,
+        2990,
+        3210,
+        3300,
+        3560,
+        3990,
+        4380,
+        4340,
+        3770,
+        3400,
+        3190,
+        3270
+       ]
+      }
+     ],
+     "sourceId": "Mensile"
+    }
+   },
+   {
+    "slideTitle": "Serviamo 410.000 abitanti in 96 comuni",
+    "layoutSuggestion": "Bullets",
+    "keyBullets": [
+     "410.000 abitanti serviti",
+     "96 comuni della provincia"
+    ],
+    "beatIndex": 0,
+    "beatName": "Risultati",
+    "expectedIntensity": 0.45,
+    "expectedValence": 0.4,
+    "speakerNotes": "Dietro questi numeri ci sono persone: oltre quattrocentomila abitanti in novantasei comuni.",
+    "sourceRef": "relazione_annuale.pdf"
+   },
+   {
+    "slideTitle": "Nel 2025 abbiamo investito 18,4 milioni di euro nella rete",
+    "layoutSuggestion": "Big Number",
+    "keyBullets": [
+     "18,4 mln €",
+     "investiti nella rete, su 1.350 km di condotte"
+    ],
+    "beatIndex": 0,
+    "beatName": "Risultati",
+    "expectedIntensity": 0.5,
+    "expectedValence": 0.4,
+    "speakerNotes": "Abbiamo già iniziato a investire: diciotto milioni e quattrocentomila euro sulla rete.",
+    "sourceRef": "dati_gestione.xlsx"
+   },
+   {
+    "slideTitle": "Le perdite idriche restano al 24,1 % dell'acqua immessa",
+    "layoutSuggestion": "Big Number",
+    "keyBullets": [
+     "24,1 %",
+     "dell'acqua immessa in rete va perduta"
+    ],
+    "beatIndex": 1,
+    "beatName": "Rete",
+    "expectedIntensity": 0.7,
+    "expectedValence": -0.4,
+    "speakerNotes": "Ma il problema resta. Quasi un quarto dell'acqua che immettiamo in rete non arriva ai rubinetti.",
+    "sourceRef": "relazione_annuale.pdf"
+   },
+   {
+    "slideTitle": "Il 37 % dei contatori ha più di quindici anni",
+    "layoutSuggestion": "Big Number",
+    "keyBullets": [
+     "37 %",
+     "dei contatori ha più di quindici anni"
+    ],
+    "beatIndex": 1,
+    "beatName": "Rete",
+    "expectedIntensity": 0.65,
+    "expectedValence": -0.3,
+    "speakerNotes": "Parte delle perdite è solo apparente: contatori vecchi misurano male.",
+    "sourceRef": "relazione_annuale.pdf"
+   },
+   {
+    "slideTitle": "Como guida con 112 addetti sui 324 dei quattro impianti",
+    "layoutSuggestion": "Bar Chart",
+    "keyBullets": [
+     "Addetti per impianto, 2025"
+    ],
+    "beatIndex": 2,
+    "beatName": "Impianti",
+    "expectedIntensity": 0.5,
+    "expectedValence": 0.2,
+    "speakerNotes": "Il personale è concentrato a Como, che da sola conta centododici addetti su trecentoventiquattro.",
+    "sourceRef": "dati_gestione.xlsx",
+    "chartData": {
+     "categories": [
+      "Como",
+      "Lecco",
+      "Sondrio",
+      "Varese"
+     ],
+     "series": [
+      {
+       "name": "Addetti",
+       "values": [
+        112,
+        87,
+        54,
+        71
+       ]
+      }
+     ],
+     "sourceId": "Impianti"
+    }
+   },
+   {
+    "slideTitle": "Sommate, le perdite dei quattro impianti arrivano al 98 %",
+    "layoutSuggestion": "Bullets",
+    "keyBullets": [
+     "Varese perde il 31,5 %",
+     "Sondrio perde il 26,9 %",
+     "Como e Lecco restano sotto il 22 %"
+    ],
+    "beatIndex": 2,
+    "beatName": "Impianti",
+    "expectedIntensity": 0.6,
+    "expectedValence": -0.3,
+    "speakerNotes": "Varese e Sondrio sono gli impianti dove le perdite pesano di più.",
+    "sourceRef": "dati_gestione.xlsx"
+   },
+   {
+    "slideTitle": "Entro il 2030 prevediamo di ridurre le perdite al 18 %",
+    "layoutSuggestion": "Bullets",
+    "keyBullets": [
+     "Sostituire 220 km di condotte",
+     "Contatori intelligenti al 90 % entro il 2028"
+    ],
+    "beatIndex": 3,
+    "beatName": "Piano",
+    "expectedIntensity": 0.75,
+    "expectedValence": 0.6,
+    "speakerNotes": "Il piano ha due leve: sostituire le condotte peggiori e rinnovare i contatori.",
+    "sourceRef": "relazione_annuale.pdf"
+   },
+   {
+    "slideTitle": "Chiediamo al consiglio di approvare un piano da 64 milioni di euro",
+    "layoutSuggestion": "Bullets",
+    "keyBullets": [
+     "64 mln € in cinque anni",
+     "Delibera entro dicembre"
+    ],
+    "beatIndex": 4,
+    "beatName": "Richiesta",
+    "expectedIntensity": 0.8,
+    "expectedValence": 0.6,
+    "speakerNotes": "Per questo chiediamo al consiglio di approvare il piano: sessantaquattro milioni in cinque anni."
+   },
+   {
+    "slideTitle": "Grazie",
+    "layoutSuggestion": "Closing",
+    "keyBullets": [
+     "Domande?"
+    ],
+    "beatIndex": 4,
+    "beatName": "Richiesta",
+    "expectedIntensity": 0.4,
+    "expectedValence": 0.5,
+    "speakerNotes": "Grazie dell'attenzione. Sono a disposizione per le domande."
+   }
+  ]
+ }
+}

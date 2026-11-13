@@ -1,0 +1,1369 @@
+{
+  "scaena": "0.41",
+  "meta": {
+    "title": "Acque del Lario: piano di investimenti 2026–2030",
+    "lang": "it",
+    "description": "Acque del Lario cresce ma perde un quarto dell’acqua; chiede 64 milioni per ridurre le perdite al 18 % entro il 2030.",
+    "narrative": {
+      "generator": "narrato",
+      "arc": "Problem–Solution",
+      "reasoning": "Heuristic best-fit. Top candidates: Problem–Solution (80%), Data Storytelling (68%), The Reveal (68%), Hero's Journey (68%), PARL (Problem, Action, Result, Learning) (67%).",
+      "brief": {
+        "topic": "Piano di investimenti 2026–2030 di Acque del Lario per ridurre le perdite di rete",
+        "audience": "Consiglio di amministrazione di Acque del Lario",
+        "goal": "Persuade",
+        "length": "5-10 slides",
+        "modality": "In-person — Presenter and audience are physically co-located. Delivered on stage, in a conference room, classroom, theater, trade-show booth, etc.",
+        "voice": "Sobrio e preciso; ogni cifra con la sua fonte.",
+        "minutes": 15,
+        "language": "Italian"
+      },
+      "sources": [
+        {
+          "name": "relazione_annuale.pdf",
+          "kind": "pdf",
+          "bytes": 1972,
+          "truncated": false,
+          "figures": [
+            "6",
+            "18",
+            "18.4",
+            "24.1",
+            "40.1",
+            "42.5",
+            "96",
+            "220",
+            "1350",
+            "2024",
+            "2025",
+            "2030",
+            "410000"
+          ]
+        },
+        {
+          "name": "dati_gestione.xlsx",
+          "kind": "workbook",
+          "bytes": 413,
+          "truncated": false,
+          "figures": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "18.2",
+            "21.4",
+            "26.9",
+            "31.5",
+            "54",
+            "71",
+            "87",
+            "98",
+            "112",
+            "324",
+            "1760",
+            "1840",
+            "1880",
+            "1890",
+            "1930",
+            "1950",
+            "2010",
+            "2025",
+            "2110",
+            "2240",
+            "2380",
+            "2590",
+            "2620",
+            "2990",
+            "3120",
+            "3190",
+            "3210",
+            "3270",
+            "3300",
+            "3400",
+            "3560",
+            "3770",
+            "3990",
+            "4340",
+            "4380",
+            "25200",
+            "42520"
+          ]
+        }
+      ],
+      "outline": {
+        "bigIdea": "Acque del Lario cresce e investe, ma la rete perde ancora un quarto dell'acqua: un piano da 64 milioni la porta al 18 % entro il 2030.",
+        "beats": [
+          {
+            "name": "Risultati",
+            "claim": "Nel 2025 i ricavi sono saliti a 42,5 milioni di euro.",
+            "slides": 2
+          },
+          {
+            "name": "Rete",
+            "claim": "Le perdite idriche restano al 24,1 % dell'acqua immessa.",
+            "slides": 1
+          },
+          {
+            "name": "Impianti",
+            "claim": "Como guida con 112 addetti sui 324 dei quattro impianti.",
+            "slides": 2
+          },
+          {
+            "name": "Piano",
+            "claim": "Entro il 2030 prevediamo di ridurre le perdite al 18 %.",
+            "slides": 2
+          },
+          {
+            "name": "Richiesta",
+            "claim": "Chiediamo al consiglio di approvare un piano da 64 milioni di euro.",
+            "slides": 1
+          }
+        ]
+      }
+    }
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/salon.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Instrument Serif",
+      "file": "fonts/InstrumentSerif-Regular.ttf"
+    },
+    {
+      "family": "Instrument Serif",
+      "file": "fonts/InstrumentSerif-Italic.ttf",
+      "style": "italic"
+    }
+  ],
+  "data": {
+    "i-ricavi-seguono-l-estate-con-data": {
+      "source": {
+        "inline": [
+          {
+            "category": "Gen",
+            "value": 3120.0
+          },
+          {
+            "category": "Feb",
+            "value": 2990.0
+          },
+          {
+            "category": "Mar",
+            "value": 3210.0
+          },
+          {
+            "category": "Apr",
+            "value": 3300.0
+          },
+          {
+            "category": "Mag",
+            "value": 3560.0
+          },
+          {
+            "category": "Giu",
+            "value": 3990.0
+          },
+          {
+            "category": "Lug",
+            "value": 4380.0
+          },
+          {
+            "category": "Ago",
+            "value": 4340.0
+          },
+          {
+            "category": "Set",
+            "value": 3770.0
+          },
+          {
+            "category": "Ott",
+            "value": 3400.0
+          },
+          {
+            "category": "Nov",
+            "value": 3190.0
+          },
+          {
+            "category": "Dic",
+            "value": 3270.0
+          }
+        ]
+      },
+      "schema": {
+        "category": "string",
+        "value": "number"
+      }
+    },
+    "dati_gestione-impianti": {
+      "source": "data/dati_gestione-impianti.csv",
+      "schema": {
+        "Impianto": "string",
+        "Addetti": "number",
+        "Perdite_pct": "number"
+      }
+    },
+    "dati_gestione-mensile": {
+      "source": "data/dati_gestione-mensile.csv",
+      "schema": {
+        "Mese": "date",
+        "Volume_erogato_kmc": "number",
+        "Ricavi_keur": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "risultati",
+        "title": "Risultati",
+        "beats": [
+          {
+            "id": "acque-del-lario-piano-di-investimenti-2026-2030",
+            "claim": "Acque del Lario: piano di investimenti 2026–2030",
+            "states": [
+              "acque-del-lario-piano-di"
+            ],
+            "notes": "Buongiorno. Vi presento i risultati del 2025 e chiudo con una richiesta: l’approvazione del piano di investimenti sulla rete.",
+            "duration": 18.0,
+            "media": {
+              "narrato": {
+                "layout": "Title",
+                "beatIndex": 0,
+                "beatName": "Risultati",
+                "intensity": 0.3,
+                "valence": 0.2,
+                "subtitle": "Relazione al consiglio di amministrazione",
+                "estimated": 18.0
+              }
+            }
+          },
+          {
+            "id": "nel-2025-i-ricavi-sono-saliti-a-42-5-milioni-di-euro",
+            "claim": "Nel 2025 i ricavi sono saliti a 42,5 milioni di euro",
+            "evidence": [
+              "source:relazione_annuale.pdf"
+            ],
+            "states": [
+              "nel-2025-i-ricavi-sono"
+            ],
+            "notes": "Partiamo dai conti. I ricavi sono cresciuti a 42,5 milioni di euro, da 40,1 milioni nell’anno precedente.",
+            "duration": 22.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 0,
+                "beatName": "Risultati",
+                "intensity": 0.5,
+                "valence": 0.5,
+                "estimated": 22.0
+              }
+            }
+          },
+          {
+            "id": "i-ricavi-seguono-l-estate-con-un-picco-di-4-380-keur-a-l",
+            "claim": "I ricavi seguono l’estate, con un picco di 4.380 keur a luglio",
+            "evidence": [
+              "@i-ricavi-seguono-l-estate-con-data",
+              "source:dati_gestione.xlsx",
+              "@dati_gestione-mensile"
+            ],
+            "states": [
+              "i-ricavi-seguono-l-estate-con"
+            ],
+            "notes": "La crescita non è uniforme. L’estate porta i consumi, e con loro i ricavi: luglio tocca 4.380 migliaia di euro.",
+            "duration": 25.0,
+            "media": {
+              "narrato": {
+                "layout": "Line Chart",
+                "beatIndex": 0,
+                "beatName": "Risultati",
+                "intensity": 0.5,
+                "valence": 0.4,
+                "chartSource": "Mensile",
+                "chartSeries": [
+                  "Ricavi"
+                ],
+                "estimated": 25.0
+              }
+            }
+          },
+          {
+            "id": "serviamo-410-000-abitanti-in-96-comuni",
+            "claim": "Serviamo 410.000 abitanti in 96 comuni",
+            "evidence": [
+              "source:relazione_annuale.pdf"
+            ],
+            "states": [
+              "serviamo-410-000-abitanti-in-96"
+            ],
+            "notes": "Dietro questi numeri ci sono persone: oltre quattrocentomila abitanti in novantasei comuni.",
+            "duration": 16.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullets",
+                "beatIndex": 0,
+                "beatName": "Risultati",
+                "intensity": 0.45,
+                "valence": 0.4,
+                "estimated": 16.0
+              }
+            }
+          },
+          {
+            "id": "nel-2025-abbiamo-investito-18-4-milioni-di-euro-nella-re",
+            "claim": "Nel 2025 abbiamo investito 18,4 milioni di euro nella rete",
+            "evidence": [
+              "source:dati_gestione.xlsx"
+            ],
+            "states": [
+              "nel-2025-abbiamo-investito-18-4"
+            ],
+            "notes": "Abbiamo già iniziato a investire: diciotto milioni e quattrocentomila euro sulla rete.",
+            "duration": 19.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 0,
+                "beatName": "Risultati",
+                "intensity": 0.5,
+                "valence": 0.4,
+                "estimated": 19.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "rete",
+        "title": "Rete",
+        "beats": [
+          {
+            "id": "le-perdite-idriche-restano-al-24-1-dell-acqua-immessa",
+            "claim": "Le perdite idriche restano al 24,1 % dell’acqua immessa",
+            "evidence": [
+              "source:relazione_annuale.pdf"
+            ],
+            "states": [
+              "le-perdite-idriche-restano-al"
+            ],
+            "notes": "Ma il problema resta. Quasi un quarto dell’acqua che immettiamo in rete non arriva ai rubinetti.",
+            "duration": 19.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 1,
+                "beatName": "Rete",
+                "valence": -0.4,
+                "estimated": 19.0
+              }
+            }
+          },
+          {
+            "id": "il-37-dei-contatori-ha-piu-di-quindici-anni",
+            "claim": "Il 37 % dei contatori ha più di quindici anni",
+            "evidence": [
+              "source:relazione_annuale.pdf"
+            ],
+            "states": [
+              "il-37-dei-contatori"
+            ],
+            "notes": "Parte delle perdite è solo apparente: contatori vecchi misurano male.",
+            "duration": 18.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 1,
+                "beatName": "Rete",
+                "intensity": 0.65,
+                "valence": -0.3,
+                "estimated": 18.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "impianti",
+        "title": "Impianti",
+        "beats": [
+          {
+            "id": "como-guida-con-112-addetti-sui-324-dei-quattro-impianti",
+            "claim": "Como guida con 112 addetti sui 324 dei quattro impianti",
+            "evidence": [
+              "@dati_gestione-impianti",
+              "source:dati_gestione.xlsx"
+            ],
+            "states": [
+              "como-guida-con-112-addetti"
+            ],
+            "notes": "Il personale è concentrato a Como, che da sola conta centododici addetti su trecentoventiquattro.",
+            "duration": 20.0,
+            "media": {
+              "narrato": {
+                "layout": "Bar Chart",
+                "beatIndex": 2,
+                "beatName": "Impianti",
+                "intensity": 0.5,
+                "valence": 0.2,
+                "chartSource": "Impianti",
+                "chartSeries": [
+                  "Addetti"
+                ],
+                "estimated": 20.0
+              }
+            }
+          },
+          {
+            "id": "sommate-le-perdite-dei-quattro-impianti-arrivano-al-98",
+            "claim": "Sommate, le perdite dei quattro impianti arrivano al 98 %",
+            "evidence": [
+              "source:dati_gestione.xlsx"
+            ],
+            "states": [
+              "sommate-le-perdite-dei-quattro"
+            ],
+            "notes": "Varese e Sondrio sono gli impianti dove le perdite pesano di più.",
+            "duration": 23.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullets",
+                "beatIndex": 2,
+                "beatName": "Impianti",
+                "intensity": 0.6,
+                "valence": -0.3,
+                "estimated": 23.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "piano",
+        "title": "Piano",
+        "beats": [
+          {
+            "id": "entro-il-2030-prevediamo-di-ridurre-le-perdite-al-18",
+            "claim": "Entro il 2030 prevediamo di ridurre le perdite al 18 %",
+            "evidence": [
+              "source:relazione_annuale.pdf"
+            ],
+            "states": [
+              "entro-il-2030-prevediamo-di"
+            ],
+            "notes": "Il piano ha due leve: sostituire le condotte peggiori e rinnovare i contatori.",
+            "duration": 21.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullets",
+                "beatIndex": 3,
+                "beatName": "Piano",
+                "intensity": 0.75,
+                "valence": 0.6,
+                "estimated": 21.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "richiesta",
+        "title": "Richiesta",
+        "beats": [
+          {
+            "id": "chiediamo-al-consiglio-di-approvare-un-piano-da-64-milio",
+            "claim": "Chiediamo al consiglio di approvare un piano da 64 milioni di euro",
+            "states": [
+              "chiediamo-al-consiglio-di-approvare"
+            ],
+            "notes": "Per questo chiediamo al consiglio di approvare il piano: sessantaquattro milioni in cinque anni.",
+            "duration": 20.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullets",
+                "beatIndex": 4,
+                "beatName": "Richiesta",
+                "valence": 0.6,
+                "estimated": 20.0,
+                "intensity": 0.96
+              }
+            }
+          },
+          {
+            "id": "grazie",
+            "claim": "Acque del Lario cresce e investe, ma la rete perde ancora un quarto dell’acqua: un piano da 64 milioni la porta al 18 % entro il 2030.",
+            "states": [
+              "grazie"
+            ],
+            "notes": "Grazie dell’attenzione. Sono a disposizione per le domande.",
+            "duration": 15.0,
+            "media": {
+              "narrato": {
+                "layout": "Closing",
+                "beatIndex": 4,
+                "beatName": "Richiesta",
+                "intensity": 0.4,
+                "valence": 0.5,
+                "estimated": 15.0
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "acque-del-lario-piano-di-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Acque del Lario: piano di investimenti 2026–2030",
+      "at": {
+        "in": "title"
+      },
+      "semantic": "claim"
+    },
+    "acque-del-lario-piano-di-subtitle": {
+      "type": "text",
+      "role": "lede",
+      "text": "Relazione al consiglio di amministrazione",
+      "at": {
+        "in": "subtitle"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "nel-2025-i-ricavi-sono-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "42,5 mln €",
+      "at": {
+        "in": "number"
+      }
+    },
+    "nel-2025-i-ricavi-sono-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "ricavi 2025, contro 40,1 milioni nel 2024",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "i-ricavi-seguono-l-estate-con-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "I ricavi seguono l’estate, con un picco di 4.380 keur a luglio",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "i-ricavi-seguono-l-estate-con-main": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@i-ricavi-seguono-l-estate-con-data",
+      "x": {
+        "field": "category",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "value",
+        "type": "quantitative",
+        "format": ",.0f",
+        "title": "Ricavi"
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {}
+        }
+      ]
+    },
+    "i-ricavi-seguono-l-estate-con-callout": {
+      "type": "text",
+      "role": "figure",
+      "maxLines": 1,
+      "at": {
+        "in": "callout"
+      },
+      "fit": "grow",
+      "maxSize": 112.0,
+      "runs": [
+        {
+          "text": "3,270",
+          "quote": {
+            "data": "@dati_gestione-mensile",
+            "row": {
+              "Mese": "2025-12-01"
+            },
+            "column": "Ricavi_keur",
+            "format": ",.0f"
+          }
+        }
+      ]
+    },
+    "i-ricavi-seguono-l-estate-con-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Ricavi mensili 2025, in keur",
+      "at": {
+        "in": "note"
+      },
+      "fit": "grow",
+      "maxSize": 32.0
+    },
+    "i-ricavi-seguono-l-estate-con-source": {
+      "type": "text",
+      "role": "caption",
+      "text": "Fonte: Mensile · dati_gestione.xlsx",
+      "at": {
+        "in": "source"
+      },
+      "semantic": "source"
+    },
+    "serviamo-410-000-abitanti-in-96-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Serviamo 410.000 abitanti in 96 comuni",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "serviamo-410-000-abitanti-in-96-first-figure": {
+      "type": "text",
+      "role": "figure",
+      "text": "410.000",
+      "at": {
+        "in": "first-figure"
+      },
+      "fit": "grow",
+      "maxSize": 167.75,
+      "maxLines": 1
+    },
+    "serviamo-410-000-abitanti-in-96-first": {
+      "type": "text",
+      "role": "title",
+      "text": "abitanti serviti",
+      "at": {
+        "in": "first"
+      }
+    },
+    "serviamo-410-000-abitanti-in-96-second-figure": {
+      "type": "text",
+      "role": "figure",
+      "text": "96",
+      "at": {
+        "in": "second-figure"
+      },
+      "fit": "grow",
+      "maxSize": 167.75,
+      "maxLines": 1
+    },
+    "serviamo-410-000-abitanti-in-96-second": {
+      "type": "text",
+      "role": "title",
+      "text": "comuni della provincia",
+      "at": {
+        "in": "second"
+      }
+    },
+    "nel-2025-abbiamo-investito-18-4-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "18,4 mln €",
+      "at": {
+        "in": "number"
+      }
+    },
+    "nel-2025-abbiamo-investito-18-4-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "investiti nella rete, su 1.350 km di condotte",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "le-perdite-idriche-restano-al-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "24,1 %",
+      "at": {
+        "in": "number"
+      }
+    },
+    "le-perdite-idriche-restano-al-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "dell’acqua immessa in rete va perduta",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "il-37-dei-contatori-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "37 %",
+      "at": {
+        "in": "number"
+      }
+    },
+    "il-37-dei-contatori-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "dei contatori ha più di quindici anni",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "como-guida-con-112-addetti-header": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "runs": [
+        {
+          "text": "Como guida con "
+        },
+        {
+          "text": "112",
+          "quote": {
+            "data": "@dati_gestione-impianti",
+            "row": {
+              "Impianto": "Como"
+            },
+            "column": "Addetti",
+            "format": ".0f"
+          }
+        },
+        {
+          "text": " addetti sui 324 dei quattro impianti"
+        }
+      ]
+    },
+    "como-guida-con-112-addetti-main": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@dati_gestione-impianti",
+      "x": {
+        "field": "Impianto",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "Addetti",
+        "type": "quantitative",
+        "format": ",.0f",
+        "title": "Addetti",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "dataTransform": [
+        {
+          "sort": "-Addetti"
+        }
+      ],
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Como"
+          }
+        }
+      ]
+    },
+    "como-guida-con-112-addetti-takeaway": {
+      "type": "text",
+      "role": "lede",
+      "text": "Addetti per impianto, 2025",
+      "at": {
+        "in": "takeaway"
+      },
+      "semantic": "takeaway"
+    },
+    "como-guida-con-112-addetti-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Fonte: Impianti · dati_gestione.xlsx",
+      "at": {
+        "in": "note"
+      },
+      "semantic": "source"
+    },
+    "sommate-le-perdite-dei-quattro-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Sommate, le perdite dei quattro impianti arrivano al 98 %",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "sommate-le-perdite-dei-quattro-first-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "first-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "sommate-le-perdite-dei-quattro-first-title": {
+      "type": "text",
+      "role": "figure",
+      "text": "31,5 %",
+      "at": {
+        "in": "first-title"
+      },
+      "fit": "grow",
+      "maxSize": 100.75,
+      "maxLines": 1
+    },
+    "sommate-le-perdite-dei-quattro-first": {
+      "type": "text",
+      "role": "lede",
+      "text": "Varese perde il 31,5 %",
+      "at": {
+        "in": "first"
+      },
+      "fit": "grow",
+      "maxSize": 48.0
+    },
+    "sommate-le-perdite-dei-quattro-second-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "second-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "sommate-le-perdite-dei-quattro-second-title": {
+      "type": "text",
+      "role": "figure",
+      "text": "26,9 %",
+      "at": {
+        "in": "second-title"
+      },
+      "fit": "grow",
+      "maxSize": 100.75,
+      "maxLines": 1
+    },
+    "sommate-le-perdite-dei-quattro-second": {
+      "type": "text",
+      "role": "lede",
+      "text": "Sondrio perde il 26,9 %",
+      "at": {
+        "in": "second"
+      },
+      "fit": "grow",
+      "maxSize": 48.0
+    },
+    "sommate-le-perdite-dei-quattro-third-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "third-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "sommate-le-perdite-dei-quattro-third-title": {
+      "type": "text",
+      "role": "figure",
+      "text": "22 %",
+      "at": {
+        "in": "third-title"
+      },
+      "fit": "grow",
+      "maxSize": 100.75,
+      "maxLines": 1
+    },
+    "sommate-le-perdite-dei-quattro-third": {
+      "type": "text",
+      "role": "lede",
+      "text": "Como e Lecco restano sotto il 22 %",
+      "at": {
+        "in": "third"
+      },
+      "fit": "grow",
+      "maxSize": 48.0
+    },
+    "entro-il-2030-prevediamo-di-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Entro il 2030 prevediamo di ridurre le perdite al 18 %",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "entro-il-2030-prevediamo-di-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "Sostituire 220 km di condotte\nContatori intelligenti al 90 % entro il 2028",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      }
+    },
+    "chiediamo-al-consiglio-di-approvare-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Chiediamo al consiglio di approvare un piano da 64 milioni di euro",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "chiediamo-al-consiglio-di-approvare-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "64 mln € in cinque anni\nDelibera entro dicembre",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      }
+    },
+    "grazie-statement": {
+      "type": "text",
+      "role": "headline",
+      "text": "Acque del Lario cresce e investe, ma la rete perde ancora un quarto dell’acqua: un piano da 64 milioni la porta al 18 % entro il 2030.",
+      "at": {
+        "in": "point"
+      },
+      "fit": "grow",
+      "semantic": "claim",
+      "maxLines": 3
+    },
+    "grazie-support": {
+      "type": "text",
+      "role": "lede",
+      "text": "Grazie · Domande?",
+      "at": {
+        "in": "follow"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "acque-del-lario-piano-di-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 964,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "recolored": {
+        "acque-del-lario-piano-di-subtitle": "onSurface"
+      }
+    },
+    "grazie-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 781,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "recolored": {
+        "grazie-support": "onSurface"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "acque-del-lario-piano-di",
+      "mode": "absolute",
+      "layout": "title-center",
+      "props": {
+        "acque-del-lario-piano-di-title": {},
+        "acque-del-lario-piano-di-subtitle": {},
+        "acque-del-lario-piano-di-background": {}
+      }
+    },
+    {
+      "id": "nel-2025-i-ricavi-sono",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "nel-2025-i-ricavi-sono-number": {},
+        "nel-2025-i-ricavi-sono-claim": {}
+      }
+    },
+    {
+      "id": "i-ricavi-seguono-l-estate-con",
+      "mode": "absolute",
+      "layout": "line-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "i-ricavi-seguono-l-estate-con-header": {},
+        "i-ricavi-seguono-l-estate-con-main": {},
+        "i-ricavi-seguono-l-estate-con-callout": {},
+        "i-ricavi-seguono-l-estate-con-note": {},
+        "i-ricavi-seguono-l-estate-con-source": {}
+      },
+      "choreography": [
+        {
+          "target": "i-ricavi-seguono-l-estate-con-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "serviamo-410-000-abitanti-in-96",
+      "mode": "absolute",
+      "layout": "two-figures",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "serviamo-410-000-abitanti-in-96-header": {},
+        "serviamo-410-000-abitanti-in-96-first-figure": {},
+        "serviamo-410-000-abitanti-in-96-first": {},
+        "serviamo-410-000-abitanti-in-96-second-figure": {},
+        "serviamo-410-000-abitanti-in-96-second": {}
+      },
+      "choreography": [
+        {
+          "target": [
+            "serviamo-410-000-abitanti-in-96-first-figure",
+            "serviamo-410-000-abitanti-in-96-first"
+          ],
+          "enter": "rise"
+        },
+        {
+          "target": [
+            "serviamo-410-000-abitanti-in-96-second-figure",
+            "serviamo-410-000-abitanti-in-96-second"
+          ],
+          "enter": "rise",
+          "delay": 252.0
+        }
+      ]
+    },
+    {
+      "id": "nel-2025-abbiamo-investito-18-4",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "nel-2025-abbiamo-investito-18-4-number": {},
+        "nel-2025-abbiamo-investito-18-4-claim": {}
+      }
+    },
+    {
+      "id": "le-perdite-idriche-restano-al",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "le-perdite-idriche-restano-al-number": {},
+        "le-perdite-idriche-restano-al-claim": {}
+      }
+    },
+    {
+      "id": "il-37-dei-contatori",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "il-37-dei-contatori-number": {},
+        "il-37-dei-contatori-claim": {}
+      }
+    },
+    {
+      "id": "como-guida-con-112-addetti",
+      "mode": "absolute",
+      "layout": "bar-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "como-guida-con-112-addetti-header": {},
+        "como-guida-con-112-addetti-main": {},
+        "como-guida-con-112-addetti-takeaway": {},
+        "como-guida-con-112-addetti-note": {}
+      },
+      "choreography": [
+        {
+          "target": "como-guida-con-112-addetti-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "sommate-le-perdite-dei-quattro",
+      "mode": "absolute",
+      "layout": "numbers",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "sommate-le-perdite-dei-quattro-header": {},
+        "sommate-le-perdite-dei-quattro-first-card": {},
+        "sommate-le-perdite-dei-quattro-first-title": {},
+        "sommate-le-perdite-dei-quattro-first": {},
+        "sommate-le-perdite-dei-quattro-second-card": {},
+        "sommate-le-perdite-dei-quattro-second-title": {},
+        "sommate-le-perdite-dei-quattro-second": {},
+        "sommate-le-perdite-dei-quattro-third-card": {},
+        "sommate-le-perdite-dei-quattro-third-title": {},
+        "sommate-le-perdite-dei-quattro-third": {}
+      },
+      "choreography": [
+        {
+          "target": [
+            "sommate-le-perdite-dei-quattro-first-card",
+            "sommate-le-perdite-dei-quattro-first-title",
+            "sommate-le-perdite-dei-quattro-first"
+          ],
+          "enter": "rise"
+        },
+        {
+          "target": [
+            "sommate-le-perdite-dei-quattro-second-card",
+            "sommate-le-perdite-dei-quattro-second-title",
+            "sommate-le-perdite-dei-quattro-second"
+          ],
+          "enter": "rise",
+          "delay": 252.0
+        },
+        {
+          "target": [
+            "sommate-le-perdite-dei-quattro-third-card",
+            "sommate-le-perdite-dei-quattro-third-title",
+            "sommate-le-perdite-dei-quattro-third"
+          ],
+          "enter": "rise",
+          "delay": 504.0
+        }
+      ]
+    },
+    {
+      "id": "entro-il-2030-prevediamo-di",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "entro-il-2030-prevediamo-di-header": {},
+        "entro-il-2030-prevediamo-di-body": {}
+      }
+    },
+    {
+      "id": "chiediamo-al-consiglio-di-approvare",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "chiediamo-al-consiglio-di-approvare-header": {},
+        "chiediamo-al-consiglio-di-approvare-body": {}
+      },
+      "choreography": [
+        {
+          "target": "chiediamo-al-consiglio-di-approvare-header",
+          "enter": "pop"
+        }
+      ]
+    },
+    {
+      "id": "grazie",
+      "mode": "absolute",
+      "layout": "key-point",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "grazie-statement": {},
+        "grazie-support": {},
+        "grazie-background": {}
+      }
+    }
+  ]
+}
