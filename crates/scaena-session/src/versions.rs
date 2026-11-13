@@ -47,6 +47,15 @@ pub struct Listed {
     pub by: String,
 }
 
+/// What the version whose change is `message` did, said by what changed from `was`, the version
+/// before it, to `is` ([`scaena_ops::history::patch_said`]): where its message says nothing of what
+/// it changed and it changed nothing but what slides say of themselves, their notes or their
+/// advance, by its slides, "Presenter Notes changed on Slide 2"; none otherwise, the message's
+/// words standing (editor dogfood 7). What a version list reads its row by, as `deck_history` does.
+pub fn patch_said(was: &Held, is: &Held, message: &str) -> Result<Option<String>, Error> {
+    scaena_ops::history::patch_said(&deck(was)?, &deck(is)?, message).map_err(|e| Error::Ops(e.to_string()))
+}
+
 impl From<Version> for Listed {
     fn from(version: Version) -> Listed {
         let said = scaena_core::words::change(version.message.as_deref().unwrap_or_default());

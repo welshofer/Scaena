@@ -901,6 +901,23 @@ self.onmessage = async ({ data }: MessageEvent<ToWorker>) => {
         const listed = changes.map((c, i) => ({ n: i + 1, id: c.id, author: c.author, message: c.message, at: at(c.timestamp), ops: c.ops }));
         // Each change in a person's words, as the engine says them on every platform (PLAN 2.99).
         const versions = JSON.parse(Player.versionsSaid(JSON.stringify(listed))) as Version[];
+        // A change whose message says nothing of it is said by what it changed, as `deck_history`
+        // tells one (editor dogfood 7): the newest TOLD, each checked out with the one before it
+        // once, what it says kept by its id, since a version never changes.
+        for (let i = Math.max(1, versions.length - TOLD); i < versions.length; i++) {
+          const v = versions[i];
+          if (!generic(v.message)) continue;
+          let said = saidOf.get(v.id);
+          if (said === undefined) {
+            try {
+              said = Player.patchSaid(await version(versions[i - 1].id), await version(v.id), v.message ?? "") ?? null;
+            } catch {
+              said = null;
+            }
+            saidOf.set(v.id, said);
+          }
+          if (said) v.said = said;
+        }
         return post({ type: "versions", id: data.id, versions });
       }
       case "version": {
@@ -1570,6 +1587,14 @@ interface Change {
 /** Versions read, by their ids, the last read last: a version is the deck as it was after one
  * change, which no later change alters, and its id names that change in any history. */
 const versionsRead = new Map<string, string>();
+/** How many of the newest versions are said by what they changed, as `deck_history` tells them. */
+const TOLD = 25;
+/** What each version whose message says nothing of it changed, said, by its id; null where what it
+ * changed says no more than its message (editor dogfood 7). */
+const saidOf = new Map<string, string | null>();
+/** Whether a change's message says nothing of what it changed: a patch by its ops, or an editor's
+ * edits, typing, or save. */
+const generic = (message?: string | null) => !!message && (message.startsWith("patch: ") || ["edit", "type", "save"].includes(message.trim()));
 
 /** Version `id` of the deck, as the history's module reads it: JSON `{ deck, files }`. */
 async function version(id: string): Promise<string> {

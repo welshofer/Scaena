@@ -114,6 +114,24 @@ const NAMED: usize = 8;
 /// out and compares them, and a listing of 200 versions of B1 so took about 1.9 s (review on #585).
 const TOLD: usize = 25;
 
+/// What a version whose change is `message` did, said by what changed from `was`, the deck before
+/// it, to `is`: a patch or an editor's edit that changed nothing but what slides say of themselves,
+/// their notes or their advance, says so by its slides ("Presenter Notes changed on Slide 2"), as
+/// [`told`] says it; none for any other change, which its message says. What a client that reads the history
+/// itself (the browser's) words its version list by (editor dogfood 7).
+pub fn patch_said(was: &Deck, is: &Deck, message: &str) -> Result<Option<String>, OpsError> {
+    if !generic(message) {
+        return Ok(None);
+    }
+    Ok(touched(was, is)?.1)
+}
+
+/// Whether a change's `message` says nothing of what it changed, a patch by its ops or an editor's
+/// edits, typing, or save, so what changed says it better where it can (editor dogfood 7).
+fn generic(message: &str) -> bool {
+    message.starts_with("patch: ") || matches!(message.trim(), "edit" | "type" | "save")
+}
+
 /// Each version of `doc`, told: what each change did, by whom, and what it changed from the one
 /// before it.
 pub fn told(doc: &DeckDoc) -> Result<Vec<Told>, OpsError> {
@@ -136,9 +154,7 @@ pub fn told(doc: &DeckDoc) -> Result<Vec<Told>, OpsError> {
                 (changed, summary) = touched(was, &deck)?;
                 // A patch that changed nothing but what slides say of themselves, their notes or
                 // their advance, says so, never "A slide changed".
-                if let Some(summary) =
-                    summary.filter(|_| version.message.as_deref().is_some_and(|m| m.starts_with("patch: ")))
-                {
+                if let Some(summary) = summary.filter(|_| version.message.as_deref().is_some_and(generic)) {
                     said = summary;
                 }
             }

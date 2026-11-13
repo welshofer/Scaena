@@ -22,6 +22,17 @@ public final class VersionShown: @unchecked Sendable {
         self.compared = compared
     }
 
+    /// The versions the history of the deck `snapshot` was taken of keeps, each said in a person's
+    /// words, read away from the window (editor dogfood 7): a change its message says nothing of is
+    /// said by what it changed, which checks the newest versions out, too slow for the main thread.
+    public static func listed(from snapshot: ScaenaSession.Snapshot) async throws -> [Version] {
+        let listed = try await OffMain(label: "ScaenaKit.version").run { () -> [Version] in
+            try snapshot.opened().versions()
+        }
+        try Task.checkCancellation()
+        return listed
+    }
+
     /// Version `version` of the deck `snapshot` was taken of, shown and compared.
     public static func opened(_ version: String, from snapshot: ScaenaSession.Snapshot) async throws -> VersionShown {
         let shown = try await OffMain(label: "ScaenaKit.version").run { () -> VersionShown in

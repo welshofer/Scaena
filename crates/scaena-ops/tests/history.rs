@@ -406,6 +406,25 @@ fn a_slide_put_back_brings_its_data_back_with_its_file() {
     assert!(b.deck.data.contains_key("q3"));
 }
 
+/// A change whose message says nothing of it is said by what it changed (editor dogfood 7): a
+/// patch, or an editor's edit, that changed only a beat's notes is "Presenter Notes changed on
+/// Slide 2", as `deck_history` tells it, for a client that reads the history itself; a change its
+/// message names, and one that changed what a slide shows, keep their words.
+#[test]
+fn a_generic_change_is_said_by_what_it_changed() {
+    let was: scaena_core::Deck = serde_json::from_str(&std::fs::read_to_string(REVENUE).unwrap()).unwrap();
+    let mut is = was.clone();
+    is.spine.as_mut().unwrap().sections[1].beats[0].notes = Some("A new note for the growth beat.".into());
+    let said = |m: &str| scaena_ops::history::patch_said(&was, &is, m).unwrap();
+    assert_eq!(said("patch: replace").as_deref(), Some("Presenter Notes changed on Slide 2"));
+    assert_eq!(said("edit").as_deref(), Some("Presenter Notes changed on Slide 2"));
+    assert_eq!(said("data_edit q3: revenue of row 0"), None, "a message that names the change keeps it");
+    // A slide's words changed: what it shows changed, which the message's words say.
+    let mut typed = was.clone();
+    typed.nodes.get_mut("title").unwrap().props.insert("text".into(), serde_json::json!("Revenue tripled"));
+    assert_eq!(scaena_ops::history::patch_said(&was, &typed, "patch: set_text").unwrap(), None);
+}
+
 /// A beat's notes come back with its slide where the beat tells that slide alone (editor dogfood
 /// 7): the opening beat tells only the title, so putting the title back from the first version
 /// restores its beat's notes too, and nothing is said of notes kept.

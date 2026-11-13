@@ -5,6 +5,9 @@
 //
 //   node web/versions.mjs     (after `just web`; from the repository's root)
 //
+// A change whose message says nothing of it is listed by what it changed: a patch of a beat's
+// notes alone, "Presenter Notes changed on Slide 2" (editor dogfood 7).
+//
 // - The tab lists the history's changes, the newest first, each by its author and when.
 // - A version chosen shows a state of it at rest, read only, and what changed from it to the deck
 //   now, in a person's words, a text whose words changed named by its words before, and one whose
@@ -96,6 +99,23 @@ try {
       `Keep a history saves the bundle, its first version the deck as saved: ${JSON.stringify(begun?.map((v) => `${v.message} · ${v.author}`))} · ${await page.locator("#status").textContent()}`,
     );
     await page.close();
+  }
+
+  // A change whose message says nothing of it is said by what it changed, as `deck_history` tells
+  // it (editor dogfood 7): a patch of a beat's notes alone is listed "Presenter Notes changed on
+  // Slide 2", not "An edit".
+  {
+    const nb = `${root}/said`;
+    scaena("save", "docs/examples/revenue.deck.json", "--to", nb, "--history", "--keep-fonts");
+    await writeFile(join(root, "said-ops.json"), JSON.stringify([{ op: "replace", path: "/spine/sections/1/beats/0/notes", value: "A new growth note." }]));
+    scaena("patch", nb, "--ops", join(root, "said-ops.json"));
+    const said = await open(`/${nb}/deck.json`);
+    const listed = await said.evaluate(() => window.scaena.versions.listed());
+    check(
+      listed.length === 2 && listed[1].said === "Presenter Notes changed on Slide 2",
+      `a patch of a beat's notes is listed by the slide it changed: ${JSON.stringify(listed.map((v) => v.said))}`,
+    );
+    await said.close();
   }
 
   // A deck the editor made begins its history at its first save, with nothing asked: New's, and
@@ -384,9 +404,12 @@ try {
     await deck.click("#versions [data-restore-slide]");
     await deck.evaluate(() => window.scaena.versions.settled());
     await deck.waitForFunction(() => /put back/i.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
+    // The status line may carry the lint's summary after it, as it does once a lint begun before
+    // the restore ends: `${told} — ${found}` (web/src/editor.ts), `found` being `counted()`
+    // (web/src/marks.ts), "No issues" or "1 problem, 2 warnings, 3 notes". Nothing else may follow.
     const said = await deck.locator("#status").textContent();
     check(
-      /^Nothing put back: Slide 1(: [^·]+)? is as version 1 drew it\. “Scaena anew” kept as it is now, since Slide \d+ shows it too$/.test(said) &&
+      /^Nothing put back: Slide 1(: [^·]+)? is as version 1 drew it\. “Scaena anew” kept as it is now, since Slide \d+ shows it too( — (No issues|\d+ (problem|warning|note)s?(, \d+ (problem|warning|note)s?)*))?$/.test(said) &&
         (await deck.evaluate(() => window.scaena.source())).includes('"Scaena anew"'),
       `B1's cover put back keeps its title for the closing slide, and says so: ${said}`,
     );

@@ -1531,6 +1531,17 @@ impl Player {
         serde_json::to_string(&listed).map_err(js)
     }
 
+    /// What the version whose change is `message` did, said by what changed from `was`, the version
+    /// before it, to `is`, each as the history's module holds one: a sentence where the message says
+    /// nothing of it and the change was to what slides say of themselves, else `null` (editor
+    /// dogfood 7).
+    #[wasm_bindgen(js_name = patchSaid)]
+    pub fn patch_said(was: &str, is: &str, message: &str) -> Result<Option<String>, JsError> {
+        let was: versions::Held = serde_json::from_str(was).map_err(js)?;
+        let is: versions::Held = serde_json::from_str(is).map_err(js)?;
+        versions::patch_said(&was, &is, message).map_err(js)
+    }
+
     /// The version shown's `state` at rest, as a PNG `width` pixels wide.
     #[wasm_bindgen(js_name = versionPng)]
     pub fn version_png(&mut self, state: &str, width: u32) -> Result<Vec<u8>, JsError> {
