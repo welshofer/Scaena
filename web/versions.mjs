@@ -392,6 +392,44 @@ try {
     );
     await deck.close();
   }
+
+  // A beat's notes change is named by the slide it is read on, not as "the deck's story" (editor
+  // dogfood 7): on a fresh revenue bundle whose growth beat's notes were edited, the version
+  // compare says "Presenter Notes on Slide 2", and Restore This Slide on the title brings back the
+  // opening beat's notes, since that beat tells the title alone.
+  {
+    const nb = `${root}/notes`;
+    scaena("save", "docs/examples/revenue.deck.json", "--to", nb, "--history", "--keep-fonts");
+    await writeFile(join(root, "nb-ops.json"), JSON.stringify([
+      { op: "replace", path: "/spine/sections/0/beats/0/notes", value: "A new opening note." },
+      { op: "replace", path: "/spine/sections/1/beats/0/notes", value: "A new growth note." },
+    ]));
+    scaena("patch", nb, "--ops", join(root, "nb-ops.json"));
+    const page = await open(`/${nb}/deck.json`);
+    const vs = await page.evaluate(() => window.scaena.versions.listed());
+    await page.click(`#versions [data-id="${vs[0].id}"]`);
+    await page.evaluate(() => window.scaena.versions.settled());
+    const diff = await page.evaluate(() => window.scaena.versions.changes());
+    check(
+      diff.includes("Presenter Notes on Slide 1 and Slide 2") && !diff.some((l) => /the deck's story/i.test(l)),
+      `the compare names the slides a beat's notes are read on, not the story: ${JSON.stringify(diff)}`,
+    );
+    // Restore This Slide on the title: the opening beat tells it alone, so its notes come back.
+    await page.selectOption("#versions [data-state]", "intro");
+    await page.evaluate(() => window.scaena.versions.settled());
+    await page.click("#versions [data-restore-slide]");
+    await page.evaluate(() => window.scaena.versions.settled());
+    await page.waitForFunction(() => /put back/i.test(document.querySelector("#status")?.textContent ?? ""), null, { timeout: 60000 }).catch(() => {});
+    const src = await page.evaluate(() => window.scaena.source());
+    const kept = await page.locator("#status").textContent();
+    check(
+      src.includes("One beat. Let the title sit.") && !src.includes("A new opening note.") && src.includes("A new growth note."),
+      `the lone beat's notes come back, the shared one left: ${/One beat/.test(src)}, ${/A new growth note/.test(src)}`,
+    );
+    check(!/beat's notes kept/.test(kept), `the lone beat says nothing of notes kept: ${kept}`);
+    await page.close();
+  }
+
   await context.close();
 } catch (e) {
   failures.push(String(e));
