@@ -1,0 +1,160 @@
+{
+ "executiveSummary": "The support team's Q3 update to the VP of Customer Experience: waits halved after the triage bot launched, and the team asks to fund its second phase rather than hire.",
+ "slides": [
+  {
+   "slideTitle": "Support in Q3: shorter waits, and what's next",
+   "subtitle": "Customer Experience staff meeting · October 9",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Thanks, everyone. This is the Q3 support update.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Opens the update",
+   "intent": "Set the topic",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Customers told us waiting was the worst part",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Top complaint in all four 2025 surveys",
+    "41% of detractors named the wait"
+   ],
+   "speakerNotes": "- Every survey last year said the same thing: the wait was the problem, more than the answers.\n- Forty-one percent of our detractors named it.",
+   "beatIndex": 0,
+   "beatName": "Context",
+   "purpose": "Sets the context",
+   "intent": "Recall the complaint",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.3
+  },
+  {
+   "slideTitle": "We moved the whole team to the third floor in June",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "One room, one queue board"
+   ],
+   "speakerNotes": "- The move went well. Everyone is together now, and the queue board is on the wall where people can see it.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Reports a change",
+   "intent": "Note the move",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "We hired six agents this quarter",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "6 new agents in Q3",
+    "All six finished training by September"
+   ],
+   "speakerNotes": "- We brought on six new agents, and all of them are taking tickets now.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Reports headcount",
+   "intent": "Show growth",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "The new training program cut ramp time to three weeks",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Was six weeks in 2024",
+    "Shadowing in week one, live tickets by week two",
+    "Every new agent has a buddy"
+   ],
+   "speakerNotes": "- We rebuilt onboarding this year. New agents shadow for a week and take live tickets in week two.\n- Ramp time went from six weeks to three.",
+   "beatIndex": 1,
+   "beatName": "Data",
+   "purpose": "Reports a program",
+   "intent": "Show the training change",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Engagement rose to 78 in the August pulse survey",
+   "subtitle": "",
+   "layoutSuggestion": "Big Number",
+   "keyBullets": [
+    "78 in August, up from 64 in March"
+   ],
+   "speakerNotes": "- The team is happier. The August pulse came in at seventy-eight, up fourteen points.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Reports morale",
+   "intent": "Share good news",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "On-call is fairer now that it rotates weekly",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Weekly rotation since July",
+    "No one on call two weeks running"
+   ],
+   "speakerNotes": "- We changed on-call to a weekly rotation, so nobody gets stuck with it.",
+   "beatIndex": 2,
+   "beatName": "Insight",
+   "purpose": "Reports a process",
+   "intent": "Note the rotation",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Headcount alone would not have gotten us here",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "It took more than people"
+   ],
+   "speakerNotes": "- I want to be clear that it wasn't only the hiring.",
+   "beatIndex": 3,
+   "beatName": "Implication",
+   "purpose": "Draws an implication",
+   "intent": "Hint at the cause",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Agents say they have time for the hard tickets again",
+   "subtitle": "",
+   "layoutSuggestion": "Quote",
+   "keyBullets": [
+    "“I finally get to finish a hard case without five more piling up.”",
+    "Priya, tier 2 agent"
+   ],
+   "speakerNotes": "- Priya said this in our retro, and I heard it from several people.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Brings in a voice",
+   "intent": "Show the effect on agents",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.7
+  },
+  {
+   "slideTitle": "The bot halved our waits: fund its second phase, not more agents",
+   "subtitle": "Decision needed by October 30",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "Phase two: $140,000",
+    "The same gain from hiring: about nine agents, $430,000 a year"
+   ],
+   "speakerNotes": "- So the ask is to fund the bot's second phase at a hundred and forty thousand, and hold headcount where it is.\n- Getting the same result by hiring would take about nine agents.",
+   "beatIndex": 4,
+   "beatName": "Action",
+   "purpose": "Makes the ask",
+   "intent": "Ask for the funding",
+   "expectedIntensity": 0.7,
+   "expectedValence": 0.7
+  }
+ ]
+}
