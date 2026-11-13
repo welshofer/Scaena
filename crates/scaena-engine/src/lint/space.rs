@@ -402,7 +402,9 @@ impl Rule for W304EmptyPlace {
 /// W304 leaves it. Only a slot's own prompt is matched, so a person's words are never found. One
 /// finding per text and state, in the deck's own format, where the words are the same in every
 /// format; no fix, since only the person knows what to say. A prompt that is its place's label, a
-/// quiz's letter or a step's number, is what the slide says there, and is never found.
+/// quiz's letter or a step's number, is what the slide says there, and is never found; nor is a
+/// prompt the theme marks `kept`, a heading or a label that reads as finished copy ("Agenda", a
+/// SWOT's "Strengths"; theme format 0.30, W1 dogfood 18).
 pub struct W305PromptLeft;
 
 impl Rule for W305PromptLeft {
@@ -427,22 +429,27 @@ impl Rule for W305PromptLeft {
                     && p.get("opacity").and_then(Value::as_f64) != Some(0.0)
                     && p.get("semantic").and_then(Value::as_str) != Some("decoration")
             });
-            // Each text that says its slot's prompt: a place's label ("A", "01") is what the slide says
+            // Each text that says its slot's prompt, and whether the theme marks that prompt as
+            // finished copy: a place's label ("A", "01") and a kept heading are what the slide says
             // there, neither a prompt left nor words of the person's own.
-            let saying: Vec<(&String, &str, String)> = shown
+            let saying: Vec<(&String, &str, String, bool)> = shown
                 .clone()
                 .filter_map(|(id, p)| {
                     let slot = p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str()?;
-                    let (said, _) = slots.get(slot)?.prompt.as_ref()?.text()?;
+                    let placed = slots.get(slot)?;
+                    let (said, _) = placed.prompt.as_ref()?.text()?;
                     (!said.trim().is_empty() && p.get("text").and_then(Value::as_str) == Some(said.as_str()))
-                        .then_some((id, slot, said))
+                        .then_some((id, slot, said, placed.kept == Some(true)))
                 })
                 .collect();
             // Words of the person's own on the slide: a text that says something, and not its prompt.
             let written = shown.clone().any(|(id, p)| {
-                !saying.iter().any(|(p, _, _)| *p == id) && !scaena_core::reading::words(p).trim().is_empty()
+                !saying.iter().any(|(p, ..)| *p == id) && !scaena_core::reading::words(p).trim().is_empty()
             });
-            let prompted = saying.into_iter().filter(|(_, _, said)| !label(said));
+            let prompted = saying
+                .into_iter()
+                .filter(|(_, _, said, kept)| !kept && !label(said))
+                .map(|(id, slot, said, _)| (id, slot, said));
             if !written {
                 continue;
             }

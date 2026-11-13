@@ -55,6 +55,8 @@ pub const SHAPES: &[(&str, &str)] = &[
     ("duplicate_slide", r#"{ "op": "duplicate_slide", "slide": STATE }"#),
     ("remove_slide", r#"{ "op": "remove_slide", "slide": STATE }"#),
     ("fold_slide", r#"{ "op": "fold_slide", "slide": STATE, "into"?: STATE }"#),
+    ("focus", r#"{ "op": "focus", "node": ID, "state": STATE, "lines"?: "11–13, 16" | null }"#),
+    ("walk", r#"{ "op": "walk", "node": ID, "state": STATE, "steps": ["1", "3–5", "", …] }"#),
     ("rename_state", r#"{ "op": "rename_state", "id": STATE, "to": STATE }"#),
     (
         "set_state",

@@ -901,6 +901,10 @@ export interface Compared {
   deck: Record<string, unknown>;
   /** The data files whose bytes changed. */
   files: string[];
+  /** What a beat changed, named by the slides it is read on (editor dogfood 7): each label with
+   * those slides, "Presenter Notes" on "Slide 4", so a beat's notes change is named by its slide,
+   * not as "the deck's story". */
+  story?: [string, string[]][];
   /** Each text whose words, or only their look, changed, by state and node: its words before and
    * after, which name it and show what changed, alike where only the look did. */
   texts?: Record<string, Record<string, [string, string]>>;

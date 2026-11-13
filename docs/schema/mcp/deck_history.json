@@ -99,7 +99,16 @@
           "states": { "type": "object", "additionalProperties": { "$ref": "#/$defs/StateChange" } },
           "deck": { "type": "object", "additionalProperties": true },
           "before": { "type": "object", "additionalProperties": true },
-          "files": { "type": "array", "items": { "type": "string" } }
+          "files": { "type": "array", "items": { "type": "string" } },
+          "story": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
         },
         "required": ["from", "states", "deck", "before", "files"]
       },

@@ -425,6 +425,73 @@ fn a_generic_change_is_said_by_what_it_changed() {
     assert_eq!(scaena_ops::history::patch_said(&was, &typed, "patch: set_text").unwrap(), None);
 }
 
+/// A beat's notes come back with its slide where the beat tells that slide alone (editor dogfood
+/// 7): the opening beat tells only the title, so putting the title back from the first version
+/// restores its beat's notes too, and nothing is said of notes kept.
+#[test]
+fn a_lone_beats_notes_come_back_with_its_slide() {
+    let dir = scratch("lone-beat-notes");
+    keeping_history(&dir);
+    let note = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    };
+    note(json!([{ "op": "replace", "path": "/spine/sections/0/beats/0/notes", "value": "Changed opening note." }]));
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "intro", false).unwrap();
+    assert!(back.applied, "{back:?}");
+    let now: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(now["spine"]["sections"][0]["beats"][0]["notes"], "One beat. Let the title sit.", "{}", now["spine"]);
+    assert!(back.kept.iter().all(|k| !k.contains("beat's notes")), "{back:?}");
+}
+
+/// A beat that tells other slides too keeps its notes as they are now, and the restore says so,
+/// naming the slides that share it (editor dogfood 7): the close joins the revenue slide's beat
+/// and that beat's notes are edited; putting the revenue slide back from the first version leaves
+/// the beat's notes as they are now, with a sentence naming the close's slide.
+#[test]
+fn a_shared_beats_notes_are_kept_and_said() {
+    let dir = scratch("shared-beat-notes");
+    keeping_history(&dir);
+    let patch = |ops: Value| {
+        let b = scaena_ops::open(&dir).unwrap();
+        assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    };
+    patch(json!([
+        { "op": "replace", "path": "/spine/sections/1/beats/0/states", "value": ["revenue", "mix", "close"] },
+        { "op": "remove", "path": "/spine/sections/2" },
+        { "op": "replace", "path": "/spine/sections/1/beats/0/notes", "value": "The whole growth story." }
+    ]));
+    let b = scaena_ops::open(&dir).unwrap();
+    let back = scaena_ops::history::restore_slide(&b, "1", "mix", false).unwrap();
+    assert!(back.applied, "{back:?}");
+    let now: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("deck.json")).unwrap()).unwrap();
+    assert_eq!(now["spine"]["sections"][1]["beats"][0]["notes"], "The whole growth story.", "kept as it is now");
+    assert!(
+        back.kept.iter().any(|k| k == "its beat's notes kept as they are now, since Slide 3 shows them too"),
+        "{:?}",
+        back.kept
+    );
+}
+
+/// The version compare names the slide a beat's notes are read on, not "the deck's story" (editor
+/// dogfood 7): a beat's notes edited, the compare says "Presenter Notes" on that slide and the
+/// spine is not named.
+#[test]
+fn the_compare_names_the_slide_a_beats_notes_changed_on() {
+    let dir = scratch("compare-beat-notes");
+    keeping_history(&dir);
+    let b = scaena_ops::open(&dir).unwrap();
+    let ops = json!([{ "op": "replace", "path": "/spine/sections/1/beats/0/notes", "value": "A new note for the growth beat." }]);
+    assert!(scaena_ops::patch::patch(&b, &ops, false).unwrap().applied);
+    let b = scaena_ops::open(&dir).unwrap();
+    let ask = scaena_ops::history::Ask { compare: vec!["1".into()], ..Default::default() };
+    let told = scaena_ops::history::history(&b, &ask).unwrap();
+    let c = told.compared.expect("a comparison");
+    assert_eq!(c.story, vec![("Presenter Notes".to_string(), vec!["Slide 2".to_string()])], "{c:?}");
+    assert!(!c.deck.contains_key("spine"), "the spine is not named: {:?}", c.deck.keys().collect::<Vec<_>>());
+}
+
 /// A slide put back that the deck already shows as the version drew it puts nothing back
 /// (editor dogfood 7): no state changes what it shows, and nothing is written, so the history
 /// keeps no change of it and an editor makes no step to undo of it. The slide another edit

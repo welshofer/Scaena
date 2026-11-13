@@ -18,6 +18,10 @@ exec > >(tee "$out/shots/window.txt") 2>&1
 cp "$bin/Scaena" "$app/Contents/MacOS/Scaena"
 # What the canvas holds as VoiceOver hears it, read by the accessibility API (holds.swift).
 swiftc -O -o "$out/holds" "$root/apps/mac/holds.swift" || echo "holds.swift: not built"
+# Each time the app's main thread does not answer for longer than 250 ms, what it was doing,
+# sampled (hangs.swift), and read once the walk is done (scripts/hangs.py): an audit of what the
+# window's thread does that it should not, told, never failing the walk.
+swiftc -O -o "$out/hangs" "$root/apps/mac/hangs.swift" || echo "hangs.swift: not built"
 cp "$root/apps/mac/Scaena/Info.plist" "$app/Contents/Info.plist"
 # Its icon, as `build-app.sh` makes it.
 iconutil -c icns -o "$app/Contents/Resources/AppIcon.icns" "$root/apps/mac/Scaena/AppIcon.iconset" || echo "iconutil: no icon"
@@ -48,6 +52,16 @@ system_profiler SPDisplaysDataType | grep -i resolution || true
 # Launched with `-sampleOutline YES`, New from a Prompt… shows an outline as one reads, with no
 # call made (narrative FUNC-1): the step's screen kept below.
 open -a "$app" "$out/trails.scaena" --args -sampleOutline YES
+# The watch on the app's main thread, from the moment it runs: each hang told in the walk's words
+# where it ends, its sample kept in shots/hangs.
+watching=""
+if [[ -x "$out/hangs" ]]; then
+  for _ in $(seq 1 50); do pgrep -n -x Scaena >/dev/null && break; sleep 0.2; done
+  if pid=$(pgrep -n -x Scaena); then
+    "$out/hangs" "$pid" "$out/shots/hangs" 250 &
+    watching=$!
+  fi
+fi
 # The window, its states drawn small, and the canvas painted.
 sleep 15
 screencapture -x "$out/shots/mac-trails.png"
@@ -750,6 +764,14 @@ if [[ "${kh:-}" =~ ^[0-9]+$ ]]; then
   echo "a key of Gemini's form in Anthropic's field: the hint $(frames find hint-anthropic)"
 fi
 
+# What the window's thread did each time it did not answer, the longest first, and the app's frames
+# on its heaviest path by the time they held it.
+if [[ -n "$watching" ]]; then
+  kill "$watching" 2>/dev/null || true
+  wait "$watching" 2>/dev/null || true
+  echo "the main thread's hangs over 250 ms:"
+  python3 "$root/scripts/hangs.py" "$out/shots/hangs" | sed 's/^/  /' || true
+fi
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true
 # Every step taken and its screen kept: a check that did not hold fails the walk.
