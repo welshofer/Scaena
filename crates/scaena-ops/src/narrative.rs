@@ -1498,6 +1498,7 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     if rewrites.is_empty() {
         return Ok(write);
     }
+    let before = write.deck.clone();
     let mut doc = write.deck.to_value()?;
     for (id, text) in &rewrites {
         let lang = doc["meta"]["lang"].as_str().unwrap_or("en").to_string();
@@ -1516,9 +1517,33 @@ pub fn fitted(made: &mut Generated, mut write: Write, rewrites: Vec<(String, Str
     }
     made.created.errors = errors(&settled.findings);
     made.created.findings = settled.findings;
-    write.deck = settled.deck;
+    let settled_deck = settled.deck;
+    // A headline the fit rewrote carries its beat's claim with it, as `restated` carries one a
+    // person rewrites (W1's dogfood 17).
+    write.deck = carried(&before, settled_deck)?;
     made.links = links(&write.deck);
     Ok(write)
+}
+
+/// `after` with each beat whose claim its slide said in `before` and says no more given the
+/// words that say it now, as [`scaena_core::claims::restated`] finds them: a headline rewritten to
+/// fit carries its beat, so the presenter's view, the chapters, and a model reading the deck say
+/// what the slide says.
+fn carried(before: &Deck, after: Deck) -> Result<Deck, OpsError> {
+    let (Ok(was), Ok(now)) = (scaena_core::resolve_states(before), scaena_core::resolve_states(&after)) else {
+        return Ok(after);
+    };
+    let restated = scaena_core::claims::restated(before, &was, &after, &now);
+    if restated.iter().all(|r| r.fix.is_empty()) {
+        return Ok(after);
+    }
+    let mut doc = after.to_value()?;
+    for fix in restated.iter().flat_map(|r| &r.fix).filter(|op| op["op"] == "replace") {
+        if let Some(claim) = fix["path"].as_str().and_then(|path| doc.pointer_mut(path)) {
+            *claim = fix["value"].clone();
+        }
+    }
+    Deck::from_json(&doc.to_string()).context("the deck's claims carried")
 }
 
 /// What a deck was made from, for making it again (PLAN G.13): the narrative, the theme as a
@@ -3143,6 +3168,8 @@ fn assemble(
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
         let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
+        let mut closed =
+            slots.claim.filter(|_| slots.claimed_close()).map(|settled| typeset(settled, lang.unwrap_or("en")));
         // A layout asked for by name that has no place for every item, set as a list of them all,
         // is said (agent dogfood 2), as a name no layout is called is.
         let asked = slide.layout_suggestion.trim();
@@ -3249,9 +3276,12 @@ fn assemble(
             sections.last_mut().expect("opened above")["title"] = json!(slide.slide_title);
             divided = true;
         }
-        let claim =
+        let titled =
             if slide.slide_title.is_empty() { format!("Slide {}", first + i + 1) } else { slide.slide_title.clone() };
-        let beat_id = deck.unique(&slug(&claim, "beat"), Taken::Beat);
+        let beat_id = deck.unique(&slug(&titled, "beat"), Taken::Beat);
+        // A bare close headed with its beat's settled claim claims it, not "Thank you" (W1's
+        // dogfood 17), as its headline says.
+        let claim = closed.take().unwrap_or(titled);
         let seconds = scaena_narrato::duration::seconds(
             &slide.speaker_notes,
             &v.body,
@@ -11402,6 +11432,46 @@ mod tests {
         assert_eq!(*cited[1], json!(["@visits"]));
         assert_eq!(*cited[2], json!(["@other"]));
         assert!(cited[3].is_null());
+    }
+
+    /// A made deck's beats claim what each slide's headline says once it is made (W1's dogfood
+    /// 17): a bare close headed with its beat's settled claim claims it, not "Thank you"; a title
+    /// the look rewrites, and a headline the fit rewrites, carry their beats; the cover keeps its.
+    #[test]
+    fn a_made_decks_beats_claim_what_their_slides_say() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let n = route9();
+        let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let write = write.unwrap();
+        let claims = |deck: &Deck| -> Vec<String> {
+            (deck.spine.iter().flat_map(|s| &s.sections).flat_map(|s| &s.beats)).map(|b| b.claim.clone()).collect()
+        };
+        let now = claims(&write.deck);
+        let settled = &n.outline.as_ref().unwrap().beats;
+        let last = settled[n.slides[9].beat_index.unwrap()].claim.clone();
+        assert_eq!(now[0], "Route 9, free for a year", "the cover keeps its title");
+        assert_eq!(now[2], "Who rides Route 9");
+        assert_eq!(now[9], typeset(&last, "en"), "the close claims what heads it: {now:#?}");
+        // The look's title carries its beat.
+        let (pictures, assets) = (Pictures::new(), BTreeMap::new());
+        let shown = Shown { narrative: &n, theme: &theme, pictures: &pictures, assets: &assets };
+        let stated = "Who rides Route 9: students and night-shift workers";
+        let change = Change { slide: 3, title: Some(stated.into()), why: "State it.".into(), ..Change::default() };
+        let (looked_made, looked_write) =
+            looked(shown, vec![change], (made, write), Path::new("dusk.theme.json"), &dusk(), &font).unwrap();
+        assert!(looked_made.refused.is_empty(), "{:#?}", looked_made.refused);
+        assert_eq!(claims(&looked_write.deck)[2], stated);
+        // So does the fit's: slide 9's headline rewritten to fit.
+        let deck = &looked_write.deck;
+        let snaps = scaena_core::resolve_states(deck).unwrap();
+        let slides = deck.slides();
+        let state = &deck.states[*slides[8].last().unwrap()].id;
+        let snap = snaps.iter().find(|s| &s.state_id == state).unwrap();
+        let heading = scaena_core::reading::headline_node(deck, snap).unwrap();
+        let mut looked_made = looked_made;
+        let fit = "How we\u{2019}d know it worked";
+        let fitted_write = fitted(&mut looked_made, looked_write, vec![(heading, fit.into())]).unwrap();
+        assert_eq!(claims(&fitted_write.deck)[8], fit);
     }
 
     /// In a German deck, a title that keeps every word of its beat's claim but its small words
