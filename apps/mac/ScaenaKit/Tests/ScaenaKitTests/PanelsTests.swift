@@ -305,6 +305,23 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(!Swatch.looksAlike("oklch(0.5 0.1 30)", "#808080"))
 }
 
+/// The theme read twice is one theme to SwiftUI, by its text alone, and read again after an edit
+/// another: the inspector keeps its look while the theme reads as it did, so no row that holds it
+/// compares a shipped theme's 181 layouts value by value each time it is made again (#1309's
+/// samples of an insert and a drop).
+@Test func aThemeReadTwiceIsOneThemeByItsTextAndAnEditMakesItAnother() throws {
+    let session = try ScaenaSession.create(theme: "Dusk", title: "Trail report")
+    let first = try #require(try session.themeText())
+    let again = try #require(try session.themeText())
+    #expect(first == again)
+    #expect((first.json?["layouts"]?.object?.count ?? 0) > 100)
+    let paper: [JSONValue] = [["op": "replace", "path": "/tokens/color/paper", "value": "#0B0B10"]]
+    #expect(try session.themeEdit(paper).applied)
+    let edited = try #require(try session.themeText())
+    #expect(edited != first)
+    #expect(edited.theme == first.theme, "the same file, written otherwise")
+}
+
 /// A compare carries what a beat changed, named by the slides it is read on (editor dogfood 7):
 /// `story` decodes each label with its slides, so the panel says "Presenter Notes on Slide 4"
 /// instead of "the deck's settings changed".
