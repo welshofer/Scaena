@@ -1450,6 +1450,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     // A big number's slide is headed by its figure before its meaning, the figure its point, so
     // it names no topic however few its words.
+    let mut shown_heads = Vec::with_capacity(read.len());
     let (heading, led): (Vec<String>, Vec<bool>) = (read.iter().enumerate())
         .map(|(i, s)| {
             let last = slides.get(i).and_then(|sl| sl.states.last()).map(|&l| &snaps[l]);
@@ -1464,7 +1465,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
             });
             let led = shown.is_some() && shown != plain;
-            (shown.unwrap_or_else(|| s.title.trim().to_string()), led)
+            let heard = shown.unwrap_or_else(|| s.title.trim().to_string());
+            // The headline as the slide shows it, a figure beside it not joined to it, which a
+            // finding quotes (W1's dogfood 17: "25.8: Canopy cover, 2016–2025").
+            shown_heads.push(plain.filter(|p| !p.is_empty()).unwrap_or_else(|| heard.clone()));
+            (heard, led)
         })
         .unzip();
     // The language the deck is written in, its brief's, else its own: the lexicons read English
@@ -1918,7 +1923,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
             // a made slide's beat claim is its headline, so "Some history" passes as one, its
             // claim in a bullet. The line is the headline to say, never written for the writer.
-            let title = heading[i].trim();
+            let title = shown_heads[i].trim();
             find(
                 &s.id,
                 Severity::Warning,
@@ -7528,5 +7533,40 @@ mod tests {
         assert_eq!(asked("41+ slides"), Some((41, None)));
         assert_eq!(asked("soon"), None);
         assert_eq!(range(41, None), "41 or more");
+    }
+    /// A topic headline over its claim is quoted as the slide shows it (W1's dogfood 17): a line
+    /// chart's callout figure stands beside its headline, and the reader hears the two together,
+    /// "25.8%: Canopy cover, 2016–2025", but the words to replace are the headline's alone.
+    #[test]
+    fn a_topic_headline_beside_its_figure_is_quoted_as_shown() {
+        let chart = |slides: &mut Vec<answer::Slide>| {
+            let third = &mut slides[2];
+            third.slide_title = "Canopy cover, 2016–2025".into();
+            third.layout_suggestion = "Line Chart".into();
+            third.key_bullets = vec!["Canopy cover fell every year since 2016".into(), "The city lost 4 points".into()];
+            third.chart_data = Some(answer::ChartData {
+                categories: (2016..=2025).map(|y| y.to_string()).collect(),
+                series: vec![answer::Series {
+                    name: Some("Canopy".into()),
+                    values: [29.8, 29.4, 29.0, 28.5, 28.1, 27.6, 27.2, 26.7, 26.3, 25.8].map(Some).to_vec(),
+                }],
+                unit: Some("%".into()),
+                source_id: None,
+            });
+        };
+        let deck = dogfood("keynote", "", chart);
+        let d = Deck::from_value(&deck).unwrap();
+        let snaps = resolve_states(&d).unwrap();
+        let heard = scaena_core::reading::headline(&d, &snaps[*d.slides()[2].last().unwrap()]);
+        assert_eq!(
+            heard.as_deref(),
+            Some("25.8%: Canopy cover, 2016\u{2013}2025"),
+            "the reader hears the figure first"
+        );
+        let h = of(&deck);
+        let label = (h.findings.iter()).find(|f| f.kind == Kind::Label && f.slide == 3).expect("its claim is under it");
+        let shown = "\u{201C}Canopy cover, 2016\u{2013}2025\u{201D}";
+        assert!(label.says.contains(shown) && label.ask.ends_with(&format!("in place of {shown}.")), "{label:?}");
+        assert!(!label.says.contains("25.8") && !label.ask.contains("25.8"), "{label:?}");
     }
 }
