@@ -227,9 +227,11 @@ final class OpeningTests: XCTestCase {
             keep(app, as: "no-insert")
             throw Unseen(description: "the long press's Insert is off the screen: \(app.debugDescription)")
         }
-        slide.tap()
+        // Tapped again once where the submenu did not open, the top level still showing Slide
+        // (#1288's iPad run: the tap was lost while the menu settled), and said so (`tapped`).
         let again = offered("Write This Slide Again…").firstMatch
-        guard wait(5, { again.exists && again.isHittable }) else {
+        let opened = { again.exists && again.isHittable }
+        guard tapped(slide, named: "Slide, in the long press's menu", seconds: 5, until: opened) else {
             keep(app, as: "no-write-again")
             throw Unseen(description: "Slide offers no Write This Slide Again…: \(app.debugDescription)")
         }
