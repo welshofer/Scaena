@@ -94,9 +94,19 @@ public struct ThemeText: Decodable, Sendable {
     /// Its path in the bundle, or `(inline)`.
     public let theme: String
     public let text: String
+    /// The theme's JSON, decoded once as the text is read: the Theme panel reads it for each row it
+    /// draws, and a shipped theme's 181 layouts decoded again for each kept the window from
+    /// answering after every edit (#1262's sample).
+    public let json: JSONValue?
 
-    /// The theme's JSON.
-    public var json: JSONValue? { try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) }
+    private enum Keys: String, CodingKey { case theme, text }
+
+    public init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: Keys.self)
+        theme = try fields.decode(String.self, forKey: .theme)
+        text = try fields.decode(String.self, forKey: .text)
+        json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+    }
 }
 
 /// What a re-theme did, as `scaena theme --apply` says it (PLAN 2.39).

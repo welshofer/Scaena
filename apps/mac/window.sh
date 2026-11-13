@@ -66,6 +66,44 @@ failing() {
 events() { osascript -e "tell application \"System Events\" to $1" 2>&1 || true; }
 app() { events "tell process \"Scaena\" to $1"; }
 window() { app "get {position, size} of window 1" | tr -d ','; }
+# Whether the app answers: its menu bar read, which System Events cannot do while the app's main
+# thread is busy (its accessibility answers time out, and the menu bar reads as no index).
+answers() { ! app 'count of menu bar items of menu bar 1' | grep -q 'error'; }
+# After `$1`, the app given `$2` seconds to answer: where it does not, what its main thread is doing
+# (`sample`, the heaviest of it, kept whole beside the shots as sample-$3.txt), then how long until
+# it answers, sampled again a minute on, up to 15 minutes. A window that does not answer in that
+# time is a failure: a person sees the spinning wait, and VoiceOver hears nothing.
+answering() {
+  local what=$1 within=$2 tag=$3 start=$SECONDS pid
+  if answers; then
+    echo "$what: the app answers"
+    return
+  fi
+  pid=$(pgrep -n -x Scaena || true)
+  echo "$what: the app does not answer; its main thread, sampled:"
+  sampled() {
+    [[ -n "$pid" ]] || return 0
+    sample "$pid" 3 -file "$out/shots/sample-$1.txt" >/dev/null 2>&1 || { echo "  (no sample)"; return 0; }
+    # The main thread's call graph, its heavy frames, then the frames most often on top.
+    awk '/DispatchQueue_1: com.apple.main-thread/ { on = 1 } on && /^ *$/ { exit } on' "$out/shots/sample-$1.txt" |
+      awk 'match($0, /[0-9]+ /) && substr($0, RSTART, RLENGTH) + 0 >= 2' | cut -c1-220 | head -150
+    echo "  on top:"
+    awk '/^Sort by top of stack/ { on = 1; next } on && /^ *$/ { exit } on' "$out/shots/sample-$1.txt" | head -15
+  }
+  sampled "$tag"
+  local again=0
+  until answers; do
+    if ((SECONDS - start >= 60 && again == 0)); then
+      echo "$what: still busy a minute on, sampled again:"
+      sampled "$tag-later"
+      again=1
+    fi
+    ((SECONDS - start >= 900)) && break
+    sleep 5
+  done
+  if answers; then echo "$what: the app answers again after $((SECONDS - start)) s"; fi
+  ((SECONDS - start <= within)) || failing "the window did not answer within $within s of $what, but for $((SECONDS - start)) s"
+}
 pointer() { osascript -l JavaScript "$root/apps/mac/pointer.js" "$@" 2>&1 || true; }
 frames() { osascript -l JavaScript "$root/apps/mac/frames.js" "$@" 2>&1 || true; }
 # What the objects an element holds read as to VoiceOver, one to a line: by the accessibility API,
@@ -547,6 +585,9 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     events 'keystroke "#2B1B3D"'
     events 'key code 36'
     sleep 3
+    # A theme edit, made on the main actor, kept the window from answering for minutes on CI's Mac
+    # (#1240's run): what holds it, and how long.
+    answering "the paper's color typed and Return" 10 theme-edit
     echo "typed and Return: $(frames value theme-color-paper); the Edit menu: $(undoing theme-edit-menu)"
     shot theme-typed
     events 'keystroke "z" using command down'
@@ -586,6 +627,9 @@ if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
   before=$(holds canvas)
   menu Edit "Paste"
   sleep 3
+  # The paste of a picture too large left the window not answering in #1262's run (System
+  # Events read no window): what holds it, and how long.
+  answering "a picture too large, pasted" 10 oversized-paste
   shot oversized
   echo "a picture too large, pasted: no alert: $(app 'count of sheets of window 1' 2>&1); the copy went in: $(changed holds canvas "$before")"
 else
