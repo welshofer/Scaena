@@ -1,0 +1,1022 @@
+{
+  "scaena": "0.40",
+  "meta": {
+    "title": "Riverton’s street trees",
+    "lang": "en",
+    "description": "Riverton is losing its shade faster than it plants it, and 1,500 trees a year wins it back by 2040.",
+    "narrative": {
+      "generator": "narrato",
+      "arc": "Problem–Solution",
+      "reasoning": "A council is persuaded by a problem it can see and an answer it can fund.",
+      "brief": {
+        "topic": "Riverton's street trees: we are losing shade faster than we plant it",
+        "audience": "Riverton City Council",
+        "goal": "Persuade",
+        "length": "5-10 slides",
+        "modality": "in-person",
+        "minutes": 12
+      },
+      "sources": [
+        {
+          "name": "report.pdf",
+          "kind": "pdf",
+          "bytes": 2662,
+          "truncated": false
+        },
+        {
+          "name": "canopy.csv",
+          "kind": "csv",
+          "bytes": 252,
+          "truncated": false
+        }
+      ],
+      "outline": {
+        "bigIdea": "Riverton is losing its shade faster than it plants it, and 1,500 trees a year wins it back by 2040.",
+        "beats": [
+          {
+            "name": "Problem: Define core challenge and stakes",
+            "claim": "Riverton has lost a fifth of its shade in ten years.",
+            "slides": 2
+          },
+          {
+            "name": "Impact: Quantify cost of inaction",
+            "claim": "Losing shade costs the hottest neighborhoods most: Eastside runs 9°F hotter.",
+            "slides": 1
+          },
+          {
+            "name": "Existing Approaches: Why they fall short",
+            "claim": "Planting 450 trees a year cannot keep up with 760 removals.",
+            "slides": 1
+          },
+          {
+            "name": "Solution: Introduce your answer",
+            "claim": "Plant 1,500 trees a year for five years, Eastside and Millbrook first.",
+            "slides": 1
+          },
+          {
+            "name": "Proof: Case studies, data, demos",
+            "claim": "Trees already return $6.2 million a year, more than the $2.1 million plan costs.",
+            "slides": 2
+          },
+          {
+            "name": "Call to Action: Next steps",
+            "claim": "Fund the plan in the 2027 budget.",
+            "slides": 1
+          }
+        ]
+      }
+    }
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-744bb5b7a199b885.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-778e8ee27bcbd425.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-d78901d009daf77a.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-0ceaef921fccd6b1.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-7d7c222450f58b2a.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "data": {
+    "canopy": {
+      "source": "data/canopy.csv",
+      "schema": {
+        "year": "number",
+        "canopy_pct": "number",
+        "trees_planted": "number",
+        "trees_removed": "number"
+      }
+    },
+    "plantings-have-never-caught-up-data": {
+      "source": {
+        "inline": [
+          {
+            "category": "2021",
+            "value": 290.0,
+            "series": "Planted"
+          },
+          {
+            "category": "2021",
+            "value": 760.0,
+            "series": "Removed"
+          },
+          {
+            "category": "2022",
+            "value": 450.0,
+            "series": "Planted"
+          },
+          {
+            "category": "2022",
+            "value": 810.0,
+            "series": "Removed"
+          },
+          {
+            "category": "2023",
+            "value": 520.0,
+            "series": "Planted"
+          },
+          {
+            "category": "2023",
+            "value": 840.0,
+            "series": "Removed"
+          },
+          {
+            "category": "2024",
+            "value": 610.0,
+            "series": "Planted"
+          },
+          {
+            "category": "2024",
+            "value": 880.0,
+            "series": "Removed"
+          },
+          {
+            "category": "2025",
+            "value": 640.0,
+            "series": "Planted"
+          },
+          {
+            "category": "2025",
+            "value": 910.0,
+            "series": "Removed"
+          }
+        ]
+      },
+      "schema": {
+        "category": "string",
+        "value": "number",
+        "series": "string"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "problem",
+        "title": "Problem",
+        "beats": [
+          {
+            "id": "riverton-s-street-trees",
+            "claim": "Riverton’s street trees",
+            "states": [
+              "riverton-s-street-trees"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count.",
+            "duration": 96.0,
+            "media": {
+              "narrato": {
+                "layout": "Title",
+                "beatIndex": 0,
+                "beatName": "Problem: Define core challenge and stakes",
+                "intensity": 0.5,
+                "valence": 0.1,
+                "subtitle": "A report to the City Council, 2026"
+              }
+            }
+          },
+          {
+            "id": "riverton-has-lost-a-fifth-of-its-shade-in-ten-years",
+            "claim": "Riverton has lost a fifth of its shade in ten years",
+            "evidence": [
+              "source:report.pdf"
+            ],
+            "states": [
+              "riverton-has-lost-a-fifth"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets.",
+            "duration": 92.0,
+            "media": {
+              "narrato": {
+                "layout": "Statement",
+                "beatIndex": 0,
+                "beatName": "Problem: Define core challenge and stakes",
+                "intensity": 0.5,
+                "valence": 0.1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "impact",
+        "title": "Impact",
+        "beats": [
+          {
+            "id": "canopy-cover-2016-2025",
+            "claim": "Canopy cover, 2016–2025",
+            "evidence": [
+              "@canopy",
+              "source:canopy.csv"
+            ],
+            "states": [
+              "canopy-cover-2016-2025"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night.",
+            "duration": 97.0,
+            "media": {
+              "narrato": {
+                "layout": "Line Chart",
+                "beatIndex": 1,
+                "beatName": "Impact: Quantify cost of inaction",
+                "intensity": 0.5,
+                "valence": 0.1,
+                "chartSourceRef": "canopy.csv",
+                "chartSeries": [
+                  "Canopy"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "existing-approaches",
+        "title": "Existing Approaches",
+        "beats": [
+          {
+            "id": "current-planting-efforts",
+            "claim": "Current planting efforts",
+            "evidence": [
+              "source:report.pdf"
+            ],
+            "states": [
+              "current-planting-efforts",
+              "current-planting-efforts-2",
+              "current-planting-efforts-3"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets.",
+            "duration": 92.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullet List",
+                "beatIndex": 2,
+                "beatName": "Existing Approaches: Why they fall short",
+                "intensity": 0.5,
+                "valence": 0.1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "solution",
+        "title": "Solution",
+        "beats": [
+          {
+            "id": "plant-1-500-trees-a-year-for-five-years",
+            "claim": "Plant 1,500 trees a year for five years",
+            "evidence": [
+              "source:report.pdf"
+            ],
+            "states": [
+              "plant-1-500-trees-a-year"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block.",
+            "duration": 111.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullet List",
+                "beatIndex": 3,
+                "beatName": "Solution: Introduce your answer",
+                "intensity": 0.5,
+                "valence": 0.1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "proof",
+        "title": "Proof",
+        "beats": [
+          {
+            "id": "plantings-have-never-caught-up-with-removals",
+            "claim": "Plantings have never caught up with removals",
+            "evidence": [
+              "@plantings-have-never-caught-up-data",
+              "source:canopy.csv",
+              "@canopy"
+            ],
+            "states": [
+              "plantings-have-never-caught-up"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night.",
+            "duration": 97.0,
+            "media": {
+              "narrato": {
+                "layout": "Bar Chart",
+                "beatIndex": 4,
+                "beatName": "Proof: Case studies, data, demos",
+                "intensity": 0.5,
+                "valence": 0.1,
+                "chartSourceRef": "canopy.csv",
+                "chartSeries": [
+                  "Planted",
+                  "Removed"
+                ]
+              }
+            }
+          },
+          {
+            "id": "trees-already-save-riverton-6-2-million-a-year",
+            "claim": "Trees already save Riverton $6.2 million a year",
+            "evidence": [
+              "source:report.pdf"
+            ],
+            "states": [
+              "trees-already-save-riverton-6-2"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets.",
+            "duration": 92.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullet List",
+                "beatIndex": 4,
+                "beatName": "Proof: Case studies, data, demos",
+                "intensity": 0.5,
+                "valence": 0.1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "call-to-action",
+        "title": "Call to Action",
+        "beats": [
+          {
+            "id": "thank-you",
+            "claim": "Thank you",
+            "states": [
+              "thank-you"
+            ],
+            "notes": "Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count. Every street in Riverton was walked for this assessment. The trees we lose are the big ones, the oaks and maples that shade a whole block. A sapling planted this spring takes most of a generation to shade that block. Eastside residents feel this every July, when the pavement holds the heat into the night. Watering is what keeps a young tree alive through its first summers. This is the part of the budget that pays for itself in stormwater and cooler streets. Councillors, the numbers here come from the division's own count.",
+            "duration": 96.0,
+            "media": {
+              "narrato": {
+                "layout": "Closing",
+                "beatIndex": 5,
+                "beatName": "Call to Action: Next steps",
+                "intensity": 0.5,
+                "valence": 0.1
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "riverton-s-street-trees-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Riverton’s street trees",
+      "at": {
+        "in": "title"
+      },
+      "semantic": "claim"
+    },
+    "riverton-s-street-trees-subtitle": {
+      "type": "text",
+      "role": "lede",
+      "text": "A report to the City Council, 2026",
+      "at": {
+        "in": "subtitle"
+      }
+    },
+    "riverton-has-lost-a-fifth-statement": {
+      "type": "text",
+      "role": "display",
+      "text": "Riverton has lost a fifth of its shade in ten years",
+      "at": {
+        "in": "statement"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "riverton-has-lost-a-fifth-support": {
+      "type": "text",
+      "role": "lede",
+      "at": {
+        "in": "support"
+      },
+      "runs": [
+        {
+          "text": "Canopy fell from "
+        },
+        {
+          "text": "31.4",
+          "quote": {
+            "data": "@canopy",
+            "row": 0,
+            "column": "canopy_pct",
+            "format": ".1f"
+          }
+        },
+        {
+          "text": "% of the city in 2016 to "
+        },
+        {
+          "text": "25.8",
+          "quote": {
+            "data": "@canopy",
+            "row": 9,
+            "column": "canopy_pct",
+            "format": ".1f"
+          }
+        },
+        {
+          "text": "% in 2025"
+        }
+      ]
+    },
+    "canopy-cover-2016-2025-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Canopy cover, 2016–2025",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "canopy-cover-2016-2025-main": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@canopy",
+      "x": {
+        "field": "year",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "canopy_pct",
+        "type": "quantitative",
+        "format": ",.1f",
+        "title": "Canopy"
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {}
+        }
+      ]
+    },
+    "canopy-cover-2016-2025-callout": {
+      "type": "text",
+      "role": "figure",
+      "maxLines": 1,
+      "at": {
+        "in": "callout"
+      },
+      "fit": "grow",
+      "maxSize": 112.0,
+      "runs": [
+        {
+          "text": "25.8",
+          "quote": {
+            "data": "@canopy",
+            "row": 9,
+            "column": "canopy_pct",
+            "format": ".1f"
+          }
+        }
+      ]
+    },
+    "canopy-cover-2016-2025-note": {
+      "type": "text",
+      "role": "caption",
+      "maxSize": 32.0,
+      "at": {
+        "in": "note"
+      },
+      "fit": "grow",
+      "runs": [
+        {
+          "text": "Canopy fell every year, to "
+        },
+        {
+          "text": "25.8",
+          "quote": {
+            "data": "@canopy",
+            "row": 9,
+            "column": "canopy_pct",
+            "format": ".1f"
+          }
+        },
+        {
+          "text": "% in 2025"
+        }
+      ]
+    },
+    "canopy-cover-2016-2025-source": {
+      "type": "text",
+      "role": "caption",
+      "text": "Source: canopy.csv",
+      "at": {
+        "in": "source"
+      },
+      "semantic": "source"
+    },
+    "current-planting-efforts-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Current planting efforts",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "current-planting-efforts-body": {
+      "type": "text",
+      "role": "lede",
+      "enter": "bullets",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      },
+      "runs": [
+        {
+          "text": "About "
+        },
+        {
+          "text": "450",
+          "quote": {
+            "data": "@canopy",
+            "row": 6,
+            "column": "trees_planted",
+            "format": ".0f"
+          }
+        },
+        {
+          "text": " trees planted a year\nRemovals: 760 a year on average\nNo watering after the first summer"
+        }
+      ]
+    },
+    "plant-1-500-trees-a-year-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Plant 1,500 trees a year for five years",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "plant-1-500-trees-a-year-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "$2.1 million a year, three years of watering included\nEastside and Millbrook first, the hottest blocks\nOne replacement for each tree utility work removes",
+      "list": [
+        {
+          "kind": "number"
+        },
+        {
+          "kind": "number"
+        },
+        {
+          "kind": "number"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      }
+    },
+    "plantings-have-never-caught-up-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Plantings have never caught up with removals",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "plantings-have-never-caught-up-main": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@plantings-have-never-caught-up-data",
+      "x": {
+        "field": "category",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "value",
+        "type": "quantitative",
+        "format": ",.0f",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "series": {
+        "field": "series",
+        "type": "nominal"
+      },
+      "color": {
+        "field": "series",
+        "type": "nominal",
+        "scale": "categorical"
+      },
+      "legend": "top"
+    },
+    "plantings-have-never-caught-up-takeaway": {
+      "type": "text",
+      "role": "lede",
+      "semantic": "takeaway",
+      "at": {
+        "in": "takeaway"
+      },
+      "runs": [
+        {
+          "text": "2025: 640 planted, "
+        },
+        {
+          "text": "910",
+          "quote": {
+            "data": "@canopy",
+            "row": 9,
+            "column": "trees_removed",
+            "format": ".0f"
+          }
+        },
+        {
+          "text": " removed"
+        }
+      ]
+    },
+    "plantings-have-never-caught-up-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Source: canopy.csv",
+      "at": {
+        "in": "note"
+      },
+      "semantic": "source"
+    },
+    "trees-already-save-riverton-6-2-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Trees already save Riverton $6.2 million a year",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "trees-already-save-riverton-6-2-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "410 tonnes of air pollution removed\n180 million gallons of stormwater caught",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      }
+    },
+    "thank-you-statement": {
+      "type": "text",
+      "role": "display",
+      "text": "Fund the plan in the 2027 budget",
+      "at": {
+        "in": "statement"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "thank-you-button-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "button-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "stroke": {
+        "paint": "accent",
+        "width": "thin"
+      }
+    },
+    "thank-you-button": {
+      "type": "text",
+      "role": "title",
+      "at": {
+        "in": "button"
+      },
+      "runs": [
+        {
+          "text": "forestry@riverton.example.gov",
+          "link": {
+            "href": "mailto:forestry@riverton.example.gov"
+          }
+        }
+      ],
+      "fit": "shrink"
+    },
+    "riverton-s-street-trees-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 270,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100
+    },
+    "thank-you-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 61,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100
+    }
+  },
+  "states": [
+    {
+      "id": "riverton-s-street-trees",
+      "mode": "absolute",
+      "layout": "title-center",
+      "props": {
+        "riverton-s-street-trees-title": {},
+        "riverton-s-street-trees-subtitle": {},
+        "riverton-s-street-trees-background": {}
+      }
+    },
+    {
+      "id": "riverton-has-lost-a-fifth",
+      "mode": "absolute",
+      "layout": "statement",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "riverton-has-lost-a-fifth-statement": {},
+        "riverton-has-lost-a-fifth-support": {}
+      }
+    },
+    {
+      "id": "canopy-cover-2016-2025",
+      "mode": "absolute",
+      "layout": "line-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "canopy-cover-2016-2025-header": {},
+        "canopy-cover-2016-2025-main": {},
+        "canopy-cover-2016-2025-callout": {},
+        "canopy-cover-2016-2025-note": {},
+        "canopy-cover-2016-2025-source": {}
+      },
+      "choreography": [
+        {
+          "target": "canopy-cover-2016-2025-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "current-planting-efforts",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "current-planting-efforts-header": {},
+        "current-planting-efforts-body": {
+          "paragraphs": [
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "current-planting-efforts-2",
+      "slide": "current-planting-efforts",
+      "mode": "delta",
+      "props": {
+        "current-planting-efforts-body": {
+          "paragraphs": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "current-planting-efforts-3",
+      "slide": "current-planting-efforts",
+      "mode": "delta",
+      "props": {
+        "current-planting-efforts-body": {
+          "paragraphs": [
+            1,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "id": "plant-1-500-trees-a-year",
+      "mode": "absolute",
+      "layout": "numbered",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "plant-1-500-trees-a-year-header": {},
+        "plant-1-500-trees-a-year-body": {}
+      }
+    },
+    {
+      "id": "plantings-have-never-caught-up",
+      "mode": "absolute",
+      "layout": "bar-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "plantings-have-never-caught-up-header": {},
+        "plantings-have-never-caught-up-main": {},
+        "plantings-have-never-caught-up-takeaway": {},
+        "plantings-have-never-caught-up-note": {}
+      },
+      "choreography": [
+        {
+          "target": "plantings-have-never-caught-up-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "trees-already-save-riverton-6-2",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "trees-already-save-riverton-6-2-header": {},
+        "trees-already-save-riverton-6-2-body": {}
+      }
+    },
+    {
+      "id": "thank-you",
+      "mode": "absolute",
+      "layout": "call-to-action",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "thank-you-statement": {},
+        "thank-you-button-card": {},
+        "thank-you-button": {},
+        "thank-you-background": {}
+      }
+    }
+  ]
+}

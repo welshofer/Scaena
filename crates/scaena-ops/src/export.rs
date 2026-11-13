@@ -652,7 +652,7 @@ fn document(
 /// `export --format pdf`; in the browser, the editor's module lays it out and the PDF's own
 /// module draws it ([`scaena_export::pdf::prepared`]), the same bytes. With `notes`, each slide's
 /// page is the slide drawn smaller with the notes a presenter reads for it under it
-/// ([`scaena_core::notes::of`], set by the engine, [`scaena_engine::notes`]), notes too long for
+/// ([`scaena_core::notes::of_slide`], each step's in turn, set by the engine, [`scaena_engine::notes`]), notes too long for
 /// it going on to pages of their own: the state each draws is said once for each.
 pub fn pdf_laid_out(
     b: &Bundle,
@@ -676,7 +676,8 @@ pub fn pdf_laid_out(
     let mut pages = Vec::with_capacity(lists.len());
     for (state, list) in lists {
         let lists = if notes {
-            let said = scaena_core::notes::of(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
+            // Each step's notes in turn, each once, under the slide its last step draws.
+            let said = scaena_core::notes::of_slide(&b.deck, &state).map(|n| scaena_core::notes::plain(&n.blocks));
             engine.notes_pages(&b.deck, &theme, &list, said.as_deref().unwrap_or(""))?
         } else {
             vec![list]

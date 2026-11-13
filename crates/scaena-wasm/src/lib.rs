@@ -1548,7 +1548,8 @@ impl Player {
     }
 
     /// Make version `held` (`{ deck, files }`), `version` as listed, the deck again, with its data
-    /// files, by `author` (`user` without one) at `at`: one change, refused as a patch is. JSON
+    /// files, by `author` (`user` without one) at `at`: one change, refused as a patch is; with
+    /// `slide`, a state of the version, only the slide that holds it (dogfood 16). JSON
     /// `{ restored, files }`: what `scaena history --restore` says, and each data file written,
     /// `{ path, before, after }`, for the editor's undo to write back.
     #[wasm_bindgen(js_name = restoreVersion)]
@@ -1558,6 +1559,7 @@ impl Player {
         version: &str,
         author: Option<String>,
         at: Option<String>,
+        slide: Option<String>,
     ) -> Result<String, JsError> {
         let held: versions::Held = serde_json::from_str(held).map_err(js)?;
         let version: scaena_ops::history::Version = serde_json::from_str(version).map_err(js)?;
@@ -1565,7 +1567,7 @@ impl Player {
             author: author.as_deref().unwrap_or("user"),
             at: at.as_deref().and_then(store::seconds),
         };
-        let (restored, files) = self.0.restore_version(&held, version, by).map_err(js)?;
+        let (restored, files) = self.0.restore_version(&held, version, slide.as_deref(), by).map_err(js)?;
         serde_json::to_string(&serde_json::json!({ "restored": restored, "files": files })).map_err(js)
     }
 

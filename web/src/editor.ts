@@ -91,6 +91,7 @@ import type {
   Painter,
   ProviderId,
   Restated,
+  Restored,
   Rewritten,
   SaveTo,
   Seeing,
@@ -1638,18 +1639,23 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
       if (assisting) return void say("No history begun: the assistant is at work on the deck");
       await save(true);
     },
-    restore: async (version) => {
+    restore: async (version, slide) => {
       if (assisting) return void say("Not restored: the assistant is at work on the deck");
+      // What is put back, as the change is named: the whole version, or one slide of it, by its
+      // number and headline in the deck it makes (dogfood 16).
+      const what = (r?: Restored) =>
+        slide ? `${r?.slide ?? "The slide"} put back from version ${version.n}` : `Version ${version.n} restored`;
       try {
-        const done = await stage.restoreVersion(view.state.doc.toString(), version, shown, format());
+        const done = await stage.restoreVersion(view.state.doc.toString(), version, shown, format(), slide);
         const r = done.restored;
         if (!r.applied || done.source === undefined || !done.edited) {
           const errors = r.added.filter((f) => f.severity === "error");
-          say(`Version ${version.n} not restored: ${errors.length ? why(lexicon, errors) : "the deck would not open with the files it has now"}`);
+          const whyNot = errors.length ? why(lexicon, errors) : "the deck would not open with the files it has now";
+          say(`${slide ? `The slide of version ${version.n} not put back` : `Version ${version.n} not restored`}: ${whyNot}`);
           return r;
         }
         // One change, which carries the data files the restore wrote for its undo.
-        const effects = [filesWritten.of(done.files), described.of(`Version ${version.n} restored`)];
+        const effects = [filesWritten.of(done.files), described.of(what(r))];
         anchor();
         if (done.source === view.state.doc.toString()) {
           view.dispatch({ effects, annotations: isolateHistory.of("full") });
@@ -1660,7 +1666,7 @@ async function edit(source: Source, opened?: Stage, recovering = false) {
           view.dispatch({ changes, effects, userEvent: "input.restore", annotations: isolateHistory.of("full") });
         }
         const files = r.files.length ? `, with ${r.files.map((f) => f.replace(/^.*\//, "")).join(", ")}` : "";
-        say(`Version ${version.n} restored${files} · ⌘Z undoes it`);
+        say(`${what(r)}${files} · ⌘Z undoes it`);
         return r;
       } catch (e) {
         say(`Not restored: ${said(e)}`);

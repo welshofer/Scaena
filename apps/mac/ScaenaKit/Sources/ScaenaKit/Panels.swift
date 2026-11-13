@@ -360,9 +360,12 @@ public struct Restored: Decodable, Sendable {
     /// The errors it would have made, as lint found them: what the window says it by.
     public let refusals: [JSONValue]
     public let files: [Rewritten]
+    /// With a slide asked, the slide put back, by its number and headline in the deck it makes:
+    /// "Slide 2: Revenue doubled" (dogfood 16).
+    public let slide: String?
 
     private enum Keys: String, CodingKey { case restored, files }
-    private enum Inner: String, CodingKey { case applied, added }
+    private enum Inner: String, CodingKey { case applied, added, slide }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -372,6 +375,7 @@ public struct Restored: Decodable, Sendable {
         refusals = found
         why = messages(found)
         files = try fields.decodeIfPresent([Rewritten].self, forKey: .files) ?? []
+        slide = try restored.decodeIfPresent(String.self, forKey: .slide)
     }
 }
 
@@ -494,9 +498,12 @@ extension ScaenaSession {
     }
 
     /// Version `version` made the deck again, with its data files and its theme, by the user: one
-    /// change, refused as a patch is.
-    public func restoreVersion(_ version: String, at date: Date = Date()) throws -> Restored {
-        try call("restoreVersion", ["version": .string(version), "at": .string(date.formatted(.iso8601))])
+    /// change, refused as a patch is. With `slide`, a state of the version, only the slide that
+    /// holds it is put back, with the data it reads, the rest of the deck as it is (dogfood 16).
+    public func restoreVersion(_ version: String, slide: String? = nil, at date: Date = Date()) throws -> Restored {
+        var args: [String: JSONValue] = ["version": .string(version), "at": .string(date.formatted(.iso8601))]
+        if let slide { args["slide"] = .string(slide) }
+        return try call("restoreVersion", .object(args))
     }
 }
 
