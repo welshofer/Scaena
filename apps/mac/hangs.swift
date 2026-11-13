@@ -53,9 +53,11 @@ func said(_ line: String) {
 let app = AXUIElementCreateApplication(pid)
 let began = Date()
 var count = 0
-var sampling: Process?
+var sampling: [Process] = []
 /// The most hangs sampled: past it, each is still told, unsampled.
 let most = 40
+/// The most samples taken at once: a sample takes a second or more, and hangs come close together.
+let together = 2
 while stopping == 0 {
     guard let answered = answers(app, within: threshold) else { break }
     if answered {
@@ -66,7 +68,8 @@ while stopping == 0 {
     count += 1
     let from = Date().timeIntervalSince(began) - threshold
     var file = "-"
-    if count <= most, sampling?.isRunning != true {
+    sampling.removeAll { !$0.isRunning }
+    if count <= most, sampling.count < together {
         file = "hang-\(count).txt"
         let taking = Process()
         taking.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
@@ -74,7 +77,7 @@ while stopping == 0 {
         taking.standardOutput = FileHandle.nullDevice
         taking.standardError = FileHandle.nullDevice
         do { try taking.run() } catch { file = "-" }
-        sampling = taking
+        if file != "-" { sampling.append(taking) }
     }
     let start = Date()
     var gone = false
@@ -89,4 +92,4 @@ while stopping == 0 {
     said(String(format: "hang %d at %.1f s: %d ms%@ %@", count, from, lasted, gone || stopping != 0 ? "+" : "", file))
     if gone { break }
 }
-sampling?.waitUntilExit()
+for taking in sampling { taking.waitUntilExit() }
