@@ -122,12 +122,14 @@ export interface Slot {
 
 /** A state's place in the talk (lift-up FUNC-2, `Session::story_place`): its section's title, its
  * beat's claim, the seconds the beat is planned to take, and the seconds planned before the state
- * comes up, the deck paced by its beats. */
+ * comes up, the deck paced by its beats; and the slot its brief asks, where it asks minutes, as
+ * said beside the beats' plan: `for a 12-minute slot` (W1's dogfood 17). */
 export interface StoryPlace {
   section?: string;
   claim: string;
   planned?: number;
   before: number;
+  slot?: string;
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */

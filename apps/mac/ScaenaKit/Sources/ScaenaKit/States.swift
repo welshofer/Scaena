@@ -490,6 +490,10 @@ public struct Rehearsal: Sendable {
         return max(0, next - story.before) * 1000
     }
 
+    /// The slot the deck's brief asks, where it asks minutes, said beside the beats' plan: `for a
+    /// 12-minute slot` (W1's dogfood 17).
+    public var slot: String? { slots.lazy.compactMap { $0.story?.slot }.first }
+
     /// The time the slides rehearsed were planned to take, ms, and the time they took: none where
     /// no slide reached has a plan, so the sheet says times alone.
     public var againstPlan: (taken: Double, planned: Double)? {

@@ -3022,6 +3022,10 @@ pub struct StoryPlace {
     pub planned: Option<f64>,
     /// The seconds planned before the state comes up, the deck paced by its beats.
     pub before: f64,
+    /// The slot the deck's brief asks, where it asks minutes, as the rehearsal and the presenter's
+    /// pace say it beside the beats' plan: `for a 12-minute slot` (W1's dogfood 17). The beats'
+    /// plan and the brief's minutes can differ, and the talk is given the brief's.
+    pub slot: Option<String>,
 }
 
 impl StoryPlace {
@@ -3034,14 +3038,25 @@ impl StoryPlace {
         if let Some(planned) = self.planned {
             out["planned"] = serde_json::json!(planned);
         }
+        if let Some(slot) = &self.slot {
+            out["slot"] = serde_json::json!(slot);
+        }
         out
     }
+}
+
+/// The slot `deck`'s brief asks, where it asks minutes, as health reads them, whole
+/// (`meta.narrative.brief.minutes`): `for a 12-minute slot`.
+fn asked_slot(deck: &Deck) -> Option<String> {
+    let minutes = deck.meta.as_ref()?.extra.get("narrative")?.pointer("/brief/minutes")?.as_f64()?;
+    (minutes.is_finite() && minutes >= 1.0).then(|| format!("for a {}-minute slot", minutes.round() as u64))
 }
 
 /// Each state's place in the talk, by its id: the first beat, in spine order, that names it, as a
 /// chapter takes a state two beats name ([`scaena_core::spine::paced`]).
 fn story_places(deck: &Deck, timeline: &Timeline) -> HashMap<String, StoryPlace> {
     let paced = scaena_core::spine::paced(deck, timeline, scaena_core::spine::Pace::Beats);
+    let asked = asked_slot(deck);
     let mut out = HashMap::new();
     for section in deck.spine.iter().flat_map(|s| &s.sections) {
         for beat in &section.beats {
@@ -3052,6 +3067,7 @@ fn story_places(deck: &Deck, timeline: &Timeline) -> HashMap<String, StoryPlace>
                     claim: beat.claim.clone(),
                     planned: beat.duration.filter(|d| *d > 0.0),
                     before: slot.start / 1000.0,
+                    slot: asked.clone(),
                 });
             }
         }
@@ -3124,6 +3140,16 @@ mod tests {
         let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "mix").unwrap();
         assert_eq!(said["story"]["section"], "Growth");
         assert_eq!(said["story"]["planned"], 60.0);
+        assert_eq!(said["story"].get("slot"), None, "a brief that asks no minutes gives no slot");
+
+        // A brief that asks minutes gives each state the slot beside the beats' plan (W1's
+        // dogfood 17), as health reads them: whole.
+        let meta = s.deck.meta.get_or_insert_with(Default::default);
+        meta.extra.insert("narrative".into(), serde_json::json!({ "brief": { "minutes": 11.6 } }));
+        assert_eq!(s.story_place("mix").unwrap().unwrap().slot.as_deref(), Some("for a 12-minute slot"));
+        let slots = s.slots().unwrap();
+        let said = slots.as_array().unwrap().iter().find(|slot| slot["state"] == "intro").unwrap();
+        assert_eq!(said["story"]["slot"], "for a 12-minute slot");
     }
 
     /// The deck as a movie (lift-up 20261031 FUNC-2): the CLI's reel, its frames as long as the

@@ -147,6 +147,9 @@ export function rehearsal(
   /** What the last rehearsal kept, for the table and a test; it stays until the next rehearsal,
    * so the results open again after a close (USE-2). */
   let kept: Rehearsed[] = [];
+  /** The slot the deck's brief asks, said beside the beats' plan: `for a 12-minute slot`; none
+   * where it asks no minutes (W1's dogfood 17). */
+  let slot: string | undefined;
   /** Whether Escape on the results was held off once since they opened. */
   let heldOff = false;
 
@@ -244,6 +247,7 @@ export function rehearsal(
     bar.hidden = true;
     pane.hidden = true;
     const planned = plannedOf(slots);
+    slot = slots.find((s) => s.story?.slot)?.story?.slot;
     kept = slots.map((slot, i) => {
       const rest = Math.round((spent[i] - slot.span) / 100) * 100;
       const passed = spent[i] > 0 && rest <= 0;
@@ -293,9 +297,12 @@ export function rehearsal(
       const of = reached.reduce((n, k) => n + k.planned!, 0);
       const taken = reached.reduce((n, k) => n + k.spent, 0);
       const every = kept.every((k) => k.planned === undefined || k.spent > 0);
+      // The brief's slot beside the beats' plan, where it asks minutes: the two can differ, and the
+      // talk is given the brief's (W1's dogfood 17).
+      const given = slot ? `, ${slot}` : "";
       plan.textContent = every
-        ? `${clock(taken)} taken against a ${clock(of)} plan: ${against(taken - of)}.`
-        : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached: ${against(taken - of)}.`;
+        ? `${clock(taken)} taken against a ${clock(of)} plan${given}: ${against(taken - of)}.`
+        : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached${given}: ${against(taken - of)}.`;
     }
     // Those gone on from within their cue, said before Keep: it leaves each as it is.
     const passed = kept.filter((k) => k.passed).map((k) => k.said);

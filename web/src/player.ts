@@ -1370,8 +1370,10 @@ async function presentView(deck: Source, how: Play, channel: BroadcastChannel) {
     // the show has begun; within a few seconds of it, on plan.
     const story = slots[up]?.story;
     const off = story && timer.begun && planned() ? Math.round(elapsed() / 1000 - story.before) : undefined;
+    // The brief's slot beside the beats' plan, where it asks minutes (W1's dogfood 17).
+    const given = story?.slot ? `, ${story.slot}` : "";
     $("#pace").textContent =
-      off === undefined ? "" : Math.abs(off) < 5 ? "On plan" : `${minutes(Math.abs(off))} ${off > 0 ? "behind" : "ahead"}`;
+      off === undefined ? "" : `${Math.abs(off) < 5 ? "On plan" : `${minutes(Math.abs(off))} ${off > 0 ? "behind" : "ahead"}`}${given}`;
     $("#now").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   };
   const pause = $<HTMLButtonElement>("#pause");
