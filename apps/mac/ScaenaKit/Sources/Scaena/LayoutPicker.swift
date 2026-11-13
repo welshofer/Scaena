@@ -293,7 +293,7 @@ struct LayoutPicker: View {
             if Task.isCancelled { return }
             let batch = Array(todo[at..<min(at + Self.batch, todo.count)])
             at += batch.count
-            for one in editor.starters(batch, after: state, height: Self.painted) {
+            for one in await editor.startersAway(batch, after: state, height: Self.painted) {
                 pictures[one.starter.id] = one.image
             }
         }

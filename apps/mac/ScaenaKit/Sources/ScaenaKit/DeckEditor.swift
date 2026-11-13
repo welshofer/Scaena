@@ -165,6 +165,8 @@ public final class DeckEditor {
     @ObservationIgnored var themeEditing: (() -> Void)?
     /// For a test: told, as a theme edit is made, whether it is made on the main thread.
     @ObservationIgnored var themedOn: (@Sendable (_ main: Bool) -> Void)?
+    /// For a test: told, as the slides to start are drawn away, whether on the main thread.
+    @ObservationIgnored var startersOn: (@Sendable (_ main: Bool) -> Void)?
     /// Each state drawn small, by its id and the width asked, with the rest key of what it was drawn
     /// from: the strip's, the presenter's next, and a remote's stand side by side (lift-up PERF-2).
     @ObservationIgnored private var drawings: [Drawn: (rest: String, image: CGImage)] = [:]
@@ -740,6 +742,37 @@ public final class DeckEditor {
         if !missing.isEmpty {
             for one in (try? session.startersDrawn(after: state, height: height, only: missing)) ?? [] {
                 started.drawn[one.starter.layout ?? ""] = one
+            }
+        }
+        return layouts.compactMap { started.drawn[$0 ?? ""] }
+    }
+
+    /// `starters`, those not kept drawn away from the window, on a session of a snapshot of the
+    /// deck (#1309's walk, hang 29): the layout picker drew each batch on the window's thread, a
+    /// second at a time on CI's Mac. What is drawn is kept only where the theme, the format, and
+    /// the height are still those it was drawn in.
+    public func startersAway(
+        _ layouts: [String?], after state: String, height: Int, isolation: isolated (any Actor)? = #isolation
+    ) async -> [(starter: Starter, image: CGImage)] {
+        let key = startersKey(height: height)
+        if started.key != key { started = (key, [:]) }
+        var asked = Set<String>()
+        let missing = layouts.filter { started.drawn[$0 ?? ""] == nil && asked.insert($0 ?? "").inserted }
+        if !missing.isEmpty, let snapshot = try? session.snapshot() {
+            let format = self.format
+            let told = startersOn
+            let drawn = await inspecting.draw { () -> [(Starter, ScaenaSession.Pixels)] in
+                told?(Thread.isMainThread)
+                let apart = try snapshot.opened()
+                try apart.setFormat(format)
+                return try apart.starters(after: state, height: height, only: missing).enumerated().compactMap {
+                    i, starter in (try? apart.starterPicture(i)).map { (starter, $0) }
+                }
+            }
+            if started.key == key, startersKey(height: height) == key {
+                for (starter, pixels) in drawn ?? [] {
+                    if let image = pixels.image { started.drawn[starter.layout ?? ""] = (starter, image) }
+                }
             }
         }
         return layouts.compactMap { started.drawn[$0 ?? ""] }
