@@ -801,9 +801,10 @@ export class Stage {
     return this.request<"compared">({ type: "compareVersions", id: ++this.asked, source, from, to }).then(({ compared }) => compared);
   }
 
-  /** `version` made the deck again, with its data files, as one change by the user. */
-  restoreVersion(source: string, version: Version, index: number, format?: string) {
-    return this.request<"restored">({ type: "restoreVersion", id: ++this.asked, source, version, index, format }).then((done) => {
+  /** `version` made the deck again, with its data files, as one change by the user; with `slide`,
+   * a state of it, only the slide that holds it, with the data it reads (dogfood 16). */
+  restoreVersion(source: string, version: Version, index: number, format?: string, slide?: string) {
+    return this.request<"restored">({ type: "restoreVersion", id: ++this.asked, source, version, index, format, slide }).then((done) => {
       if (done.edited) this.moved(done.edited);
       this.rewrote(done.files);
       return done;

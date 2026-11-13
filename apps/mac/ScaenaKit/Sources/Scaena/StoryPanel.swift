@@ -179,13 +179,13 @@ struct StoryPanel: View {
                 answered = said
             }
             health = read.health
-            open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health.findings)
+            open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health)
             // Each fold a row offers, asked of the fold itself away from the window, once for the
             // source as it stands; the slots' label stands until it answers (#1222).
             let asks = open.flatMap { Self.foldAsks($0, in: editor.slots) }
-            let answered = await editor.foldsAway(asks)
+            let offered = await editor.foldsAway(asks)
             guard !Task.isCancelled else { return }
-            folds = answered
+            folds = offered
             asLastRead = read.asLastRead
             if !read.asLastRead { grounded = (try? editor.session.grounded()) ?? [] }
             why = nil

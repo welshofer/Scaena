@@ -740,6 +740,9 @@ mod tests {
                 "fonts/NotoSansArabic-VF.ttf",
                 "fonts/NotoColorEmoji-COLRv1.ttf",
                 "fonts/JetBrainsMono-VF.ttf",
+                "fonts/NotoSansJP-VF.ttf",
+                "fonts/NotoSansSC-VF.ttf",
+                "fonts/NotoSansKR-VF.ttf",
             ]
         );
         // Every file is an OpenType font (TrueType outlines: version 0x00010000).

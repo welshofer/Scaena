@@ -284,15 +284,21 @@ public struct DataEdited: Decodable, Sendable {
     public let wrote: Bool
     /// The file it is: none for rows written inline.
     public let file: String?
+    /// What the window says of each figure that quoted a row the edit took away, which quotes the
+    /// data no more, its words kept (R1's agent dogfood 10): "Slide 7's “275” quotes the data no
+    /// more". None where the edit dropped no quote.
+    public let unquoted: [String]
 
     private enum Keys: String, CodingKey { case result, wrote }
-    private enum Inner: String, CodingKey { case edited, file, added }
+    private enum Inner: String, CodingKey { case edited, file, added, unquoted }
+    private struct Unquoted: Decodable { let said: String }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
         let result = try fields.nestedContainer(keyedBy: Inner.self, forKey: .result)
         edited = try result.decode(Bool.self, forKey: .edited)
         file = try result.decodeIfPresent(String.self, forKey: .file)
+        unquoted = try (result.decodeIfPresent([Unquoted].self, forKey: .unquoted) ?? []).map(\.said)
         let found = errors(in: try result.decodeIfPresent([JSONValue].self, forKey: .added) ?? [])
         refusals = found
         why = messages(found)
@@ -354,9 +360,12 @@ public struct Restored: Decodable, Sendable {
     /// The errors it would have made, as lint found them: what the window says it by.
     public let refusals: [JSONValue]
     public let files: [Rewritten]
+    /// With a slide asked, the slide put back, by its number and headline in the deck it makes:
+    /// "Slide 2: Revenue doubled" (dogfood 16).
+    public let slide: String?
 
     private enum Keys: String, CodingKey { case restored, files }
-    private enum Inner: String, CodingKey { case applied, added }
+    private enum Inner: String, CodingKey { case applied, added, slide }
 
     public init(from decoder: any Decoder) throws {
         let fields = try decoder.container(keyedBy: Keys.self)
@@ -366,6 +375,7 @@ public struct Restored: Decodable, Sendable {
         refusals = found
         why = messages(found)
         files = try fields.decodeIfPresent([Rewritten].self, forKey: .files) ?? []
+        slide = try restored.decodeIfPresent(String.self, forKey: .slide)
     }
 }
 
@@ -488,9 +498,12 @@ extension ScaenaSession {
     }
 
     /// Version `version` made the deck again, with its data files and its theme, by the user: one
-    /// change, refused as a patch is.
-    public func restoreVersion(_ version: String, at date: Date = Date()) throws -> Restored {
-        try call("restoreVersion", ["version": .string(version), "at": .string(date.formatted(.iso8601))])
+    /// change, refused as a patch is. With `slide`, a state of the version, only the slide that
+    /// holds it is put back, with the data it reads, the rest of the deck as it is (dogfood 16).
+    public func restoreVersion(_ version: String, slide: String? = nil, at date: Date = Date()) throws -> Restored {
+        var args: [String: JSONValue] = ["version": .string(version), "at": .string(date.formatted(.iso8601))]
+        if let slide { args["slide"] = .string(slide) }
+        return try call("restoreVersion", .object(args))
     }
 }
 
