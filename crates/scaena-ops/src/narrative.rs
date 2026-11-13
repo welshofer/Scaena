@@ -14753,7 +14753,9 @@ mod tests {
         let read = [pdf, sheet];
         let g = grounding(&read, Provider::Anthropic).unwrap();
         let kept = provenance(&g.given, &read, &g.words, None);
-        assert_eq!(kept[1].figures, ["25.8", "31.4", "2016", "2025"]);
+        // Its cells, and its column's total, its years' aside (57.2: two shares add to no share,
+        // but a slide that writes it was summed from the sheet all the same).
+        assert_eq!(kept[1].figures, ["25.8", "31.4", "57.2", "2016", "2025"]);
         if cfg!(feature = "pdf") {
             assert!(kept[0].figures.contains(&"7560".to_string()) && kept[0].figures.contains(&"9".to_string()));
         } else {
