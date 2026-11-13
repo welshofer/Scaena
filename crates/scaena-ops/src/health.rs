@@ -1165,13 +1165,44 @@ const VERBS: &str = "\
     we'll we're we've went were weren't what's will win winning wins won won't work worked working works worried \
     worries worry worrying would wouldn't write writes writing written wrote you'll you're you've";
 
-/// Whether `headline` names a topic rather than stating a point (lift-up 10-25b FUNC-4): three
-/// to six words, no question, none of [`VERBS`], and no word of five letters or more in "-ed".
-/// "Q3 by product" names one; "Revenue grew
-/// every quarter" states one. A verb inside a clause ("What families tell us") reads as stated,
-/// so such a label is missed rather than a point found wanting.
+/// Verbs an ask opens on, as an imperative ("Vote Tuesday to fund the pilot"), or that follow
+/// "to" as an infinitive: read as a verb where [`VERBS`] does not list them (W2's outlined
+/// calibration). A noun that is also one ("Pilot results") opens two words and is still a topic.
+const IMPERATIVES: &str = "act adopt agree allocate approve ask authorize back book build buy call cancel choose \
+    close commit cut decide delay deliver double drop enroll expand extend fix fund give hire invest join keep \
+    launch lead let partner pass pause pick pilot pledge prioritize protect raise reallocate reject renew \
+    reserve restore schedule secure sign sponsor stop switch test try vote";
+
+/// Whether `headline` names a topic rather than stating a point (lift-up 10-25b FUNC-4): one to
+/// six words, no question, none of [`VERBS`], and no word of five letters or more in "-ed".
+/// "Q3 by product", "Results", and "The Ask" name one; "Revenue grew every quarter" states one
+/// (W2's outlined calibration: a word or two was a topic a reader counted, and missed).
+/// A clause opened by how, what, why, where, when, or who, with no question mark, names a topic
+/// though a verb is in it ("How It Works", "What families tell us"). An imperative of three words
+/// or more ("Vote Tuesday to fund the pilot"), or an infinitive after "to", states a point.
 fn labels(headline: &str) -> bool {
-    names_topic(headline, 3)
+    let words: Vec<String> = (headline.split_whitespace())
+        .map(|w| w.replace('\u{2019}', "'").trim_matches(|c: char| !c.is_alphanumeric() && c != '\'').to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let asks = |w: &str| IMPERATIVES.split_ascii_whitespace().any(|v| v == w);
+    let bidden = words.len() >= 3 && words.first().is_some_and(|w| asks(w));
+    let infinitive = words.windows(2).any(|p| p[0] == "to" && asks(&p[1]));
+    if headline.trim().ends_with('?') || bidden || infinitive {
+        return false;
+    }
+    let clause = (2..=6).contains(&words.len())
+        && words.first().is_some_and(|w| matches!(w.as_str(), "how" | "what" | "why" | "where" | "when" | "who"));
+    // A word a determiner opens is a noun, a verb's form or not ("The Ask", "Our plan works" still
+    // stating its point on "works").
+    let determined = |w: &str| {
+        matches!(w, "the" | "a" | "an" | "our" | "your" | "their" | "its" | "this" | "these" | "those" | "my")
+    };
+    let nouns: Vec<&str> = (headline.split_whitespace().enumerate())
+        .filter(|&(i, _)| i == 0 || !words.get(i - 1).is_some_and(|w| determined(w)))
+        .map(|(_, w)| w)
+        .collect();
+    clause || (names_topic(&nouns.join(" "), 1) && (1..=6).contains(&words.len()))
 }
 
 /// Whether `headline`, of `fewest` words to six, names a topic rather than stating a point, as
@@ -1231,8 +1262,8 @@ const FIGURES: [&str; 11] = [
 ];
 
 /// The shipped themes' layouts whose headline names what they hold, a term and its meaning, the
-/// voices quoted, the questions asked: a topic by design.
-const NAMED: [&str; 6] = ["definition", "glossary", "testimonials", "faq", "logo-wall", "buyer-persona"];
+/// voices quoted, the questions asked, the exercise set: a topic by design.
+const NAMED: [&str; 7] = ["definition", "glossary", "testimonials", "faq", "logo-wall", "buyer-persona", "quiz"];
 
 /// Whether `word`, small and trimmed of its marks, reads as a verb, as [`labels`] reads one: one
 /// of [`VERBS`], a contraction of one ("isn't", "it's"), or a past form of five letters or more
@@ -1266,7 +1297,11 @@ fn buried(deck: &Deck, slide: &Slide, s: &SlideForHealth, title: &str) -> Option
     let claims = |line: &str| {
         let words: Vec<&str> = line.split_whitespace().collect();
         let quoted = line.starts_with(['"', '\u{201c}', '\u{2018}', '\'', '\u{ab}', '\u{201e}']);
-        !line.contains(" \u{2014} ")
+        // A card's parts, its label then a colon ("People: who was paged, and when"), as one a
+        // dash joins.
+        let carded = line.find(':').is_some_and(|at| line[..at].split_whitespace().count() <= 3);
+        !carded
+            && !line.contains(" \u{2014} ")
             && words.len() >= 5
             && !line.contains('?')
             && !quoted
@@ -1906,6 +1941,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // topic's test reads as a noun ("Fund the midday sailing from 2026"), so no headline there is
     // asked for its point, as the cover's and the close's are not.
     let last = |i: usize| i + 1 == read.len();
+    // A slide whose headline names what it holds by design: a term, the voices quoted, the
+    // questions asked, the exercise set (lecture's "Conditional probability", training's "Quick
+    // quiz").
+    // A slide planned as one is too, whatever theme layout its items were set in (training's quiz,
+    // three questions set as cards).
+    let named = |i: usize| {
+        let planned = slides[i].beat.and_then(|(_, _, b)| b.media.as_ref()?.pointer("/narrato/layout")?.as_str());
+        let plan = planned.map(|l| l.trim().to_lowercase().replace(' ', "-"));
+        let laid = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
+        laid.is_some_and(|l| NAMED.contains(&l)) || plan.is_some_and(|l| NAMED.contains(&l.as_str()))
+    };
     for (i, s) in read.iter().enumerate() {
         let k = i + 1;
         if s.title.trim().is_empty() {
@@ -1942,7 +1988,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 },
                 None,
             );
-        } else if english && i > 0 && !framing(i) && !last(i) && !led[i] && labels(&heading[i]) {
+        } else if english && i > 0 && !framing(i) && !last(i) && !led[i] && !named(i) && labels(&heading[i]) {
             // A content slide whose headline names its topic: offered its point, never rewritten.
             find(
                 &s.id,
@@ -4740,13 +4786,12 @@ mod tests {
     }
 
     /// The deck's last slide closes the talk whatever its layout (R1's agent dogfood 2): the Cove
-    /// Island ask, written as a Closing with two items and so set as a list, heads with what the
-    /// room is to do, which a topic's test reads as a noun. It is not asked for its point; the
-    /// same headline on a slide before the close is.
+    /// Island ask, written as a Closing with two items and so set as a list, headed by a topic. It
+    /// is not asked for its point; the same headline on a slide before the close is.
     #[test]
     fn the_last_slide_is_not_asked_for_its_point() {
         let ask = |slide: &mut answer::Slide| {
-            slide.slide_title = "Fund the midday sailing from 2026".into();
+            slide.slide_title = "The midday sailing from 2026".into();
             slide.layout_suggestion = "Closing".into();
             slide.key_bullets = vec![
                 "Approve $1.1M a year for a fourth daily sailing".into(),
@@ -4808,6 +4853,26 @@ mod tests {
     /// or the close, and never on a question. The cases measured on the dogfood decks and the
     /// examples hold the heuristic to precision: a false "your headline is a topic" costs more
     /// than a label missed.
+    /// A headline that names what its slide holds by design is no topic to restate: a term, the
+    /// voices quoted, the exercise set, laid out or planned as one, now that a word or two is
+    /// judged (W2's outlined calibration). A card's label and a colon ("People: who was paged")
+    /// is no claim under a topic. Training's list headline is offered its point, an info.
+    #[test]
+    fn a_topic_by_design_is_not_asked_for_its_point() {
+        let label = |h: &Health, k: usize| h.findings.iter().find(|f| f.kind == Kind::Label && f.slide == k).cloned();
+        let training = of(&dogfood("training", "", |_| {}));
+        // Its Definition ("Blameless postmortem") and its Quiz, set as cards ("Quick quiz").
+        assert!(label(&training, 3).is_none() && label(&training, 10).is_none(), "{:#?}", training.findings);
+        let five = label(&training, 5).expect("the list's headline names its topic");
+        assert_eq!(five.severity, Severity::Info, "a card's label is no claim: {five:#?}");
+        // Lecture's Definition, "Conditional probability".
+        let lecture = of(&dogfood("lecture", "", |_| {}));
+        assert!(label(&lecture, 4).is_none(), "{:#?}", label(&lecture, 4));
+        // Appeal's testimonials, "What families tell us", and its scorecard, which is a topic.
+        let appeal = of(&dogfood("appeal", "", |_| {}));
+        assert!(label(&appeal, 9).is_none() && label(&appeal, 7).is_some(), "{:#?}", appeal.findings);
+    }
+
     #[test]
     fn a_headline_that_names_its_topic_is_offered_its_point() {
         // Labels, as the charts example and the deepdive deck wrote them.
@@ -4818,12 +4883,24 @@ mod tests {
         assert!(!labels("Before you publish, check these"));
         assert!(!labels("Revenue grew every quarter"));
         assert!(!labels("It\u{2019}s a record quarter"));
-        // A question, a word or two, and a long line are not judged.
+        // A question and a long line are not judged.
         assert!(!labels("Why did churn rise this year?"));
-        assert!(!labels("Results"));
         assert!(!labels("A wet start to the week, then sun"));
-        // A documented miss: a verb inside a clause reads as a point stated.
-        assert!(!labels("What families tell us"));
+        // A word or two names a topic, and so does a clause opened by how or what, its verb
+        // inside it (W2's outlined calibration: a reader counted "Results", "The Ask", and
+        // "How It Works", and health found none of them).
+        for topic in ["Results", "The Ask", "How It Works", "What families tell us", "Why now", "Our ask"] {
+            assert!(labels(topic), "{topic}");
+        }
+        // An ask opened by its imperative, or a verb after "to", states a point, though the
+        // verb is none [`VERBS`] lists; a noun that is also one, in two words, is a topic.
+        for stated in
+            ["Vote Tuesday to fund the pilot", "Fund the midday sailing from 2026", "A plan to expand by June"]
+        {
+            assert!(!labels(stated), "{stated}");
+        }
+        assert!(labels("Pilot results"));
+        assert!(!labels("Our plan works"));
         // Points stated in a past the list need not spell out, or an irregular one it does.
         for stated in [
             "Margins expanded in every region",
