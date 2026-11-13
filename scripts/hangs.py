@@ -231,13 +231,25 @@ class Frame:
     def __init__(self, count, symbol, image, depth, rust=False):
         self.count, self.symbol, self.image, self.depth, self.rust = count, symbol, image, depth, rust
         self.children = []
+        self._busy = None
 
     def busy(self):
-        """Its count less the samples under it that waited for the next event."""
-        if not self.children:
-            return 0 if self.symbol.startswith(IDLE) else self.count
-        under = sum(child.count for child in self.children)
-        return sum(child.busy() for child in self.children) + max(self.count - under, 0)
+        """Its count less the samples under it that waited for the next event: worked out once
+        for it and every frame under it, a frame at a time, never by recursion, since a hang's
+        stack runs deeper than Python's (#1310's walk: RecursionError)."""
+        if self._busy is None:
+            order, stack = [], [self]
+            while stack:
+                frame = stack.pop()
+                order.append(frame)
+                stack.extend(child for child in frame.children if child._busy is None)
+            for frame in reversed(order):
+                if not frame.children:
+                    frame._busy = 0 if frame.symbol.startswith(IDLE) else frame.count
+                else:
+                    under = sum(child.count for child in frame.children)
+                    frame._busy = sum(child._busy for child in frame.children) + max(frame.count - under, 0)
+        return self._busy
 
 
 def main_thread(text):
@@ -276,9 +288,9 @@ def spent(root):
     Swift's, a pair. A debug build is many times slower in Rust and little slower in Swift, so a hang
     spent in Swift is one a release build would still have."""
     rust = swift = 0
-
-    def walk(frame, own):
-        nonlocal rust, swift
+    stack = [(root, None)]
+    while stack:
+        frame, own = stack.pop()
         if frame.image == APP:
             own = "rust" if frame.rust else "swift"
         alone = frame.busy() - sum(child.busy() for child in frame.children)
@@ -286,10 +298,7 @@ def spent(root):
             rust += alone
         elif own == "swift":
             swift += alone
-        for child in frame.children:
-            walk(child, own)
-
-    walk(root, None)
+        stack.extend((child, own) for child in frame.children)
     return rust, swift
 
 
@@ -401,8 +410,12 @@ def report(folder, frames=12, top=15):
             lines.append("  (not sampled)")
             continue
         text = sampled.read_text(encoding="utf-8", errors="replace")
-        own, taken, busy = app_frames(text, frames)
-        spent_in = where(text)
+        try:
+            own, taken, busy = app_frames(text, frames)
+            spent_in = where(text)
+        except Exception as e:  # noqa: BLE001 - one sample that does not read ends no report
+            lines.append(f"  its sample did not read: {type(e).__name__}: {e}")
+            continue
         if spent_in:
             lines[-1] += f" [{spent_in}]"
         if not own:

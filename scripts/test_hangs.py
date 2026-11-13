@@ -150,6 +150,22 @@ class Spent(unittest.TestCase):
         self.assertIsNone(hangs.where("no threads"))
 
 
+class Deep(unittest.TestCase):
+    def test_a_stack_deeper_than_pythons_recursion_reads(self):
+        # #1310's walk: a hang's main thread 3,000 frames deep ended the report in RecursionError.
+        lines = ["    9 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)",
+                 "    + 9 Scaena_main  (in Scaena) + 1  [0x1]"]
+        for depth in range(3000):
+            symbol = "closure #1 in View.body.getter" if depth % 2 else "_ZN3foo3bar17h0000000000000000E"
+            lines.append("    +" + " " * (depth + 2) + f"9 {symbol}  (in Scaena) + 1  [0x3]")
+        text = "\n".join(lines) + "\n"
+        own, taken, busy = hangs.app_frames(text)
+        self.assertEqual((taken, busy), (9, 9))
+        self.assertEqual([symbol for _, symbol in own], ["closure #1 in View.body.getter", "foo::bar"])
+        self.assertTrue(hangs.where(text).startswith("Swift"), "the deepest app frame, a view's, takes the samples")
+        self.assertTrue(any("foo::bar" in line for line in hangs.graph(text)))
+
+
 class Kept(unittest.TestCase):
     def test_a_samples_main_thread_is_kept_demangled_its_rare_frames_left_out(self):
         kept = hangs.graph(SAMPLE)
