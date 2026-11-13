@@ -1093,6 +1093,10 @@ mod tests {
         assert_eq!(source_figures(csv), ["48", "52", "2021", "2022", "182000", "186500"]);
         let prose = "Over ten years the city removed 7,560 street trees and planted 4,370, 9 degrees hotter.";
         assert_eq!(source_figures(prose), ["9", "4370", "7560"]);
+        // A CSV's line that is a sentence with commas in it reads as words, not as its cells: its
+        // 7,560 is one figure, never a 7 and a 560.
+        let said = "year,note\n2025,\"Over ten years the city removed 7,560 street trees, and planted 4,370\"\n";
+        assert_eq!(source_figures(said), ["2025", "4370", "7560"]);
         let many: String = (0..=MOST_FIGURES).map(|n| format!("{n}\n")).collect();
         assert!(source_figures(&many).is_empty(), "past the most, none");
     }

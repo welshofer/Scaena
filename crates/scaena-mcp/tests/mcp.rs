@@ -2257,6 +2257,26 @@ async fn deck_generates_sources_are_held_to_what_the_server_may_read() {
     let kept: Vec<&str> =
         d["meta"]["narrative"]["sources"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
     assert_eq!(kept, ["report.md", "sales.csv", "https://example.com/ridership.html"]);
+    // Each keeps the figures it holds, a sheet's cell by cell and a PDF's from the words it draws,
+    // so health holds a slide that cites it to them (deck format 0.41, W1's dogfood 17).
+    let figures = |d: &Value, k: usize| -> Vec<String> {
+        serde_json::from_value(d["meta"]["narrative"]["sources"][k]["figures"].clone()).unwrap_or_default()
+    };
+    assert!(figures(&d, 0).contains(&"240".to_string()), "{:?}", figures(&d, 0));
+    assert!(
+        figures(&d, 1).contains(&"412".to_string()) && figures(&d, 1).contains(&"44".to_string()),
+        "{:?}",
+        figures(&d, 1)
+    );
+    std::fs::copy("../../docs/examples/dogfood-17/report.pdf", here.join("report.pdf")).unwrap();
+    let pdf = generated(&client, &here.join("pdf"), &slides, json!([{ "file": "report.pdf" }])).await;
+    assert_ne!(pdf.is_error, Some(true), "{}", text(&pdf));
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(here.join("pdf/deck.json")).unwrap()).unwrap();
+    assert!(
+        figures(&d, 0).contains(&"7560".to_string()) && figures(&d, 0).contains(&"6.2".to_string()),
+        "{:?}",
+        figures(&d, 0)
+    );
     assert!(!here.join("made/report.md").exists() && !here.join("made/assets/report.md").exists(), "no copy");
     client.cancel().await.unwrap();
 
