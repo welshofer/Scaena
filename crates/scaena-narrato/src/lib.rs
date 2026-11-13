@@ -332,6 +332,9 @@ pub struct Generation {
     unrested: Option<String>,
     /// What the deck is grounded in, as the client gave it ([`Generation::give_sources`]).
     sources: Vec<Provenance>,
+    /// Words the brief's packed sources do not carry, whose figures notes may say all the same:
+    /// a PDF's, which goes to the model whole ([`Generation::hold`], W1's dogfood 17).
+    held: String,
 }
 
 impl Generation {
@@ -355,6 +358,7 @@ impl Generation {
             rests: 0,
             unrested: None,
             sources: Vec::new(),
+            held: String::new(),
         })
     }
 
@@ -788,10 +792,19 @@ impl Generation {
         notes::read_held(&read.text, spoken, held).map_err(NarratoError::Answer)
     }
 
-    /// The figures the brief's sources hold, as packed for the prompt, which notes may say
-    /// though no slide writes them (W1's dogfood 17).
+    /// The figures the brief's sources hold, as packed for the prompt and as [`Generation::hold`]
+    /// gave them, which notes may say though no slide writes them (W1's dogfood 17).
     pub fn held(&self) -> notes::Held {
-        notes::Held::of(self.brief.source_content.as_deref().unwrap_or_default())
+        let mut held = notes::Held::of(self.brief.source_content.as_deref().unwrap_or_default());
+        held.add(&self.held);
+        held
+    }
+
+    /// `words`, a source's the brief does not pack (a PDF's, which the model is handed whole),
+    /// held for their figures: notes may say one though no slide writes it (W1's dogfood 17).
+    pub fn hold(&mut self, words: &str) {
+        self.held.push_str(words);
+        self.held.push('\n');
     }
 
     /// The changes the response to [`Generation::look_request`] asks for, each one `slides`

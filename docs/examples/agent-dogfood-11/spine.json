@@ -1,0 +1,52 @@
+{
+  "sections": [
+    {
+      "id": "problem",
+      "title": "The wait",
+      "beats": [
+        {
+          "id": "cover",
+          "claim": "We cut median CI time from 41 to 18 minutes in nine weeks",
+          "states": []
+        },
+        {
+          "id": "cost",
+          "claim": "A 41-minute pipeline cost every engineer an hour a day of waiting",
+          "states": []
+        }
+      ]
+    },
+    {
+      "id": "fix",
+      "title": "What we changed",
+      "beats": [
+        {
+          "id": "cache",
+          "claim": "One shared cache key took cache hits from 22% to 89%",
+          "states": []
+        },
+        {
+          "id": "split",
+          "claim": "Splitting tests by their timings ended the long tail",
+          "states": []
+        },
+        {
+          "id": "curve",
+          "claim": "Median CI fell week by week as each change landed",
+          "states": []
+        }
+      ]
+    },
+    {
+      "id": "next",
+      "title": "Your turn",
+      "beats": [
+        {
+          "id": "adopt",
+          "claim": "Add the cache key and the test split to your pipeline this sprint",
+          "states": []
+        }
+      ]
+    }
+  ]
+}

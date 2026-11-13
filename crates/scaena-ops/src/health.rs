@@ -415,14 +415,16 @@ const ONE_IDEA: [&str; 9] = [
 /// The slides of `deck` as health reads them, each by its first state's id; the most points any
 /// one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2), a grid of
 /// short places, a SWOT or a timeline, making few in each; and the cards it sets side by side,
-/// [`cards`].
-type Readings = (Vec<SlideForHealth>, Vec<usize>, Vec<usize>);
+/// [`cards`]; and the words its code shows, which make no points a room reads (R1's agent
+/// dogfood 11).
+type Readings = (Vec<SlideForHealth>, Vec<usize>, Vec<usize>, Vec<usize>);
 
 fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     let mut out = Vec::with_capacity(slides.len());
     let mut most = Vec::with_capacity(slides.len());
     let mut set = Vec::with_capacity(slides.len());
+    let mut coded = Vec::with_capacity(slides.len());
     for slide in slides {
         let (Some(&first), Some(&last)) = (slide.states.first(), slide.states.last()) else { continue };
         let beat = slide.beat.map(|(.., b)| b);
@@ -441,6 +443,7 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
         // Each item of a set its own point, its parts together; each item of a list one too.
         let mut lines: Vec<(Option<&str>, String)> = Vec::new();
         let mut points = 0;
+        let mut code_words = 0;
         for &(_, props) in &texts {
             let said = words(props);
             let said = said.trim();
@@ -449,7 +452,12 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
             if said.is_empty() || said == title || aside {
                 continue;
             }
-            points = points.max(scaena_core::lists::paragraphs(said).len());
+            // Code's lines are no points: a block of ten lines is one thing shown, as a chart is.
+            if props.get("code").is_some_and(Value::is_object) {
+                code_words += said.split_whitespace().count();
+            } else {
+                points = points.max(scaena_core::lists::paragraphs(said).len());
+            }
             let listed: Vec<Option<Value>> = match props.get("list") {
                 Some(Value::Array(items)) => items.iter().map(|i| (!i.is_null()).then(|| i.clone())).collect(),
                 _ => Vec::new(),
@@ -498,8 +506,9 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
         });
         set.push(out.last().map_or(0, |read: &SlideForHealth| cards(deck, &texts, &read.title)));
         most.push(points);
+        coded.push(code_words);
     }
-    Ok((out, most, set))
+    Ok((out, most, set, coded))
 }
 
 /// A figure a slide writes: as written, its value with its marks between digits taken out
@@ -1485,7 +1494,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let asked =
         (narrative.and_then(|n| n.get("brief")).and_then(|b| b.get("length")).and_then(Value::as_str)).and_then(asked);
     let slides = slides(deck);
-    let (read, most, set) = readings(deck, &slides)?;
+    let (read, most, set, coded) = readings(deck, &slides)?;
     let n = read.len();
     let m = health::metrics(&read, None);
     // What heads each slide as the reader hears it (SPEC §3.12): its heading's words, a figure's
@@ -2811,7 +2820,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let points = |i: usize| bullets(&read[i]).max(set[i]);
         let mut thin: Vec<usize> = (pointed.iter().copied())
             .filter(|&i| i > 0 && !closing.contains(&read[i].id) && points(i) < FLOOR_POINTS as usize)
-            .filter(|&i| !read[i].drawn && !framing(i))
+            .filter(|&i| !read[i].drawn && !framing(i) && coded[i] == 0)
             .collect();
         scaena_core::sort::by_key(&mut thin, |&i| (points(i), i));
         thin.truncate(3);
@@ -2881,13 +2890,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     for (i, s) in read.iter().enumerate() {
         let k = i + 1;
         let points = most.get(i).copied().unwrap_or(0);
-        let words = s.body.split_whitespace().count();
+        let words = s.body.split_whitespace().count().saturating_sub(coded.get(i).copied().unwrap_or(0));
         if points > DENSE_POINTS {
             // Where tightening this slide would take the points the deck's slides make on
             // average under balance's floor, the ask says the trade and how to keep it: balance
             // and its floor are Vzestup's (ADR-0032), so the ask, not the score, is Scaena's to
             // set (W1's dogfood 4).
-            let ask = match thin_after_cut(&read, i, &closing) {
+            let ask = match thin_after_cut(&read, i, &closing, &coded) {
                 Some(thin) => format!(
                     "Tighten slide {k} to the {DENSE_POINTS} points that matter most, and keep what you cut in its notes to say aloud. Cutting alone lowers the deck's balance, since the deck's other slides that list points list few: give {} a point more as you tighten it.",
                     slide_list(&thin),
@@ -3908,7 +3917,7 @@ fn bullets(s: &SlideForHealth) -> usize {
 /// slides among them, never the cover or the close, which make no points by design, though
 /// balance counts them. None where the cut keeps the average at the floor or above, or no
 /// content slide but `i` counts.
-fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Option<Vec<usize>> {
+fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String], coded: &[usize]) -> Option<Vec<usize>> {
     let counted: Vec<usize> = (0..read.len()).filter(|&j| read[j].eligible() && !read[j].one_idea).collect();
     if !counted.contains(&i) {
         return None;
@@ -3919,7 +3928,9 @@ fn thin_after_cut(read: &[SlideForHealth], i: usize, closing: &[String]) -> Opti
     if cut == 0 || average(total - cut) >= FLOOR_POINTS {
         return None;
     }
-    let thin: Vec<usize> = counted.into_iter().filter(|&j| j != i && j > 0 && !closing.contains(&read[j].id)).collect();
+    let thin: Vec<usize> = (counted.into_iter())
+        .filter(|&j| j != i && j > 0 && !closing.contains(&read[j].id) && coded.get(j).is_none_or(|&c| c == 0))
+        .collect();
     (!thin.is_empty()).then_some(thin)
 }
 
@@ -4348,7 +4359,7 @@ mod tests {
             assert!(!thin.says.contains(&format!(" {slide} ")), "{}", thin.says);
         }
         // The cards are counted for the finding alone: balance reads the bullets, as Vzestup's does.
-        let (read, _, set) =
+        let (read, _, set, _) =
             readings(&Deck::from_value(&deck).unwrap(), &slides(&Deck::from_value(&deck).unwrap())).unwrap();
         let at = |id: &str| read.iter().position(|s| s.id == id).unwrap();
         assert_eq!((set[at("recap")], set[at("plan")], set[at("cost")]), (3, 3, 0));
@@ -5498,6 +5509,48 @@ mod tests {
         assert!(thin[0].ask.starts_with("Give "), "{}", thin[0].ask);
     }
 
+    /// Code's lines are no points (R1's agent dogfood 11): a slide whose words are code is neither
+    /// found dense for its many lines nor thin for its few, as a chart's slide is not. On fleet,
+    /// slide 9 is dense and, thinned, slide 4 thin; each of their texts under the headline made
+    /// code, neither is found, and the score does not move, since warnings carry none.
+    #[test]
+    fn code_makes_no_points_a_room_reads() {
+        let coded = |mut deck: Value, k: usize| {
+            let d = Deck::from_value(&deck).unwrap();
+            let sl = slides(&d);
+            let snaps = resolve_states(&d).unwrap();
+            let last = *sl[k - 1].states.last().unwrap();
+            let ids: Vec<String> = (snaps[last].nodes.iter())
+                .filter(|(id, p)| {
+                    d.nodes.get(id.as_str()).is_some_and(|n| n.node_type == NodeType::Text)
+                        && !matches!(p.get("role").and_then(Value::as_str), Some("display" | "headline" | "title"))
+                        && !matches!(p.get("semantic").and_then(Value::as_str), Some("claim"))
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            assert!(!ids.is_empty(), "slide {k} has words under its headline");
+            for id in ids {
+                deck["nodes"][id.as_str()]["code"] = json!({ "language": "plain" });
+            }
+            deck
+        };
+        let dense = of(&dogfood("fleet", "", |_| {}));
+        assert!(dense.findings.iter().any(|f| f.kind == Kind::Dense && f.slide == 9), "{:#?}", dense.findings);
+        let code = of(&coded(dogfood("fleet", "", |_| {}), 9));
+        assert!(!code.findings.iter().any(|f| f.kind == Kind::Dense && f.slide == 9), "{:#?}", code.findings);
+        let thinned = |slides: &mut Vec<answer::Slide>| slides[3].key_bullets.truncate(1);
+        let thin = of(&dogfood("fleet", "", thinned));
+        let named = |h: &Health| {
+            (h.findings.iter().filter(|f| f.kind == Kind::Thin)).any(|f| {
+                let before = f.says.split(" the fewest").next().unwrap_or_default();
+                before.split(|c: char| !c.is_ascii_digit()).any(|n| n == "4")
+            })
+        };
+        assert!(named(&thin), "{:#?}", thin.findings);
+        let code = of(&coded(dogfood("fleet", "", thinned), 4));
+        assert!(!named(&code), "{:#?}", code.findings);
+    }
+
     /// A slide that draws a chart, a picture, or a table shows its point, and a divider or an agenda
     /// makes none by design, so `thin` names neither (R1's agent dogfood 2): pitch's chart slides
     /// 4 and 11 and its divider, slide 7, and climate's divider, slide 3, were named. Balance's
@@ -5604,7 +5657,6 @@ mod tests {
     #[test]
     fn the_brief_op_takes_what_narrato_takes() {
         assert_eq!(scaena_core::patch::GOALS, scaena_narrato::brief::GOALS);
-        assert_eq!(scaena_core::patch::LENGTHS, scaena_narrato::brief::LENGTHS);
         struct NoFiles;
         impl scaena_core::validate::BundleFiles for NoFiles {
             fn exists(&self, _: &str) -> bool {

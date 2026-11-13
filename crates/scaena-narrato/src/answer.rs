@@ -49,6 +49,10 @@ pub struct Slide {
     /// names it (Scaena's, narrative FUNC-3): what its beat's evidence cites.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<String>,
+    /// What a `chartData` that does not read gave in its place, by its keys ("`labels`,
+    /// `datasets`"), so the slide set without its chart can say why (R1's agent dogfood 11).
+    #[serde(skip)]
+    pub chart_unread: Option<String>,
 }
 
 /// The exact figures a chart plots.
@@ -201,6 +205,11 @@ pub fn normalize(raw: &Value) -> Slide {
             .map(|s| js::trim(s).to_string())
             .collect(),
         source_ref: some("sourceRef"),
+        chart_unread: raw.get("chartData").filter(|c| !c.is_null() && chart_data(c).is_none()).map(|c| match c {
+            Value::Object(given) if given.is_empty() => "an empty object".to_string(),
+            Value::Object(given) => given.keys().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
+            other => other.to_string().chars().take(40).collect::<String>(),
+        }),
     }
 }
 

@@ -334,7 +334,9 @@ jobs:
       # The remote's tests again under ThreadSanitizer, where what builds the apps runs: the remote's
       # end and the presenter's each keep their state on a queue of their own (#1206), which TSan
       # holds them to. A race it finds fails the step, as TSan's exit code says it found one; it is
-      # no diagnostic. The package is built again instrumented, the engine's static library not.
+      # no diagnostic. The package is built again instrumented, the engine's static library not, in
+      # a folder of its own: built in the package's, its instrumented `Scaena` replaced the app the
+      # window's walk copies next, ThreadSanitizer's runtime stretching every stall it timed (#1262).
       - name: The remote under ThreadSanitizer
         if: runner.os == 'macOS' && needs.changes.outputs.app == 'true'
         timeout-minutes: 20
@@ -349,7 +351,7 @@ jobs:
           done
           cd apps/mac/ScaenaKit
           start=$(date +%s)
-          swift test --sanitize=thread --filter RemoteTests "${flags[@]}"
+          swift test --sanitize=thread --filter RemoteTests --scratch-path .build-tsan "${flags[@]}"
           echo "The remote under ThreadSanitizer: $(( $(date +%s) - start )) s, its instrumented build included"
       # The app as someone opens it, the trails example in its window, pushed to the branch
       # `shots/pr-N-mac` beside the iPad's, where a reviewer without the run's artifacts fetches it

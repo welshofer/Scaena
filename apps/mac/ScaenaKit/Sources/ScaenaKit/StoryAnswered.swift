@@ -10,6 +10,21 @@ extension Health {
         "look": "change let go", "source": "source", "label": "headline", "thin": "content",
     ]
 
+    /// Each Ask a Story row offers, one for each of `asking`, its findings that ask the assistant
+    /// something: "Ask the Assistant" for one alone, else each by what it is about ("Ask About Its
+    /// Tone"), a second of a kind numbered, as the browser's Story row names them (`story.ts`'s
+    /// `askLabels`, W1's dogfood 17): each question its own, never one joined of them all.
+    public static func askLabels(_ asking: [Finding]) -> [String] {
+        if asking.count == 1 { return ["Ask the Assistant"] }
+        var seen: [String: Int] = [:]
+        return asking.map { f in
+            let topic = (Self.about[f.kind] ?? f.kind).capitalized
+            let n = (seen[topic] ?? 0) + 1
+            seen[topic] = n
+            return n == 1 ? "Ask About Its \(topic)" : "Ask About Its \(topic) (\(n))"
+        }
+    }
+
     /// A finding told apart from the others of a read: by its kind and its slide, the slide by its
     /// state, which a slide folded, moved, or taken away before it leaves as it was, where its
     /// number moves (W1 dogfood 14, as the browser's `places`).

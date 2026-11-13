@@ -280,6 +280,20 @@ const ABOUT: Record<HealthFinding["kind"], string> = {
   thin: "content",
 };
 
+/** Each Ask a row offers, one for each of `asking`, its findings that ask the assistant something:
+ * "Ask the assistant" for one alone, else each by what it is about ("Ask about its tone"), a
+ * second of a kind numbered (W1's dogfood 17). */
+export function askLabels(asking: HealthFinding[]): string[] {
+  if (asking.length === 1) return ["Ask the assistant"];
+  const seen = new Map<string, number>();
+  return asking.map((f) => {
+    const about = ABOUT[f.kind];
+    const n = (seen.get(about) ?? 0) + 1;
+    seen.set(about, n);
+    return n === 1 ? `Ask about its ${about}` : `Ask about its ${about} (${n})`;
+  });
+}
+
 /** The findings of `before` that `after` no longer finds, each told apart as a row is (`places`),
  * on a state the deck still has, among `states`, every state, since a finding names the step it
  * was read at, its slide's last for most (#982): what an edit answered. A slide taken away, or
@@ -845,17 +859,24 @@ export function storyPanel(stage: Stage, into: HTMLElement, editor: StoryEditor)
       });
       actions.append(cite, offered);
     }
-    const ask = document.createElement("button");
-    ask.type = "button";
-    ask.dataset.ask = "";
-    ask.textContent = "Ask the assistant";
-    // The slide it is about is shown first: a question begins with what the editor shows, which
-    // "this slide" means to the assistant (lift-up USE-5).
-    ask.addEventListener("click", async () => {
-      await editor.show(state);
-      editor.ask(run.map((f) => f.ask).join(" "));
-    });
-    actions.append(ask);
+    // Each question its own Ask, named by what it is about where the row has several, never one
+    // question joined of them all (W1's dogfood 17). The slide it is about is shown first, at the
+    // step its finding was read at: a question begins with what the editor shows, which "this
+    // slide" means to the assistant (lift-up USE-5).
+    const asking = run.filter((f) => f.ask.trim());
+    for (const [i, label] of askLabels(asking).entries()) {
+      const f = asking[i];
+      const ask = document.createElement("button");
+      ask.type = "button";
+      ask.dataset.ask = "";
+      ask.dataset.kind = f.kind;
+      ask.textContent = label;
+      ask.addEventListener("click", async () => {
+        await editor.show(f.state);
+        editor.ask(f.ask);
+      });
+      actions.append(ask);
+    }
     // Offered where the row is about what the slide claims, never on one about its words' count
     // or its notes (W1's dogfood 7).
     if (run.some((f) => CLAIMED.has(f.kind))) {

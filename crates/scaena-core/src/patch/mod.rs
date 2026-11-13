@@ -670,8 +670,20 @@ impl SemanticOp {
 /// holds these to).
 pub const GOALS: [&str; 6] = ["Inform", "Persuade", "Inspire", "Sell", "Educate", "Update Status"];
 
-/// The lengths a brief may ask, as Narrato asks them (`scaena_narrato::brief::LENGTHS`).
+/// The lengths a brief may ask, as Narrato asks them: what a deck is asked at.
 pub const LENGTHS: [&str; 5] = ["5-10 slides", "11-15 slides", "16-25 slides", "26-40 slides", "41+ slides"];
+
+/// The length a talk of `minutes` takes (Narrato's `LENGTH_BY_MINUTES`): two hours is held to
+/// 26–40 slides, more being too heavy to draft at once. A brief with minutes and no length takes
+/// it, whether `deck_generate` reads it or the `brief` op writes it (R1's agent dogfood 11).
+pub fn length_for_minutes(minutes: u32) -> &'static str {
+    match minutes {
+        0..=15 => "5-10 slides",
+        16..=30 => "11-15 slides",
+        31..=45 => "16-25 slides",
+        _ => "26-40 slides",
+    }
+}
 
 /// What `list` makes paragraphs: items of a kind, or none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

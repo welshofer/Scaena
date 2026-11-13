@@ -8,6 +8,12 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# The words and figures a PDF draws, read within bounds (`pdf::words`, W1's dogfood 17): what a made
+# deck's notes may say the figures of. The CLI, the MCP server, the C ABI, and the generator's
+# module read them; the editor's module does not carry it.
+pdf = []
+
 [dependencies]
 csv.workspace = true
 serde.workspace = true

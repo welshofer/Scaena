@@ -68,6 +68,18 @@ class Uploads(unittest.TestCase):
 
 
 class Sanitizer(unittest.TestCase):
+    def test_the_instrumented_build_leaves_the_app_the_window_walks_alone(self):
+        # `swift test --sanitize=thread` in the package's own build folder builds the `Scaena`
+        # executable again instrumented, and the window's walk, after it, copied that one: #1262's
+        # sample of the app found ThreadSanitizer's runtime in it, every main-thread stall
+        # stretched by its interceptors. The instrumented build keeps a folder of its own.
+        ci = steps((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+        found = ["\n".join(step) for step in ci if "name: The remote under ThreadSanitizer" in step[0]]
+        self.assertEqual(len(found), 1)
+        scratch = re.search(r"swift test --sanitize=thread[^\n]*--scratch-path\s+(\S+)", found[0])
+        self.assertIsNotNone(scratch, "the instrumented build has a scratch path of its own")
+        self.assertNotIn(scratch.group(1).strip("\"'"), (".build", "./.build"))
+
     def test_the_remotes_tests_run_under_threadsanitizer_and_a_race_fails_the_job(self):
         ci = steps((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
         found = ["\n".join(step) for step in ci if "name: The remote under ThreadSanitizer" in step[0]]
