@@ -3317,8 +3317,17 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // finding where it is the talk's own, a target or a plan by the words around it ([`forward`],
     // in an English deck alone), where arithmetic gets it from a figure the slide writes that the
     // sources hold ([`computed`]: a change, a share, a difference), where an earlier slide that cites
-    // a source wrote it, in any unit ("up 23 this quarter", then "23 added"),
-    // or where code writes it.
+    // a source wrote it, in any unit ("up 23 this quarter", then "23 added"), where a line the
+    // deck makes a target or a plan writes it anywhere, before it or after (Valdemar's repair, its
+    // 2,3 M€ priced on slide 5 and asked for on slide 8), or where code writes it.
+    let planned: Vec<String> = (read.iter())
+        .flat_map(|s| {
+            let shown = format!("{}\n{}", s.title, s.body);
+            (shown.lines().filter(|l| forward(l)))
+                .flat_map(|l| figures(l).into_iter().map(|f| f.value))
+                .collect::<Vec<_>>()
+        })
+        .collect();
     let misheld = |i: usize, shown: &str, written: &[Figure], known: &[(String, String)]| {
         let (.., beat) = slides.get(i)?.beat?;
         let mut citing: Vec<usize> = Vec::new();
@@ -3352,6 +3361,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     let value = scaena_narrato::figures(&f.shown).first().copied()?;
                     let own = !english
                         || forward(line)
+                        || planned.contains(&f.value)
                         || known.iter().any(|(value, _)| *value == f.value)
                         || code.contains(&f.shown)
                         || computed(&anchors, &values, &f.shown, value).is_some();
@@ -4772,6 +4782,13 @@ mod tests {
         assert_eq!(said(&deck, "Eastside lost 61 street trees last spring.").len(), 1, "61");
         assert_eq!(said(&deck, "Our goal is 35% of the city."), [], "a target");
         assert_eq!(said(&deck, "We will plant 2,500 trees by 2030."), [], "a plan");
+        // A figure the deck plans on another slide is the talk's own where it stands, before
+        // the ask or after it: a repair priced here and asked for at the close.
+        let priced = "Replanting Eastside alone costs $2.4 million.";
+        assert_eq!(said(&deck, priced).len(), 1, "no line plans $2.4 million yet");
+        let mut asked = deck.clone();
+        asked["nodes"]["thank-you-statement"]["text"] = json!("We ask the council to approve $2.4 million.");
+        assert_eq!(said(&asked, priced), [], "the close asks for it");
         // A deck in another language is not read for its targets, so is found for none.
         let mut german = deck.clone();
         german["meta"]["lang"] = json!("de");
