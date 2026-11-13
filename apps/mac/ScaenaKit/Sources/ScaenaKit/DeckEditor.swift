@@ -171,6 +171,9 @@ public final class DeckEditor {
     /// of edits draws once, for the last.
     @ObservationIgnored let backgroundsWanted = Wanted()
     @ObservationIgnored let layoutsWanted = Wanted()
+    /// Each fold's dry run the Story asked, for the source it was asked of (#1222, as the
+    /// browser's Story keeps them): a Story read again lays out no fold anew.
+    @ObservationIgnored var foldsRun: (source: String, folds: [FoldAsk: Folded]) = ("", [:])
     /// The deck as it stands, taken twice: one to draw from on the drawer's thread, and one the
     /// session is asked about here, whether it still holds the deck, so neither is used by two
     /// threads at once.

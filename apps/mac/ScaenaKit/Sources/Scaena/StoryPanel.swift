@@ -25,6 +25,9 @@ struct StoryPanel: View {
     /// The open rows as last read, each kept where it stood by the read before (editor dogfood 6).
     @State private var places = StoryPlaces()
     @State private var open: [[Health.Finding]] = []
+    /// Each fold the open rows offer, as its dry run answered for the deck as it stands (#1222):
+    /// a button says where the words will go, or is held with why it cannot be.
+    @State private var folds: [FoldAsk: Folded] = [:]
     /// What the edits before the last read answered, under the score for a moment (editor dogfood 6).
     @State private var answered: String?
     @State private var again = 0
@@ -177,6 +180,12 @@ struct StoryPanel: View {
             }
             health = read.health
             open = places.ordered(Self.bySlide(read.health.triaged().open), of: read.health)
+            // Each fold a row offers, asked of the fold itself away from the window, once for the
+            // source as it stands; the slots' label stands until it answers (#1222).
+            let asks = open.flatMap { Self.foldAsks($0, in: editor.slots) }
+            let offered = await editor.foldsAway(asks)
+            guard !Task.isCancelled else { return }
+            folds = offered
             asLastRead = read.asLastRead
             if !read.asLastRead { grounded = (try? editor.session.grounded()) ?? [] }
             why = nil
@@ -185,6 +194,7 @@ struct StoryPanel: View {
             health = nil
             places = StoryPlaces()
             open = []
+            folds = [:]
             why = "Its story couldn't be read. \(Why.said(error))"
         }
     }
@@ -202,6 +212,21 @@ struct StoryPanel: View {
         } catch {
             edits.say("Not cited: \(Why.said(error))")
         }
+    }
+
+    /// Whether `run`, a slide's row, offers to fold the slide into the one before it: where it
+    /// says again what that one said, and offers no earlier slide instead, or adds least to it.
+    private static func foldsBefore(_ run: [Health.Finding], earlier: [EarlierFold]) -> Bool {
+        run.contains { ($0.kind == "story" && earlier.isEmpty) || $0.kind == "pacing" }
+    }
+
+    /// Each fold `run`, a slide's row, offers, as `row` draws its buttons.
+    private static func foldAsks(_ run: [Health.Finding], in slots: [ScaenaSession.Slot]) -> [FoldAsk] {
+        let state = run[0].state
+        let earlier = Slide.earlier(run, in: slots)
+        var asks = earlier.map { FoldAsk(state: state, into: $0.into) }
+        if foldsBefore(run, earlier: earlier), Slide.before(state, in: slots) != nil { asks.append(FoldAsk(state: state)) }
+        return asks
     }
 
     /// What reads the story again: an edit, or a lint of every state that found otherwise.
@@ -280,18 +305,27 @@ struct StoryPanel: View {
                 }
                 // A slide that says again what an earlier one said offers to fold into that one,
                 // beside the cut its to-do names (R1's #1161), as the browser's Story row does.
+                // Each says beforehand where the words go as the fold lays them out, or is held
+                // with why it cannot be, as the browser's are (#1222).
                 ForEach(earlier, id: \.into) { fold in
-                    Button(fold.label) { edits.fold(first.state, fold.into) }
-                        .disabled(asLastRead)
+                    let offer = FoldsTo.offer(
+                        "Slide \(fold.slide)", slots: nil, folds[FoldAsk(state: first.state, into: fold.into)])
+                    Button(offer.label) { edits.fold(first.state, fold.into) }
+                        .disabled(asLastRead || offer.refused != nil)
+                        .help(offer.refused ?? "")
+                        .accessibilityHint(offer.refused ?? "")
                         .accessibilityIdentifier("story-fold-\(fold.slide)")
                 }
                 // A slide that says again what the one before said, or adds least to it, offers to
                 // fold into it, as its to-do says (editor dogfood 6), as the browser's Story row does.
-                if run.contains(where: { ($0.kind == "story" && earlier.isEmpty) || $0.kind == "pacing" }),
-                    let label = Slide.folding(first.state, in: editor.slots)
-                {
-                    Button(label) { edits.fold(first.state, nil) }
-                        .disabled(asLastRead)
+                if Self.foldsBefore(run, earlier: earlier), let before = Slide.before(first.state, in: editor.slots) {
+                    let offer = FoldsTo.offer(
+                        "Slide \(before)", slots: editor.slots.first { $0.state == first.state }?.foldsTo,
+                        folds[FoldAsk(state: first.state)])
+                    Button(offer.label) { edits.fold(first.state, nil) }
+                        .disabled(asLastRead || offer.refused != nil)
+                        .help(offer.refused ?? "")
+                        .accessibilityHint(offer.refused ?? "")
                         .accessibilityIdentifier("story-fold")
                 }
                 // A finding whose to-do names a field of the Format tab offers it, there and in
