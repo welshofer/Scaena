@@ -1448,6 +1448,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     let snaps = resolve_states(deck).map_err(|e| OpsError::new(e.to_string()))?;
     // A big number's slide is headed by its figure before its meaning, the figure its point, so
     // it names no topic however few its words.
+    let mut shown_heads = Vec::with_capacity(read.len());
     let (heading, led): (Vec<String>, Vec<bool>) = (read.iter().enumerate())
         .map(|(i, s)| {
             let last = slides.get(i).and_then(|sl| sl.states.last()).map(|&l| &snaps[l]);
@@ -1462,7 +1463,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                     .map(|(_, p)| words(p).split_whitespace().collect::<Vec<_>>().join(" "))
             });
             let led = shown.is_some() && shown != plain;
-            (shown.unwrap_or_else(|| s.title.trim().to_string()), led)
+            let heard = shown.unwrap_or_else(|| s.title.trim().to_string());
+            // The headline as the slide shows it, a figure beside it not joined to it, which a
+            // finding quotes (W1's dogfood 17: "25.8: Canopy cover, 2016–2025").
+            shown_heads.push(plain.filter(|p| !p.is_empty()).unwrap_or_else(|| heard.clone()));
+            (heard, led)
         })
         .unzip();
     // The language the deck is written in, its brief's, else its own: the lexicons read English
@@ -1916,7 +1921,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             // A headline that names a topic over the line that says the claim (W1's dogfood 3):
             // a made slide's beat claim is its headline, so "Some history" passes as one, its
             // claim in a bullet. The line is the headline to say, never written for the writer.
-            let title = heading[i].trim();
+            let title = shown_heads[i].trim();
             find(
                 &s.id,
                 Severity::Warning,
@@ -1943,7 +1948,10 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         }
-        if s.body.trim().is_empty() && s.notes.trim().is_empty() {
+        // A slide that draws a chart, a picture, or a table shows something past its headline, and
+        // what it lacks is its notes alone (W1 dogfood 16: a chart dropped on a blank slide was
+        // said to say nothing past a headline it did not have).
+        if s.body.trim().is_empty() && s.notes.trim().is_empty() && !s.drawn {
             // A one-idea layout says its point in its headline by design (W1's dogfood 6): what
             // it lacks is the notes, never more on the slide.
             let (says, ask) = if s.one_idea {
@@ -2689,7 +2697,7 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None,
             );
         }
-        if !s.body.trim().is_empty() && s.notes.trim().is_empty() {
+        if (!s.body.trim().is_empty() || s.drawn) && s.notes.trim().is_empty() {
             unnoted.push(i);
         }
         if reads_aloud(s) {
@@ -3997,6 +4005,36 @@ mod tests {
 
     fn of(deck: &Value) -> Health {
         health(&Deck::from_value(deck).unwrap()).unwrap()
+    }
+
+    /// A slide that draws a chart and says nothing in words is asked for its notes, never said to
+    /// say nothing past its headline (W1 dogfood 16: a chart dropped on a blank slide was).
+    #[test]
+    fn a_slide_that_draws_a_chart_is_asked_for_notes_alone() {
+        let mut deck: Value = serde_json::from_str(include_str!("../../../docs/examples/revenue.deck.json")).unwrap();
+        for st in deck["states"].as_array_mut().unwrap() {
+            // The revenue slide shows its chart alone: no headline, no note, no notes.
+            if st["id"] == "revenue" || st["id"] == "mix" {
+                st.as_object_mut().unwrap().remove("notes");
+                st["props"].as_object_mut().unwrap().remove("note");
+                st["props"].as_object_mut().unwrap().remove("title");
+            }
+            if st["id"] == "revenue" {
+                st["remove"] = json!(["subtitle", "bg", "title"]);
+            }
+            if st["id"] == "close" {
+                st["props"]["title"] = json!({});
+            }
+        }
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                beat.as_object_mut().unwrap().remove("notes");
+            }
+        }
+        let h = of(&deck);
+        assert!(h.findings.iter().all(|f| !(f.kind == Kind::Empty && f.slide == 2)), "{:#?}", h.findings);
+        let noted = h.findings.iter().find(|f| f.kind == Kind::Notes && f.says.ends_with("no notes for you."));
+        assert!(noted.is_some_and(|f| f.says.contains("2")), "{:#?}", h.findings);
     }
 
     /// A slide built by hand as a grid of cards makes a point a card (R1's dogfood 6): ridgeline's
@@ -7472,5 +7510,40 @@ mod tests {
         assert_eq!(asked("41+ slides"), Some((41, None)));
         assert_eq!(asked("soon"), None);
         assert_eq!(range(41, None), "41 or more");
+    }
+    /// A topic headline over its claim is quoted as the slide shows it (W1's dogfood 17): a line
+    /// chart's callout figure stands beside its headline, and the reader hears the two together,
+    /// "25.8%: Canopy cover, 2016–2025", but the words to replace are the headline's alone.
+    #[test]
+    fn a_topic_headline_beside_its_figure_is_quoted_as_shown() {
+        let chart = |slides: &mut Vec<answer::Slide>| {
+            let third = &mut slides[2];
+            third.slide_title = "Canopy cover, 2016–2025".into();
+            third.layout_suggestion = "Line Chart".into();
+            third.key_bullets = vec!["Canopy cover fell every year since 2016".into(), "The city lost 4 points".into()];
+            third.chart_data = Some(answer::ChartData {
+                categories: (2016..=2025).map(|y| y.to_string()).collect(),
+                series: vec![answer::Series {
+                    name: Some("Canopy".into()),
+                    values: [29.8, 29.4, 29.0, 28.5, 28.1, 27.6, 27.2, 26.7, 26.3, 25.8].map(Some).to_vec(),
+                }],
+                unit: Some("%".into()),
+                source_id: None,
+            });
+        };
+        let deck = dogfood("keynote", "", chart);
+        let d = Deck::from_value(&deck).unwrap();
+        let snaps = resolve_states(&d).unwrap();
+        let heard = scaena_core::reading::headline(&d, &snaps[*d.slides()[2].last().unwrap()]);
+        assert_eq!(
+            heard.as_deref(),
+            Some("25.8%: Canopy cover, 2016\u{2013}2025"),
+            "the reader hears the figure first"
+        );
+        let h = of(&deck);
+        let label = (h.findings.iter()).find(|f| f.kind == Kind::Label && f.slide == 3).expect("its claim is under it");
+        let shown = "\u{201C}Canopy cover, 2016\u{2013}2025\u{201D}";
+        assert!(label.says.contains(shown) && label.ask.ends_with(&format!("in place of {shown}.")), "{label:?}");
+        assert!(!label.says.contains("25.8") && !label.ask.contains("25.8"), "{label:?}");
     }
 }

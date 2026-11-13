@@ -908,6 +908,8 @@ export interface Restored {
   removed: Finding[];
   errors: number;
   states: string[];
+  /** With a slide asked, the slide put back, by its number and headline in the deck it makes. */
+  slide?: string;
 }
 
 /** A file an edit wrote beside the deck, a data file a restore wrote or the theme a theme edit
@@ -1480,7 +1482,7 @@ export type ToWorker =
   /** `version` made the deck again, with its data files, as one change by the user; refused
    * where the deck would not validate in the bundle as it is. A source that does not compile
    * is no bar: restoring a version is a way back from one. */
-  | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string }
+  | { type: "restoreVersion"; id: number; source: string; version: Version; index: number; format?: string; slide?: string }
   /** The theme frames are drawn in, as its text (PLAN 2.61). */
   | { type: "themeText"; id: number }
   /** Each kind of code token as the theme draws it (PLAN 2.144). */

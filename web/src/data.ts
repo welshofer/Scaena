@@ -362,6 +362,16 @@ export function sheets(stage: Stage, into: HTMLElement, editor: DataEditor) {
       cell(where, 0)?.focus();
     });
   };
+  // A row before the one focused, else first: a sheet's newest row often goes at its top, which
+  // + Row, after the row focused, never reaches (W1 dogfood 16).
+  into.querySelector<HTMLButtonElement>("[data-add-above]")!.onclick = () => {
+    if (!shown) return;
+    const at = row ?? 0;
+    void make([{ op: "add", row: at }], `Row ${at + 1} added`).then(() => {
+      row = at;
+      cell(at, 0)?.focus();
+    });
+  };
   into.querySelector<HTMLButtonElement>("[data-remove]")!.onclick = () => {
     if (!shown) return;
     if (row === undefined || row >= shown.sheet.rows.length) return editor.say("Click a cell of the row to take away first");

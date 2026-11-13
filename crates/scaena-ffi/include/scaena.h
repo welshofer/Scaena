@@ -306,7 +306,8 @@ char *scaena_picture(const uint8_t *bytes, size_t len);
 // written again; and, from the bundle's history, `versions`, each with what its change did
 // and who made it in a person's words (`said`, `by`), `viewVersion {version}`, its states, and
 // `versionSlides`, each as its slide list numbers it, `compareVersions {from, to?}`, and
-// `restoreVersion {version, at?}`, `{restored, files}`. Handles and views (PLAN 3.16):
+// `restoreVersion {version, slide?, at?}`, `{restored, files}`, with `slide` the version's slide
+// that holds that state alone. Handles and views (PLAN 3.16):
 // `outline {state, node}`, a shape's points and corner;
 // `framing {state, node}`, an image's crop and focal point; `focalAt {state, node, x, y}`, the
 // point of an image under a press; `grid`, the theme's tracks and baselines; `setView {view?}`,
