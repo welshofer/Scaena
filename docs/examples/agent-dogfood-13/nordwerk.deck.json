@@ -1,0 +1,1184 @@
+{
+  "scaena": "0.41",
+  "meta": {
+    "title": "Nordwerk Logistik: Bericht an den Aufsichtsrat",
+    "lang": "de",
+    "description": "Nordwerk ist 2025 profitabel gewachsen und hat die Emissionen je Sendung gesenkt; der Vorstand bittet um 4,5 Mio. € für 25 weitere E-Lkw.",
+    "narrative": {
+      "generator": "narrato",
+      "arc": "Problem–Solution",
+      "reasoning": "Heuristic best-fit. Top candidates: Problem–Solution (62%), PARL (Problem, Action, Result, Learning) (59%), Hero's Journey (57%), Data Storytelling (56%), The Reveal (56%).",
+      "brief": {
+        "topic": "Geschäftsjahr 2025 der Nordwerk Logistik GmbH und die Freigabe von 25 weiteren E-Lkw",
+        "audience": "Aufsichtsrat der Nordwerk Logistik GmbH",
+        "goal": "Update Status",
+        "length": "5-10 slides",
+        "modality": "In-person — Presenter and audience are physically co-located. Delivered on stage, in a conference room, classroom, theater, trade-show booth, etc.",
+        "voice": "Sachlich und knapp; jede Zahl mit ihrer Quelle.",
+        "minutes": 15,
+        "language": "German"
+      },
+      "sources": [
+        {
+          "name": "geschaeftsbericht.pdf",
+          "kind": "pdf",
+          "bytes": 2135,
+          "truncated": false,
+          "figures": [
+            "3",
+            "3.2",
+            "6.2",
+            "7",
+            "7.3",
+            "14",
+            "18",
+            "45.3",
+            "48.6",
+            "52",
+            "94.1",
+            "2024",
+            "2025",
+            "2026"
+          ]
+        },
+        {
+          "name": "kennzahlen.xlsx",
+          "kind": "workbook",
+          "bytes": 420,
+          "truncated": false,
+          "figures": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "56",
+            "96",
+            "112",
+            "148",
+            "2025",
+            "3420",
+            "3480",
+            "3610",
+            "3650",
+            "3660",
+            "3720",
+            "3740",
+            "3760",
+            "3800",
+            "3830",
+            "3880",
+            "3900",
+            "3910",
+            "3980",
+            "4010",
+            "4050",
+            "4060",
+            "4120",
+            "4180",
+            "4290",
+            "4360",
+            "4450",
+            "5700",
+            "10400",
+            "13600",
+            "18900"
+          ]
+        }
+      ],
+      "outline": {
+        "bigIdea": "Nordwerk wächst profitabel und sauberer; 25 weitere E-Lkw halten Kurs auf 52 Mio. € Umsatz in 2026.",
+        "beats": [
+          {
+            "name": "Ergebnis",
+            "claim": "2025 wuchs der Umsatz um 7,3 % auf 48,6 Mio. €.",
+            "slides": 2
+          },
+          {
+            "name": "Ertrag",
+            "claim": "Die EBIT-Marge erreichte 6,2 %.",
+            "slides": 1
+          },
+          {
+            "name": "Betrieb",
+            "claim": "Hamburg erwirtschaftete 18.900 TEUR, den größten Teil des Umsatzes.",
+            "slides": 2
+          },
+          {
+            "name": "Nachhaltigkeit",
+            "claim": "Die CO₂-Emissionen je Sendung sanken um 14 %.",
+            "slides": 2
+          },
+          {
+            "name": "Antrag",
+            "claim": "Wir bitten um Freigabe von 4,5 Mio. € für 25 weitere E-Lkw.",
+            "slides": 1
+          }
+        ]
+      }
+    }
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/salon.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "Instrument Serif",
+      "file": "fonts/InstrumentSerif-Regular.ttf"
+    },
+    {
+      "family": "Instrument Serif",
+      "file": "fonts/InstrumentSerif-Italic.ttf",
+      "style": "italic"
+    }
+  ],
+  "data": {
+    "der-umsatz-stieg-fast-jeden-data": {
+      "source": {
+        "inline": [
+          {
+            "category": "Jan",
+            "value": 3650.0
+          },
+          {
+            "category": "Feb",
+            "value": 3720.0
+          },
+          {
+            "category": "Mär",
+            "value": 3880.0
+          },
+          {
+            "category": "Apr",
+            "value": 3910.0
+          },
+          {
+            "category": "Mai",
+            "value": 4010.0
+          },
+          {
+            "category": "Jun",
+            "value": 4120.0
+          },
+          {
+            "category": "Jul",
+            "value": 4050.0
+          },
+          {
+            "category": "Aug",
+            "value": 3980.0
+          },
+          {
+            "category": "Sep",
+            "value": 4180.0
+          },
+          {
+            "category": "Okt",
+            "value": 4290.0
+          },
+          {
+            "category": "Nov",
+            "value": 4360.0
+          },
+          {
+            "category": "Dez",
+            "value": 4450.0
+          }
+        ]
+      },
+      "schema": {
+        "category": "string",
+        "value": "number"
+      }
+    },
+    "kennzahlen-standorte": {
+      "source": "data/kennzahlen-standorte.csv",
+      "schema": {
+        "Standort": "string",
+        "Mitarbeitende": "number",
+        "Umsatz_TEUR": "number"
+      }
+    },
+    "kennzahlen-umsatz": {
+      "source": "data/kennzahlen-umsatz.csv",
+      "schema": {
+        "Monat": "date",
+        "Umsatz_TEUR": "number",
+        "Kosten_TEUR": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "ergebnis",
+        "title": "Ergebnis",
+        "beats": [
+          {
+            "id": "nordwerk-logistik-bericht-an-den-aufsichtsrat",
+            "claim": "Nordwerk Logistik: Bericht an den Aufsichtsrat",
+            "states": [
+              "nordwerk-logistik-bericht-an-den"
+            ],
+            "notes": "Guten Morgen. Ich berichte heute über das Geschäftsjahr 2025 und schließe mit einem Antrag an Sie: der Freigabe für 25 weitere elektrische Lkw.",
+            "duration": 18.0,
+            "media": {
+              "narrato": {
+                "layout": "Title",
+                "beatIndex": 0,
+                "beatName": "Ergebnis",
+                "intensity": 0.3,
+                "valence": 0.2,
+                "subtitle": "Geschäftsjahr 2025",
+                "estimated": 18.0
+              }
+            }
+          },
+          {
+            "id": "beat-2025-wuchs-der-umsatz-um-7-3-auf-48-6-mio",
+            "claim": "2025 wuchs der Umsatz um 7,3 % auf 48,6 Mio. €",
+            "evidence": [
+              "source:geschaeftsbericht.pdf"
+            ],
+            "states": [
+              "slide-2025-wuchs-der-umsatz-um"
+            ],
+            "notes": "Zuerst das Ergebnis. Der Umsatz stieg auf 48,6 Millionen Euro, nach 45,3 Millionen im Vorjahr. Das ist ein Plus von 7,3 Prozent, getragen vor allem vom Geschäft mit Stückgut im Norden.",
+            "duration": 28.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 0,
+                "beatName": "Ergebnis",
+                "intensity": 0.5,
+                "valence": 0.5,
+                "estimated": 28.0
+              }
+            }
+          },
+          {
+            "id": "der-umsatz-stieg-fast-jeden-monat-auf-4-450-teur-im-deze",
+            "claim": "Der Umsatz stieg fast jeden Monat, auf 4.450 TEUR im Dezember",
+            "evidence": [
+              "@der-umsatz-stieg-fast-jeden-data",
+              "source:kennzahlen.xlsx",
+              "@kennzahlen-umsatz"
+            ],
+            "states": [
+              "der-umsatz-stieg-fast-jeden"
+            ],
+            "notes": "Das Wachstum kam nicht in einem Sprung. Von 3.650 TEUR im Januar stieg der Monatsumsatz auf 4.450 TEUR im Dezember; nur im Sommer gab es eine kurze Delle.",
+            "duration": 29.0,
+            "media": {
+              "narrato": {
+                "layout": "Line Chart",
+                "beatIndex": 0,
+                "beatName": "Ergebnis",
+                "intensity": 0.5,
+                "valence": 0.4,
+                "chartSource": "Umsatz",
+                "chartSeries": [
+                  "Umsatz"
+                ],
+                "estimated": 29.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "ertrag",
+        "title": "Ertrag",
+        "beats": [
+          {
+            "id": "die-ebit-marge-erreichte-6-2",
+            "claim": "Die EBIT-Marge erreichte 6,2 %",
+            "evidence": [
+              "source:kennzahlen.xlsx",
+              "source:geschaeftsbericht.pdf"
+            ],
+            "states": [
+              "die-ebit-marge-erreichte-6-2"
+            ],
+            "notes": "Wir sind nicht nur gewachsen, wir haben auch verdient. Das EBIT lag bei 3,0 Millionen Euro, die Marge bei 6,2 Prozent.",
+            "duration": 19.0,
+            "media": {
+              "narrato": {
+                "layout": "Two Numbers",
+                "beatIndex": 1,
+                "beatName": "Ertrag",
+                "intensity": 0.55,
+                "valence": 0.5,
+                "estimated": 19.0
+              }
+            }
+          },
+          {
+            "id": "beat-87-unserer-kunden-sind-zufrieden",
+            "claim": "87 % unserer Kunden sind zufrieden",
+            "evidence": [
+              "source:geschaeftsbericht.pdf"
+            ],
+            "states": [
+              "slide-87-unserer-kunden-sind"
+            ],
+            "notes": "Die Marge kommt nicht auf Kosten der Kunden. In der Befragung waren 87 Prozent zufrieden oder sehr zufrieden.",
+            "duration": 19.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 1,
+                "beatName": "Ertrag",
+                "intensity": 0.5,
+                "valence": 0.5,
+                "estimated": 19.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "betrieb",
+        "title": "Betrieb",
+        "beats": [
+          {
+            "id": "hamburg-erwirtschaftete-18-900-teur-den-grossten-teil-de",
+            "claim": "Hamburg erwirtschaftete 18.900 TEUR, den größten Teil des Umsatzes",
+            "evidence": [
+              "@kennzahlen-standorte",
+              "source:kennzahlen.xlsx"
+            ],
+            "states": [
+              "hamburg-erwirtschaftete-18-900-teur-den"
+            ],
+            "notes": "Hamburg bleibt unser größter Standort: 18.900 TEUR, vor Bremen mit 13.600 TEUR. Kiel ist der kleinste, wächst aber am schnellsten.",
+            "duration": 24.0,
+            "media": {
+              "narrato": {
+                "layout": "Bar Chart",
+                "beatIndex": 2,
+                "beatName": "Betrieb",
+                "intensity": 0.5,
+                "valence": 0.3,
+                "chartSource": "Standorte",
+                "chartSeries": [
+                  "Umsatz"
+                ],
+                "estimated": 24.0
+              }
+            }
+          },
+          {
+            "id": "beat-412-mitarbeitende-an-vier-standorten",
+            "claim": "412 Mitarbeitende an vier Standorten",
+            "evidence": [
+              "source:kennzahlen.xlsx"
+            ],
+            "states": [
+              "slide-412-mitarbeitende-an-vier-standorten"
+            ],
+            "notes": "Getragen wird das von 412 Mitarbeitenden an vier Standorten, die meisten davon in Hamburg.",
+            "duration": 17.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 2,
+                "beatName": "Betrieb",
+                "intensity": 0.45,
+                "valence": 0.3,
+                "estimated": 17.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "nachhaltigkeit",
+        "title": "Nachhaltigkeit",
+        "beats": [
+          {
+            "id": "die-co-emissionen-je-sendung-sanken-um-14",
+            "claim": "Die CO₂-Emissionen je Sendung sanken um 14 %",
+            "evidence": [
+              "source:geschaeftsbericht.pdf"
+            ],
+            "states": [
+              "die-co-emissionen-je-sendung-sanken",
+              "die-co-emissionen-je-sendung-sanken-2",
+              "die-co-emissionen-je-sendung-sanken-3"
+            ],
+            "notes": "Sauberer sind wir auch geworden. Mit 3,2 Millionen Euro haben wir 18 elektrische Lkw angeschafft; die Emissionen je Sendung sanken um 14 Prozent, und die Pünktlichkeit lag dabei bei 94,1 Prozent.",
+            "duration": 31.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullet List",
+                "beatIndex": 3,
+                "beatName": "Nachhaltigkeit",
+                "intensity": 0.6,
+                "valence": 0.6,
+                "estimated": 31.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "antrag",
+        "title": "Antrag",
+        "beats": [
+          {
+            "id": "wir-bitten-um-freigabe-von-4-5-mio-fur-25-weitere-e-lkw",
+            "claim": "Wir bitten um Freigabe von 4,5 Mio. € für 25 weitere E-Lkw",
+            "evidence": [
+              "source:geschaeftsbericht.pdf"
+            ],
+            "states": [
+              "wir-bitten-um-freigabe-von",
+              "wir-bitten-um-freigabe-von-2",
+              "wir-bitten-um-freigabe-von-3"
+            ],
+            "notes": "Daraus folgt unser Antrag. Wir bitten um die Freigabe von 4,5 Millionen Euro für 25 weitere elektrische Lkw. Sie halten uns auf Kurs zu 52 Millionen Euro Umsatz und einer Marge von 7 Prozent im Jahr 2026.",
+            "duration": 33.0,
+            "media": {
+              "narrato": {
+                "layout": "Bullet List",
+                "beatIndex": 4,
+                "beatName": "Antrag",
+                "intensity": 0.75,
+                "valence": 0.6,
+                "estimated": 33.0
+              }
+            }
+          },
+          {
+            "id": "vielen-dank",
+            "claim": "Nordwerk wächst profitabel und sauberer; 25 weitere E-Lkw halten Kurs auf 52 Mio. € Umsatz in 2026.",
+            "states": [
+              "vielen-dank"
+            ],
+            "notes": "Vielen Dank. Ich freue mich auf Ihre Fragen.",
+            "duration": 15.0,
+            "media": {
+              "narrato": {
+                "layout": "Closing",
+                "beatIndex": 4,
+                "beatName": "Antrag",
+                "intensity": 0.4,
+                "valence": 0.5,
+                "subtitle": "Fragen?",
+                "estimated": 15.0
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "nordwerk-logistik-bericht-an-den-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Nordwerk Logistik: Bericht an den Aufsichtsrat",
+      "at": {
+        "in": "title"
+      },
+      "semantic": "claim"
+    },
+    "nordwerk-logistik-bericht-an-den-subtitle": {
+      "type": "text",
+      "role": "lede",
+      "text": "Geschäftsjahr 2025",
+      "at": {
+        "in": "subtitle"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "slide-2025-wuchs-der-umsatz-um-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "48,6 Mio. €",
+      "at": {
+        "in": "number"
+      }
+    },
+    "slide-2025-wuchs-der-umsatz-um-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "Umsatz 2025, nach 45,3 Mio. € im Vorjahr",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "der-umsatz-stieg-fast-jeden-header": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "runs": [
+        {
+          "text": "Der Umsatz stieg fast jeden Monat, auf "
+        },
+        {
+          "text": "4.450",
+          "quote": {
+            "data": "@kennzahlen-umsatz",
+            "row": {
+              "Monat": "2025-12-01"
+            },
+            "column": "Umsatz_TEUR",
+            "format": ",.0f"
+          }
+        },
+        {
+          "text": " TEUR im Dezember"
+        }
+      ]
+    },
+    "der-umsatz-stieg-fast-jeden-main": {
+      "type": "chart",
+      "kind": "line",
+      "data": "@der-umsatz-stieg-fast-jeden-data",
+      "x": {
+        "field": "category",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "value",
+        "type": "quantitative",
+        "format": ",.0f",
+        "title": "Umsatz"
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {}
+        }
+      ]
+    },
+    "der-umsatz-stieg-fast-jeden-callout": {
+      "type": "text",
+      "role": "figure",
+      "maxLines": 1,
+      "at": {
+        "in": "callout"
+      },
+      "fit": "grow",
+      "maxSize": 112.0,
+      "runs": [
+        {
+          "text": "4.450",
+          "quote": {
+            "data": "@kennzahlen-umsatz",
+            "row": {
+              "Monat": "2025-12-01"
+            },
+            "column": "Umsatz_TEUR",
+            "format": ",.0f"
+          }
+        }
+      ]
+    },
+    "der-umsatz-stieg-fast-jeden-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Umsatz je Monat 2025, in TEUR",
+      "at": {
+        "in": "note"
+      },
+      "fit": "grow",
+      "maxSize": 32.0
+    },
+    "der-umsatz-stieg-fast-jeden-source": {
+      "type": "text",
+      "role": "caption",
+      "text": "Quelle: Umsatz · kennzahlen.xlsx",
+      "at": {
+        "in": "source"
+      },
+      "semantic": "source"
+    },
+    "die-ebit-marge-erreichte-6-2-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Die EBIT-Marge erreichte 6,2 %",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "die-ebit-marge-erreichte-6-2-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "3,0 Mio. € EBIT\n6,2 % EBIT-Marge",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      }
+    },
+    "slide-87-unserer-kunden-sind-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "87 %",
+      "at": {
+        "in": "number"
+      }
+    },
+    "slide-87-unserer-kunden-sind-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "der Kunden zufrieden oder sehr zufrieden",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "hamburg-erwirtschaftete-18-900-teur-den-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Hamburg erwirtschaftete 18.900 TEUR, den größten Teil des Umsatzes",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "hamburg-erwirtschaftete-18-900-teur-den-main": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@kennzahlen-standorte",
+      "x": {
+        "field": "Standort",
+        "type": "ordinal"
+      },
+      "y": {
+        "field": "Umsatz_TEUR",
+        "type": "quantitative",
+        "format": ",.0f",
+        "title": "Umsatz",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "dataTransform": [
+        {
+          "sort": "-Umsatz_TEUR"
+        }
+      ],
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "Hamburg"
+          }
+        }
+      ]
+    },
+    "hamburg-erwirtschaftete-18-900-teur-den-takeaway": {
+      "type": "text",
+      "role": "lede",
+      "text": "Umsatz je Standort 2025, in TEUR",
+      "at": {
+        "in": "takeaway"
+      },
+      "semantic": "takeaway"
+    },
+    "hamburg-erwirtschaftete-18-900-teur-den-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Quelle: Standorte · kennzahlen.xlsx",
+      "at": {
+        "in": "note"
+      },
+      "semantic": "source"
+    },
+    "slide-412-mitarbeitende-an-vier-standorten-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "412",
+      "at": {
+        "in": "number"
+      }
+    },
+    "slide-412-mitarbeitende-an-vier-standorten-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "Mitarbeitende in Hamburg, Bremen, Hannover und Kiel",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "die-co-emissionen-je-sendung-sanken-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Die CO₂-Emissionen je Sendung sanken um 14 %",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "die-co-emissionen-je-sendung-sanken-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "3,2 Mio. € in 18 elektrische Lkw investiert\nPünktlichkeit im Jahresmittel bei 94,1 %\nEmissionen je Sendung 14 % unter 2024",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      },
+      "enter": "bullets"
+    },
+    "wir-bitten-um-freigabe-von-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Wir bitten um Freigabe von 4,5 Mio. € für 25 weitere E-Lkw",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "wir-bitten-um-freigabe-von-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "Ziel 2026: 52 Mio. € Umsatz\nEBIT-Marge von 7 %\nLieferung der Fahrzeuge bis Q3 2026",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      },
+      "enter": "bullets"
+    },
+    "vielen-dank-statement": {
+      "type": "text",
+      "role": "display",
+      "text": "Nordwerk wächst profitabel und sauberer; 25 weitere E-Lkw halten Kurs auf 52 Mio. € Umsatz in 2026.",
+      "at": {
+        "in": "statement"
+      },
+      "fit": "shrink",
+      "maxSize": 136.75,
+      "maxLines": 3,
+      "semantic": "claim"
+    },
+    "vielen-dank-support": {
+      "type": "text",
+      "role": "lede",
+      "text": "Vielen Dank · Fragen? · Vielen Dank · Fragen?",
+      "at": {
+        "in": "support"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "nordwerk-logistik-bericht-an-den-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 638,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "recolored": {
+        "nordwerk-logistik-bericht-an-den-subtitle": "onSurface"
+      }
+    },
+    "vielen-dank-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 653,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "recolored": {
+        "vielen-dank-support": "onSurface"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "nordwerk-logistik-bericht-an-den",
+      "mode": "absolute",
+      "layout": "title-center",
+      "props": {
+        "nordwerk-logistik-bericht-an-den-title": {},
+        "nordwerk-logistik-bericht-an-den-subtitle": {},
+        "nordwerk-logistik-bericht-an-den-background": {}
+      }
+    },
+    {
+      "id": "slide-2025-wuchs-der-umsatz-um",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "slide-2025-wuchs-der-umsatz-um-number": {},
+        "slide-2025-wuchs-der-umsatz-um-claim": {}
+      }
+    },
+    {
+      "id": "der-umsatz-stieg-fast-jeden",
+      "mode": "absolute",
+      "layout": "line-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "der-umsatz-stieg-fast-jeden-header": {},
+        "der-umsatz-stieg-fast-jeden-main": {},
+        "der-umsatz-stieg-fast-jeden-callout": {},
+        "der-umsatz-stieg-fast-jeden-note": {},
+        "der-umsatz-stieg-fast-jeden-source": {}
+      },
+      "choreography": [
+        {
+          "target": "der-umsatz-stieg-fast-jeden-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "die-ebit-marge-erreichte-6-2",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "die-ebit-marge-erreichte-6-2-header": {},
+        "die-ebit-marge-erreichte-6-2-body": {}
+      }
+    },
+    {
+      "id": "slide-87-unserer-kunden-sind",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "slide-87-unserer-kunden-sind-number": {},
+        "slide-87-unserer-kunden-sind-claim": {}
+      }
+    },
+    {
+      "id": "hamburg-erwirtschaftete-18-900-teur-den",
+      "mode": "absolute",
+      "layout": "bar-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "hamburg-erwirtschaftete-18-900-teur-den-header": {},
+        "hamburg-erwirtschaftete-18-900-teur-den-main": {},
+        "hamburg-erwirtschaftete-18-900-teur-den-takeaway": {},
+        "hamburg-erwirtschaftete-18-900-teur-den-note": {}
+      },
+      "choreography": [
+        {
+          "target": "hamburg-erwirtschaftete-18-900-teur-den-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "slide-412-mitarbeitende-an-vier-standorten",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "slide-412-mitarbeitende-an-vier-standorten-number": {},
+        "slide-412-mitarbeitende-an-vier-standorten-claim": {}
+      }
+    },
+    {
+      "id": "die-co-emissionen-je-sendung-sanken",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "die-co-emissionen-je-sendung-sanken-header": {},
+        "die-co-emissionen-je-sendung-sanken-body": {
+          "paragraphs": [
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": "die-co-emissionen-je-sendung-sanken-2",
+      "slide": "die-co-emissionen-je-sendung-sanken",
+      "mode": "delta",
+      "props": {
+        "die-co-emissionen-je-sendung-sanken-body": {
+          "paragraphs": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "die-co-emissionen-je-sendung-sanken-3",
+      "slide": "die-co-emissionen-je-sendung-sanken",
+      "mode": "delta",
+      "props": {
+        "die-co-emissionen-je-sendung-sanken-body": {
+          "paragraphs": [
+            1,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "id": "wir-bitten-um-freigabe-von",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "wir-bitten-um-freigabe-von-header": {},
+        "wir-bitten-um-freigabe-von-body": {
+          "paragraphs": [
+            1,
+            1
+          ]
+        }
+      },
+      "choreography": [
+        {
+          "target": "wir-bitten-um-freigabe-von-header",
+          "enter": "pop"
+        }
+      ]
+    },
+    {
+      "id": "wir-bitten-um-freigabe-von-2",
+      "slide": "wir-bitten-um-freigabe-von",
+      "mode": "delta",
+      "props": {
+        "wir-bitten-um-freigabe-von-body": {
+          "paragraphs": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "id": "wir-bitten-um-freigabe-von-3",
+      "slide": "wir-bitten-um-freigabe-von",
+      "mode": "delta",
+      "props": {
+        "wir-bitten-um-freigabe-von-body": {
+          "paragraphs": [
+            1,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "id": "vielen-dank",
+      "mode": "absolute",
+      "layout": "closing",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "vielen-dank-statement": {},
+        "vielen-dank-support": {},
+        "vielen-dank-background": {}
+      }
+    }
+  ]
+}
