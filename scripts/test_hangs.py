@@ -3,6 +3,7 @@ the heaviest busy path through its main thread's sample, the deepest first, a Ru
 and the time its main thread spent waiting for the next event never counted as work."""
 
 import sys
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -127,6 +128,28 @@ class Recursion(unittest.TestCase):
         )
 
 
+class Spent(unittest.TestCase):
+    def test_a_hangs_busy_samples_go_to_the_app_frame_nearest_them_rust_or_swift(self):
+        # Six under the engine's lint, one under AppKit's display beneath the app's Swift entry;
+        # the three waiting on the run loop are no one's.
+        self.assertEqual(hangs.spent(hangs.main_thread(SAMPLE)), (6, 1))
+        self.assertEqual(hangs.where(SAMPLE), "Rust 85%")
+
+    def test_a_hang_in_a_views_body_is_swifts(self):
+        swift = SAMPLE.replace("_ZN14scaena_session6editor7Session6linted17h0123456789abcdefE", "DeckEditor.linted()")
+        swift = swift.replace("_ZN13scaena_engine4lint12layout_rules17h0123456789abcdefE", "static JSONValue.==")
+        self.assertEqual(hangs.where(swift), "Swift 100%")
+
+    def test_a_hang_with_no_busy_sample_or_no_app_frame_says_so(self):
+        idle = SAMPLE.replace("DeckEditor.lintShown()  (in Scaena)", "x  (in AppKit)")
+        idle = idle.replace("Scaena_main  (in Scaena)", "y  (in AppKit)")
+        idle = idle.replace("closure #1 in ThemePanel.body.getter  (in Scaena)", "z  (in AppKit)")
+        idle = idle.replace("scaena_call  (in Scaena)", "w  (in AppKit)")
+        idle = re.sub(r"(_ZN\w+)  \(in Scaena\)", r"\1  (in AppKit)", idle)
+        self.assertEqual(hangs.where(idle), "system")
+        self.assertIsNone(hangs.where("no threads"))
+
+
 class Kept(unittest.TestCase):
     def test_a_samples_main_thread_is_kept_demangled_its_rare_frames_left_out(self):
         kept = hangs.graph(SAMPLE)
@@ -161,7 +184,7 @@ class Reported(unittest.TestCase):
             )
             said = hangs.report(folder, frames=2, top=3)
         self.assertEqual(said[0], "3 hang(s), 4660 ms in all, the longest first:")
-        self.assertEqual(said[1], "hang 3, at 31.2 s: 4100 ms and still going when the walk ended")
+        self.assertEqual(said[1], "hang 3, at 31.2 s: 4100 ms and still going when the walk ended [Rust 85%]")
         self.assertEqual(said[2].split(), ["5", "scaena_engine::lint::layout_rules"])
         self.assertIn("hang 2, at 20.0 s: 260 ms", said)
         self.assertIn("  (not sampled)", said)

@@ -2,7 +2,10 @@
 (apps/mac/window.sh, apps/mac/hangs.swift): each hang by its length, with the app's own frames on
 the heaviest path through its main thread's sample, the deepest first, then every frame by the
 time it was on that path for, summed over the hangs, the longest first. The app's own frames are
-Scaena's binary, its Swift and the Rust engine linked into it; a Rust frame is demangled.
+Scaena's binary, its Swift and the Rust engine linked into it; a Rust frame is demangled. Each
+hang says where its busy samples were spent, Rust or Swift, by the app's frame nearest each: the
+walk runs a debug build, many times slower in Rust and little slower in Swift, so a hang spent in
+Swift is one a release build would still have.
 
     python3 scripts/hangs.py FOLDER [--frames N] [--top N] [--samples FILE]
 """
@@ -225,8 +228,8 @@ def demangled(symbol):
 
 
 class Frame:
-    def __init__(self, count, symbol, image, depth):
-        self.count, self.symbol, self.image, self.depth = count, symbol, image, depth
+    def __init__(self, count, symbol, image, depth, rust=False):
+        self.count, self.symbol, self.image, self.depth, self.rust = count, symbol, image, depth, rust
         self.children = []
 
     def busy(self):
@@ -255,12 +258,54 @@ def main_thread(text):
                 break
             continue
         depth = len(found.group("lead"))
-        frame = Frame(int(found.group("count")), demangled(found.group("symbol").strip()), found.group("image"), depth)
+        symbol = found.group("symbol").strip()
+        frame = Frame(int(found.group("count")), demangled(symbol), found.group("image"), depth, bool(RUST.match(symbol)))
         while stack[-1].depth >= depth:
             stack.pop()
         stack[-1].children.append(frame)
         stack.append(frame)
     return root
+
+
+# A symbol Rust mangled, in either mangling.
+RUST = re.compile(r"^_?_(R[A-Z0-9]|ZN)")
+
+
+def spent(root):
+    """The main thread's busy samples by the language of the app's frame nearest each: Rust's and
+    Swift's, a pair. A debug build is many times slower in Rust and little slower in Swift, so a hang
+    spent in Swift is one a release build would still have."""
+    rust = swift = 0
+
+    def walk(frame, own):
+        nonlocal rust, swift
+        if frame.image == APP:
+            own = "rust" if frame.rust else "swift"
+        alone = frame.busy() - sum(child.busy() for child in frame.children)
+        if own == "rust":
+            rust += alone
+        elif own == "swift":
+            swift += alone
+        for child in frame.children:
+            walk(child, own)
+
+    walk(root, None)
+    return rust, swift
+
+
+def where(text):
+    """Where a hang's sample spent its busy samples: `Rust`, `Swift`, or `system` where no app
+    frame is under them, with its share; none where it has no main thread or no busy sample."""
+    root = main_thread(text)
+    if root is None or root.busy() == 0:
+        return None
+    rust, swift = spent(root)
+    busy = root.busy()
+    if rust == swift == 0:
+        return "system"
+    if rust >= swift:
+        return f"Rust {100 * rust // busy}%"
+    return f"Swift {100 * swift // busy}%"
 
 
 def heaviest(root):
@@ -355,7 +400,11 @@ def report(folder, frames=12, top=15):
         if sampled is None or not sampled.exists():
             lines.append("  (not sampled)")
             continue
-        own, taken, busy = app_frames(sampled.read_text(encoding="utf-8", errors="replace"), frames)
+        text = sampled.read_text(encoding="utf-8", errors="replace")
+        own, taken, busy = app_frames(text, frames)
+        spent_in = where(text)
+        if spent_in:
+            lines[-1] += f" [{spent_in}]"
         if not own:
             lines.append(f"  no frame of the app's on its heaviest path ({busy} of {taken} samples busy)")
             continue
