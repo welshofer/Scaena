@@ -1737,7 +1737,7 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
     if let Some(c) = &h.compared {
         let later = c.to.as_ref().map_or_else(|| "the deck as it is now".to_string(), |v| format!("version {}", v.n));
         println!("from version {} to {later}", c.from.n);
-        if c.states.is_empty() && c.deck.is_empty() && c.files.is_empty() {
+        if c.states.is_empty() && c.deck.is_empty() && c.files.is_empty() && c.story.is_empty() {
             println!("  nothing changed");
         }
         for (id, change) in &c.states {
@@ -1765,6 +1765,9 @@ fn history(bundle: &Path, ask: &scaena_ops::history::Ask, json: bool) -> Result<
         }
         for (field, value) in &c.deck {
             println!("  deck {field}: {}", shown(value));
+        }
+        for (label, slides) in &c.story {
+            println!("  {label} on {}", slides.join(", "));
         }
         for file in &c.files {
             println!("  {file} changed");

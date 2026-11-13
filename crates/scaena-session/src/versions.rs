@@ -136,10 +136,21 @@ impl Session {
                 (self.deck.clone(), scaena_core::sort::map(now))
             }
         };
-        let (states, fields) = compare(&earlier, &later).map_err(|e| Error::Ops(e.to_string()))?;
+        let (states, mut fields) = compare(&earlier, &later).map_err(|e| Error::Ops(e.to_string()))?;
+        // A beat's fields changed, named by the slides they are read on (editor dogfood 7): the
+        // spine stays under `deck` only for what no slide tells, so a beat's notes change is named
+        // by its slide, not as "the deck's story".
+        let mut story: Vec<(String, Vec<String>)> = Vec::new();
+        if fields.contains_key("spine") {
+            let (told, rest) = scaena_ops::history::story_changes(&earlier, &later);
+            story = told;
+            if !rest {
+                fields.shift_remove("spine");
+            }
+        }
         let files = differing((&earlier, &bytes(&from.files)), (&later, &files));
         let texts = retyped(&earlier, &later, &states);
-        Ok(serde_json::json!({ "states": states, "deck": fields, "files": files, "texts": texts }))
+        Ok(serde_json::json!({ "states": states, "deck": fields, "files": files, "story": story, "texts": texts }))
     }
 
     /// Make version `held`, `version` as listed, the deck again, with its data files, as `scaena
