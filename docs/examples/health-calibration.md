@@ -524,3 +524,20 @@ n′ is built: `meta.narrative.sources[].figures` (deck format 0.41) and the `so
 ### What a source keeps
 
 Each source keeps its figures alone, each value once: biotonne's `bericht.pdf` keeps 15 (93 bytes), its `abfall.csv` 15 (120 bytes), and dogfood 9's `board.csv` 36 (241 bytes). The reader's ü, ß and € in `bericht.pdf` are dropped (its font has no ToUnicode for them); its figures read.
+
+## Re-read on main after the day's health changes
+
+The 19 calibration decks were read again on main at 0fc1c7c3, after three landings:
+- #1268, the close that asserts a big idea nothing built;
+- #1275 and #1278;
+- #1283, the sources' kept figures (deck format 0.41).
+
+W2's six were read twice: as kept at 031605545, and rebuilt on main from their slides and outlines.
+
+**No score moved.**
+- Every deck scores as it did, and so do its pacing, balance and fidelity: the 13 as in "What the numbers say", and the six as in the clean table above.
+- ρ is unchanged: +0.65 on the 13 and +0.93 on the six.
+
+**One finding came.** Support gets #1268's info on its close (slides 9–10), as that PR measured. No other finding came or went.
+
+**#1283 finds nothing here.** None of the 19 is made from sources, so the cited-source check doesn't run on them.
