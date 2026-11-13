@@ -4533,6 +4533,8 @@ fn layout_for(
         "body" if pictured => "bullets-photo",
         // Three or four points each led by its figure, "64% have no car", are figures a room
         // reads at a glance, each on its card with its words under it (W1's dogfood 8).
+        // Two such points stand as two figures, as three and four do (R1's agent dogfood 12).
+        "body" if n == 2 && figured(items) && theme.layouts.contains_key("two-numbers") => "two-numbers",
         "body" if n == 3 && figured(items) && theme.layouts.contains_key("numbers") => "numbers",
         "body" if n == 4 && figured(items) && theme.layouts.contains_key("four-numbers") => "four-numbers",
         "body" => "bullets",
@@ -9375,6 +9377,15 @@ mod tests {
         // Each figure said once: its words under it run on from it.
         assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
         assert!(!said.iter().any(|w| w.starts_with("64% ")), "{said:?}");
+        // Two points each led by its figure: two figures, each over its words (R1's agent dogfood 12).
+        let (layout, said) = made(&three[..2]);
+        assert_eq!(layout, "two-numbers", "{said:?}");
+        for words in ["64%", "71%"] {
+            assert!(said.iter().any(|w| w == words), "{words} in {said:?}");
+        }
+        assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
+        let (layout, said) = made(&["3.800 € por fuente instalada", "410 € al año de mantenimiento"]);
+        assert_eq!(layout, "two-numbers", "{said:?}");
         let four = [three[0], three[1], three[2], "612 riders answered the survey"];
         let (layout, said) = made(&four);
         assert_eq!(layout, "four-numbers", "{said:?}");
