@@ -28,6 +28,10 @@ struct StoryPanel: View {
     /// What the edits before the last read answered, under the score for a moment (editor dogfood 6).
     @State private var answered: String?
     @State private var again = 0
+    /// The claim or big-idea finding whose words are being edited in its popover, and the text in
+    /// the field, where one is open (editor dogfood 7).
+    @State private var settling: Health.Finding?
+    @State private var settlingText = ""
 
     var body: some View {
         List {
@@ -204,6 +208,39 @@ struct StoryPanel: View {
         }
     }
 
+    /// The popover that edits a part's claim or the big idea in its settled words (editor dogfood
+    /// 7): a field and Settle, which writes the text where the outline holds it, one patch, or
+    /// leaves it where nothing changed; Escape closes it.
+    @ViewBuilder private func settleField(_ finding: Health.Finding, claim: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(claim ? "The claim its part of the talk makes" : "The big idea the talk lands")
+                .font(.caption).foregroundStyle(.secondary)
+            TextField(claim ? "Claim" : "Big idea", text: $settlingText, axis: .vertical)
+                .lineLimit(2 ... 4)
+                .frame(width: 320)
+                .onSubmit { settle(finding) }
+                .accessibilityIdentifier("story-settle-field")
+            HStack {
+                Spacer()
+                Button("Settle") { settle(finding) }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(12)
+    }
+
+    /// Write `finding`'s settled claim or big idea as the field now reads it, where its `path`
+    /// says the outline holds it: one patch, one step to undo, the popover closed; nothing where
+    /// it is empty or unchanged (editor dogfood 7).
+    private func settle(_ finding: Health.Finding) {
+        defer { settling = nil }
+        guard let path = finding.path else { return }
+        let value = settlingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != (finding.settled ?? "").trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        guard !editor.assisting else { return edits.say("Not settled: \(DeckEditor.busy)") }
+        let name = finding.field == "claim" ? "Settle Slide \(finding.slide)’s Claim" : "Settle the Big Idea"
+        edits.patch(name, [["op": .string("replace"), "path": .string(path), "value": .string(value)]])
+    }
+
     /// What reads the story again: an edit, or a lint of every state that found otherwise.
     private struct Asked: Hashable {
         let revision: Int
@@ -277,6 +314,20 @@ struct StoryPanel: View {
                     Button("Edit Its Headline") { edits.headline(first.state) }
                         .disabled(asLastRead)
                         .accessibilityIdentifier("story-edit-headline")
+                }
+                // A part's claim or the big idea a finding asks for is edited here in its settled
+                // words, with no model: one patch where the outline holds it (editor dogfood 7).
+                if let settle = run.first(where: { ($0.field == "claim" || $0.field == "bigIdea") && $0.path != nil && $0.settled != nil }) {
+                    let claim = settle.field == "claim"
+                    Button(claim ? "Edit Its Claim" : "Edit the Big Idea") {
+                        settlingText = settle.settled ?? ""
+                        settling = settle
+                    }
+                    .disabled(asLastRead)
+                    .accessibilityIdentifier(claim ? "story-edit-claim" : "story-edit-big-idea")
+                    .popover(isPresented: Binding(get: { settling?.id == settle.id }, set: { if !$0 { settling = nil } })) {
+                        settleField(settle, claim: claim)
+                    }
                 }
                 // A slide that says again what an earlier one said offers to fold into that one,
                 // beside the cut its to-do names (R1's #1161), as the browser's Story row does.
