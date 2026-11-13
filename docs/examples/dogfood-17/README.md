@@ -19,7 +19,7 @@ It was walked in headless Chromium against a scripted Anthropic, the CPU paintin
 node docs/examples/dogfood-17/walk.mjs [OUTDIR] [make,story,rehearse,present,export]
 ```
 
-The talk is "Riverton's street trees: we are losing shade faster than we plant it", for the Riverton City Council. Its goal is Persuade and it runs 12 minutes. It is grounded in `report.pdf`, an urban forest assessment, and `canopy.csv` (`year,canopy_pct,trees_planted,trees_removed`, 2016–2025).
+The talk is "Riverton's street trees: we are losing shade faster than we plant it", for the Riverton City Council. Its goal is Persuade and it runs 12 minutes. It is grounded in `report.pdf`, an urban forest assessment, and `bundle/data/canopy.csv` (`year,canopy_pct,trees_planted,trees_removed`, 2016–2025), which the walk hands over from the bundle.
 
 1. **Made:** From a prompt…, the outline as asked, then Write the slides.
    - Health: 84, its pacing 100 ("About 13 minutes of talk, where its brief asks 12 minutes").
@@ -42,6 +42,8 @@ The talk is "Riverton's street trees: we are losing shade faster than we plant i
 - `deck.worked.json`: the deck after the Story was worked.
 - `themes/dusk.theme.json`: Dusk as the bundle holds it.
 - `data/canopy.csv` and `fonts/`.
+
+The bundle comes to 2.2 MB: its six fonts 1.6 MB, Dusk 557 KB, the two decks 66 KB. The fonts are what a save keeps. `scaena save` on the bundle writes them byte for byte as they are, since a subset keeps the whole of Latin and U+2000–27BF, and these fonts are little more. Both decks validate against them and draw every slide; `deck.worked.json` lints with one W202, the closing statement typed to four lines.
 
 `scaena health docs/examples/dogfood-17/bundle` reads the deck as made: 84, with eight findings. With `deck.worked.json` in its place it reads 86, with two. The two decks differ in six values:
 

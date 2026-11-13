@@ -311,7 +311,7 @@ try {
   await page.fill("#prompting-minutes", "12");
   await page.selectOption("#prompting-pictures", "");
   for (const id of ["#prompting-see", "#prompting-notes", "#prompting-show-outline"]) if (!(await page.isChecked(id))) await page.check(id);
-  await page.setInputFiles("#prompting-files", [`${here}/report.pdf`, `${here}/canopy.csv`]);
+  await page.setInputFiles("#prompting-files", [`${here}/report.pdf`, `${here}/bundle/data/canopy.csv`]);
   note("length chosen:", await page.inputValue("#prompting-length").catch(() => "?"));
   await page.click("#prompting-go");
   await page.waitForSelector("#prompting-outline:not([hidden])", { timeout: 180000 });
