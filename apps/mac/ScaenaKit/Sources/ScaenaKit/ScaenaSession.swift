@@ -434,6 +434,20 @@ public final class ScaenaSession {
         return try Self.decode(scaena_adopt_since(handle, snapshot.handle, saved.handle), as: Adopted.self).adopted
     }
 
+    /// Take an edit made on `apart`, a session `snapshot.opened()` opened, away from this one
+    /// (#1262's follow-up): its deck, and each file it wrote, a theme's fonts among them, as one
+    /// change by the user at `date`, said by `why`, laying nothing out. Whether it did: where the
+    /// session changed since `snapshot` was taken, nothing is taken, and the edit is to be made
+    /// again on the deck as it stands.
+    public func take(_ apart: ScaenaSession, since snapshot: Snapshot, why: String, at date: Date = Date()) throws -> Bool {
+        struct Taken: Decodable {
+            let taken: Bool
+        }
+        return try Self.decode(
+            scaena_take_apart(handle, snapshot.handle, apart.handle, why, date.formatted(.iso8601)), as: Taken.self
+        ).taken
+    }
+
     /// The `ok` of the envelope at `answer`, freed, or its `error` thrown.
     static func decode<T: Decodable>(_ answer: UnsafeMutablePointer<CChar>?, as type: T.Type) throws -> T {
         guard let answer else { throw ScaenaError(message: "the engine said nothing") }

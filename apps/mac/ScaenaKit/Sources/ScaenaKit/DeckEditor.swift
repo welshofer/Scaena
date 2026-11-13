@@ -559,6 +559,40 @@ public final class DeckEditor {
         return nil
     }
 
+    /// The deck put in another theme, `picked`, as `session.retheme` puts it, but away from the window
+    /// (#1262's follow-up): a re-theme lints the whole deck in the theme it leaves and the one it
+    /// makes, which kept the window from answering, as a theme edit did. Made on a session opened on
+    /// a snapshot, on a thread of its own, then taken by the session, the theme's fonts with it,
+    /// laying nothing out; made again where the deck changed meanwhile. What it did, refused
+    /// included; nil where the deck kept changing while it was made, nothing made. The caller reads
+    /// the deck again (`reread(lint: false)`), as after a theme edit.
+    public func rethemeAway(_ picked: Retheming, isolation: isolated (any Actor)? = #isolation) async throws -> Themed? {
+        for _ in 0..<Self.themeTries {
+            let began = (revision, themesEdited)
+            let snapshot = try session.snapshot()
+            themeEditing?()
+            let told = themedOn
+            let made = try await themeing.run { () -> (Themed, Unsent<ScaenaSession>) in
+                told?(Thread.isMainThread)
+                let apart = try snapshot.opened()
+                let themed: Themed
+                switch picked {
+                case .ships(let name): themed = try apart.retheme(ships: name)
+                case .path(let path): themed = try apart.retheme(path: path)
+                }
+                return (themed, Unsent(apart))
+            }
+            // Another edit came while it was made: made again, on the deck as it now stands.
+            guard began == (revision, themesEdited) else { continue }
+            let (themed, apart) = made
+            guard themed.applied else { return themed }
+            guard try session.take(apart.value, since: snapshot, why: "theme --apply \(themed.theme)") else { continue }
+            themesEdited += 1
+            return themed
+        }
+        return nil
+    }
+
     /// How many times a theme edit is made again where the deck changed while it was made.
     static let themeTries = 4
 
@@ -908,6 +942,14 @@ public enum ThemeChange: Sendable {
     case ops([JSONValue])
     /// The colors of a photo the bundle holds, by its path in it.
     case photo(String)
+}
+
+/// The theme a re-theme made away from the window (`DeckEditor.rethemeAway`) puts the deck in.
+public enum Retheming: Sendable {
+    /// A theme that ships, by its name.
+    case ships(String)
+    /// A theme file the bundle holds, by its path in it.
+    case path(String)
 }
 
 /// A theme edit made away from the window (`DeckEditor.themeEditAway`): what it did, and the source

@@ -2171,6 +2171,7 @@ struct DeckView: View {
         PanelEdits(
             besideMade: { name, edit in making(name) { try document.beside(edit, undo: undo) } },
             themeMade: { name, refused, change in await theming(name, refused, change) },
+            rethemeMade: { picked in await retheming(picked) },
             dataMade: { name, edit in making(name) { try document.data(edit, undo: undo) } },
             patchMade: { name, ops in making(name) { try document.make(ops, undo: undo) } },
             go: { state in chosen = state },
@@ -2233,6 +2234,25 @@ struct DeckView: View {
         } catch {
             failure = Why.said(error)
             return false
+        }
+    }
+
+    /// The deck put in `picked`, made away from the window (#1262's follow-up): one step to undo,
+    /// named as the theme picker names it. Refused or failed, the window says why.
+    private func retheming(_ picked: Retheming) async -> Themed? {
+        do {
+            guard let themed = try await document.rethemed(picked, undo: undo) else {
+                failure = "not re-themed: the deck kept changing while it was made"
+                return nil
+            }
+            guard themed.applied else {
+                throw Refused("not re-themed", themed.refusals, by: editor, otherwise: "the deck would not open in it")
+            }
+            undo?.setActionName("Theme Change")
+            return themed
+        } catch {
+            failure = Why.said(error)
+            return nil
         }
     }
 

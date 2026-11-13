@@ -1253,6 +1253,41 @@ pub unsafe extern "C" fn scaena_adopt_since(
     }))
 }
 
+/// Take an edit made on `apart`, a session [`scaena_snapshot_open`] opened on `snapshot`, away
+/// from `session` (#1262's follow-up): a re-theme, which lints the whole deck in both themes,
+/// made on another thread while `session` answers on its own. Its deck, and each file it holds
+/// that `snapshot` did not, or held otherwise, fonts among them, are written into `session` as
+/// one change by `user`, said by `why`, at `at` (RFC 3339, or null), laying nothing out. Where
+/// `session` changed since `snapshot` was taken, it takes nothing. `{"ok": {"taken": bool}}` or
+/// `{"error"}`.
+///
+/// # Safety
+/// `session` is a live handle, on its own thread; `snapshot` one from [`scaena_snapshot_new`];
+/// `apart` one from [`scaena_snapshot_open`] on it, used by no other thread meanwhile; `why` a
+/// NUL-terminated string; `at` one, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn scaena_take_apart(
+    session: *mut ScaenaSession,
+    snapshot: *const ScaenaSnapshot,
+    apart: *const ScaenaSession,
+    why: *const c_char,
+    at: *const c_char,
+) -> *mut c_char {
+    envelope(guarded(|| {
+        let session = unsafe { handle(session, "session") }?;
+        // SAFETY: the caller gives live handles, or null.
+        let snapshot = unsafe { snapshot.as_ref() }.ok_or_else(|| said("snapshot is null"))?;
+        let apart = unsafe { apart.as_ref() }.ok_or_else(|| said("apart is null"))?;
+        let why = unsafe { text(why, "why") }?;
+        let at = match at.is_null() {
+            true => None,
+            false => scaena_session::store::seconds(unsafe { text(at, "at") }?),
+        };
+        let taken = session.0.take_apart(&snapshot.0, &apart.0, why, at).map_err(said)?;
+        Ok(json!({ "taken": taken }))
+    }))
+}
+
 /// Let go of a save.
 ///
 /// # Safety

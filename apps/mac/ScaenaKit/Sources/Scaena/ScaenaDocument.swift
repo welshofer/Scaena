@@ -291,6 +291,22 @@ final class ScaenaDocument: ReferenceFileDocument {
         return away.edited
     }
 
+    /// The deck put in another theme, `picked` (PLAN 2.39), made away from the window as a theme edit
+    /// is (#1262's follow-up): the deck read again, its lint of the state shown left to `lintEvery`,
+    /// and one step to undo, which makes the deck's source again, naming the theme it left. What
+    /// the re-theme did; nil where the deck kept changing while it was made, nothing made.
+    @MainActor
+    func rethemed(_ picked: Retheming, undo: UndoManager?) async throws -> Themed? {
+        try editor.unassisted()
+        guard let themed = try await editor.rethemeAway(picked) else { return nil }
+        guard themed.applied else { return themed }
+        // The source as it was just before the theme was taken: what its undo makes the deck again.
+        let before = editor.source
+        editor.reread(lint: false)
+        keep(before, files: [], undo: undo)
+        return themed
+    }
+
     /// A data file a panel writes, or a file it takes out (PLAN 3.15): the deck read again, and
     /// one step to undo, the session's own, which puts the file back as it was, and the source as
     /// it was where the edit set a quote of the data again; redone, it is written again.
