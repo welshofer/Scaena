@@ -401,7 +401,8 @@ impl Rule for W304EmptyPlace {
 /// 16). A slide that says nothing but its prompts is still being written and is not judged, as
 /// W304 leaves it. Only a slot's own prompt is matched, so a person's words are never found. One
 /// finding per text and state, in the deck's own format, where the words are the same in every
-/// format; no fix, since only the person knows what to say.
+/// format; no fix, since only the person knows what to say. A prompt that is its place's label, a
+/// quiz's letter or a step's number, is what the slide says there, and is never found.
 pub struct W305PromptLeft;
 
 impl Rule for W305PromptLeft {
@@ -431,8 +432,10 @@ impl Rule for W305PromptLeft {
                 .filter_map(|(id, p)| {
                     let slot = p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str()?;
                     let (said, _) = slots.get(slot)?.prompt.as_ref()?.text()?;
-                    (!said.trim().is_empty() && p.get("text").and_then(Value::as_str) == Some(said.as_str()))
-                        .then_some((id, slot, said))
+                    (!said.trim().is_empty()
+                        && !label(&said)
+                        && p.get("text").and_then(Value::as_str) == Some(said.as_str()))
+                    .then_some((id, slot, said))
                 })
                 .collect();
             // Words of the person's own on the slide: a text that says something, and not its prompt.
@@ -459,6 +462,14 @@ impl Rule for W305PromptLeft {
         }
         out
     }
+}
+
+/// Whether a slot's prompt is its place's label, a letter or a number of one or two ("A", "01"), as a
+/// quiz's letters and a process's steps are: what the slide says there as its layout writes it,
+/// never words left to type over (W1's dogfood 18).
+fn label(prompt: &str) -> bool {
+    let prompt = prompt.trim();
+    (1..=2).contains(&prompt.chars().count()) && prompt.chars().all(char::is_alphanumeric)
 }
 
 /// W311: a shader painted behind a chart or a table, where they overlap. Data reads
