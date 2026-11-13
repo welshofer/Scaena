@@ -252,6 +252,11 @@ pub(super) fn compile(doc: &Value, op: &SemanticOp, files: &dyn BundleFiles) -> 
                  `scaena patch`), alone in its patch"
                 .into());
         }
+        SemanticOp::Focus { .. } | SemanticOp::Walk { .. } => {
+            return Err("a code text's `focus` and `walk` are made by the operations, which read its lines \
+                 (`deck_patch`, `scaena patch`)"
+                .into());
+        }
         SemanticOp::RenameState { id, to } => {
             renamed.push(Renamed::State { from: id.clone(), to: to.clone() });
             rename_state(&d, id, to)?

@@ -530,6 +530,33 @@ pub enum SemanticOp {
         #[schemars(with = "Option<Id>")]
         into: Option<String>,
     },
+    /// Code text `node`'s lines in focus in `state`, as the editors' Focus on These Lines and Lines
+    /// in Focus set them (PLAN 2.140): `lines` in the gutter's numbers, "11–13, 16", from the
+    /// text's `code.start`, and none, or every line, the whole block. The rest are set back, and
+    /// each state after it that showed another focus is given it back, so they are as they were.
+    /// The operations make it (`scaena_ops::coding::focusing`), against the deck as the ops before
+    /// it leave it (W1 dogfood 18); this crate alone refuses it.
+    Focus {
+        #[schemars(with = "Id")]
+        node: String,
+        #[schemars(with = "Id")]
+        state: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lines: Option<String>,
+    },
+    /// Code text `node` walked through from `state`, as the editors' Walk Through Lines… walks it
+    /// (PLAN 2.140): `state` shows the first of `steps`, and a step of its slide after it shows
+    /// each of the rest, each in the gutter's numbers as `focus` takes them, "" the whole block.
+    /// Each step glides in at the theme's `slow`, in its beat, and the states after are as they
+    /// were. The operations make it (`scaena_ops::coding::walking`), as `focus`; this crate alone
+    /// refuses it.
+    Walk {
+        #[schemars(with = "Id")]
+        node: String,
+        #[schemars(with = "Id")]
+        state: String,
+        steps: Vec<String>,
+    },
     /// A state's id, everywhere it is used: the states that build on it or track from it,
     /// and the spine's beats.
     RenameState {
@@ -657,6 +684,8 @@ impl SemanticOp {
             SemanticOp::DuplicateSlide { .. } => "duplicate_slide",
             SemanticOp::RemoveSlide { .. } => "remove_slide",
             SemanticOp::FoldSlide { .. } => "fold_slide",
+            SemanticOp::Focus { .. } => "focus",
+            SemanticOp::Walk { .. } => "walk",
             SemanticOp::RenameState { .. } => "rename_state",
             SemanticOp::SetState { .. } => "set_state",
             SemanticOp::Furnish { .. } => "furnish",
