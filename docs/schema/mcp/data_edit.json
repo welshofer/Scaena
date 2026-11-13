@@ -116,6 +116,16 @@
         "required": ["code", "severity", "message"]
       },
       "Severity": { "type": "string", "enum": ["info", "warning", "error"] },
+      "Unquoted": {
+        "type": "object",
+        "properties": {
+          "node": { "type": "string" },
+          "slides": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+          "words": { "type": "string" },
+          "said": { "type": "string" }
+        },
+        "required": ["node", "slides", "words", "said"]
+      },
       "StillSaid": {
         "type": "object",
         "properties": {
@@ -140,6 +150,7 @@
       "errors": { "type": "integer", "minimum": 0 },
       "refused": { "type": "boolean" },
       "quoted": { "type": "array", "items": { "type": "string" } },
+      "unquoted": { "type": "array", "items": { "$ref": "#/$defs/Unquoted" } },
       "stale": { "type": "array", "items": { "$ref": "#/$defs/StillSaid" } }
     }
   }

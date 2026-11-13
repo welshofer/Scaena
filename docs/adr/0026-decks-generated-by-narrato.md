@@ -42,7 +42,7 @@ Scaena's constraints bear on all of it:
    - **Models:** the model is the one the user picked from those their key lists, as the assistant's is; no model is named in Scaena's code.
 3. **The narrative becomes the spine first, then the states.**
    - **The spine:** each beat of the arc is a section. Each slide is a beat, with:
-     - its title as the claim;
+     - its title as the claim, or, where a bare close is headed with its beat's settled claim, that claim; a title the fit rewrites carries its claim with it, as `restated` would (W1's dogfood 17);
      - its speaker notes as the notes;
      - its duration as Narrato estimates it;
      - a chart's data as evidence;

@@ -200,6 +200,28 @@ private let torture = repository.appending(path: "tests/fixtures/torture.scaena"
     #expect(throws: ScaenaError.self) { try session.viewVersion("9") }
 }
 
+/// One slide of a version put back (dogfood 16), as the browser's Restore This Slide puts it back:
+/// the first belief's headline, its slide's own, as version 1 had it, the cover's title typed since
+/// kept, and the slide named by its number, as the panel says it put it back.
+@Test func oneSlideOfAVersionIsPutBack() throws {
+    let session = try ScaenaSession(directory: b1)
+    try session.keepHistory()
+    let editor = DeckEditor(session: session)
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_000), subset: false))
+    try editor.typed([
+        ["op": "replace_text", "node": "title", "state": "cover", "from": 6, "to": 6, "text": " anew"],
+        ["op": "replace_text", "node": "headline", "state": "belief-1", "from": 0, "to": 0, "text": "Now: "],
+    ])
+    try session.adopt(try session.save(at: Date(timeIntervalSince1970: 1_790_000_300), subset: false))
+    let restored = try session.restoreVersion("1", slide: "belief-1")
+    #expect(restored.applied && restored.why.isEmpty)
+    #expect(restored.slide?.hasPrefix("Slide 3") == true)
+    let source = try session.source()
+    #expect(source.contains("Scaena anew"))
+    #expect(!source.contains("Now: The slide"))
+    #expect(throws: ScaenaError.self) { try session.restoreVersion("1", slide: "nowhere") }
+}
+
 /// A version is shown away from the window (lift-up 20261110 PERF-3): replayed, compared, and drawn
 /// on a snapshot's session of its own, as the session itself shows it, the deck's own session
 /// left showing no version.

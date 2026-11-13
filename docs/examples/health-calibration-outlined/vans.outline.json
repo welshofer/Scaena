@@ -1,0 +1,36 @@
+{
+ "arc": "Case Study",
+ "bigIdea": "A dental van parked at the school reaches the children a clinic never sees, and $250 keeps one child out of pain for a year.",
+ "beats": [
+  {
+   "name": "Client/Context",
+   "claim": "In Ridley County, one child in three has never seen a dentist.",
+   "slides": 2
+  },
+  {
+   "name": "Challenge",
+   "claim": "The nearest clinic is 40 miles away, and parents cannot miss a day of work.",
+   "slides": 1
+  },
+  {
+   "name": "Approach",
+   "claim": "The van parks at the school, so a child misses one class, not one day.",
+   "slides": 2
+  },
+  {
+   "name": "Results",
+   "claim": "In two years the van has seen 1,180 children, and untreated decay among them fell by half.",
+   "slides": 2
+  },
+  {
+   "name": "Lessons",
+   "claim": "Children come back when the van comes back on the same day each month.",
+   "slides": 1
+  },
+  {
+   "name": "Transfer",
+   "claim": "$250 keeps one child out of pain for a year, and three more schools are waiting for the van.",
+   "slides": 2
+  }
+ ]
+}
