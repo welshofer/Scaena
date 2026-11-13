@@ -388,7 +388,13 @@ if [[ "${vh:-}" =~ ^[0-9]+$ ]]; then
     done
     echo "the gallery drawn: $drawn"
     echo "one search of the app for the picker's first slide: ${searched} s"
-    [[ "${bh:-}" =~ ^[0-9]+$ ]] || echo "what the app shows: $(frames roots)"
+    if ! [[ "${bh:-}" =~ ^[0-9]+$ ]]; then
+      echo "what the app shows: $(frames roots)"
+      # Where the picker stands in the window, to four deep: no popover stood beside it or over it
+      # among its children and its toolbar's (#1240's second run).
+      echo "the window, four deep:"
+      frames tree 4
+    fi
     shot gallery
     read -r fx fy fw fh <<<"$(frames find section-frameworks)" || true
     if [[ "${fh:-}" =~ ^[0-9]+$ ]]; then
