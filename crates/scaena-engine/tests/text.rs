@@ -783,6 +783,44 @@ fn a_japanese_phrase_stands_whole_past_its_measure_as_an_english_word_does() {
 }
 
 #[test]
+fn a_japanese_texts_measure_counts_its_letters_an_em_each() {
+    // W1's dogfood 20: a close's claim in Japanese, 4月15日の発売までに、試乗車と研修の準備を
+    // 始めてほしい。, stood five or six letters a line in a box 1500 wide: the display role's
+    // measure counted `ch`, the advance of `0`, about half the em a kana or a kanji takes. At
+    // half its size it still set five lines, shrinking scaling the measure with it, and it ran
+    // over the thanks under it (E101). A text in Japanese, Chinese, or Korean counts its measure
+    // in `ic`, the advance of 水 (CSS `ic`); a text in English counts zeros, as before.
+    let (theme, mut fonts) = japanese();
+    let mut engine = TextEngine::new();
+    let role = theme.text_role("body").unwrap();
+    let size = role.size;
+    let mut measured = |text: &str, lang: &str| {
+        let mut spec = TextSpec::plain(role.clone(), text);
+        spec.lang = Some(lang.into());
+        spec.measure = Some(16.0);
+        engine.layout(&mut fonts, &theme, &spec, 100.0 * size).unwrap()
+    };
+    // Chinese and Korean break at the measure; Japanese stands its widest phrase whole past it
+    // (W1 dogfood 15), so its measure is 16 letters at least.
+    for lang in ["zh", "ko"] {
+        let m = measured("販売店の皆さま、本日はお集まりいただきありがとうございます。", lang).measure;
+        assert!((15.5 * size..=16.5 * size).contains(&m), "{lang}: 16 letters an em each: {m} at {size}");
+    }
+    let m = measured("販売店の皆さま、本日はお集まりいただきありがとうございます。", "ja").measure;
+    assert!(m >= 15.5 * size, "ja: 16 letters an em each at least: {m} at {size}");
+    let english = measured("Lines break at the measure, sixteen zeros wide", "en").measure;
+    assert!(english < 10.0 * size, "English counts zeros: {english} at {size}");
+    // The dogfood's claim in the display role, in a box as wide as the close's: three lines at
+    // most, where it took five before.
+    let display = theme.text_role("display").unwrap();
+    let mut spec = TextSpec::plain(display.clone(), "4月15日の発売までに、試乗車と研修の準備を始めてほしい。");
+    spec.lang = Some("ja".into());
+    spec.measure = Some(16.0);
+    let claim = engine.layout(&mut fonts, &theme, &spec, 1500.0).unwrap();
+    assert!(claim.lines.len() <= 3, "{:?}", breaks(&claim));
+}
+
+#[test]
 fn a_number_in_japanese_is_set_in_the_scripts_face() {
     // Dogfood: the figures in a Japanese headline were set in Fraunces, the Latin face Dusk's
     // display family names first, among letters set in Noto Sans JP.
