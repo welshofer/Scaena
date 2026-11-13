@@ -4599,6 +4599,10 @@ fn layout_for(
         "quiz" if questions(items) && n == 3 && theme.layouts.contains_key("cards") => "cards",
         "quiz" if questions(items) => "faq",
         "quiz" => "quiz",
+        // The works cited, numbered in small type (W1's dogfood 19), never the years they were
+        // published as figures on cards.
+        "references" if theme.layouts.contains_key("references") => "references",
+        "references" => "numbered",
         "steps" if n <= 3 => "how-it-works",
         // Four steps, each in a card of its own under its number, as a deck's process is drawn.
         "steps" if n == 4 => "numbered-cards",
@@ -12404,6 +12408,51 @@ mod tests {
         let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
         assert!(left.is_empty(), "{left:#?}");
+    }
+
+    /// W1's dogfood 19: a French paper's talk ends on its works cited, asked for as "References"
+    /// (here written "Références"). No layout was called that, so the slide was set as its items
+    /// read, and the years they were published stood on cards as figures. It takes the library's
+    /// References layout, its works numbered in small type as written, and Bibliography finds it
+    /// too.
+    #[test]
+    fn a_talks_works_cited_take_the_references_layout() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let works = [
+            "Bernard, A. et Lefèvre, M. (2023). Végétaliser la ville. Presses universitaires de Lyon.",
+            "Oke, T. R. (1982). The energetic basis of the urban heat island. Quarterly Journal of the Royal Meteorological Society, 108, 1–24.",
+            "Roussel, M. (2024). Capteurs à bas coût et îlots de chaleur. Revue d’écologie urbaine, 12(3), 45–61.",
+        ];
+        for asked in ["References", "Références", "Bibliography"] {
+            let text = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+                { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+                  "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"] },
+                { "slideTitle": "Références", "layoutSuggestion": asked, "keyBullets": works },
+                { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+            ]})
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.brief.language = Some("French".into());
+            let built = deck(&n, &theme, &Pictures::new()).unwrap();
+            let states = built.deck["states"].as_array().unwrap();
+            let refs = states.iter().find(|s| s["layout"] == "references").unwrap_or_else(|| {
+                panic!("{asked}: {:?}", states.iter().map(|s| s["layout"].clone()).collect::<Vec<_>>())
+            });
+            assert!(built.fell.iter().all(|f| f.asked != asked), "{asked}: {:?}", built.fell);
+            // Its works, numbered, as written, one text in the layout's place for them.
+            let nodes = &built.deck["nodes"];
+            let body = (refs["props"].as_object().unwrap().keys())
+                .map(|id| &nodes[id.as_str()])
+                .find(|n| n["at"]["in"] == "body")
+                .unwrap_or_else(|| panic!("{asked}: no body in {refs:#}"));
+            let said = body["text"].as_str().map(str::to_string).unwrap_or_else(|| {
+                (body["runs"].as_array().unwrap().iter()).filter_map(|r| r["text"].as_str()).collect::<String>()
+            });
+            assert_eq!(said.replace('\u{a0}', " "), works.join("\n"), "{asked}");
+            assert!(body["list"].as_array().unwrap().iter().all(|i| i["kind"] == "number"), "{asked}: {body:#}");
+        }
     }
 
     #[test]

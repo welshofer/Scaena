@@ -186,7 +186,7 @@ const BY_SUGGESTION: [(&str, &str); 154] = [
 /// The rich layouts a name may canonically name: each id, its name, the name Narrato's catalog
 /// gives it, and what models have been seen to call it instead. The last four are Scaena's own,
 /// which Narrato's catalog lacks and Scaena's slot shapes name (dogfood pass 7).
-const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
+const SPECS: [(&str, &str, Option<&str>, &[&str]); 42] = [
     ("roadmap", "Roadmap", Some("Roadmap"), &["road map", "product roadmap"]),
     ("timeline", "Timeline", Some("Timeline"), &["chronology", "history timeline"]),
     (
@@ -233,6 +233,13 @@ const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
     ("decision-brief", "Decision brief", None, &["decision memo"]),
     ("quiz", "Quiz", None, &["knowledge check", "pop quiz", "check yourself"]),
     ("risk-matrix", "Risk matrix", None, &["risk register", "risk heat map", "heat map", "risk map"]),
+    // A talk's works cited, as a paper ends on them (W1's dogfood 19).
+    (
+        "references",
+        "References",
+        None,
+        &["bibliography", "works cited", "reference list", "citations", "bibliographie"],
+    ),
 ];
 
 /// Scaena's own names for a structural layout, which Narrato's table lacks and agents writing
@@ -261,12 +268,13 @@ pub fn structural(name: &str) -> &'static str {
     (BY_SUGGESTION.iter().chain(SCAENA_SUGGESTION.iter())).find(|(k, _)| *k == key).map_or("body", |(_, v)| v)
 }
 
-/// A name as the rich-layout lookup reads it: lowercase, each run of anything but ASCII letters
-/// and digits one space.
+/// A name as the rich-layout lookup reads it: lowercase, its Latin letters' accents aside
+/// ("Références" as "references", W1's dogfood 19), each run of anything but ASCII letters and
+/// digits one space.
 fn token(name: &str) -> String {
     let lower = name.to_lowercase();
     let mut out = String::new();
-    for c in lower.chars() {
+    for c in lower.chars().map(unaccented) {
         if c.is_ascii_lowercase() || c.is_ascii_digit() {
             out.push(c);
         } else if !out.ends_with(' ') {
@@ -274,6 +282,21 @@ fn token(name: &str) -> String {
         }
     }
     out.trim().to_string()
+}
+
+/// `c`'s letter without its accent, where it is a Latin letter that carries one; else `c`.
+fn unaccented(c: char) -> char {
+    match c {
+        '\u{e0}'..='\u{e5}' => 'a',
+        '\u{e7}' => 'c',
+        '\u{e8}'..='\u{eb}' => 'e',
+        '\u{ec}'..='\u{ef}' => 'i',
+        '\u{f1}' => 'n',
+        '\u{f2}'..='\u{f6}' => 'o',
+        '\u{f9}'..='\u{fc}' => 'u',
+        '\u{fd}' | '\u{ff}' => 'y',
+        c => c,
+    }
 }
 
 /// The rich layout `name` canonically names (`resolveLayoutSpecIdFromSuggestion`): by id, then by

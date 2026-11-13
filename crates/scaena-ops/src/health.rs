@@ -1432,7 +1432,8 @@ const FIGURES: [&str; 11] = [
 
 /// The shipped themes' layouts whose headline names what they hold, a term and its meaning, the
 /// voices quoted, the questions asked, the exercise set: a topic by design.
-const NAMED: [&str; 7] = ["definition", "glossary", "testimonials", "faq", "logo-wall", "buyer-persona", "quiz"];
+const NAMED: [&str; 8] =
+    ["definition", "glossary", "testimonials", "faq", "logo-wall", "buyer-persona", "quiz", "references"];
 
 /// Whether `word`, small and trimmed of its marks, reads as a verb, as [`labels`] reads one: one
 /// of [`VERBS`], a contraction of one ("isn't", "it's"), or a past form of five letters or more
@@ -1728,6 +1729,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // dogfood 18: a quiz on a cold cache, after the slide that told it).
     let recalls =
         |i: usize| slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref()).is_some_and(|l| l == "quiz");
+    // A slide of works cited writes the years and the pages of what it cites, no figure of the
+    // talk's to source (W1's dogfood 19: "108, 1–24" asked where it came from).
+    let cites_works = |i: usize| {
+        (slides.get(i).into_iter().flat_map(|s| s.states.iter()))
+            .find_map(|&k| deck.states[k].layout.as_deref())
+            .is_some_and(|l| l == "references")
+    };
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
@@ -3378,6 +3386,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // "460.000 € … 120 fuentes", then the close's "120 fuentes … 460.000 €").
         let mut covered: Vec<((String, String), usize)> = Vec::new();
         for (i, s) in read.iter().enumerate() {
+            if cites_works(i) {
+                continue;
+            }
             let shown = format!("{}\n{}", s.title, s.body);
             let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
                 || names_source(&shown, &sources);
@@ -7167,6 +7178,49 @@ mod tests {
         assert!(named("less fuel spend, from the pilot", "pilot.csv"));
         assert!(named("per the inventory, 2025", "inventory.xlsx"));
         assert!(!named("lines fell from 2,100 to 1,900", "lines.csv"));
+    }
+
+    /// W1's dogfood 19: a talk's works cited, "Oke (1982) … 108, 1–24", were asked where 108
+    /// comes from. A slide in the References layout writes what it cites, not a figure of the
+    /// talk's.
+    #[test]
+    fn a_slides_works_cited_are_no_figures_to_source() {
+        let pilot = || {
+            vec![scaena_narrato::Provenance {
+                name: "pilot.csv".into(),
+                kind: "csv".into(),
+                url: None,
+                bytes: 1,
+                truncated: false,
+                figures: Vec::new(),
+            }]
+        };
+        let unsourced = |deck: &Value| -> Vec<(usize, String)> {
+            (of(deck).findings.into_iter()).filter(|f| f.kind == Kind::Source).map(|f| (f.slide, f.says)).collect()
+        };
+        let works = |layout: &'static str| {
+            move |slides: &mut Vec<answer::Slide>| {
+                slides[7].slide_title = "References".into();
+                slides[7].layout_suggestion = layout.into();
+                slides[7].key_bullets = vec![
+                    "Oke, T. R. (1982). The energetic basis of the urban heat island. Quarterly Journal of the Royal Meteorological Society, 108, 1–24.".into(),
+                    "Roussel, M. (2024). Capteurs à bas coût et îlots de chaleur. Revue d’écologie urbaine, 12(3), 45–61.".into(),
+                ];
+            }
+        };
+        // Set in the library's References layout, its volumes and pages are what it cites.
+        let cited = grounded_dogfood("fleet", "", pilot(), works("References"));
+        let layout = |deck: &Value| (deck["states"].as_array().unwrap().iter()).any(|s| s["layout"] == "references");
+        assert!(layout(&cited), "the slide takes the References layout");
+        assert!(unsourced(&cited).is_empty(), "{:?}", unsourced(&cited));
+        // Nor is "References" a topic its headline names in place of a point: it names what the
+        // slide holds, as a glossary's or a quiz's does.
+        let labelled = of(&cited).findings.into_iter().filter(|f| f.kind == Kind::Label && f.slide == 8).count();
+        assert_eq!(labelled, 0);
+        // The same words as a list of points are a slide's own, and asked where they come from.
+        let listed = grounded_dogfood("fleet", "", pilot(), works("Bullet List"));
+        assert!(!layout(&listed));
+        assert!(unsourced(&listed).iter().any(|(k, _)| *k == 8), "{:?}", unsourced(&listed));
     }
 
     /// A date's day is no figure to source, as each language writes a date (W2's health read:
