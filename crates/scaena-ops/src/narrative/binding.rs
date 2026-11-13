@@ -710,9 +710,15 @@ mod tests {
         // The series its headline lights marks the column bound to it, as the fold names it, so
         // lint finds it among the series (R1's agent dogfood 11).
         let mut lit = node();
-        lit["annotations"] = json!([{ "kind": "highlight", "at": { "series": "Planted" } }]);
+        lit["annotations"] = json!([
+            { "kind": "highlight", "at": { "series": "Planted" } },
+            { "kind": "highlight", "at": { "series": "Shrubs" } }
+        ]);
         bind(&mut lit, &chart(&["2021", "2022", "2023", "2024", "2025"]), &deck, &files, "canopy").unwrap();
         assert_eq!(lit["annotations"][0]["at"]["series"], json!("trees_planted"));
+        // A series no series of the slide names is left as written, for lint's E103 to name the
+        // column meant (R1's dogfood 10).
+        assert_eq!(lit["annotations"][1]["at"]["series"], json!("Shrubs"));
         assert_eq!(bound["x"]["field"], json!("year"));
         assert_eq!(
             bound["dataTransform"],
