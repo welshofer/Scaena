@@ -59,7 +59,8 @@
           "figure": { "type": ["string", "null"] },
           "path": { "type": ["string", "null"] },
           "field": { "anyOf": [{ "$ref": "#/$defs/Field" }, { "type": "null" }] },
-          "into": { "type": ["string", "null"] }
+          "into": { "type": ["string", "null"] },
+          "settled": { "type": ["string", "null"] }
         },
         "required": ["state", "slide", "severity", "kind", "says", "ask"]
       },
@@ -97,7 +98,8 @@
           { "type": "string", "const": "headline" },
           { "type": "string", "const": "notes" },
           { "type": "string", "const": "intensity" },
-          { "type": "string", "const": "claim" }
+          { "type": "string", "const": "claim" },
+          { "type": "string", "const": "bigIdea" }
         ]
       },
       "Capped": {

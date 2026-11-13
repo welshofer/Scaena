@@ -328,3 +328,19 @@ private func slots() throws -> [ScaenaSession.Slot] {
     let plain = #"{"state":"a","slide":"a","start":0,"span":0,"hold":0,"story":{"claim":"A","before":0}}"#
     #expect(Rehearsal(slots: [try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(plain.utf8))]).slot == nil)
 }
+
+/// A plan of Narrato's estimates alone (editor dogfood 7): the session paces it over the brief's
+/// slot, so the pace reads the slot's before-time, and the rehearsal reads the minutes and the
+/// estimates' total that it says beside the slot.
+@Test func aPlanOfEstimatesAloneIsMeasuredByTheBriefsSlot() throws {
+    let json = #"{"state":"mix","slide":"revenue","start":9000,"span":800,"hold":6000,"#
+        + #""story":{"claim":"Revenue doubled","planned":200,"before":250,"slot":"for a 10-minute slot","#
+        + #""estimated":{"minutes":10,"total":180}}}"#
+    let slot = try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(json.utf8))
+    let story = try #require(slot.story)
+    #expect(story.estimated?.minutes == 10 && story.estimated?.total == 180)
+    #expect(story.pace(elapsed: 250) == "On plan, for a 10-minute slot")
+    #expect(Rehearsal(slots: [slot]).estimated?.total == 180)
+    let plain = #"{"state":"a","slide":"a","start":0,"span":0,"hold":0,"story":{"claim":"A","before":0}}"#
+    #expect(Rehearsal(slots: [try JSONDecoder().decode(ScaenaSession.Slot.self, from: Data(plain.utf8))]).estimated == nil)
+}

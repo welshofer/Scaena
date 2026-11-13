@@ -133,6 +133,8 @@ export interface StoryPlace {
   planned?: number;
   before: number;
   slot?: string;
+  /** Where every beat's time is Narrato's estimate and the brief asks minutes: the minutes and the estimates' total, seconds; `planned` and `before` are then the slot's (editor dogfood 7). */
+  estimated?: { minutes: number; total: number };
 }
 
 /** A box, canvas units: `[x, y, width, height]`. */
@@ -1005,9 +1007,11 @@ export interface HealthFinding {
   /** The figure a `source` finding found no source for, as the slide writes it. */
   figure?: string;
   /** The one field of the slide the finding asks to edit, where it asks for one, so an editor opens it without reading the ask. */
-  field?: "headline" | "notes" | "intensity" | "claim";
+  field?: "headline" | "notes" | "intensity" | "claim" | "bigIdea";
   /** The slide, by its first state, a `story` finding's slide says again, which it may be folded into (R1's #1161). */
   into?: string;
+  /** The claim or the big idea as the settled outline holds it, at `path`, where `field` is `claim` or `bigIdea`: what the Story row edits in place (editor dogfood 7). */
+  settled?: string;
 }
 
 /** The deck's narrative health (PLAN G.9), as `scaena health --json` gives it. */

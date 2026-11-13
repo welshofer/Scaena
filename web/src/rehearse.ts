@@ -150,6 +150,10 @@ export function rehearsal(
   /** The slot the deck's brief asks, said beside the beats' plan: `for a 12-minute slot`; none
    * where it asks no minutes (W1's dogfood 17). */
   let slot: string | undefined;
+  /** Where the beats' times are Narrato's estimates alone, the brief's minutes and the estimates'
+   * total, seconds: the plan is then the slot's, and the estimates are said beside it (editor
+   * dogfood 7). */
+  let estimated: { minutes: number; total: number } | undefined;
   /** Whether Escape on the results was held off once since they opened. */
   let heldOff = false;
 
@@ -248,6 +252,7 @@ export function rehearsal(
     pane.hidden = true;
     const planned = plannedOf(slots);
     slot = slots.find((s) => s.story?.slot)?.story?.slot;
+    estimated = slots.find((s) => s.story?.estimated)?.story?.estimated;
     kept = slots.map((slot, i) => {
       const rest = Math.round((spent[i] - slot.span) / 100) * 100;
       const passed = spent[i] > 0 && rest <= 0;
@@ -300,9 +305,16 @@ export function rehearsal(
       // The brief's slot beside the beats' plan, where it asks minutes: the two can differ, and the
       // talk is given the brief's (W1's dogfood 17).
       const given = slot ? `, ${slot}` : "";
-      plan.textContent = every
-        ? `${clock(taken)} taken against a ${clock(of)} plan${given}: ${against(taken - of)}.`
-        : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached${given}: ${against(taken - of)}.`;
+      // A plan of Narrato's estimates alone is the slot's: the time taken against it, and the
+      // estimates said beside it as what they are (editor dogfood 7).
+      const guessed = estimated ? `; the beats' estimates come to ${clock(estimated.total * 1000)}` : "";
+      plan.textContent = estimated
+        ? every
+          ? `${clock(taken)} of a ${estimated.minutes}-minute slot${guessed}: ${against(taken - of)}.`
+          : `${clock(taken)} against ${clock(of)} of a ${estimated.minutes}-minute slot for the ${reached.length} reached${guessed}: ${against(taken - of)}.`
+        : every
+          ? `${clock(taken)} taken against a ${clock(of)} plan${given}: ${against(taken - of)}.`
+          : `${clock(taken)} taken against ${clock(of)} planned for the ${reached.length} reached${given}: ${against(taken - of)}.`;
     }
     // Those gone on from within their cue, said before Keep: it leaves each as it is.
     const passed = kept.filter((k) => k.passed).map((k) => k.said);
