@@ -4271,6 +4271,13 @@ fn figure_at(chars: &[char], start: usize, end: usize) -> String {
         let currency = CURRENCIES.iter().filter(|c| after.starts_with(*c)).map(|c| c.chars().count()).max();
         return chars[begin..end + 1 + currency.unwrap_or(0)].iter().collect();
     }
+    // A currency such a language writes straight after its figure, with no magnitude between:
+    // "298,000\u{5186}" is the price, never "298,000" over "\u{5186} \u{7a0e}\u{8fbc}" (W1's
+    // dogfood 20).
+    let after = at(end, 2);
+    if let Some(n) = CURRENCIES.iter().filter(|c| after.starts_with(*c)).map(|c| c.chars().count()).max() {
+        return chars[begin..end + n].iter().collect();
+    }
     // Whether a word that ends at `to` stops there: "5M" yes, "5Mbps" no.
     let stops = |to: usize| chars.get(to).is_none_or(|c| !c.is_alphanumeric());
     let rest = at(end, 3);
@@ -10035,6 +10042,15 @@ mod tests {
         assert!(said.iter().any(|t| t == "$6.76"), "{said:?}");
         assert!(said.iter().any(|t| t.to_lowercase() == "per visitor in 2026"), "{said:?}");
         assert!(said.iter().any(|t| t == "$6.67 in 2022"), "{said:?}");
+        // A price in yen keeps its currency in its figure, the words after it its meaning (W1's
+        // dogfood 20: 298,000 stood over "円 税込、標準バッテリー込み").
+        let mut yen = slides.iter().find(|s| s.layout_suggestion == "Big Number").unwrap().clone();
+        yen.slide_title = "ソラカーゴ、298,000円".into();
+        yen.key_bullets = vec!["298,000円 税込、標準バッテリー込み".into()];
+        yen.supporting_facts = None;
+        let said = texts(&made(yen));
+        assert!(said.iter().any(|t| t == "298,000円"), "{said:?}");
+        assert!(said.iter().all(|t| !t.starts_with('円')), "{said:?}");
         let mut quote = slides.iter().find(|s| s.layout_suggestion == "Quote").unwrap().clone();
         quote.key_bullets =
             vec!["\"We patch the Ridge Loop every spring now. It used to be every five years.\" \u{2014} Dana Ruiz, lead ranger".into()];
@@ -10833,6 +10849,11 @@ mod tests {
         assert_eq!(figure("12만 명").as_deref(), Some("12만"));
         assert_eq!(figure("US spend: $1.1T a year").as_deref(), Some("$1.1T"));
         assert_eq!(figure("5Mbps").as_deref(), Some("5"));
+        // A currency written straight after its figure is its own (W1's dogfood 20).
+        assert_eq!(figure("298,000円 税込").as_deref(), Some("298,000円"));
+        assert_eq!(figure("年間340ドルの節約").as_deref(), Some("340ドル"));
+        assert_eq!(figure("5,000원").as_deref(), Some("5,000원"));
+        assert_eq!(figure("3,200台の予約").as_deref(), Some("3,200"));
         assert!(numeric("41.2万ドル") && numeric("11 days") && numeric("3億円"));
     }
 
