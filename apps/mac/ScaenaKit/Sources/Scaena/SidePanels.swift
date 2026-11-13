@@ -67,6 +67,10 @@ struct PanelEdits {
     /// (#1262), one step to undo named `name`; refused or failed, the window says why, `refused`
     /// naming what was not done. Whether it was made.
     var themeMade: @MainActor (_ name: String, _ refused: String, _ change: ThemeChange) async -> Bool = { _, _, _ in false }
+    /// The deck put in another theme, `picked`, made away from the window as a theme edit is
+    /// (#1262's follow-up), one step to undo; refused or failed, the window says why. What it did,
+    /// where it was made.
+    var rethemeMade: @MainActor (_ picked: Retheming) async -> Themed? = { _ in nil }
     /// A data file written, or a file taken out: the deck read again, its undo the session's.
     /// Whether it was made.
     let dataMade: (_ name: String, _ edit: () throws -> Void) -> Bool

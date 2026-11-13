@@ -546,6 +546,24 @@ char *scaena_adopt_since(struct ScaenaSession *session,
                          const struct ScaenaSnapshot *snapshot,
                          struct ScaenaSaved *saved);
 
+// Take an edit made on `apart`, a session [`scaena_snapshot_open`] opened on `snapshot`, away
+// from `session` (#1262's follow-up): a re-theme, which lints the whole deck in both themes,
+// made on another thread while `session` answers on its own. Its deck, and each file it holds
+// that `snapshot` did not, or held otherwise, fonts among them, are written into `session` as
+// one change by `user`, said by `why`, at `at` (RFC 3339, or null), laying nothing out. Where
+// `session` changed since `snapshot` was taken, it takes nothing. `{"ok": {"taken": bool}}` or
+// `{"error"}`.
+//
+// # Safety
+// `session` is a live handle, on its own thread; `snapshot` one from [`scaena_snapshot_new`];
+// `apart` one from [`scaena_snapshot_open`] on it, used by no other thread meanwhile; `why` a
+// NUL-terminated string; `at` one, or null.
+char *scaena_take_apart(struct ScaenaSession *session,
+                        const struct ScaenaSnapshot *snapshot,
+                        const struct ScaenaSession *apart,
+                        const char *why,
+                        const char *at);
+
 // Let go of a save.
 //
 // # Safety

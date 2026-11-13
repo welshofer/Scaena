@@ -278,16 +278,52 @@ impl Session {
     /// save was written changes it, it goes on as it is, the edit kept, and adopts nothing: the next
     /// save names its files by their content again. Whether it adopted the save.
     pub fn adopt_since(&mut self, snapshot: &Snapshot, saved: &mut Saving) -> Result<bool, Error> {
-        let json = |deck: &Deck| deck.to_json().map_err(|e| Error::Deck(e.to_string()));
-        let same = self.files_edition == snapshot.edition
-            && self.theme_json == snapshot.theme_json
-            && self.recorded.len() == snapshot.recorded.len()
-            && json(&self.deck)? == json(&snapshot.deck)?;
-        if !same {
+        if !self.stands_as(snapshot)? {
             return Ok(false);
         }
         self.adopting(std::mem::take(&mut saved.files), &saved.saved.renamed)?;
         Ok(true)
+    }
+
+    /// Whether the session is still as `snapshot` was taken: its deck, its theme, its files, and
+    /// what its history has recorded.
+    fn stands_as(&self, snapshot: &Snapshot) -> Result<bool, Error> {
+        let json = |deck: &Deck| deck.to_json().map_err(|e| Error::Deck(e.to_string()));
+        Ok(self.files_edition == snapshot.edition
+            && self.theme_json == snapshot.theme_json
+            && self.recorded.len() == snapshot.recorded.len()
+            && json(&self.deck)? == json(&snapshot.deck)?)
+    }
+
+    /// Take an edit made away from the session (#1262's follow-up): `apart`, a session opened on
+    /// `snapshot` ([`Snapshot::session`]) and edited on another thread, as a re-theme is, which
+    /// lints the whole deck in both themes. Its deck, and each file it holds that `snapshot` did
+    /// not, or held otherwise (a theme, its fonts: bytes, not text), are written here as one
+    /// change by `user` at `at` (seconds since the epoch), said by `why`, as the edit made here
+    /// would have written them, laying nothing out. Where the session changed since `snapshot`
+    /// was taken, it takes nothing, and the edit is to be made again on the deck as it stands.
+    /// Whether it took it.
+    pub fn take_apart(
+        &mut self,
+        snapshot: &Snapshot,
+        apart: &Session,
+        why: &str,
+        at: Option<i64>,
+    ) -> Result<bool, Error> {
+        if !self.stands_as(snapshot)? {
+            return Ok(false);
+        }
+        let changed = (apart.files.iter())
+            .filter(|(path, bytes)| {
+                *path != "deck.json" && *path != HISTORY && snapshot.files.get(*path) != Some(*bytes)
+            })
+            .map(|(path, bytes)| (path.clone(), bytes.clone()));
+        let write = scaena_ops::lint::Write {
+            deck: apart.deck.clone(),
+            files: scaena_core::sort::map(changed),
+            why: Why::new(why),
+        };
+        self.write(Some(write), Caller { author: "user", at })
     }
 
     /// Go on from a save's `files`, which renamed files as `renamed` says.

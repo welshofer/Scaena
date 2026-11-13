@@ -80,6 +80,61 @@ import Testing
     #expect(try editor.session.themeText()?.text == before, "a refused edit writes nothing")
 }
 
+/// A re-theme lints the whole deck in the theme it leaves and the one it makes, as a theme edit does,
+/// and made on the window's thread kept it from answering as one did (#1262's follow-up). It is made
+/// away from the window, on a session opened on a snapshot, and the session takes the deck it made
+/// and the files it wrote, the theme's fonts among them; an edit made meanwhile has it made again.
+@Test @MainActor func aRethemeIsMadeOffTheMainThreadAndTheSessionTakesItsFonts() async throws {
+    // A new deck in Dusk, on its title slide, as File › New opens one: every layout it takes is
+    // Salon's too.
+    let window = Window(editor: DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Trail report")))
+    let editor = window.editor
+    let shown = try #require(editor.startOnTitleSlide(), "the deck starts on its title slide")
+    editor.shown = shown
+    let digest = try editor.session.digest(state: shown)
+    let fonts = { try editor.session.call("files", as: [String].self).filter { $0.hasPrefix("fonts/") } }
+    let before = try fonts()
+
+    let themedOn = ThemedOn()
+    editor.themedOn = { themedOn.take(main: $0) }
+    var tries = 0
+    let noted: JSONValue = ["op": "set_state", "id": .string(shown), "prop": "notes", "value": "Said meanwhile."]
+    var edited: Result<String, any Error>?
+    editor.themeEditing = {
+        tries += 1
+        if tries == 1 { edited = Result { try editor.make([noted]) } }
+    }
+    let themed = try #require(try await editor.rethemeAway(.ships("Salon")), "the re-theme was made")
+    editor.themeEditing = nil
+    editor.themedOn = nil
+    #expect(try #require(themedOn.taken as Bool?, "the re-theme ran") == false, "made on the main thread")
+    _ = try #require(edited, "the deck was changed while the re-theme was made").get()
+    #expect(tries == 2, "made again once the deck changed: \(tries) tries")
+
+    #expect(themed.applied && themed.theme == "themes/salon.theme.json")
+    #expect(try editor.session.themeText()?.theme == "themes/salon.theme.json", "the session's theme is Salon")
+    // Salon's headlines are Instrument Serif, which the Dusk deck held no file of: font bytes taken.
+    #expect(!before.contains { $0.contains("InstrumentSerif") })
+    let after = try fonts()
+    #expect(after.contains { $0.contains("InstrumentSerif") }, "Salon's fonts taken with it: \(after)")
+    #expect(try editor.session.source().contains("Said meanwhile."), "the edit made meanwhile kept")
+    #expect(try editor.session.digest(state: shown) != digest, "the title slide drawn in Salon")
+
+    // Read again with no lint of the state shown: every state is linted away from the window after.
+    editor.reread(lint: false)
+    #expect(editor.valid && !editor.whole)
+    await editor.lintEvery()
+    #expect(editor.whole, "linted away from the window")
+
+    // A theme the deck would not open in is refused, nothing taken: B1 lays slides out in layouts
+    // Salon has not.
+    let other = Window(editor: DeckEditor(session: try ScaenaSession(directory: b1))).editor
+    let theme = try other.session.themeText()?.theme
+    let refusing = try #require(try await other.rethemeAway(.ships("Salon")), "the re-theme was answered")
+    #expect(!refusing.applied && refusing.refused)
+    #expect(try other.session.themeText()?.theme == theme, "a refused re-theme takes nothing")
+}
+
 /// The operation that sets the theme's paper to `hex`.
 private enum AThemeEdit {
     static func paper(_ hex: String) -> [JSONValue] {
