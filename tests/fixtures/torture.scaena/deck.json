@@ -90,6 +90,36 @@
           800
         ]
       }
+    },
+    {
+      "family": "Noto Sans JP",
+      "file": "fonts/NotoSansJP-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans SC",
+      "file": "fonts/NotoSansSC-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ]
+      }
+    },
+    {
+      "family": "Noto Sans KR",
+      "file": "fonts/NotoSansKR-VF.ttf",
+      "axes": {
+        "wght": [
+          100,
+          900
+        ]
+      }
     }
   ],
   "data": {
@@ -5721,6 +5751,139 @@
       },
       "alt": "",
       "semantic": "decoration"
+    },
+    "cjk-thanks": {
+      "type": "text",
+      "role": "ja-display",
+      "lang": "ja",
+      "text": "ありがとうございました",
+      "at": {
+        "col": [
+          1,
+          6
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "cjk-thanks-shrink": {
+      "type": "text",
+      "role": "ja-display",
+      "lang": "ja",
+      "fit": "shrink",
+      "minSize": 36,
+      "text": "ありがとうございました",
+      "at": {
+        "col": [
+          1,
+          4
+        ],
+        "row": [
+          4,
+          5
+        ]
+      }
+    },
+    "cjk-particle": {
+      "type": "text",
+      "role": "ja-body",
+      "lang": "ja",
+      "text": "これは本当にうまくいくかもしれない",
+      "at": {
+        "col": [
+          1,
+          5
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "cjk-counter": {
+      "type": "text",
+      "role": "ja-body",
+      "lang": "ja",
+      "text": "今年の来場者は12345人を超えました",
+      "at": {
+        "col": [
+          7,
+          10
+        ],
+        "row": [
+          2,
+          3
+        ]
+      }
+    },
+    "cjk-zh": {
+      "type": "text",
+      "role": "zh-headline",
+      "lang": "zh-Hans",
+      "text": "目标很简单：让每一位客户都真正满意",
+      "at": {
+        "col": [
+          7,
+          12
+        ],
+        "row": [
+          4,
+          5
+        ]
+      }
+    },
+    "cjk-ko-greedy": {
+      "type": "text",
+      "role": "ko-body",
+      "lang": "ko",
+      "wrap": "greedy",
+      "text": "우리는 함께 더 나은 내일을 만듭니다",
+      "at": {
+        "col": [
+          7,
+          8
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "cjk-ko-balance": {
+      "type": "text",
+      "role": "ko-body",
+      "lang": "ko",
+      "wrap": "balance",
+      "text": "우리는 함께 더 나은 내일을 만듭니다",
+      "at": {
+        "col": [
+          9,
+          10
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
+    },
+    "cjk-ko-pretty": {
+      "type": "text",
+      "role": "ko-body",
+      "lang": "ko",
+      "wrap": "pretty",
+      "text": "우리는 함께 더 나은 내일을 만듭니다",
+      "at": {
+        "col": [
+          11,
+          12
+        ],
+        "row": [
+          6,
+          8
+        ]
+      }
     }
   },
   "states": [
@@ -7132,6 +7295,26 @@
         "caustics-bright": {}
       },
       "notes": "Pass: two panels of caustics (PLAN 2.147). Left, the kind's defaults in the water palette: deep blue water under a net of thin, curving filaments of pale cyan light, dim along most of their length and brightening to glints where the fine layer's swells cross them, so no line is even and none runs straight. Right, cells half the panel's shorter side across, sharper lines, more intensity, and six times the speed, in the torture palette: teal water under violet lines that flare to gold where the layers cross, with grain. Both show the moment the global timeline rests in this state."
+    },
+    {
+      "id": "cjk",
+      "name": "CJK line breaking",
+      "mode": "absolute",
+      "layout": "specimen",
+      "props": {
+        "case": {
+          "text": "71 · CJK line breaking · recorded"
+        },
+        "cjk-thanks": {},
+        "cjk-thanks-shrink": {},
+        "cjk-particle": {},
+        "cjk-counter": {},
+        "cjk-zh": {},
+        "cjk-ko-greedy": {},
+        "cjk-ko-balance": {},
+        "cjk-ko-pretty": {}
+      },
+      "notes": "Pass: Chinese, Japanese, and Korean lines break where their readers expect them to (text::cuts, text::phrases, text::particles). Left, ありがとうございました in a display role whose measure holds about four of its letters stands whole on one line past its measure, as an English word too long for one does (W1 dogfood 15); under it, in four columns too narrow for it at the role's size, the same phrase shrinks until it stands whole. Under them, これは本当に / うまくいくかもしれない breaks after its particle, never inside a phrase. Right, 12345人 keeps its number with its counter; the Chinese headline balances on two lines, breaking after its full-width colon; and the Korean sentence, greedy, balanced, and pretty, breaks only between its words."
     }
   ],
   "overrides": {

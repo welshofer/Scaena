@@ -109,6 +109,14 @@ final class ThemeTests: XCTestCase {
             // canvas. Return as that keyboard sends it: a newline.
             size.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
             settle(1)
+            if keyboardPass == "hardware" {
+                // The pass launches the app with `-softwareKeyboard NO`, so no software keyboard
+                // comes up for a field to flap with each key typed (`Keyboardless`): one came up
+                // here and held XCTest's every event until the test ran out of time (#1240).
+                XCTAssertFalse(
+                    wait(4) { softwareKeyboardUp(in: app) },
+                    "the software keyboard came up for the theme's Size in the pass with none: \(app.keyboards.firstMatch.frame)")
+            }
             for key in ["3", "7", "\n"] { app.typeKey(key, modifierFlags: []) }
             guard says(37).waitForExistence(timeout: 10) else {
                 keep(app, as: "size-not-set")

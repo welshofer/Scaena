@@ -1,0 +1,164 @@
+{
+ "executiveSummary": "A Saturday class for home bakers on why dough rises: yeast makes the gas, gluten holds it, and warmth sets the pace, so a baker who reads the dough rather than the clock controls the loaf.",
+ "slides": [
+  {
+   "slideTitle": "Why your bread rises, and why it sometimes doesn't",
+   "subtitle": "Saturday baking class · Eastside Library · Week 3",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- Welcome back. Last week three of you brought in loaves you called bricks.\n- Today we find out why, and it is not your recipe.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "Opens the class",
+   "intent": "Welcome and set the question",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "A dense loaf is almost always a timing problem",
+   "subtitle": "",
+   "layoutSuggestion": "Statement",
+   "keyBullets": [
+    "Same flour, same recipe, same oven: two hours apart"
+   ],
+   "speakerNotes": "- Here is the experiment I ran on Thursday. One dough, split in two.\n- I baked half after two hours and half after four. The first was a brick. The second was the loaf you wanted.\n- Nothing changed but time.",
+   "beatIndex": 0,
+   "beatName": "Orientation",
+   "purpose": "States the puzzle",
+   "intent": "Reframe the problem",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Yeast eats the sugar in flour and breathes out the gas that lifts the loaf",
+   "subtitle": "",
+   "layoutSuggestion": "Definition",
+   "keyBullets": [
+    "Yeast: a single-celled fungus",
+    "It turns sugar into carbon dioxide and a little alcohol"
+   ],
+   "speakerNotes": "- Yeast is alive, and it is hungry.\n- It eats the sugars in flour and gives off carbon dioxide. Those bubbles are your rise.\n- The alcohol bakes off. It leaves some flavor behind.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Defines a term",
+   "intent": "Build vocabulary",
+   "expectedIntensity": 0.3,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Gluten is the net that holds the gas in",
+   "subtitle": "",
+   "layoutSuggestion": "How It Works",
+   "keyBullets": [
+    "Water and flour proteins make gluten",
+    "Kneading lines the strands up",
+    "A strong net holds the bubbles; a weak one lets them out"
+   ],
+   "speakerNotes": "- Gas alone does nothing if it escapes.\n- Gluten forms when flour meets water, and kneading lines it up into a stretchy net.\n- Pull a piece of your dough thin. If light shows through without tearing, the net is ready.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Explains a mechanism",
+   "intent": "Show how the parts fit",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Warmth sets the pace: a few degrees changes the rise by hours",
+   "subtitle": "",
+   "layoutSuggestion": "Two-Column",
+   "keyBullets": [
+    "Kitchen at 18°C: about 4 hours",
+    "Kitchen at 26°C: about 2 hours"
+   ],
+   "speakerNotes": "- Yeast works faster when it is warm.\n- In a cool winter kitchen, a rise that the recipe calls two hours takes four.\n- That is where most bricks come from: the recipe was written in someone else's warmer kitchen.",
+   "beatIndex": 1,
+   "beatName": "Foundations",
+   "purpose": "Connects cause to effect",
+   "intent": "Name the hidden variable",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "The poke test tells you when the dough is ready",
+   "subtitle": "",
+   "layoutSuggestion": "Steps",
+   "keyBullets": [
+    "Flour a finger and press it in a centimeter",
+    "Springs back fast: wait",
+    "Springs back slowly and leaves a dent: bake",
+    "Stays down: it went too far"
+   ],
+   "speakerNotes": "- So stop watching the clock and watch the dough.\n- Press it gently. If it springs right back, the net is still tight, give it time.\n- A slow spring with a small dent means bake now. Let's each try it on the bowls in front of you.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Teaches the method",
+   "intent": "Practice the test",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Shape gently, so the gas you waited for stays in",
+   "subtitle": "",
+   "layoutSuggestion": "Image + Text",
+   "keyBullets": [
+    "Fold, don't punch",
+    "Tuck the edges under to tighten the skin"
+   ],
+   "speakerNotes": "- You waited hours for those bubbles. Don't punch them out.\n- Fold the dough over itself and tuck the edges under. The tight skin helps the loaf stand up in the oven.",
+   "beatIndex": 2,
+   "beatName": "Application",
+   "purpose": "Shows a worked step",
+   "intent": "Protect the rise",
+   "expectedIntensity": 0.4,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "In a cold kitchen, give it more time, not more yeast",
+   "subtitle": "",
+   "layoutSuggestion": "Pros / Cons",
+   "keyBullets": [
+    "More yeast: a fast rise, a flat taste",
+    "More time: the rise you want, and the flavor with it"
+   ],
+   "speakerNotes": "- The tempting fix is more yeast. It works, but the loaf tastes of nothing.\n- Flavor comes from time. In a cold kitchen, let it go an extra hour or two, or put it in the oven with only the light on.",
+   "beatIndex": 3,
+   "beatName": "Mastery",
+   "purpose": "Covers a pitfall",
+   "intent": "Head off the wrong fix",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Which loaf rose too long?",
+   "subtitle": "",
+   "layoutSuggestion": "Quiz",
+   "keyBullets": [
+    "A: tight crumb, small holes, heavy",
+    "B: big holes near the top, flat, a little sour",
+    "C: even holes, domed, springy"
+   ],
+   "speakerNotes": "- Look at the three photos on your handout.\n- Take a moment. The answer is B: the net gave out, the gas escaped up top, and it slumped.\n- A rose too little. C is the one we are after.",
+   "beatIndex": 4,
+   "beatName": "Assessment",
+   "purpose": "Checks understanding",
+   "intent": "Let them diagnose a loaf",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.6
+  },
+  {
+   "slideTitle": "Control the time and the temperature, and you control the loaf",
+   "subtitle": "Bring your loaf next Saturday",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [
+    "This week: bake one loaf and change only the rise time"
+   ],
+   "speakerNotes": "- That is the whole idea: the yeast makes the gas, the gluten holds it, and you set the pace with time and warmth.\n- Bake one loaf this week and change only how long it rises. Bring it, or a photo, next Saturday.",
+   "beatIndex": 5,
+   "beatName": "Transfer",
+   "purpose": "Closes the class",
+   "intent": "Land the idea and set homework",
+   "expectedIntensity": 0.6,
+   "expectedValence": 0.8
+  }
+ ]
+}

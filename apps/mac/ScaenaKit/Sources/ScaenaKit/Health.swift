@@ -248,8 +248,9 @@ extension Health {
 /// Where each of the Story's open rows stood when last drawn, so a read again keeps a row where it
 /// stood, the row a person is working staying under them, and what is new comes after, an error
 /// first (editor dogfood 6, as the browser's Story keeps them). A finding is told by its kind and
-/// slide, or, where the deck had and has one finding of its kind, by the kind alone, as pacing's,
-/// whose slide moves to the shortest beat as notes are deepened.
+/// slide, the slide by its state, so a fold before it moves no row (`Health.told`, W1 dogfood 14),
+/// or, where the deck had and has one finding of its kind, by the kind alone, as pacing's, whose
+/// slide moves to the shortest beat as notes are deepened.
 public struct StoryPlaces: Sendable, Equatable {
     private var stood: [String: Int] = [:]
 
@@ -257,14 +258,15 @@ public struct StoryPlaces: Sendable, Equatable {
 
     /// `runs`, the open rows as triage gives them, each a slide's findings, in the order they stood
     /// before where they did: kept where it stood, then what is new, an error first; and remember
-    /// it for the next read. `findings` is every finding the read gave.
-    public mutating func ordered(_ runs: [[Health.Finding]], of findings: [Health.Finding]) -> [[Health.Finding]] {
+    /// it for the next read. `health` is the read that gave them.
+    public mutating func ordered(_ runs: [[Health.Finding]], of health: Health) -> [[Health.Finding]] {
+        let findings = health.findings
         var kinds: [String: Int] = [:]
         for f in findings { kinds[f.kind, default: 0] += 1 }
         let alone = { (f: Health.Finding) in kinds[f.kind] == 1 }
         let before = stood
         let at = { (run: [Health.Finding]) -> Int in
-            let was = run.compactMap { f in before["\(f.kind) \(f.slide)"] ?? (alone(f) ? before[f.kind] : nil) }.min()
+            let was = run.compactMap { f in before[health.told(f)] ?? (alone(f) ? before[f.kind] : nil) }.min()
             if let was { return was }
             return run.contains { $0.severity == "error" } ? -1 : Int.max
         }
@@ -275,7 +277,7 @@ public struct StoryPlaces: Sendable, Equatable {
         stood = [:]
         for (i, run) in sorted.enumerated() {
             for f in run {
-                stood["\(f.kind) \(f.slide)"] = i
+                stood[health.told(f)] = i
                 if alone(f) { stood[f.kind] = i }
             }
         }
