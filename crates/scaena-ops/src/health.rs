@@ -3133,8 +3133,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 Some((name.to_string(), ways, values))
             })
             .collect();
+    // A figure a slide writes is read in the deck's marks, as each source's are kept in its own:
+    // a Spanish slide's "18.400" is 18400 (R1's agent dogfood 12).
+    let decimal = crate::narrative::decimal_of(language);
     let holds = |values: &[f64], f: &Figure| {
-        let read = scaena_narrato::figures(&f.shown);
+        let read = scaena_narrato::figures_in_marks(&f.shown, decimal);
         !read.is_empty() && read.iter().any(|v| values.iter().any(|h| (h - v).abs() < 1e-9))
     };
     // A figure a slide writes where every source its beat cites keeps its figures and none holds
@@ -4385,6 +4388,66 @@ mod tests {
         }
     }
 
+    /// A figure is read in the marks it is written in, a slide's in the deck's and a source's in its
+    /// own (R1's agent dogfood 12). The Seville deck is in Spanish: a slide that writes 18.400
+    /// litres, 18400, which the pilot's sheet keeps as written plainly, cited to the report alone,
+    /// is found, as it was not while both were read with English marks (18.4). A report in
+    /// English, "€3,800", holds slide 6's 3.800 €, so slide 6 cited to the sheet is found with it.
+    #[test]
+    fn a_figure_is_held_to_its_source_in_the_marks_each_writes_it_in() {
+        let path = root().join("docs/examples/agent-dogfood-12/fuentes.deck.json");
+        let made: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let sheet = std::fs::read_to_string(root().join("docs/examples/agent-dogfood-12/piloto.csv")).unwrap();
+        let spanish = "Durante el verano de 2025, Sevilla registró 41 días por encima de 40 °C, y la máxima del año llegó a 46,2 °C el 11 de agosto.\n\
+            En una encuesta a 900 residentes, el 62 % dijo que no lleva agua cuando sale a la calle en las horas de más calor.\n\
+            El piloto instaló 12 fuentes de agua potable en tres barrios entre mayo y septiembre. Cada fuente cuesta 3.800 € instalada, y su mantenimiento cuesta 410 € al año.\n\
+            Las urgencias por golpe de calor en los tres barrios bajaron un 18 % frente al verano anterior.";
+        let english = "In summer 2025 Seville had 41 days above 40 °C, and the year's high reached 46.2 °C on 11 August.\n\
+            In a survey of 900 residents, 62% said they carry no water when they go out in the hottest hours.\n\
+            The pilot installed 12 drinking fountains in three neighbourhoods. Each fountain costs €3,800 installed, and €410 a year to maintain.\n\
+            Heatstroke admissions in the three neighbourhoods fell 18% on the summer before.";
+        let kept = |report: &str| {
+            let mut deck = made.clone();
+            for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
+                let text = if s["name"] == "informe.pdf" { report } else { sheet.as_str() };
+                s["figures"] = json!(scaena_narrato::source_figures(text, Some(',')));
+            }
+            deck
+        };
+        let cite = |deck: &mut Value, section: usize, beat: usize, evidence: Value| {
+            deck["spine"]["sections"][section]["beats"][beat]["evidence"] = evidence;
+        };
+        let found = |deck: &Value, k: usize| -> Option<String> {
+            (of(deck).findings.into_iter()).find(|f| f.kind == Kind::Source && f.slide == k).map(|f| f.says)
+        };
+        // The report kept in its own marks: 3.800 € is 3800, 46,2 °C is 46.2.
+        let es = kept(spanish);
+        let figures = es["meta"]["narrative"]["sources"][0]["figures"].as_array().unwrap().clone();
+        assert!(figures.contains(&json!("3800")) && figures.contains(&json!("46.2")), "{figures:?}");
+        // A Spanish slide against a sheet's cell: slide 5 says July's 18.400 litres, cited to the
+        // report alone. (Slide 4 says it too, but names the sheet in its chart's note, which cites it.)
+        let mut five = es.clone();
+        five["nodes"]["las-12-fuentes-sirvieron-66-400-first"]["text"] = json!("litros servidos; 18.400 en julio");
+        cite(&mut five, 2, 1, json!(["source:informe.pdf"]));
+        let said = found(&five, 5).unwrap_or_default();
+        assert!(
+            said.starts_with("Slide 5 writes 18.400")
+                && said.ends_with("cites informe.pdf, which does not hold it; piloto.csv does."),
+            "{said}"
+        );
+        // A Spanish slide against an English report: slide 6's 3.800 € cited to the sheet.
+        let mut six = kept(english);
+        cite(&mut six, 3, 0, json!(["source:piloto.csv"]));
+        assert_eq!(
+            found(&six, 6).as_deref(),
+            Some("Slide 6 writes 3.800\u{a0}€ and cites piloto.csv, which does not hold it; informe.pdf does.")
+        );
+        // Cited to the report, in either language, slide 6 is held by it.
+        for report in [spanish, english] {
+            assert_eq!(found(&kept(report), 6), None, "{report}");
+        }
+    }
+
     /// A figure a slide cites to a source the deck keeps, which does not hold it, while another it
     /// keeps does, is found with the one that holds it, cited by its fix (W1's dogfood 17: the
     /// canopy deck, as worked, cites its sheet for the report's 9°F, and the report for about 450
@@ -4414,7 +4477,7 @@ mod tests {
         let canopy = std::fs::read_to_string(root().join("docs/examples/dogfood-17/bundle/data/canopy.csv")).unwrap();
         for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
             let text = if s["name"] == "report.pdf" { report } else { canopy.as_str() };
-            s["figures"] = json!(scaena_narrato::source_figures(text));
+            s["figures"] = json!(scaena_narrato::source_figures(text, None));
         }
         let h = of(&deck);
         assert_eq!(

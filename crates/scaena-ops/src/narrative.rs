@@ -714,7 +714,15 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
 /// figures it holds (W1's dogfood 17), read from `read`, the sources as read, and `pdfs`, the words
 /// each PDF draws by its name (`scaena_sources::pdf::each`), so health holds a slide that cites it
 /// to them.
-pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -> Vec<Provenance> {
+/// Each source's figures are read in the marks it writes them in, else in `language`'s, the
+/// deck's (`scaena_narrato::source_figures`, R1's agent dogfood 12).
+pub fn provenance(
+    given: &[Given],
+    read: &[Source],
+    pdfs: &[(String, String)],
+    language: Option<&str>,
+) -> Vec<Provenance> {
+    let decimal = decimal_of(language);
     (given.iter())
         .map(|g| {
             let mut text: String = (read.iter().filter(|s| s.name == g.name)).map(|s| s.text.as_str()).collect();
@@ -728,7 +736,7 @@ pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -
                 url: g.url.clone(),
                 bytes: g.bytes,
                 truncated: g.truncated,
-                figures: scaena_narrato::source_figures(&text),
+                figures: scaena_narrato::source_figures(&text, Some(decimal)),
             }
         })
         .collect()
@@ -1377,6 +1385,7 @@ pub fn from_slides(
     // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
     // and its address where it has one; none of its text is packed, since no model reads it.
     if !data.is_empty() || !grounds.is_empty() {
+        let decimal = decimal_of(generation.brief().language.as_deref());
         let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
         let given = (data.iter())
             .map(|(req, bytes)| Provenance {
@@ -1385,7 +1394,7 @@ pub fn from_slides(
                 url: None,
                 bytes: bytes.len(),
                 truncated: false,
-                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes)),
+                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes), None),
             })
             .chain(grounds.iter().map(|s| Provenance {
                 name: s.name.clone(),
@@ -1393,7 +1402,7 @@ pub fn from_slides(
                 url: scaena_sources::address(&s.name, s.kind),
                 bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
                 truncated: false,
-                figures: scaena_narrato::source_figures(&grounded_words(s)),
+                figures: scaena_narrato::source_figures(&grounded_words(s), Some(decimal)),
             }))
             .collect();
         generation.give_sources(given);
@@ -3750,6 +3759,13 @@ fn media(slide: &Slide) -> Value {
         .map(|c| c.series.iter().map(|s| s.name.clone().unwrap_or_default()).collect::<Vec<_>>());
     put("chartSeries", series.map(|names| json!(names)));
     Value::Object(m)
+}
+
+/// The decimal mark of a deck in `language`, named as a brief names it ("Spanish") or by its tag
+/// ("es"): a comma in Spanish, German, French, Italian, and Portuguese, else a point.
+pub fn decimal_of(language: Option<&str>) -> char {
+    let tag = language.map(|l| language_tag(l).unwrap_or(l));
+    scaena_core::format::Locale::of(tag).decimal.chars().next().unwrap_or('.')
 }
 
 /// The BCP 47 tag of a language the brief names by its English name.
@@ -14306,7 +14322,7 @@ mod tests {
         let sheet = source("canopy.csv", Kind::Csv, "year,canopy_pct\n2016,31.4\n2025,25.8\n");
         let read = [pdf, sheet];
         let g = grounding(&read, Provider::Anthropic).unwrap();
-        let kept = provenance(&g.given, &read, &g.words);
+        let kept = provenance(&g.given, &read, &g.words, None);
         assert_eq!(kept[1].figures, ["25.8", "31.4", "2016", "2025"]);
         if cfg!(feature = "pdf") {
             assert!(kept[0].figures.contains(&"7560".to_string()) && kept[0].figures.contains(&"9".to_string()));
@@ -14383,7 +14399,7 @@ mod tests {
             slide.source_ref = named.map(str::to_string);
         }
         let mut n = narrative(&summary, slides);
-        n.sources = provenance(&g.given, &[], &[]);
+        n.sources = provenance(&g.given, &[], &[], None);
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let deck = write.unwrap().deck.to_value().unwrap();
         let sources = &deck["meta"]["narrative"]["sources"];
@@ -14435,7 +14451,7 @@ mod tests {
         slides.truncate(8);
         let made = |slides: Vec<Slide>| -> Vec<String> {
             let mut n = narrative(&summary, slides);
-            n.sources = provenance(&g.given, &[], &[]);
+            n.sources = provenance(&g.given, &[], &[], None);
             let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
             let deck = write.unwrap().deck.to_value().unwrap();
             let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();

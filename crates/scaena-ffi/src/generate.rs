@@ -379,10 +379,12 @@ impl Generating {
                 // What each source was, kept in the deck as the CLI and the browser keep it
                 // (`meta.narrative.sources`): what a slide cites, and what the Story offers a
                 // figure no source backs (W1's dogfood 5).
+                let language = generation.brief().language.clone();
                 generation.give_sources(scaena_ops::narrative::provenance(
                     &ground.given,
                     &self.sources,
                     &scaena_sources::pdf::each(&self.sources),
+                    language.as_deref(),
                 ));
                 // The words each PDF draws, whose figures the notes may say (W1's dogfood 17).
                 generation.hold(&scaena_sources::pdf::held(&self.sources).0);
