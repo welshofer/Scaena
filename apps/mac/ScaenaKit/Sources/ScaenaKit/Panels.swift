@@ -1,5 +1,6 @@
 import CScaena
 import Foundation
+import Synchronization
 
 // The panels (PLAN 3.15), as the browser's tabs: the theme (PLAN 2.39, 2.61, 2.94), the data
 // (PLAN 2.55), the bundle's files (PLAN 2.59), and the versions its history keeps (PLAN 2.60).
@@ -105,7 +106,24 @@ public struct ThemeText: Decodable, Sendable {
         let fields = try decoder.container(keyedBy: Keys.self)
         theme = try fields.decode(String.self, forKey: .theme)
         text = try fields.decode(String.self, forKey: .text)
-        json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+        json = ParsedTheme.shared.json(of: text).json
+    }
+}
+
+/// The theme last parsed, by its text: the inspector reads the theme on every edit and the layout
+/// picker on every draw, and a shipped theme's 181 layouts parsed again each time held the window
+/// for seconds (#1309's walk, hangs 35, 37, 28, and 30). A text that reads as the last one did
+/// takes its JSON as it was parsed; any other is parsed and kept in its place.
+final class ParsedTheme: Sendable {
+    static let shared = ParsedTheme()
+    private let last = Mutex<(text: String, json: JSONValue?)?>(nil)
+
+    /// `text`'s JSON, and whether it was parsed now rather than kept.
+    func json(of text: String) -> (json: JSONValue?, parsed: Bool) {
+        if let kept = last.withLock({ $0 }), kept.text == text { return (kept.json, false) }
+        let json = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
+        last.withLock { $0 = (text, json) }
+        return (json, true)
     }
 }
 
