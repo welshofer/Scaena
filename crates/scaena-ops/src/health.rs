@@ -1563,6 +1563,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let layout = slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref());
         layout.is_some_and(|l| FRAMING.contains(&l) || CLOSING.contains(&l)) || closing.contains(&read[i].id)
     };
+    // A quiz asks the room what the talk has told it: it says an earlier slide's words again by
+    // design, so it is never found repeating one, nor named among the slides that add least (W1's
+    // dogfood 18: a quiz on a cold cache, after the slide that told it).
+    let recalls =
+        |i: usize| slides[i].states.iter().find_map(|&k| deck.states[k].layout.as_deref()).is_some_and(|l| l == "quiz");
     let bends: Vec<_> = bends.into_iter().filter(|d| !(d.delta < 0.0 && closing.contains(&d.slide_id))).collect();
 
     // Pacing against the brief's range, where it asked one, and the overall again with it.
@@ -2934,9 +2939,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
     // offers to fold it into.
     let mut repeats: Vec<(String, String)> = Vec::new();
     for i in 1..read.len() {
+        if recalls(i) {
+            continue;
+        }
         let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
-        let Some((at, shared)) =
-            std::iter::once(i - 1).chain(earlier).find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
+        let Some((at, shared)) = (std::iter::once(i - 1).chain(earlier))
+            .filter(|&j| !recalls(j))
+            .find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
         else {
             continue;
         };
@@ -3016,9 +3025,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             // alone named a coherent talk's best-joined slides, its hook among them, and missed
             // one that said again a slide two back (agent dogfood 7).
             let pairs = &m.coherence.pair_similarities;
-            let mut cut: Vec<usize> = (1..n.saturating_sub(1)).filter(|&i| !framing(i) && !closes(i)).collect();
+            let mut cut: Vec<usize> =
+                (1..n.saturating_sub(1)).filter(|&i| !framing(i) && !closes(i) && !recalls(i)).collect();
             scaena_core::sort::by_key(&mut cut, |&i| {
-                let said = (0..i).filter(|&j| !framing(j)).map(|j| already(&read[j], &read[i])).fold(0.0, f64::max);
+                let said = (0..i)
+                    .filter(|&j| !framing(j) && !recalls(j))
+                    .map(|j| already(&read[j], &read[i]))
+                    .fold(0.0, f64::max);
                 let turned = pairs.get(i - 1).copied().unwrap_or(0.0);
                 (std::cmp::Reverse((said * 1e6) as i64), std::cmp::Reverse((turned * 1e6) as i64))
             });
@@ -6246,6 +6259,24 @@ mod tests {
             slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
         };
         assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
+        // A quiz says an earlier slide's words again by design (W1's dogfood 18): slide 7 as a
+        // quiz on the same hours and minutes, its answers slide 6's own points lettered, is no
+        // repeat, and is named among no slides to cut.
+        let quizzed = |slides: &mut Vec<answer::Slide>| {
+            let answers: Vec<String> = (slides[5].key_bullets.iter().take(3).enumerate())
+                .map(|(k, b)| format!("{}: {b}", char::from(b'A' + k as u8)))
+                .collect();
+            slides[6].layout_suggestion = "Quiz".into();
+            slides[6].key_bullets = answers;
+        };
+        let made = dogfood("fleet", "", quizzed);
+        let quiz = (made["states"].as_array().unwrap().iter())
+            .find(|s| s["layout"] == "quiz")
+            .expect("slide 7 is set as a quiz");
+        assert!(quiz["id"].as_str().unwrap().starts_with("planning"), "{}", quiz["id"]);
+        let h = of(&made);
+        assert!(again(&h).is_empty(), "{:?}", again(&h));
+        assert!(!h.findings.iter().any(|f| f.says.contains("add least") && f.slide == 7), "{:#?}", h.findings);
     }
 
     /// A slide that says again what a slide two or more back said, another between them, is found
