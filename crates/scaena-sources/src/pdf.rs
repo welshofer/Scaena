@@ -158,6 +158,12 @@ struct File<'a> {
     /// Each object stream decoded: its data, and each of its objects' offset within it.
     packed: BTreeMap<u32, Rc<Packed>>,
     fonts: BTreeMap<u32, Option<Rc<Font>>>,
+    /// Where each `endstream` is, in order: what a stream whose `/Length` does not end it ends at,
+    /// found by a search, never by scanning the file again for each stream.
+    ends: Vec<usize>,
+    /// Bytes looked at by the scans of the file and its streams' edges: a measure of the work done,
+    /// which no file makes more than a few times its size.
+    work: usize,
     streams: usize,
     total: usize,
     values: usize,
@@ -175,6 +181,8 @@ impl<'a> File<'a> {
             objects: BTreeMap::new(),
             packed: BTreeMap::new(),
             fonts: BTreeMap::new(),
+            ends: Vec::new(),
+            work: 0,
             streams: 0,
             total: 0,
             values: 0,
@@ -189,6 +197,13 @@ impl<'a> File<'a> {
     /// encrypted file, its trailer or its cross-reference stream naming `/Encrypt`, is refused.
     fn index(&mut self) -> Result<(), String> {
         let b = self.bytes;
+        // Each pass over the file goes on from where it found the last, never back to its start.
+        let mut i = 0;
+        while let Some(found) = find(&b[i..], b"endstream") {
+            self.ends.push(i + found);
+            i += found + 9;
+        }
+        self.work += b.len();
         let mut i = 0;
         while let Some(found) = find(&b[i..], b"obj") {
             let o = i + found;
@@ -196,25 +211,28 @@ impl<'a> File<'a> {
             if b.get(o + 3).is_some_and(|c| regular(*c)) || (o >= 3 && &b[o - 3..o] == b"end") {
                 continue;
             }
-            if let Some(id) = header(b, o) {
+            if let Some(id) = header(b, o, &mut self.work) {
                 self.at.insert(id, At::File(o + 3));
                 if self.at.len() > self.bounds.objects {
                     return Err(format!("it holds more than {} objects", self.bounds.objects));
                 }
             }
         }
+        self.work += b.len();
         let encrypted = |dict: &Dict| matches!(get(dict, b"Encrypt"), Some(Value::Ref(_) | Value::Dict(_)));
         let mut i = 0;
         while let Some(found) = find(&b[i..], b"trailer") {
             let at = i + found + 7;
             i = at;
-            let mut values = 0;
-            if let Ok(Some(Value::Dict(trailer))) = Parser::new(b, at).value(self.bounds, &mut values)
+            // Each trailer read counts against the values every object's do, so trailers written
+            // inside one another read no more than the bound.
+            if let Some(Value::Dict(trailer)) = Parser::new(b, at).value(self.bounds, &mut self.values)?
                 && encrypted(&trailer)
             {
                 return Err("it is encrypted".into());
             }
         }
+        self.work += b.len();
         let tops: Vec<u32> = self.at.keys().copied().collect();
         for id in tops {
             let Some(object) = self.object(id)? else { continue };
@@ -260,7 +278,7 @@ impl<'a> File<'a> {
                 match p.value(self.bounds, &mut self.values)? {
                     Some(value) => {
                         let data = match &value {
-                            Value::Dict(dict) => stream_data(self.bytes, p.at, dict),
+                            Value::Dict(dict) => stream_data(self.bytes, p.at, dict, &self.ends, &mut self.work),
                             _ => None,
                         };
                         Some(Rc::new(Object { value, data }))
@@ -318,6 +336,12 @@ impl<'a> File<'a> {
             }
             _ => Vec::new(),
         };
+        // Its data, as the file holds it, counts toward what the streams come to together: streams
+        // that all run on to one `endstream` would else each be read to it.
+        self.total += range.len();
+        if self.total > self.bounds.total {
+            return Err(format!("its streams run past {} together", size(self.bounds.total)));
+        }
         let mut data = self.bytes[range].to_vec();
         for filter in names {
             data = match filter.as_slice() {
@@ -331,7 +355,7 @@ impl<'a> File<'a> {
                     }
                     self.total += out.len();
                     if self.total > self.bounds.total {
-                        return Err(format!("its streams inflate past {} together", size(self.bounds.total)));
+                        return Err(format!("its streams run past {} together", size(self.bounds.total)));
                     }
                     if read.is_err() && out.is_empty() {
                         return Ok(None);
@@ -635,10 +659,12 @@ fn glyph_char(glyph: &[u8]) -> Option<char> {
 }
 
 /// The object number of the `N G obj` that ends just before `o`, where the bytes before it read so.
-fn header(b: &[u8], o: usize) -> Option<u32> {
+/// `work` counts the bytes it looks at.
+fn header(b: &[u8], o: usize, work: &mut usize) -> Option<u32> {
     let mut i = o;
     let skip_space = |i: &mut usize| {
-        while *i > 0 && b[*i - 1].is_ascii_whitespace() {
+        let from = *i;
+        while *i > 0 && b[*i - 1].is_ascii_whitespace() && from - *i < SPACE {
             *i -= 1;
         }
     };
@@ -650,17 +676,28 @@ fn header(b: &[u8], o: usize) -> Option<u32> {
         (*i < end).then(|| std::str::from_utf8(&b[*i..end]).ok()?.parse::<u64>().ok()).flatten()
     };
     skip_space(&mut i);
-    digits(&mut i)?;
+    if digits(&mut i).is_none() {
+        *work += o - i;
+        return None;
+    }
     skip_space(&mut i);
-    let id = digits(&mut i)?;
+    let id = digits(&mut i);
+    *work += o - i;
+    let id = id?;
     (i == 0 || !regular(b[i - 1])).then_some(u32::try_from(id).ok()?)
 }
 
+/// How far white space is looked through, between a header's numbers, before a stream's data,
+/// or after it: a writer puts a few bytes there.
+const SPACE: usize = 256;
+
 /// A stream's data, after a dictionary that ends at `at`: its `/Length` where written as a number
-/// and the stream ends there, else up to the next `endstream`.
-fn stream_data(b: &[u8], at: usize, dict: &Dict) -> Option<std::ops::Range<usize>> {
+/// and the stream ends there, else up to the first of `ends`, every `endstream`'s place, after it.
+/// `work` counts the bytes it looks at.
+fn stream_data(b: &[u8], at: usize, dict: &Dict, ends: &[usize], work: &mut usize) -> Option<std::ops::Range<usize>> {
     let rest = b.get(at..)?;
-    let lead = rest.iter().take_while(|c| c.is_ascii_whitespace()).count();
+    let lead = rest.iter().take(SPACE).take_while(|c| c.is_ascii_whitespace()).count();
+    *work += lead + 6;
     if !rest[lead..].starts_with(b"stream") {
         return None;
     }
@@ -672,9 +709,10 @@ fn stream_data(b: &[u8], at: usize, dict: &Dict) -> Option<std::ops::Range<usize
         start += 1;
     }
     let by_length = number(get(dict, b"Length")).and_then(|n| start.checked_add(n)).filter(|&end| {
-        end <= b.len() && b[end..].iter().skip_while(|c| c.is_ascii_whitespace()).take(9).eq(b"endstream")
+        *work += SPACE.min(b.len().saturating_sub(end));
+        end <= b.len() && b[end..].iter().take(SPACE).skip_while(|c| c.is_ascii_whitespace()).take(9).eq(b"endstream")
     });
-    let end = by_length.or_else(|| find(&b[start..], b"endstream").map(|e| start + e))?;
+    let end = by_length.or_else(|| ends.get(ends.partition_point(|&e| e < start)).copied())?;
     Some(start..end)
 }
 
@@ -1188,7 +1226,7 @@ mod tests {
             std::iter::once(("<< /Type /Page /Contents [2 0 R 3 0 R 4 0 R] >>", None))
                 .chain((0..3).map(|_| ("/Filter /Fl", Some(deflated(&vec![b' '; 900 << 10])))))
                 .collect();
-        assert!(refused(&pdf(&parts, "")).ends_with("its streams inflate past 2 MB together"));
+        assert!(refused(&pdf(&parts, "")).ends_with("its streams run past 2 MB together"));
         // More streams than are read.
         let refs: String = (2..=61).map(|i| format!("{i} 0 R ")).collect();
         let head = format!("<< /Type /Page /Contents [{refs}] >>");
@@ -1234,6 +1272,35 @@ mod tests {
         // Encrypted, by its trailer: no words.
         let locked = pdf(&[("<< /Type /Page >>", None)], "/Encrypt << /Filter /Standard >>");
         assert!(refused(&locked).ends_with("it is encrypted"));
+    }
+
+    /// Streams whose `/Length` lies, as many as a few MB holds, all a page's contents: each is found
+    /// to end at the next `endstream` by a search of where every one is, never by scanning the file
+    /// again, so the work done is a few times the file's size; with none, each is no stream. And
+    /// streams that all run on to one `endstream` at the file's end are refused once the data they
+    /// come to passes the bound, never each read to its end.
+    #[test]
+    fn streams_whose_length_lies_are_read_in_one_pass() {
+        let lying = |end: &[u8]| {
+            let refs: String = (2..=20_001).map(|k| format!("{k} 0 R ")).collect();
+            let mut f = format!("%PDF-1.7\n1 0 obj << /Type /Page /Contents [{refs}] >> endobj\n").into_bytes();
+            for k in 2..=20_001 {
+                f.extend_from_slice(format!("{k} 0 obj << /Length 999999999 >> stream\n").as_bytes());
+                f.extend_from_slice(&[b'A'; 400]);
+                f.extend_from_slice(b"\nendobj\n");
+            }
+            f.extend_from_slice(end);
+            f
+        };
+        let none = lying(b"%%EOF\n");
+        assert!(none.len() > 8 << 20);
+        let mut file = File::new(&none, &BOUNDS);
+        file.index().and_then(|()| file.pages()).unwrap();
+        assert_eq!(file.out.trim(), "");
+        assert!(file.work <= 4 * none.len(), "{} bytes looked at for a file of {}", file.work, none.len());
+        let one = lying(b"endstream\n%%EOF\n");
+        let e = words("lying.pdf", &one).unwrap_err().to_string();
+        assert_eq!(e, "lying.pdf: its words were not read: its streams run past 256 MB together");
     }
 
     /// Random bytes, and each real PDF cut short anywhere, read as what they hold or are refused:
