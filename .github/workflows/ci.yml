@@ -121,7 +121,9 @@ jobs:
                 if [ "$LABELED" = true ]; then paint=true app=true; else reasons HEAD^1 HEAD; fi
               fi ;;
           esac
-          if [ "$paint" = true ] || [ "$app" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
+          # The rust job runs on macOS for what paints; what builds the apps has a job of its own,
+          # `apps`, as the iPad has, so the two take their time side by side, not end to end.
+          if [ "$paint" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "full=$full" >> "$GITHUB_OUTPUT"
           echo "os=$os" >> "$GITHUB_OUTPUT"
@@ -142,9 +144,6 @@ jobs:
     # the paint tests with SIGSEGV (#830's run, job 129452556493). Move to 26.04 as its own change,
     # with those tests passing there.
     runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
-    # The Mac app's window is pushed to a branch of the pull request's own (scripts/shots.sh).
-    permissions:
-      contents: write
     # A stalled GPU readback or test must fail the job, not hold a runner for six hours. A run
     # with nothing in its cache, as the first after the cache's key changes, builds everything:
     # #103's took 39 minutes on Linux and 27 on macOS. A pull request's run on macOS restores
@@ -202,15 +201,95 @@ jobs:
         with:
           path: ~/.cache/apt/ffmpeg
           key: apt-${{ github.job }}-ffmpeg-${{ steps.ffmpeg_image.outputs.image }}
-      # On macOS, the workspace's tests where the pull request touches what paints; where it touches
-      # only what builds the apps, the C ABI's own, whose Swift the steps after it test.
-      - if: runner.os == 'Linux' || needs.changes.outputs.paint == 'true'
-        run: cargo test --workspace --locked --exclude scaena-paint
-      - if: runner.os == 'macOS' && needs.changes.outputs.paint != 'true'
-        run: cargo test -p scaena-ffi --locked
-      # The Mac's C ABI (PLAN 3.1, ADR-0021): from C on both runners, as `just ffi` runs it, with
-      # the system libraries rustc names; and from Swift on macOS, where ScaenaKit's tests link the
-      # same static library.
+      # The workspace's tests: on Linux, and on macOS where the pull request touches what paints.
+      - run: cargo test --workspace --locked --exclude scaena-paint
+      # The Mac's C ABI from C, as `just ffi` runs it, on Linux; on macOS, the apps job runs it
+      # before the Swift that links the same static library.
+      - name: The C ABI from C
+        if: runner.os == 'Linux'
+        run: |
+          libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
+          mkdir -p target/ffi
+          cc -std=c11 -Wall -Wextra -Werror -I crates/scaena-ffi/include crates/scaena-ffi/tests/c/smoke.c target/debug/libscaena_ffi.a $libs -o target/ffi/smoke
+          cd tests/bench/b1.scaena && ../../../target/ffi/smoke . $(find . -type f ! -name '.*' | sed 's|^\./||' | sort)
+      # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
+      # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
+      # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
+      # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
+      # A full run's, and on macOS where the pull request touches what paints.
+      # Lavapipe, kept and restored as ffmpeg is above.
+      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
+        id: mesa_vulkan_drivers_image
+        run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
+        id: mesa_vulkan_drivers_kept
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/apt/mesa-vulkan-drivers
+          key: apt-${{ github.job }}-mesa-vulkan-drivers-${{ steps.mesa_vulkan_drivers_image.outputs.image }}
+      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
+        run: SCAENA_APT_KEEP="$HOME/.cache/apt/mesa-vulkan-drivers" scripts/apt-install.sh mesa-vulkan-drivers
+      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true' && github.ref == 'refs/heads/main' && steps.mesa_vulkan_drivers_kept.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/apt/mesa-vulkan-drivers
+          key: apt-${{ github.job }}-mesa-vulkan-drivers-${{ steps.mesa_vulkan_drivers_image.outputs.image }}
+      - if: needs.changes.outputs.full == 'true' && (runner.os == 'Linux' || needs.changes.outputs.paint == 'true')
+        run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
+        env:
+          SCAENA_REQUIRE_GPU: "1"
+      # Diff images from the parity harness and any rejected golden (PLAN 0.9).
+      # An upload is a diagnostic, and the job's verdict is its tests: this one and each upload
+      # below go on when it fails. GitHub's artifact service answered every upload with HTML from
+      # 20:30 to 20:43 on 2026-11-11, and that turned jobs red whose tests had passed (#1065, #1099).
+      - if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: diffs-${{ matrix.os }}
+          path: tests/golden/torture/actual/
+          if-no-files-found: ignore
+      # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
+      # must keep compiling for the browser (PLAN 0.1, 0.8). On Linux: what compiles for wasm32
+      # is the same on either runner.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
+      # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
+      # without its hyphenation patterns and code tables, as the editor's module leaves them out
+      # (ADR-0015, PLAN 2.132).
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
+  # What builds the apps, on macOS (PLAN 3.1–3.4, 4.10): the C ABI's tests, from C and from Swift,
+  # ScaenaKit's tests, the remote's under ThreadSanitizer, and the Mac app's window walked. A job of
+  # its own beside `rust`'s macOS run, which is what paints, as the iPad's is: the two together ran
+  # 86 minutes of the 90 a job may take (#1240's first run), the workspace's tests 35 of them and the
+  # window's walk 22.
+  apps:
+    name: apps (macos-latest)
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.app == 'true'
+    runs-on: macos-latest
+    # The Mac app's window is pushed to a branch of the pull request's own (scripts/shots.sh).
+    permissions:
+      contents: write
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The fonts the shipped themes name, as the rust job restores them (PLAN T.0c).
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/scaena-fonts
+          key: fonts-${{ hashFiles('scripts/build_bundle_fonts.py') }}
+          restore-keys: fonts-
+      - run: python3 scripts/build_bundle_fonts.py --fetch --shipped
+      # The C ABI's own tests, whose Swift the steps after them test.
+      - run: cargo test -p scaena-ffi --locked
+      # The Mac's C ABI (PLAN 3.1, ADR-0021): from C, as `just ffi` runs it, with the system
+      # libraries rustc names; then from Swift, where ScaenaKit's tests link the same static library.
       - name: The C ABI from C
         run: |
           libs=$(cargo rustc -q --color never -p scaena-ffi --lib --crate-type staticlib --locked -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p')
@@ -284,53 +363,6 @@ jobs:
           apps/mac/window.sh || walked=$?
           scripts/shots.sh target/mac/window/shots "pr-${{ github.event.pull_request.number }}-mac"
           exit "$walked"
-      # Painter and CLI tests with the `gpu` feature. They print each torture state's raster delta
-      # from the CPU goldens (blessed on x86-64 AVX2): vello_cpu at this runner's SIMD level, and
-      # vello on this runner's adapter: Metal on macOS, Mesa's lavapipe (software Vulkan) on Linux.
-      # SCAENA_REQUIRE_GPU makes a missing adapter a failure, not a skip (PLAN 0.7, ADR-0004).
-      # A full run's, and on macOS where the pull request touches what paints.
-      # Lavapipe, kept and restored as ffmpeg is above.
-      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
-        id: mesa_vulkan_drivers_image
-        run: echo "image=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
-      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
-        id: mesa_vulkan_drivers_kept
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/apt/mesa-vulkan-drivers
-          key: apt-${{ github.job }}-mesa-vulkan-drivers-${{ steps.mesa_vulkan_drivers_image.outputs.image }}
-      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true'
-        run: SCAENA_APT_KEEP="$HOME/.cache/apt/mesa-vulkan-drivers" scripts/apt-install.sh mesa-vulkan-drivers
-      - if: runner.os == 'Linux' && needs.changes.outputs.full == 'true' && github.ref == 'refs/heads/main' && steps.mesa_vulkan_drivers_kept.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cache/apt/mesa-vulkan-drivers
-          key: apt-${{ github.job }}-mesa-vulkan-drivers-${{ steps.mesa_vulkan_drivers_image.outputs.image }}
-      - if: needs.changes.outputs.full == 'true' && (runner.os == 'Linux' || needs.changes.outputs.paint == 'true')
-        run: cargo test -p scaena-paint -p scaena-cli --features gpu --locked -- --nocapture
-        env:
-          SCAENA_REQUIRE_GPU: "1"
-      # Diff images from the parity harness and any rejected golden (PLAN 0.9).
-      # An upload is a diagnostic, and the job's verdict is its tests: this one and each upload
-      # below go on when it fails. GitHub's artifact service answered every upload with HTML from
-      # 20:30 to 20:43 on 2026-11-11, and that turned jobs red whose tests had passed (#1065, #1099).
-      - if: failure()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: diffs-${{ matrix.os }}
-          path: tests/golden/torture/actual/
-          if-no-files-found: ignore
-      # The engine, both painters, and the WASM bindings (whose WebGPU half exists only on wasm32)
-      # must keep compiling for the browser (PLAN 0.1, 0.8). On Linux: what compiles for wasm32
-      # is the same on either runner.
-      - if: runner.os == 'Linux'
-        run: cargo clippy -p scaena-engine -p scaena-paint -p scaena-session -p scaena-wasm -p scaena-subset -p scaena-history -p scaena-resources -p scaena-pdf -p scaena-generator --all-features --target wasm32-unknown-unknown --locked -- -D warnings
-      # The player's engine alone, as a single-file export carries it (PLAN 2.5), and the engine
-      # without its hyphenation patterns and code tables, as the editor's module leaves them out
-      # (ADR-0015, PLAN 2.132).
-      - if: runner.os == 'Linux'
-        run: cargo clippy -p scaena-wasm --no-default-features --features gpu,cpu --target wasm32-unknown-unknown --locked -- -D warnings
   # ScaenaKit on an iPad simulator (PLAN 4.1, ADR-0023), wherever macOS runs for what builds the
   # apps: the engine built for the simulator, the Xcode project XcodeGen makes, and ScaenaKit's
   # tests run by xcodebuild on the newest iPad the runner's Xcode offers. Beside the macOS job, not

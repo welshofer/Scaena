@@ -1,0 +1,177 @@
+{
+ "executiveSummary": "An update for shift leads on the dock scanning project: why it is happening, the phases, the risks, and how success is measured.",
+ "slides": [
+  {
+   "slideTitle": "Dock Scanning Project Update",
+   "subtitle": "Shift leads meeting",
+   "layoutSuggestion": "Title",
+   "keyBullets": [],
+   "speakerNotes": "- This is the dock scanning project update.",
+   "beatIndex": 0,
+   "beatName": "Now",
+   "purpose": "Opens the update",
+   "intent": "Title",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Agenda",
+   "subtitle": "",
+   "layoutSuggestion": "Agenda",
+   "keyBullets": [
+    "Background",
+    "Current Process",
+    "Goals",
+    "Timeline",
+    "Risks",
+    "Metrics",
+    "Next Steps"
+   ],
+   "speakerNotes": "- The agenda is background, current process, goals, timeline, risks, metrics, and next steps.",
+   "beatIndex": 0,
+   "beatName": "Now",
+   "purpose": "Lists the agenda",
+   "intent": "Agenda",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Background",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Pallets are logged by hand at receiving",
+    "Counts are reconciled on Fridays",
+    "Recounts take about four hours",
+    "Errors are found late"
+   ],
+   "speakerNotes": "- Pallets are logged by hand at receiving. Counts are reconciled on Fridays. Recounts take about four hours, and errors are found late.",
+   "beatIndex": 0,
+   "beatName": "Now",
+   "purpose": "Gives background",
+   "intent": "Background",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Goals",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Scan every pallet at the dock",
+    "Accurate counts",
+    "Fewer recounts",
+    "Better visibility"
+   ],
+   "speakerNotes": "- The goals are to scan every pallet at the dock, have accurate counts, fewer recounts, and better visibility.",
+   "beatIndex": 1,
+   "beatName": "North Star",
+   "purpose": "States goals",
+   "intent": "Goals",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Project Overview",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Handheld scanners at each dock",
+    "Integration with the inventory system",
+    "Training for receiving staff",
+    "Support from IT"
+   ],
+   "speakerNotes": "- The project includes handheld scanners at each dock, integration with the inventory system, training for receiving staff, and support from IT.",
+   "beatIndex": 1,
+   "beatName": "North Star",
+   "purpose": "Gives an overview",
+   "intent": "Overview",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Timeline",
+   "subtitle": "",
+   "layoutSuggestion": "Timeline",
+   "keyBullets": [
+    "June: Dock 1",
+    "July: Docks 2 and 3",
+    "August: Dock 4",
+    "September: review"
+   ],
+   "speakerNotes": "- The timeline is Dock 1 in June, Docks 2 and 3 in July, Dock 4 in August, and a review in September.",
+   "beatIndex": 2,
+   "beatName": "Phases",
+   "purpose": "Shows the timeline",
+   "intent": "Timeline",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Training",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Two-hour session per shift",
+    "Quick reference cards",
+    "Super users on each shift"
+   ],
+   "speakerNotes": "- Training will be a two-hour session per shift, with quick reference cards and super users on each shift.",
+   "beatIndex": 2,
+   "beatName": "Phases",
+   "purpose": "Covers training",
+   "intent": "Training",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Risks",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Scanner battery life",
+    "Wi-Fi coverage at Dock 4",
+    "Freezer temperatures",
+    "Staff adoption"
+   ],
+   "speakerNotes": "- The risks are scanner battery life, Wi-Fi coverage at Dock 4, freezer temperatures, and staff adoption.",
+   "beatIndex": 3,
+   "beatName": "Risks",
+   "purpose": "Lists risks",
+   "intent": "Risks",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Metrics",
+   "subtitle": "",
+   "layoutSuggestion": "Bullets",
+   "keyBullets": [
+    "Scan rate",
+    "Count accuracy",
+    "Recount hours",
+    "Exceptions per week"
+   ],
+   "speakerNotes": "- We will track scan rate, count accuracy, recount hours, and exceptions per week.",
+   "beatIndex": 4,
+   "beatName": "Measures",
+   "purpose": "Lists metrics",
+   "intent": "Metrics",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  },
+  {
+   "slideTitle": "Thank You",
+   "subtitle": "",
+   "layoutSuggestion": "Closing",
+   "keyBullets": [],
+   "speakerNotes": "- Thank you. Any questions?",
+   "beatIndex": 4,
+   "beatName": "Measures",
+   "purpose": "Closes",
+   "intent": "Thank you",
+   "expectedIntensity": 0.5,
+   "expectedValence": 0.5
+  }
+ ]
+}

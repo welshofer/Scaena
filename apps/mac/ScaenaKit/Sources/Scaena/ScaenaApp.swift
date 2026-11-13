@@ -21,6 +21,11 @@ struct ScaenaApp: App {
         // before it left: an edit saved, or one undone in the window that the test ended before
         // the app saved.
         if UserDefaults.standard.bool(forKey: "b1AsShipped") { Self.putBackB1() }
+        #if DEBUG
+        // Launched with `-softwareKeyboard NO`, as the UI tests' hardware pass launches it, no
+        // field brings iOS's keyboard up (`Keyboardless`).
+        Keyboardless.installIfAsked()
+        #endif
         #endif
         // The GPU every canvas paints with, made as the app starts rather than when the first deck
         // shows (gate 3); on a queue of its own, since making it blocks. A failure here is said

@@ -3197,6 +3197,9 @@ mod tests {
             "NotoSansArabic-VF.ttf",
             "NotoColorEmoji-COLRv1.ttf",
             "JetBrainsMono-VF.ttf",
+            "NotoSansJP-VF.ttf",
+            "NotoSansSC-VF.ttf",
+            "NotoSansKR-VF.ttf",
         ] {
             let id = format!("fonts/{f}");
             s.add_file(&id, std::fs::read(format!("{BUNDLE}/{id}")).unwrap());
@@ -6649,7 +6652,7 @@ mod tests {
         s.set_deck(rename(&s.deck, "assets/copy.png", "assets/absent.png"));
         let err = s.frame("images", f64::INFINITY).unwrap_err();
         assert!(matches!(&err, Error::Missing(p) if p == "assets/absent.png"), "{err}");
-        assert_eq!(s.states().len(), 72);
+        assert_eq!(s.states().len(), 73);
     }
 
     /// A pen's drawing and an icon are each a path on a view (PLAN 2.104, 2.114): the drawing,

@@ -15,6 +15,32 @@ print("%s passed, %s failed, %s skipped" % tuple(counts))
 for failure in summary.get("testFailures", []):
     print("failed: %s: %s" % (failure.get("testName"), failure.get("failureText")))
 '
+# How long each test took, slowest first: a pass that grows names the test that grows it (#1240,
+# the second pass from 1126 s to 2432 s in a day).
+xcrun xcresulttool get test-results tests --path "$results" 2>/dev/null | python3 -c '
+import json, re, sys
+def seconds(node):
+    if isinstance(node.get("durationInSeconds"), (int, float)):
+        return float(node["durationInSeconds"])
+    total = 0.0
+    for amount, unit in re.findall(r"([0-9.]+)\s*(h|m|s)", node.get("duration") or ""):
+        total += float(amount) * {"h": 3600, "m": 60, "s": 1}[unit]
+    return total
+cases = []
+def walk(node, within):
+    name = node.get("name", "")
+    if node.get("nodeType") == "Test Case":
+        cases.append((seconds(node), "%s/%s" % (within, name), node.get("result", "")))
+        return
+    for child in node.get("children", []):
+        walk(child, name if node.get("nodeType") == "Test Suite" else within)
+for node in json.load(sys.stdin).get("testNodes", []):
+    walk(node, "")
+if cases:
+    print("each test, slowest first:")
+    for took, name, result in sorted(cases, reverse=True):
+        print("%8.1f s  %s  %s" % (took, name, result))
+' || echo "no test durations in $results"
 xcrun xcresulttool get log --path "$results" --type console 2>/dev/null | grep -oE "gate [0-9], criterion [0-9].*|skipping: .*"
 if [ -n "${2:-}" ]; then
   rm -rf "$2"

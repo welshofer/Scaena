@@ -275,3 +275,213 @@ Words cannot tell an unanswered puzzle from an answered one, so it is not built.
 **Promises in the notes ("by the end", "at the end").** These are in keynote's, lecture's and training's notes, and all three are kept, so there is nothing to find.
 
 **The count case.** Training's "three traps" listing two is found already (#1008).
+
+## Dogfood 17: why the Story's fixes barely move the score
+
+W1's dogfood 17 made a deck with From a prompt… and worked its Story down as a person would (`docs/examples/dogfood-17/README.md`). Nine fixes took the score from 84 to 86. This section says why, and measures the one score change the reading suggested against the reader's ranking above. The prototype is not on main.
+
+### How the score is made
+
+In a deck read by its words, as this one is, the score is Vzestup's fallback composite: (0.20 · pacing + 0.25 · balance + 0.25 · fidelity) / 0.70. Coherence, intensity and tone are measured but not weighed, and no coaching finding is.
+
+| | pacing | balance | fidelity | score |
+|---|---|---|---|---|
+| as made | 100 | 84 | 70 | 83.6, shown as 84 |
+| as worked | 100 | 84 | 77 | 86.1, shown as 86 |
+
+### The nine fixes, by measure
+
+| finding (slide) | measure | score | why |
+|---|---|---|---|
+| `label` (3), `label` (4) | none | 0 | a headline's wording is coaching; balance counts points, not headlines |
+| `claim` (3), `claim` (8) | none | 0 | the settled outline is Scaena's; Vzestup's measures never read it |
+| `bigIdea` (8) | none | 0 | as `claim` |
+| `turn` (6) | coherence | 0 | coherence read by words has no score |
+| `link` (8) | none | 0 | a security warning, kept |
+| `arc` (5), Plan it at 0.73 | fidelity | +1 | fidelity 70 → 73 |
+| `arc` (7), Plan it at 0.75 | fidelity | +1 | fidelity 73 → 77 |
+
+Seven of the nine are findings no measure reads, by design. The two that could move the number moved it little. A DTW written beside health's, which reproduces 70 and 77 exactly, says why:
+
+| slide | curve | planned, as worked | gap |
+|---|---|---|---|
+| 1 | 0.25 | 0.50 | +0.25 |
+| 4 | 0.69 | 0.50 | −0.19 |
+| 5 | 0.85 | 0.73 | −0.12 |
+| 6 | 0.70 | 0.50 | −0.20 |
+| 7 | 0.95 | 0.75 | −0.20 |
+| 8, the close | 0.98 | 0.50 | −0.48 |
+
+- **The fixes stop short of the curve.** A plan is held within 0.25 of what the slide's words read (ADR-0032 item 4), and these words read about 0.49.
+- **The close is the largest cost left, and nothing asks for it.** Item 6 finds no bend in a calm close, but the score's DTW still charges one. Planned on its curve, slide 8 alone would take fidelity from 77 to 88, and the score from 86 to 90.
+- **Gaps under a finding's threshold cost too.** Slides 1, 4 and 6 stand 0.19–0.25 from the curve, and no finding names them.
+- **A fix could lower the score.** The warp aligns the slides afresh with each plan.
+  - On B1, taking each fix in turn read 72 → 74 → 73 → 74 → 74 → 74. Slide 12's plan, 0.70, stood under the tent's 0.73 at its place.
+  - On this deck, slide 7's fix taken first and slide 5's after took the score from 87 to 86.
+  - #1252 offers a plan only where it raises fidelity as the deck stands. No figure moves.
+- **Balance, 84, has no finding naming it.** `thin` passes over this deck's chart and one-idea slides.
+
+### A: the score reads a calm close as item 6 does
+
+The candidate makes item 6 one rule for the finding and the score: a slide in the closing run planned cooler than the curve costs nothing in the DTW, and one planned hotter still costs.
+
+| deck, in the reader's order | base | A |
+|---|---|---|
+| keynote | 94 | 94 |
+| appeal | 93 | 93 |
+| pitch | 90 | 90 |
+| deepdive | 93 | 97 |
+| qbr | 95 | 96 |
+| launch | 91 | 92 |
+| lecture | 94 | 95 |
+| board-de | 90 | 93 |
+| climate | 84 | 85 |
+| training | 93 | 98 |
+| grant | 78 | 78 |
+| fleet | 90 | 91 |
+| cargo | 69 | 70 |
+
+| | ρ against the reader | decks at 90–95 | spread | largest single-deck move |
+|---|---|---|---|---|
+| base | +0.65 | 10 | 26 | none |
+| A | +0.44 | 7, and 3 above 95 | 28 | training 93 → 98 |
+
+ρ is Spearman's rank correlation of health's order with the reader's, tied scores taking their average rank, as above. A takes it down by 0.21. The decks that move it:
+
+| deck | reader's rank | health's rank, base | with A | why it moves |
+|---|---|---|---|---|
+| training | 10 | 5 | 1 | its close is planned calm, so fidelity 81 → 93 |
+| deepdive | 4 | 5 | 2 | its close, a bare "Questions?", is planned calm: fidelity 81 → 91 |
+| board-de | 8 | 9 | 6.5 | its close, a bare "Vielen Dank", is planned calm: fidelity 79 → 86 |
+| keynote | 1 | 2.5 | 5 | does not move, and is passed |
+| lecture | 7 | 2.5 | 4 | rises a point, and is passed by deepdive and training |
+| appeal | 2 | 5 | 6.5 | does not move, and is passed |
+| pitch | 3 | 9 | 10 | does not move, and is passed by board-de |
+
+Ranks are health's, ties sharing their average. Qbr (reader 5th) falls from health's first to third and launch (6th) from seventh to eighth, passed by the three that rise. Climate, grant, fleet and cargo hold their ranks.
+
+The decks A lifts most each close calmly: deepdive on a bare Questions slide, board-de on a bare thank-you, and training on a close planned calm. The reader marks the first two down for exactly that. The score's charge on a calm close is part of what keeps them under the decks that end on their thesis.
+
+The 13 decks are built as the method above builds them. Each base is the one the score-compression section gives, but cargo's, which main has since moved from 68 to 69. Outside the 13, dogfood 17 goes from 84 to 89 as made and from 86 to 90 as worked, and B1, which names no arc, stays at 72.
+
+### What the numbers say
+
+- **A makes the ranking worse.**
+  - It rewards the decks that close calmly. Training, the reader's tenth, becomes the top deck at 98.
+  - Deepdive (fourth) rises past all of the reader's top three, and board-de (eighth) past pitch (third).
+  - Keynote, appeal and pitch, which a reader puts first, do not move.
+- **The band empties the wrong way.** 90–95 holds seven decks instead of ten, but only because three rise past 95.
+- **The charge on a calm close is doing work.** The score's charge on a close planned under the curve is inconsistent with item 6's finding. On this evidence, though, it keeps the score nearer the reader.
+
+### Recommendation
+
+- **A is not recommended.** ρ falls from +0.65 to +0.44.
+- **The alternative is to say it in words.** If the inconsistency between item 6's finding and the score matters, close it in words: health can say that the score still reads the close against the arc's curve, though no finding asks for its plan. No figure moves.
+
+### The question A was answering, which stays Jay's
+
+Should a fix the Story asks for move the score when no measure counts it? On this deck that is `label` (2), `claim` (2), and `bigIdea` (1): five of the nine fixes. `turn` is counted by coherence, which has no score when read by words. The options, with what each would cost:
+
+1. **No, as now.** The score is Vzestup's three measures, and coaching sits beside it.
+   - The number stays still under five of these nine fixes, which is what W1's walk found ("Working the Story barely moves the score").
+   - Nothing moves on any deck.
+2. **Count them in a measure of their own.** The settled outline's findings (`claim`, `bigIdea`) and the headline's (`label`) would make an outline measure, weighed beside the three.
+   - This departs from Vzestup's composite, a new ADR-0032 item.
+   - It needs its own ρ read before it lands: these findings fire only on decks that keep a settled outline, and none of the calibration's 13 does. So the read needs decks made with their outline shown.
+3. **Count them as warnings that cost points.** For example, the score less a point or two per warning of these kinds.
+   - The calibration's C5 did this for every warning and took ρ to +0.30.
+   - Narrowed to these kinds it has not been measured. Like option 2, it would read nothing on the 13 decks, which keep no outline.
+4. **Leave the score and say it on the row.** Each Story row would say whether its fix moves the score.
+   - No figure moves.
+   - A row that calls a story fix "not counted" could teach people to skip the findings that make the talk better. That is why the rows say nothing of it yet.
+
+On the 13 decks above, options 2 and 3 move nothing: none keeps a settled outline, and none has a `label`, `claim` or `bigIdea` warning. Their label findings are all infos. So ρ there stays +0.65 under either option. W2's outlined calibration (`docs/examples/health-calibration-outlined/`, #1256) gives six decks that keep their outline, ranked by a reader before any score was read. Both options are read on them below.
+
+### Options 2 and 3, read on decks that keep their outline
+
+The six decks are built as that calibration's README builds them, and read by health on main. Their base scores are the ones that calibration gives. Each option is read twice: with health's detectors on main, and with two fixes to them that are in review.
+- **#1257:** a word or two, and a how or what clause, read as a topic headline, and an imperative read as a point.
+- **#1259:** a part's claim is not counted as carried by a name every part shares.
+
+With the second set, health finds 12 of the 16 topic headlines the reader counts, with none false. On main it finds 5, with one false.
+
+**The options as measured.** The costs and weights are mine, chosen before reading the results and not fitted to them.
+- **Option 3, a cost per finding.** The score without the cap, less 1, 2 or 3 points for each `label`, `claim` or `bigIdea` warning, then capped again where lint finds a slide broken.
+  - Most of health's topic headlines are infos, not warnings, so a variant counts `label` findings of either severity.
+- **Option 2, an outline measure.** It is weighed 0.25 beside pacing (0.20), balance (0.25) and fidelity (0.25), and read only for a deck that keeps an outline. It is the mean of three shares:
+  - the parts whose slides carry their claim: 1 less the `claim` warnings over the parts;
+  - the big idea landed: 1, or 0 where `bigIdea` warns;
+  - the content slides whose headline states its point: 1 less the `label` findings over the content slides.
+
+| | main's detectors, as scored | main's, without the cap | with #1257 and #1259, as scored | with them, without the cap |
+|---|---|---|---|---|
+| base | −0.20 | +0.88 | −0.20 | +0.88 |
+| 3: −1 per warning | −0.14 | +0.94 | −0.14 | +0.94 |
+| 3: −1 per finding, labels of either severity | −0.14 | +0.94 | +0.06 | +1.00 |
+| 3: −2 per warning | −0.03 | +0.93 | +0.20 | +0.93 |
+| 3: −2 per finding, labels of either severity | −0.03 | +0.93 | +0.71 | +0.94 |
+| 3: −3 per warning | +0.58 | +0.89 | +0.58 | +0.89 |
+| 2: an outline measure | +0.35 | +0.93 | +0.71 | +0.99 |
+
+ρ is Spearman's rank correlation with the reader's order, ties at their average rank. The six decks' scores under the two options that read closest, with both fixes and without the cap:
+
+| deck | reader | base, no cap | 2, no cap | 3: −2 per finding, no cap |
+|---|---|---|---|---|
+| lanes | 1 | 95 | 96 | 95 |
+| sourdough | 2 | 93 | 95 | 93 |
+| vans | 3 | 93 | 89 | 83 |
+| support | 4 | 89 | 89 | 85 |
+| larder | 5 | 87 | 77 | 79 |
+| warehouse | 6 | 89 | 76 | 73 |
+
+### What the numbers say
+
+- **The cap decides more than either option.** As scored, lanes and vans (the reader's first and third) stay at 81 and 80 under every option. Each is capped by a lint error the builder left, so no option gets past +0.71 with the cap.
+- **Without the cap, both options follow the reader more closely than the base does.** ρ rises from +0.88 to +0.89–1.00. Both put larder and warehouse (fifth and sixth) under support (fourth), where the base ties warehouse with support.
+- **They need the corrected detectors.** With main's, health finds two of vans' eight topic headlines and two of warehouse's eight, so a cost per label barely reaches them. With #1257, option 2 and option 3, counting labels of either severity, separate them. But option 3 then also takes vans, the reader's third, ten points under sourdough: vans' headlines are topics, and its story is the strongest of the six.
+- **How far to trust it.**
+  - Six decks are few. One swap of neighbours moves ρ by about 0.1.
+  - W2 wrote each deck to sit at a point on the three axes these findings read, so the decks favour any option that reads them, by construction.
+  - The 13 decks a reader ranked for other reasons can't test either option, because neither moves them.
+  - Read +0.99 and +1.00 as "orders these six as the reader does", not as a measured fit.
+- **Each option is a new ADR-0032 item.** Option 2 is a new measure in Vzestup's composite. Option 3 is a cost outside every measure. Neither is recommended here; the question stays Jay's.
+
+### The same read, with no lint error left
+
+#1258 fixed the two errors the builder left: lanes' statement overflowing its place, and vans' close faint on its backdrop. These are the two that capped lanes and vans. The six decks are rebuilt on main at 031605545, which also holds #1257 and #1259. All six build with no lint error, so no score is capped, and every number here is health's score as scored.
+
+| deck | reader | base | 2: an outline measure | 3: −1 a warning | 3: −2 a warning | 3: −3 a warning | 3: −1 a finding | 3: −2 a finding | 3: −3 a finding |
+|---|---|---|---|---|---|---|---|---|---|
+| lanes | 1 | 95 | 96 | 95 | 95 | 95 | 95 | 95 | 95 |
+| sourdough | 2 | 93 | 95 | 93 | 93 | 93 | 93 | 93 | 93 |
+| vans | 3 | 93 | 89 | 89 | 85 | 81 | 88 | 83 | 78 |
+| support | 4 | 89 | 89 | 87 | 85 | 83 | 87 | 85 | 83 |
+| larder | 5 | 87 | 77 | 83 | 79 | 75 | 83 | 79 | 75 |
+| warehouse | 6 | 88 | 75 | 85 | 82 | 79 | 80 | 72 | 64 |
+| **ρ** | | **+0.93** | **+0.99** | **+0.94** | **+0.93** | **+0.89** | **+1.00** | **+0.94** | **+0.94** |
+
+"A warning" counts `label`, `claim` and `bigIdea` warnings. "A finding" counts `label` findings of either severity, since most of health's topic headlines are infos. The outline measure is as defined above. The findings each option counts:
+
+| deck | `label` warnings | `label` findings | `claim` | `bigIdea` |
+|---|---|---|---|---|
+| lanes, sourdough | 0 | 0 | 0 | 0 |
+| vans | 4 | 5 | 0 | 0 |
+| support | 0 | 0 | 2 | 0 |
+| larder | 0 | 0 | 3 | 1 |
+| warehouse | 2 | 7 | 0 | 1 |
+
+### What the clean numbers say
+
+- **The base already follows the reader at +0.93.** With the cap gone, the one pair it gets wrong is warehouse (88) over larder (87), the reader's sixth and fifth, by a point.
+- **Every option puts that pair right, and most leave the rest as they were.**
+  - A point a finding (+1.00) orders all six as the reader does.
+  - The outline measure (+0.99) does too, but for vans and support, which it ties at 89.
+  - A point a warning (+0.94) puts warehouse under support, but leaves larder two points under warehouse.
+- **Heavier costs start to cost the reader's third.**
+  - At −2 a warning, vans (3rd) ties support (4th) at 85.
+  - From −2 a finding it falls under support, 83 to 85.
+  - At −3 a warning it falls under support too, 81 to 83, and ρ drops to +0.89.
+  - Vans' headlines are topics, but its story is the strongest of the six. Its claims and its close are carried, and only `label` costs it.
+- **Each option moves ρ between −0.04 and +0.07 on six decks.** One swap of neighbours is about 0.1. The table can show which options hold the reader's order, but not that any option is better than the base by a measured margin.
+- **The 13 calibration decks still can't test them.** None keeps an outline or has a warning of these kinds, so ρ there stays +0.65 under every option.
+- **No recommendation.** The cap's noise is gone; the question stays Jay's.
