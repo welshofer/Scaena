@@ -4726,6 +4726,15 @@ mod tests {
         let mut five = es.clone();
         five["nodes"]["las-12-fuentes-sirvieron-66-400-first"]["text"] = json!("litros servidos; 18.400 en julio");
         cite(&mut five, 2, 1, json!(["source:informe.pdf"]));
+        // Its headline's 66.400 is the sheet's column summed, which the sheet keeps, so it is
+        // found first, with the sheet: the total of litres a slide sums the months to.
+        let total = found(&five, 5).unwrap_or_default();
+        assert_eq!(total, "Slide 5 writes 66.400 and cites informe.pdf, which does not hold it; piloto.csv does.");
+        // Without the total, the card's July 18.400 is held to the sheet's cell in its marks.
+        let headline = "Las 12 fuentes sirvieron agua todo el verano";
+        five["spine"]["sections"][2]["beats"][1]["claim"] = json!(headline);
+        five["nodes"]["las-12-fuentes-sirvieron-66-400-header"]["text"] = json!(headline);
+        five["nodes"]["las-12-fuentes-sirvieron-66-400-first-title"]["text"] = json!("18.400");
         let said = found(&five, 5).unwrap_or_default();
         assert!(
             said.starts_with("Slide 5 writes 18.400")
