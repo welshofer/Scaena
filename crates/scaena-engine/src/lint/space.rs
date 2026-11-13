@@ -427,21 +427,22 @@ impl Rule for W305PromptLeft {
                     && p.get("opacity").and_then(Value::as_f64) != Some(0.0)
                     && p.get("semantic").and_then(Value::as_str) != Some("decoration")
             });
-            let prompted: Vec<(&String, &str, String)> = shown
+            // Each text that says its slot's prompt: a place's label ("A", "01") is what the slide says
+            // there, neither a prompt left nor words of the person's own.
+            let saying: Vec<(&String, &str, String)> = shown
                 .clone()
                 .filter_map(|(id, p)| {
                     let slot = p.get("at").filter(|a| a.get("parent").is_none())?.get("in")?.as_str()?;
                     let (said, _) = slots.get(slot)?.prompt.as_ref()?.text()?;
-                    (!said.trim().is_empty()
-                        && !label(&said)
-                        && p.get("text").and_then(Value::as_str) == Some(said.as_str()))
-                    .then_some((id, slot, said))
+                    (!said.trim().is_empty() && p.get("text").and_then(Value::as_str) == Some(said.as_str()))
+                        .then_some((id, slot, said))
                 })
                 .collect();
             // Words of the person's own on the slide: a text that says something, and not its prompt.
             let written = shown.clone().any(|(id, p)| {
-                !prompted.iter().any(|(p, _, _)| *p == id) && !scaena_core::reading::words(p).trim().is_empty()
+                !saying.iter().any(|(p, _, _)| *p == id) && !scaena_core::reading::words(p).trim().is_empty()
             });
+            let prompted = saying.into_iter().filter(|(_, _, said)| !label(said));
             if !written {
                 continue;
             }

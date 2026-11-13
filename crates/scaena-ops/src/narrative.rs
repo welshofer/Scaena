@@ -12207,9 +12207,8 @@ mod tests {
         let mut n = narrative(&written.executive_summary, written.slides);
         n.arc = "Learning Journey".into();
         let built = deck(&n, &theme, &Pictures::new()).unwrap();
-        let layouts: Vec<&str> = (built.deck["states"].as_array().unwrap().iter())
-            .filter_map(|s| s["layout"].as_str())
-            .collect();
+        let layouts: Vec<&str> =
+            (built.deck["states"].as_array().unwrap().iter()).filter_map(|s| s["layout"].as_str()).collect();
         assert!(layouts.contains(&"quiz") && layouts.contains(&"how-it-works"), "{layouts:?}");
         let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
