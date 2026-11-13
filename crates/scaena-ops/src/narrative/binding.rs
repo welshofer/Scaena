@@ -296,6 +296,19 @@ pub fn bind(
         let row = table.rows.iter().find(|r| is(&r[x], category))?;
         Some(row[x].label()).filter(|label| label != category)
     };
+    // What it marks by a series marks the column that series is bound to, as the fold names it:
+    // "Median" lit is `median_minutes` (R1's agent dogfood 11).
+    if several {
+        for note in node.get_mut("annotations").and_then(Value::as_array_mut).into_iter().flatten() {
+            let Some(at) = note.pointer_mut("/at/series") else { continue };
+            let bound = (chart.series.iter().zip(&names))
+                .find(|(s, _)| s.name.as_deref().is_some_and(|n| Some(n) == at.as_str()))
+                .map(|(_, column)| *column);
+            if let Some(column) = bound {
+                *at = json!(column);
+            }
+        }
+    }
     for note in node.get_mut("annotations").and_then(Value::as_array_mut).into_iter().flatten() {
         let Some(at) = note.pointer_mut("/at/x") else { continue };
         let places: Vec<&mut Value> = match at {
@@ -694,6 +707,18 @@ mod tests {
         let mut bound = node();
         bind(&mut bound, &chart(&["2021", "2022", "2023", "2024", "2025"]), &deck, &files, "canopy").unwrap();
         assert_eq!(bound["data"], json!("@canopy"));
+        // The series its headline lights marks the column bound to it, as the fold names it, so
+        // lint finds it among the series (R1's agent dogfood 11).
+        let mut lit = node();
+        lit["annotations"] = json!([
+            { "kind": "highlight", "at": { "series": "Planted" } },
+            { "kind": "highlight", "at": { "series": "Shrubs" } }
+        ]);
+        bind(&mut lit, &chart(&["2021", "2022", "2023", "2024", "2025"]), &deck, &files, "canopy").unwrap();
+        assert_eq!(lit["annotations"][0]["at"]["series"], json!("trees_planted"));
+        // A series no series of the slide names is left as written, for lint's E103 to name the
+        // column meant (R1's dogfood 10).
+        assert_eq!(lit["annotations"][1]["at"]["series"], json!("Shrubs"));
         assert_eq!(bound["x"]["field"], json!("year"));
         assert_eq!(
             bound["dataTransform"],
