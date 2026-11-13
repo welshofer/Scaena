@@ -453,19 +453,26 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
         let (why, at) = (c("theme --apply themes/ember.theme.json"), c("2026-11-13T12:00:00Z"));
         serde_json::from_str(&took(unsafe { scaena_take_apart(s, sent.0, sent.1, why.as_ptr(), at.as_ptr()) })).unwrap()
     };
+    // A new deck in Dusk, which Ember's layouts all hold.
+    let dusk = || {
+        let mut error = null_mut();
+        let s = unsafe { scaena_create(c("Dusk").as_ptr(), c("Trail report").as_ptr(), &mut error) };
+        assert!(!s.is_null(), "made: {}", took(error));
+        s
+    };
     let free = |sent: Sent| unsafe {
         scaena_session_free(sent.1);
         scaena_snapshot_free(sent.0);
     };
 
-    let s = open(B1);
+    let s = dusk();
     let (sent, themed) = apart(s);
     assert_eq!(themed["applied"], json!(true), "{themed}");
     assert_eq!(take(s, &sent), json!({ "ok": { "taken": true } }));
     free(sent);
 
     // As the session itself re-themed would stand: its source, its files, and what it draws.
-    let here = open(B1);
+    let here = dusk();
     let themed = call(here, "retheme", json!({ "ships": "Ember", "at": "2026-11-13T12:00:00Z" }));
     assert_eq!(themed["applied"], json!(true), "{themed}");
     assert_eq!(call(s, "source", Value::Null), call(here, "source", Value::Null));
@@ -485,7 +492,7 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
     unsafe { scaena_session_free(s) };
 
     // An edit made while it was made: nothing taken, the edit kept.
-    let s = open(B1);
+    let s = dusk();
     let (sent, _) = apart(s);
     let first = call(s, "states", Value::Null)[0].as_str().unwrap().to_string();
     let note = json!([{ "op": "set_state", "id": first, "prop": "notes", "value": "Said meanwhile." }]);
@@ -494,6 +501,14 @@ fn a_retheme_made_apart_is_taken_by_the_session_as_made_there() {
     let source = call(s, "source", Value::Null);
     assert!(source.as_str().unwrap().contains("Said meanwhile."), "the edit is kept");
     assert!(call(s, "themeText", Value::Null)["theme"] != json!("themes/ember.theme.json"), "not re-themed");
+    free(sent);
+    unsafe { scaena_session_free(s) };
+
+    // A theme the deck would not open in is refused apart, as it is here: B1 lays slides out in
+    // layouts Ember has not.
+    let s = open(B1);
+    let (sent, themed) = apart(s);
+    assert_eq!((&themed["applied"], &themed["refused"]), (&json!(false), &json!(true)), "{themed}");
     free(sent);
 
     // Null handles are errors, never a crash.

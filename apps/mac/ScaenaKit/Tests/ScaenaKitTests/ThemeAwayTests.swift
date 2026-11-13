@@ -85,23 +85,24 @@ import Testing
 /// away from the window, on a session opened on a snapshot, and the session takes the deck it made
 /// and the files it wrote, the theme's fonts among them; an edit made meanwhile has it made again.
 @Test @MainActor func aRethemeIsMadeOffTheMainThreadAndTheSessionTakesItsFonts() async throws {
-    let window = Window(editor: DeckEditor(session: try ScaenaSession(directory: b1)))
+    // A new deck in Dusk, on its title slide, as File › New opens one: every layout it takes is
+    // Ember's too.
+    let window = Window(editor: DeckEditor(session: try ScaenaSession.create(theme: "Dusk", title: "Trail report")))
     let editor = window.editor
-    editor.shown = "cover"
-    let digest = try editor.session.digest(state: "cover")
+    let shown = try #require(editor.startOnTitleSlide(), "the deck starts on its title slide")
+    editor.shown = shown
+    let digest = try editor.session.digest(state: shown)
     let fonts = { try editor.session.call("files", as: [String].self).filter { $0.hasPrefix("fonts/") } }
     let before = try fonts()
 
     let themedOn = ThemedOn()
     editor.themedOn = { themedOn.take(main: $0) }
     var tries = 0
-    let typed: JSONValue = [
-        "op": "replace_text", "state": "cover", "node": "title", "from": 0, "to": 0, "text": "Edited. ",
-    ]
+    let noted: JSONValue = ["op": "set_state", "id": .string(shown), "prop": "notes", "value": "Said meanwhile."]
     var edited: Result<String, any Error>?
     editor.themeEditing = {
         tries += 1
-        if tries == 1 { edited = Result { try editor.make([typed]) } }
+        if tries == 1 { edited = Result { try editor.make([noted]) } }
     }
     let themed = try #require(try await editor.rethemeAway(.ships("Ember")), "the re-theme was made")
     editor.themeEditing = nil
@@ -113,14 +114,22 @@ import Testing
     #expect(themed.applied && themed.theme == "themes/ember.theme.json")
     #expect(try editor.session.themeText()?.theme == "themes/ember.theme.json", "the session's theme is Ember")
     #expect(try fonts() != before, "Ember's fonts taken with it")
-    #expect(try editor.session.source().contains("Edited. "), "the edit made meanwhile kept")
-    #expect(try editor.session.digest(state: "cover") != digest, "the cover drawn in Ember")
+    #expect(try editor.session.source().contains("Said meanwhile."), "the edit made meanwhile kept")
+    #expect(try editor.session.digest(state: shown) != digest, "the title slide drawn in Ember")
 
     // Read again with no lint of the state shown: every state is linted away from the window after.
     editor.reread(lint: false)
     #expect(editor.valid && !editor.whole)
     await editor.lintEvery()
     #expect(editor.whole, "linted away from the window")
+
+    // A theme the deck would not open in is refused, nothing taken: B1 lays slides out in layouts
+    // Ember has not.
+    let other = Window(editor: DeckEditor(session: try ScaenaSession(directory: b1))).editor
+    let theme = try other.session.themeText()?.theme
+    let refusing = try #require(try await other.rethemeAway(.ships("Ember")), "the re-theme was answered")
+    #expect(!refusing.applied && refusing.refused)
+    #expect(try other.session.themeText()?.theme == theme, "a refused re-theme takes nothing")
 }
 
 /// The operation that sets the theme's paper to `hex`.
