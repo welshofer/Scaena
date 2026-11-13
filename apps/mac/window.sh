@@ -627,6 +627,9 @@ if [[ "${ph:-}" =~ ^[0-9]+$ ]]; then
   before=$(holds canvas)
   menu Edit "Paste"
   sleep 3
+  # The paste of a picture too large left the window not answering in #1262's run (System
+  # Events read no window): what holds it, and how long.
+  answering "a picture too large, pasted" 10 oversized-paste
   shot oversized
   echo "a picture too large, pasted: no alert: $(app 'count of sheets of window 1' 2>&1); the copy went in: $(changed holds canvas "$before")"
 else
