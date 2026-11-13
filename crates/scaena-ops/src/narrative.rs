@@ -2649,6 +2649,29 @@ fn settle(mut doc: Value, found: Vec<Finding>, view: &View) -> Result<Settled, O
     }
     let deck = Deck::from_json(&doc.to_string()).context("the fixed deck")?;
     let findings = if fixed.is_empty() { found } else { lint_in(&deck, view)?.findings };
+    // A text lint's fix leaves past its place, its shrink refused for the lines it would still
+    // set past its `maxLines` (W202): it shrinks to its place all the same, an error being worse
+    // than a warning, and a settled claim too long for its lines is the person's to shorten
+    // ([`claims_long`]; W2's calibration, lanes).
+    let unfixed: Vec<&Finding> = (findings.iter())
+        .filter(|f| f.code == "E100" && f.fix.is_none())
+        .filter(|f| f.node.as_deref().is_some_and(|n| doc["nodes"][n]["type"] == "text"))
+        .collect();
+    if unfixed.is_empty() {
+        return Ok(Settled { fixed, deck, findings });
+    }
+    let mut shrunk = doc.clone();
+    for f in &unfixed {
+        let node = f.node.as_deref().unwrap_or_default();
+        shrunk["nodes"][node]["fit"] = json!("shrink");
+    }
+    let tried = Deck::from_json(&shrunk.to_string()).context("the deck shrunk to fit")?;
+    let after = lint_in(&tried, view)?.findings;
+    let overflows = |fs: &[Finding]| fs.iter().filter(|f| f.code == "E100").count();
+    if errors(&after) < errors(&findings) && overflows(&after) < overflows(&findings) {
+        fixed.extend(unfixed.into_iter().cloned());
+        return Ok(Settled { fixed, deck: tried, findings: after });
+    }
     Ok(Settled { fixed, deck, findings })
 }
 
@@ -2858,6 +2881,18 @@ fn grounded(doc: &Value, theme: &Theme, view: &View) -> Result<Option<Value>, Op
         let patch = crate::backgrounds::setting(&deck, theme, view, &state, Some(GROUND))?;
         let after = scaena_core::patch::compile(&doc, &patch, view)
             .map_err(|e| OpsError::new(format!("the {GROUND} behind `{state}`: {e}")))?;
+        // A text no color of the theme reads in over it, a large one across the whole gradient,
+        // leaves the slide on its plain surface (W2's calibration, vans: 2.77:1).
+        let grounded = Deck::from_json(&after.doc.to_string()).context("the deck on its backdrop")?;
+        let slid: Vec<&str> = (grounded.states.iter())
+            .filter(|st| Some(grounded.slide_of(st)) == slide.as_deref())
+            .map(|st| st.id.as_str())
+            .collect();
+        let faint = |fs: &[Finding]| fs.iter().filter(|f| matches!(f.code.as_str(), "E110" | "E111")).count();
+        let before = faint(&crate::lint::lint_states_in(&deck, view, &slid)?.findings);
+        if faint(&crate::lint::lint_states_in(&grounded, view, &slid)?.findings) > before {
+            continue;
+        }
         doc = after.doc;
         changed = true;
     }
@@ -11432,6 +11467,54 @@ mod tests {
         assert_eq!(*cited[1], json!(["@visits"]));
         assert_eq!(*cited[2], json!(["@other"]));
         assert!(cited[3].is_null());
+    }
+
+    /// W2's outlined calibration: two decks built from slides and their settled outline that lint
+    /// found errors in once made. Lanes' statement, a settled claim too long for its three lines,
+    /// shrinks to its place, its lines left to W202; vans' close, whose statement no theme color
+    /// reads in over the backdrop at 172 pt, stands on its plain surface.
+    #[test]
+    fn a_deck_made_from_an_outline_leaves_no_lint_error() {
+        let read = |name: &str| std::fs::read_to_string(root().join(format!("tests/fixtures/dogfood/{name}"))).unwrap();
+        let mut errors: Vec<String> = Vec::new();
+        for (deck, topic, audience, goal, persona) in [
+            (
+                "lanes",
+                "A protected-lane pilot on Harmon Avenue, for the city council's transportation committee",
+                "the city council's transportation committee",
+                "Persuade",
+                "government",
+            ),
+            (
+                "vans",
+                "Ridley Smiles: a dental van for rural schools, at the spring benefit dinner",
+                "donors at the spring benefit dinner",
+                "Inspire",
+                "conference-public",
+            ),
+        ] {
+            let written = answer::slides(&read(&format!("{deck}.slides.json"))).unwrap();
+            let outline: Value = serde_json::from_str(&read(&format!("{deck}.outline.json"))).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.arc = outline["arc"].as_str().unwrap().into();
+            n.outline = Some(serde_json::from_value(outline).unwrap());
+            n.brief = Brief {
+                topic: topic.into(),
+                audience: audience.into(),
+                goal: goal.into(),
+                minutes: Some(12),
+                persona_id: Some(persona.into()),
+                ..Brief::default()
+            };
+            let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+            errors.extend(
+                (made.created.findings.iter())
+                    .filter(|f| f.severity == scaena_core::Severity::Error)
+                    .map(|f| format!("{deck}: {} {}", f.code, f.message)),
+            );
+            assert!(write.is_some(), "{deck}");
+        }
+        assert!(errors.is_empty(), "{errors:#?}");
     }
 
     /// A made deck's beats claim what each slide's headline says once it is made (W1's dogfood
