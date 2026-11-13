@@ -39,8 +39,11 @@ const SOURCE_PANE: &str = "SourcePane.swift";
 /// keys (`UITextField.textDidEndEditingNotification`, PLAN 3.28), and hearing it lays no text out.
 const HEARD: &[&str] = &["UITextField.textDid", "UITextView.textDid"];
 
-/// The two text classes named as classes, whose input view a debug build's UI test run answers as
-/// nothing (`Keyboardless.swift`, #1240): naming them so makes, measures, and draws no text.
+/// The two text classes named as class objects, in DEBUG builds alone, so that the iPad's UI tests'
+/// hardware pass answers their input view as nothing and iOS brings up no keyboard of its own
+/// (`Keyboardless.swift`, #1240). That names the classes to swap one getter's implementation: it
+/// makes no field, and lays out, measures, and draws no text, so the scan reads past it. Any other
+/// use of either class, a field made or a text view's layout, is still found.
 const CLASSES: &str = "[UITextField.self, UITextView.self] as [AnyClass]";
 
 fn swift(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -64,15 +67,35 @@ fn the_apps_swift_lays_no_text_out() {
     for file in &files {
         let pane = file.file_name().is_some_and(|n| n == SOURCE_PANE);
         let text = std::fs::read_to_string(file).unwrap();
-        for (i, line) in text.lines().enumerate() {
-            let code = line.split("//").next().unwrap_or_default();
-            let code = HEARD.iter().fold(code.replace(CLASSES, ""), |code, heard| code.replace(heard, ""));
-            for what in LAYOUT {
-                if code.contains(what) && !(pane && (*what == "NSTextView" || *what == "UITextView")) {
-                    found.push(format!("{}:{}: {what}", file.display(), i + 1));
-                }
-            }
+        for (line, what) in laid_out(&text, pane) {
+            found.push(format!("{}:{line}: {what}", file.display()));
         }
     }
     assert!(found.is_empty(), "text laid out, measured, or drawn outside the engine:\n{}", found.join("\n"));
+}
+
+/// Each line of `text`, a Swift file, that lays text out, measures it, or draws it, from 1, with
+/// what it names; `pane` where the file is the source pane, which may hold a text view.
+fn laid_out(text: &str, pane: bool) -> Vec<(usize, &'static str)> {
+    let mut found = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let code = line.split("//").next().unwrap_or_default();
+        let code = HEARD.iter().fold(code.replace(CLASSES, ""), |code, heard| code.replace(heard, ""));
+        for what in LAYOUT {
+            if code.contains(what) && !(pane && (*what == "NSTextView" || *what == "UITextView")) {
+                found.push((i + 1, *what));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn the_classes_named_for_their_input_view_lay_nothing_out_and_nothing_else_passes() {
+    let named = "        for kind in [UITextField.self, UITextView.self] as [AnyClass] {\n";
+    assert!(laid_out(named, false).is_empty(), "the classes named for their input view pass");
+    let made = format!("{named}        let field = UITextField(frame: .zero)\n        let view = UITextView()\n");
+    assert_eq!(laid_out(&made, false), [(2, "UITextField"), (3, "UITextView")], "a field or a text view made is found");
+    // The phrase alone passes: a class named otherwise on its line is still found.
+    assert_eq!(laid_out("[UITextField.self] as [AnyClass]\n", false), [(1, "UITextField")]);
 }
