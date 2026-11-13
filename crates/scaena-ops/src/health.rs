@@ -3370,6 +3370,11 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         // (W2's health read: Valdemar's 2,3 M€ on slides 5 and 8), which citing the first answers,
         // the rest then saying again what it sourced.
         let mut found: Vec<((String, String), String, Vec<usize>)> = Vec::new();
+        // Each figure a slide found unsourced writes, by value and unit, with that slide's finding:
+        // citing that slide sources every figure it writes, so a later slide that writes no figure
+        // but these joins its finding, never one of its own (R1's agent dogfood 12: the ask's
+        // "460.000 € … 120 fuentes", then the close's "120 fuentes … 460.000 €").
+        let mut covered: Vec<((String, String), usize)> = Vec::new();
         for (i, s) in read.iter().enumerate() {
             let shown = format!("{}\n{}", s.title, s.body);
             let cited = slides.get(i).and_then(|sl| sl.beat).is_some_and(|(.., b)| !b.evidence.is_empty())
@@ -3382,15 +3387,31 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 known.extend(written.into_iter().map(|f| (f.value, f.unit)));
                 continue;
             }
-            // A slide's first figure no cited slide wrote: one an earlier slide was found for adds
-            // this slide to its finding, else it is found here.
-            let Some(f) = written.into_iter().find(|f| !known.contains(&(f.value.clone(), f.unit.clone()))) else {
-                continue;
-            };
-            let key = (f.value.clone(), f.unit.clone());
-            match found.iter_mut().find(|(k, ..)| *k == key) {
-                Some((.., on)) => on.push(i),
-                None => found.push((key, f.shown, vec![i])),
+            // A slide's first figure no cited slide wrote is found here, unless a slide found
+            // before wrote it: citing that slide sources it, so this one joins each finding whose
+            // figure it writes too, saying so, and is found for nothing of its own.
+            let new: Vec<Figure> =
+                written.into_iter().filter(|f| !known.contains(&(f.value.clone(), f.unit.clone()))).collect();
+            let Some(f) = new.first() else { continue };
+            let key = |f: &Figure| (f.value.clone(), f.unit.clone());
+            match covered.iter().find(|(k, _)| *k == key(f)).map(|(_, at)| *at) {
+                Some(_) => {
+                    let keys: Vec<(String, String)> = new.iter().map(key).collect();
+                    for (k, _, on) in found.iter_mut() {
+                        if keys.contains(k) && !on.contains(&i) {
+                            on.push(i);
+                        }
+                    }
+                }
+                None => {
+                    let at = found.len();
+                    found.push((key(f), f.shown.clone(), vec![i]));
+                    for f in &new {
+                        if !covered.iter().any(|(k, _)| *k == key(f)) {
+                            covered.push((key(f), at));
+                        }
+                    }
+                }
             }
         }
         for (_, figure, on) in found {
@@ -7038,6 +7059,29 @@ mod tests {
             ask,
             "Say on slide 7 where 38% comes from, naming the source, or cite the source it is from: that sources it on slide 8 too."
         );
+        // A later slide whose first figure a slide found before wrote, behind that slide's own
+        // first, is no finding of its own: citing that slide sources both. It joins each finding
+        // whose figure it writes, so "as slide 8 does" stays true (R1's agent dogfood 12: the ask's
+        // "460.000 € … 120 fuentes", then the close's "120 fuentes … 460.000 €").
+        let behind = |slides: &mut Vec<answer::Slide>| {
+            slides[6].key_bullets = vec!["Fuel spend fell 38%, saving $210,000 a year".into()];
+            slides[7].slide_title = "$210,000 a year back as fuel spend falls 38%".into();
+            slides[7].key_bullets = vec![];
+        };
+        let found = unsourced(&grounded_dogfood("fleet", "", pilot(), behind));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(
+            found[0].1,
+            "Slide 7 writes 38%, as slide 8 does, and does not cite the deck's source, pilot.csv, for it."
+        );
+        // Writing none of that finding's own figure, it joins none, and is found for nothing.
+        let apart = |slides: &mut Vec<answer::Slide>| {
+            behind(slides);
+            slides[7].slide_title = "$210,000 a year back from fuel".into();
+        };
+        let found = unsourced(&grounded_dogfood("fleet", "", pilot(), apart));
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].1, "Slide 7 writes 38%, and does not cite the deck's source, pilot.csv, for it.");
         // Slide 7 cited, slide 8 is sourced with it.
         let both = |slides: &mut Vec<answer::Slide>| {
             twice(slides);
