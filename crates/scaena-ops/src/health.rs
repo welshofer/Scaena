@@ -3123,6 +3123,16 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
         let before = scaena_narrato::figures(&format!("{} {}", was.title, was.body));
         scaena_narrato::figures(&format!("{} {}", now.title, now.body)).iter().all(|f| before.contains(f))
     };
+    // The slide just before is held to the same: the close and what frames the talk say its words
+    // again by design (a close that states the big idea after the ask, R1's agent dogfood 12), and
+    // a figure of its own the slide before has not, nor gets by a difference or a sum of its own,
+    // tells a change ("66.400 litres in five months" after "18.400 litres in July"), where "the
+    // 40-mile goal by 12 miles" after "52 miles, not 40" works its 12 out and says it again.
+    let moves_on = |was: &SlideForHealth, now: &SlideForHealth| {
+        let before = scaena_narrato::figures(&format!("{} {}", was.title, was.body));
+        (scaena_narrato::figures(&format!("{} {}", now.title, now.body)).iter())
+            .any(|&f| !before.contains(&f) && computed(&before, &before, &f.to_string(), f).is_none())
+    };
     // Each slide found saying again what an earlier one said, with that one: what its finding
     // offers to fold it into.
     let mut repeats: Vec<(String, String)> = Vec::new();
@@ -3131,9 +3141,9 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
             continue;
         }
         let earlier = (0..i - 1).rev().filter(|&j| !framing(i) && !framing(j) && told(&read[j], &read[i]));
-        let Some((at, shared)) = (std::iter::once(i - 1).chain(earlier))
-            .filter(|&j| !recalls(j))
-            .find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
+        let before = std::iter::once(i - 1).filter(|&j| !framing(i) && !framing(j) && !moves_on(&read[j], &read[i]));
+        let Some((at, shared)) =
+            (before.chain(earlier)).filter(|&j| !recalls(j)).find_map(|j| repeated(&read[j], &read[i]).map(|w| (j, w)))
         else {
             continue;
         };
@@ -6916,6 +6926,23 @@ mod tests {
             slides[6].slide_title = "Dispatchers spend the saved time on exceptions".into()
         };
         assert!(again(&of(&dogfood("fleet", "", moved))).is_empty());
+        // A figure of its own, one the slide before neither writes nor works out, moves the talk
+        // on (R1's agent dogfood 12: "66.400 litros en cinco meses" after "18.400 litros en julio").
+        let counted = |slides: &mut Vec<answer::Slide>| {
+            slides[6].slide_title = "Planning takes 14 minutes instead of 3 hours".into();
+        };
+        assert!(again(&of(&dogfood("fleet", "", counted))).is_empty(), "a figure of its own is a change");
+        // The Spanish pitch (R1's agent dogfood 12): slide 5's "66.400 litros en cinco meses" tells
+        // a change after slide 4's "18.400 litros en julio", and the close, which states the big
+        // idea after the ask, says the talk's words again by design.
+        let path = root().join("docs/examples/agent-dogfood-12/fuentes.deck.json");
+        let mut fuentes: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let idea = "Con 120 fuentes en 2027, por 460.000 €, Sevilla da agua a quien sale con calor y no la lleva.";
+        fuentes["nodes"]["gracias-statement"]["text"] = json!(idea);
+        let last = fuentes["spine"]["sections"].as_array().unwrap().len() - 1;
+        let beats = fuentes["spine"]["sections"][last]["beats"].as_array_mut().unwrap();
+        beats.last_mut().unwrap()["claim"] = json!(idea);
+        assert!(again(&of(&fuentes)).is_empty(), "{:?}", again(&of(&fuentes)));
         // A quiz says an earlier slide's words again by design (W1's dogfood 18): slide 7 as a
         // quiz on the same hours and minutes, its answers slide 6's own points lettered, is no
         // repeat, and is named among no slides to cut.
