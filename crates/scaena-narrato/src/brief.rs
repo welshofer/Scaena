@@ -335,7 +335,6 @@ pub fn maximum_slides(length: &str) -> Option<usize> {
     }
 }
 
-
 /// The minutes a talk of at least `least` slides is given, the inverse of [`length_for_minutes`]:
 /// up to 15 for 5–10 slides, 16–30 for 11–15, 31–45 for 16–25, and 46 or more past them (lift-up
 /// FUNC-1). A brief that asks for slides asks for a slot this long.
