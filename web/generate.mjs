@@ -715,14 +715,15 @@ try {
   ).catch(() => {});
   const back = await page.evaluate(() => window.scaena.story.health()?.findings.map((f) => `${f.slide} ${f.kind}`));
   check(back.includes(`${slide} ${kind}`), `undone, the finding is back: ${back}`);
-  // A row's questions are asked together, with the slide they are about shown, whichever was
-  // (lift-up USE-5): another slide is shown first.
+  // A row's first Ask asks its own question alone, never the row's joined (W1's dogfood 17), with
+  // the slide it is about shown, at the step its finding was read at, whichever was (lift-up
+  // USE-5): another slide is shown first.
   const asked = page.locator("#story [data-findings] li[data-slide] [data-ask]").first();
   const { question, about } = await page.evaluate(() => {
-    // The first row's questions: the open findings of the slide that leads.
+    // The first row's first question: of the open findings of the slide that leads, the first that asks.
     const { open } = window.scaena.story.triaged();
-    const run = open.filter((f) => f.slide === open[0].slide);
-    return { question: run.map((f) => f.ask).join(" "), about: window.scaena.last().states.findIndex(([id]) => id === run[0].state) };
+    const first = open.filter((f) => f.slide === open[0].slide).find((f) => f.ask.trim());
+    return { question: first.ask, about: window.scaena.last().states.findIndex(([id]) => id === first.state) };
   });
   const other = await page.evaluate((i) => (i === 0 ? window.scaena.last().states.length - 1 : 0), about);
   const elsewhere = await page.evaluate((i) => window.scaena.last().states[i][1], other);
