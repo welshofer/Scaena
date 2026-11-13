@@ -1,0 +1,31 @@
+{
+ "arc": "What Is → What Could Be",
+ "bigIdea": "A protected lane on Harmon Avenue can end the crashes at Harmon and 9th for less than the city spends each year cleaning up after them.",
+ "beats": [
+  {
+   "name": "What Is",
+   "claim": "Harmon and 9th is the most dangerous crossing in the city, and it is getting worse.",
+   "slides": 3
+  },
+  {
+   "name": "What Could Be",
+   "claim": "A street where a twelve-year-old can ride to school is possible on Harmon now.",
+   "slides": 2
+  },
+  {
+   "name": "Return",
+   "claim": "Parking and cost are real concerns, and both are smaller than they look.",
+   "slides": 2
+  },
+  {
+   "name": "Bridge",
+   "claim": "A twelve-week pilot with paint and posts shows the result before the city pays for concrete.",
+   "slides": 2
+  },
+  {
+   "name": "Commit",
+   "claim": "Vote Tuesday to fund the pilot, and judge it on the crash count in July.",
+   "slides": 2
+  }
+ ]
+}

@@ -277,16 +277,16 @@ private func read(slides: Int, _ findings: [(Int, String, String)]) throws -> He
     var places = StoryPlaces()
     let slides = { (runs: [[Health.Finding]]) in runs.map { run in run.map { "\($0.slide) \($0.kind)" }.joined(separator: ", ") } }
     let first = try read(slides: 11, [(8, "warning", "tone"), (10, "warning", "intensity"), (5, "warning", "pacing"), (3, "warning", "turn")])
-    let shown = places.ordered(first.findings.map { [$0] }, of: first.findings)
+    let shown = places.ordered(first.findings.map { [$0] }, of: first)
     #expect(slides(shown) == ["8 tone", "10 intensity", "5 pacing", "3 turn"], "a first read as triage gives it")
     // Slide 5's notes deepened: pacing moves to slide 1, and a tone finding new to the Story comes
     // to slide 5, which triage would put first.
     let again = try read(slides: 11, [(5, "warning", "tone"), (8, "warning", "tone"), (10, "warning", "intensity"), (1, "warning", "pacing"), (3, "warning", "turn")])
-    let kept = places.ordered(again.findings.map { [$0] }, of: again.findings)
+    let kept = places.ordered(again.findings.map { [$0] }, of: again)
     #expect(slides(kept) == ["8 tone", "10 intensity", "1 pacing", "3 turn", "5 tone"])
     // A new error comes first, the rest where they stood.
     let broken = try read(slides: 11, [(8, "warning", "tone"), (2, "error", "layout"), (10, "warning", "intensity"), (1, "warning", "pacing")])
-    let errorFirst = places.ordered(broken.findings.map { [$0] }, of: broken.findings)
+    let errorFirst = places.ordered(broken.findings.map { [$0] }, of: broken)
     #expect(slides(errorFirst) == ["2 layout", "8 tone", "10 intensity", "1 pacing"])
 }
 

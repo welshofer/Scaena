@@ -25,8 +25,16 @@ extension Health {
         }
     }
 
+    /// A finding told apart from the others of a read: by its kind and its slide, the slide by its
+    /// state, which a slide folded, moved, or taken away before it leaves as it was, where its
+    /// number moves (W1 dogfood 14, as the browser's `places`).
+    func told(_ f: Finding) -> String {
+        let i = f.slide - 1
+        return "\(f.kind) \(slides.indices.contains(i) ? slides[i].state : String(f.slide))"
+    }
+
     /// The findings of `before` that `after` no longer finds, each told apart as a row is
-    /// (`StoryPlaces`: by its kind and slide, or by its kind alone where each read has one), on a
+    /// (`StoryPlaces`: by `told`, or by its kind alone where each read has one), on a
     /// state the deck still has, among `states`: what the edits between the two reads answered
     /// (editor dogfood 6, as the browser's `answered`). A slide taken away answers nothing.
     public static func answered(_ before: Health, _ after: Health, states: Set<String>) -> [Finding] {
@@ -34,11 +42,11 @@ extension Health {
         let (was, now) = (count(before.findings), count(after.findings))
         var found = Set<String>()
         for f in after.findings {
-            found.insert("\(f.kind) \(f.slide)")
+            found.insert(after.told(f))
             if now[f.kind] == 1 { found.insert(f.kind) }
         }
         return before.findings.filter { f in
-            states.contains(f.state) && !found.contains("\(f.kind) \(f.slide)")
+            states.contains(f.state) && !found.contains(before.told(f))
                 && !(was[f.kind] == 1 && found.contains(f.kind))
         }
     }
