@@ -866,11 +866,18 @@ try {
     const was = await page.evaluate(() => window.scaena.source());
     await page.click(`${row} [data-citing] [data-source="trails-budget.csv"]`).catch(() => {});
     await page.waitForFunction((w) => window.scaena.source() !== w, was, { timeout: 30000 }).catch(() => {});
+    // Cited, the slide is held to the sheet, which keeps its figures (deck format 0.41) and holds no
+    // 27%: health says so in place of the uncited finding (W1's dogfood 18).
+    const unheld = "Slide 3 writes 27% and cites trails-budget.csv, which does not hold it.";
     await page
-      .waitForFunction(() => !window.scaena.story.health()?.findings.some((f) => f.kind === "source"), null, { timeout: 60000 })
+      .waitForFunction(
+        (h) => window.scaena.story.health()?.findings.filter((f) => f.kind === "source").map((f) => f.says).join() === h,
+        unheld,
+        { timeout: 60000 },
+      )
       .catch(() => {});
     const cited = await page.evaluate(() => window.scaena.story.health()?.findings.filter((f) => f.kind === "source").map((f) => f.says));
-    check(cited?.length === 0, `cited, the figure is sourced: ${JSON.stringify(cited)}`);
+    check(cited?.join() === unheld, `cited, the figure is held to the sheet, which does not hold it: ${JSON.stringify(cited)}`);
     check(/source:trails-budget\.csv/.test(await page.evaluate(() => window.scaena.source())), "the beat cites it as its evidence");
     check(/cites trails-budget\.csv/.test(await page.textContent("#status")), `and the status says so: ${await page.textContent("#status")}`);
     await page.locator(".cm-content").focus();
