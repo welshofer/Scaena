@@ -125,5 +125,6 @@ Jay, 2026-10-25: "your recommendation". It is the recommendation above, with wha
 - **4, adopted** (#609).
 - **5, adopted.** It is measured on the Japanese keynote (`keynote-ja.json`) before and after.
 - **6, added: a calm close is no bend.** In pass 7, all four decks got "planned cooler than its place in the talk" on their last two or three slides, the closing at 0.3 against a curve at 0.90–0.96. A calm "Questions?" or "Vielen Dank" is right. The bend finding is not raised on the deck's closing slides, its last run of slides in a closing layout. No figure moves.
+- **7, proposed (agent dogfood 5), for Jay's word.** A slide of code shows its code as a picture shows itself: it is one idea that shows something, and its code is no points, words, figures, or tone, but coherence reads its identifiers, which carry a talk across.
 
 `a_generated_talks_figures_are_vzestups` is re-pinned in the commit that moves the figures, naming this ADR.

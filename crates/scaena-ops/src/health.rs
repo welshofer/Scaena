@@ -402,6 +402,10 @@ const ONE_IDEA: [&str; 9] = [
     "big-question",
 ];
 
+/// The shipped themes' layouts whose places hold code (PLAN 2.138): a slide in one shows its code
+/// before a person or the builder has set a text in it as code.
+const CODE_LAYOUTS: [&str; 4] = ["title-code", "code-notes", "two-code", "two-code-stacked"];
+
 /// The slides of `deck` as health reads them, each by its first state's id; the most points any
 /// one of its texts makes: its list's items, or its paragraphs (lift-up 10-24b FUNC-2), a grid of
 /// short places, a SWOT or a timeline, making few in each; and the cards it sets side by side,
@@ -431,7 +435,18 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
         // Each item of a set its own point, its parts together; each item of a list one too.
         let mut lines: Vec<(Option<&str>, String)> = Vec::new();
         let mut points = 0;
+        // Code is shown, as a picture is, not said: its lines are no points and its words no
+        // words of the talk, a signature's parameters no list, its numbers no figures a source
+        // must stand behind, and its keywords no tone; coherence alone reads its identifiers,
+        // which carry a talk across as words do (agent dogfood 5).
+        let mut coded = snaps[last].layout.as_deref().is_some_and(|l| CODE_LAYOUTS.contains(&l));
+        let mut code: Vec<String> = Vec::new();
         for &(_, props) in &texts {
+            if props.get("code").is_some_and(Value::is_object) {
+                coded = true;
+                code.push(words(props));
+                continue;
+            }
             let said = words(props);
             let said = said.trim();
             let aside = matches!(props.get("semantic").and_then(Value::as_str), Some("navigation" | "decoration"))
@@ -472,18 +487,23 @@ fn readings(deck: &Deck, slides: &[Slide]) -> Result<Readings, OpsError> {
                 notes.push(note);
             }
         }
+        let listing = lines.iter().any(|(_, l)| l.starts_with('\u{2022}'));
         out.push(SlideForHealth {
             id: deck.states[first].id.clone(),
             title,
             body: lines.into_iter().map(|(_, l)| l).collect::<Vec<_>>().join("\n"),
             notes: notes.join("\n"),
+            code: code.join("\n"),
             narrative_meta: beat.and_then(declared),
-            one_idea: snaps[last].layout.as_deref().is_some_and(|l| ONE_IDEA.contains(&l)),
-            drawn: (shown.keys()).any(|id| {
-                deck.nodes
-                    .get(id.as_str())
-                    .is_some_and(|n| matches!(n.node_type, NodeType::Image | NodeType::Chart | NodeType::Table))
-            }),
+            // A slide of code makes its one point by the code it shows, unless it lists points
+            // beside it; either way it shows something.
+            one_idea: snaps[last].layout.as_deref().is_some_and(|l| ONE_IDEA.contains(&l)) || (coded && !listing),
+            drawn: coded
+                || (shown.keys()).any(|id| {
+                    deck.nodes
+                        .get(id.as_str())
+                        .is_some_and(|n| matches!(n.node_type, NodeType::Image | NodeType::Chart | NodeType::Table))
+                }),
             ..SlideForHealth::default()
         });
         set.push(out.last().map_or(0, |read: &SlideForHealth| cards(deck, &texts, &read.title)));
@@ -1402,7 +1422,7 @@ fn written(text: &str) -> std::collections::BTreeSet<String> {
 /// where either says nothing past a short headline, the pair reads as following, as Vzestup's
 /// overlap gives it ½.
 fn apart(a: &SlideForHealth, b: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {} {}", s.title, s.body, s.code)));
     let (wa, wb) = (words(a), words(b));
     !wa.is_empty() && !wb.is_empty() && wa.is_disjoint(&wb)
 }
@@ -1423,7 +1443,7 @@ fn singular(words: std::collections::BTreeSet<String>) -> std::collections::BTre
 /// opening of `next`'s notes. A word both slides use, a product's name, carries nothing over;
 /// so does its plural.
 fn bridges(before: &SlideForHealth, next: &SlideForHealth) -> bool {
-    let words = |s: &SlideForHealth| singular(written(&format!("{} {}", s.title, s.body)));
+    let words = |s: &SlideForHealth| singular(written(&format!("{} {} {}", s.title, s.body, s.code)));
     let carried: Vec<String> = words(before).difference(&words(next)).cloned().collect();
     let opened = singular(written(opening(&next.notes)));
     carried.iter().any(|w| opened.contains(w))
@@ -5503,6 +5523,43 @@ mod tests {
         let pitch = of(&dogfood("pitch", "", |_| {}));
         assert!(!pitch.findings.iter().any(|f| f.kind == Kind::Thin), "{:#?}", pitch.findings);
         assert!(pitch.balance.says.starts_with("Slides make 1.8 points each"), "{}", pitch.balance.says);
+    }
+
+    /// A slide of code shows its code, as a picture is shown: its lines are no points and its
+    /// words none the talk says, so a signature's five parameters are no list of one under a
+    /// headline that counts five, its lines no dense slide, and its numbers no figures a source
+    /// must stand behind (agent dogfood 5). The slide is left out of the points a slide makes on
+    /// average, and shows something; coherence alone reads its code.
+    #[test]
+    fn a_slide_of_code_makes_no_points_and_says_no_words() {
+        let code = "fn render(deck: &Deck, theme: &Theme, state: &str, t: f64, view: Size) -> List {\n    \
+                    let laid = layout(deck, theme, state, view);\n    let at = sample(&laid, t * 0.44);\n    \
+                    let list = paint(at);\n    let lines = list.len() + 4096;\n    let kept = keep(list, lines);\n    \
+                    kept\n}";
+        let coded = |slides: &mut Vec<answer::Slide>| {
+            let s = &mut slides[7];
+            s.slide_title = "Render takes five inputs and nothing else".into();
+            s.subtitle = "src/render.rs".into();
+            s.layout_suggestion = "Code".into();
+            s.key_bullets = vec![code.into()];
+        };
+        let made = dogfood("training", "", coded);
+        let deck = Deck::from_value(&made).unwrap();
+        let (read, most, _) = readings(&deck, &slides(&deck)).unwrap();
+        // The eighth slide written is the deck's eighth, after its cover.
+        let i = 7;
+        assert_eq!(read[i].id, "render-takes-five-inputs-and", "{:#?}", read[i]);
+        assert!(read[i].drawn && read[i].one_idea, "{:#?}", read[i]);
+        assert!(!read[i].body.contains("fn render"), "{}", read[i].body);
+        // Coherence alone reads it: its identifiers carry the talk to the next slide.
+        assert!(read[i].code.starts_with("fn render(deck: &Deck"), "{}", read[i].code);
+        assert_eq!(most[i], 0);
+        let h = of(&made);
+        let on = |f: &&Finding| f.slide == i + 1;
+        for f in h.findings.iter().filter(on) {
+            assert!(!f.says.contains("headline counts"), "{}", f.says);
+            assert!(!matches!(f.kind, Kind::Dense | Kind::Thin | Kind::Source), "{:#?}", f);
+        }
     }
 
     /// A slide that declares no intensity where its place calls for another than most is asked for

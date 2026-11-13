@@ -134,10 +134,10 @@ pub fn keywords(text: &str) -> BTreeSet<String> {
 }
 
 /// The words two slides share (`keywordOverlap`), where they have no embeddings: of the words of
-/// more than three letters in each one's title and body, those both use, over the larger set;
+/// more than three letters in each one's title, body, and code, those both use, over the larger set;
 /// ½ where either has none.
 pub fn keyword_overlap(a: &SlideForHealth, b: &SlideForHealth) -> f64 {
-    let words = |s: &SlideForHealth| keywords(&format!("{} {}", s.title, s.body));
+    let words = |s: &SlideForHealth| keywords(&format!("{} {} {}", s.title, s.body, s.code));
     let (wa, wb) = (words(a), words(b));
     if wa.is_empty() || wb.is_empty() {
         return 0.5;
