@@ -186,7 +186,7 @@ const BY_SUGGESTION: [(&str, &str); 154] = [
 /// The rich layouts a name may canonically name: each id, its name, the name Narrato's catalog
 /// gives it, and what models have been seen to call it instead. The last four are Scaena's own,
 /// which Narrato's catalog lacks and Scaena's slot shapes name (dogfood pass 7).
-const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
+const SPECS: [(&str, &str, Option<&str>, &[&str]); 42] = [
     ("roadmap", "Roadmap", Some("Roadmap"), &["road map", "product roadmap"]),
     ("timeline", "Timeline", Some("Timeline"), &["chronology", "history timeline"]),
     (
@@ -233,6 +233,8 @@ const SPECS: [(&str, &str, Option<&str>, &[&str]); 41] = [
     ("decision-brief", "Decision brief", None, &["decision memo"]),
     ("quiz", "Quiz", None, &["knowledge check", "pop quiz", "check yourself"]),
     ("risk-matrix", "Risk matrix", None, &["risk register", "risk heat map", "heat map", "risk map"]),
+    // A table of figures, the commonest slide of a paper's talk (W1's dogfood 19).
+    ("table", "Table", None, &["data table", "results table", "table of results", "comparison table"]),
 ];
 
 /// Scaena's own names for a structural layout, which Narrato's table lacks and agents writing

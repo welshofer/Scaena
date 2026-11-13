@@ -894,9 +894,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     let mut doc = write.deck.to_value().context("the deck")?;
     let slides = write.deck.slides();
     let deck = &write.deck;
-    // The sources a chart may be bound to: those no made chart's own rows are.
+    // The sources a chart may be bound to: those no made chart's or table's own rows are.
     let owned: Vec<String> = (doc["nodes"].as_object().into_iter().flat_map(|n| n.values()))
-        .filter(|n| n["type"] == "chart")
+        .filter(|n| matches!(n["type"].as_str(), Some("chart" | "table")))
         .filter_map(|n| n["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string))
         .filter(|id| {
             deck.data
@@ -930,10 +930,12 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
         let Some((named, series, cited)) = named_of(&state.id) else { continue };
-        let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
+        let drawn = |id: &str| matches!(doc["nodes"][id]["type"].as_str(), Some("chart" | "table"));
+        let Some(node_id) = state.props.keys().find(|id| drawn(id)).cloned() else {
             continue;
         };
         let mut node = doc["nodes"][&node_id].clone();
+        let table = node["type"] == "table";
         let Some(own) = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string) else { continue };
         if !owned.contains(&own) {
             continue;
@@ -961,9 +963,12 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             });
             continue;
         }
+        // A table is bound as a chart of its rows would be, and set from the columns that binds.
+        let mut probe = if table { probe(&node, &chart) } else { node.clone() };
         // The first source named that holds the slide's rows: a workbook's sheets in turn.
-        match binding::bind_first(&mut node, &chart, &typed, &write.files, &ids) {
+        match binding::bind_first(&mut probe, &chart, &typed, &write.files, &ids) {
             Ok((id, dated)) => {
+                node = if table { tabled(&node, &probe) } else { probe };
                 if let Some(column) = dated {
                     doc["data"][&id]["schema"][&column] = json!("date");
                     if let Some(decl) = typed.data.get_mut(&id) {
@@ -991,6 +996,52 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     quoting::citing(&mut doc, &write.files, &sources);
     write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
     Ok((write, unbound))
+}
+
+/// The chart a made table's rows would draw, as [`binding::bind`] binds one: its categories along
+/// `x` and its series' values up `y`, several by `series`.
+fn probe(table: &Value, chart: &ChartData) -> Value {
+    let mut probe = json!({
+        "type": "chart",
+        "kind": "bar",
+        "data": table["data"],
+        "x": { "field": "category", "type": "ordinal" },
+        "y": { "field": "value", "type": "quantitative" },
+    });
+    if chart.series.len() > 1 {
+        probe["series"] = json!({ "field": "series", "type": "nominal" });
+    }
+    probe
+}
+
+/// `table` set from the source `probe` was bound to: keyed by the column of its categories, a
+/// column for each series bound, titled and printed as the table's own were, and the rows the
+/// binding reads alone.
+fn tabled(table: &Value, probe: &Value) -> Value {
+    let x = probe["x"]["field"].clone();
+    let steps: Vec<Value> = (probe["dataTransform"].as_array().into_iter().flatten()).cloned().collect();
+    let fields: Vec<Value> = match steps.iter().find_map(|s| s.get("fold")) {
+        Some(Value::Array(names)) => names.clone(),
+        _ => vec![probe["y"]["field"].clone()],
+    };
+    let own: Vec<Value> = (table["columns"].as_array().into_iter().flatten()).skip(1).cloned().collect();
+    let mut columns = vec![json!({ "field": x, "title": "" })];
+    for (field, was) in fields.into_iter().zip(own) {
+        let mut column = was;
+        column["field"] = field;
+        columns.push(column);
+    }
+    let mut node = table.clone();
+    node["data"] = probe["data"].clone();
+    node["key"] = x;
+    node["columns"] = json!(columns);
+    let kept: Vec<Value> = steps.into_iter().filter(|s| s.get("filter").is_some()).collect();
+    if kept.is_empty() {
+        node.as_object_mut().map(|o| o.remove("dataTransform"));
+    } else {
+        node["dataTransform"] = json!(kept);
+    }
+    node
 }
 
 /// Each beat of `doc`'s spine that cites `@own` as its evidence cites `@id` in its place, once.
@@ -4593,6 +4644,11 @@ fn layout_for(
         "quiz" if questions(items) && n == 3 && theme.layouts.contains_key("cards") => "cards",
         "quiz" if questions(items) => "faq",
         "quiz" => "quiz",
+        // A table of the slide's figures, its rows its categories and a column for each series
+        // (W1's dogfood 19); with no figures to set, its words as a list.
+        "table" if chart && theme.layouts.contains_key("table") => "table",
+        "table" if chart && theme.layouts.contains_key("bar-chart") => "bar-chart",
+        "table" => "bullets",
         "steps" if n <= 3 => "how-it-works",
         // Four steps, each in a card of its own under its number, as a deck's process is drawn.
         "steps" if n == 4 => "numbered-cards",
@@ -7240,15 +7296,19 @@ impl Builder {
                     made.data = Some(data.clone());
                     let takeaway = s.item(0).map(|i| i.whole.as_str());
                     let subtitle = Some(s.slide.subtitle.trim()).filter(|t| !t.is_empty());
-                    chart_node(
-                        chart,
-                        &data,
-                        s.layout,
-                        [&s.slide.slide_title, takeaway.unwrap_or_default()],
-                        subtitle,
-                        s.lang,
-                        at,
-                    )
+                    if s.layout == "table" {
+                        table_node(chart, &data, at)
+                    } else {
+                        chart_node(
+                            chart,
+                            &data,
+                            s.layout,
+                            [&s.slide.slide_title, takeaway.unwrap_or_default()],
+                            subtitle,
+                            s.lang,
+                            at,
+                        )
+                    }
                 }
             };
             // An email or a web address the words name links to it (PLAN 2.70, dogfood 2); a bare
@@ -8232,6 +8292,39 @@ fn comparing(word: &str, after: &[&str], lang: &str) -> bool {
     after.contains(&word)
         || (lang.split('-').next().is_some_and(|l| l.eq_ignore_ascii_case("de"))
             && (word.ends_with("mal") || (word.ends_with("er") && word.chars().count() > 4)))
+}
+
+/// The table that sets `chart`'s source, `data`, in a layout's table slot (W1's dogfood 19): a row
+/// for each category, keyed by it, and a column for each series, its figures printed with the
+/// places the most precise of its own is written with ("184 500" beside "2,4"). Several series'
+/// rows, one a value, are pivoted into a row a category.
+fn table_node(chart: &ChartData, data: &str, at: Value) -> Value {
+    let format = |n: usize| {
+        let one = ChartData { series: vec![chart.series[n].clone()], ..chart.clone() };
+        format!(",.{}f", decimals(&one))
+    };
+    let named = |n: usize| chart.series[n].name.clone().unwrap_or_else(|| format!("Series {}", n + 1));
+    let mut columns = vec![json!({ "field": "category", "title": "" })];
+    if chart.series.len() > 1 {
+        let each =
+            (0..chart.series.len()).map(|n| json!({ "field": named(n), "title": named(n), "format": format(n) }));
+        columns.extend(each);
+    } else if !chart.series.is_empty() {
+        let title = chart.series[0].name.clone().unwrap_or_default();
+        columns.push(json!({ "field": "value", "title": title, "format": format(0) }));
+    }
+    let mut node = json!({
+        "type": "table",
+        "data": format!("@{data}"),
+        "key": "category",
+        "columns": columns,
+        "semantic": "evidence",
+        "at": at,
+    });
+    if chart.series.len() > 1 {
+        node["dataTransform"] = json!([{ "pivot": "series", "value": "value", "groupby": ["category"] }]);
+    }
+    node
 }
 
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
