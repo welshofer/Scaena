@@ -163,10 +163,17 @@ extension XCTestCase {
     /// the tap was lost and `element` still stands to be tapped, as a loaded simulator drops a tap
     /// as it drops a key. Whether `done` came to hold.
     @MainActor
-    func tapped(_ element: XCUIElement, seconds: TimeInterval = 10, until done: () -> Bool) -> Bool {
+    func tapped(
+        _ element: XCUIElement, named name: String? = nil, seconds: TimeInterval = 10, until done: () -> Bool
+    ) -> Bool {
         element.tap()
         if wait(seconds, done) { return true }
         guard element.exists, element.isHittable else { return done() }
+        // Said where a run keeps it, as a chord that arrived bare is: the test's activities and
+        // `log.txt` (#1288's iPad run lost a tap on the long press's Slide while its menu settled).
+        let line = "tap lost, tapped again: \(name ?? element.label)"
+        chords.notice("\(line, privacy: .public)")
+        XCTContext.runActivity(named: line) { _ in }
         element.tap()
         return wait(seconds, done)
     }

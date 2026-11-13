@@ -31,3 +31,13 @@ import Testing
     }
     #expect(raw.isEmpty, "a chord sent outside `chord`: \(raw.joined(separator: "; "))")
 }
+
+/// The long press's Slide submenu is opened through `tapped`, which taps once more where the
+/// submenu did not open and says so (#1288's iPad run lost the tap while the menu settled), never
+/// by a bare tap the test then waits on.
+@Test func theIPadsUITestsOpenTheSlideSubmenuThroughTapped() throws {
+    let file = repository.appending(path: "apps/ipad/ScaenaUITests/OpeningTests.swift")
+    let text = try String(contentsOf: file, encoding: .utf8)
+    #expect(text.contains("tapped(slide,"), "the Slide submenu is not opened through tapped")
+    #expect(!text.contains("slide.tap()"), "the Slide submenu is opened by a bare tap")
+}
