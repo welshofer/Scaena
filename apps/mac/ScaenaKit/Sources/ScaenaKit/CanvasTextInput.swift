@@ -1377,6 +1377,21 @@ enum AnimationReport {
         return UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
     }
 
+    /// Every animation in every visible window of the app, UIKit's own windows among them: each
+    /// layer's kind and what draws it, with its animation's key, read as `IdleAnimations` counts them.
+    static func animating() -> [(layer: String, key: String)] {
+        var found: [(layer: String, key: String)] = []
+        func walk(_ layer: CALayer) {
+            for key in layer.animationKeys() ?? [] {
+                let owner = layer.delegate.map { String(describing: type(of: $0)) } ?? "none"
+                found.append(("\(type(of: layer)) of \(owner)", key))
+            }
+            for sub in layer.sublayers ?? [] { walk(sub) }
+        }
+        for window in allWindows() { walk(window.layer) }
+        return found
+    }
+
     /// Each glass view of the app's windows laid out with no width or no height, as UIKit's Liquid
     /// Glass draws a toolbar's and a segmented control's chrome: its class, where it stands in its
     /// window, and what of the app holds it (lift-up 20261110). #990's report found such views
@@ -1415,4 +1430,34 @@ enum AnimationReport {
         return "\(named ?? "nothing named"), \(classed ?? "UIKit alone")"
     }
 }
+#if DEBUG
+/// How many animations of the app's own run in its windows, read each time it is asked (lift-up
+/// 20261113): what the iPad's UI tests hold to none on B1 at rest, its value `IdleAnimations.said`,
+/// the count then each. UIKit's glass animations are not counted (`IdleAnimations.systems`). Debug
+/// builds only.
+public struct IdleAnimationsProbe: UIViewRepresentable {
+    public init() {}
+
+    public func makeUIView(context: Context) -> Probe { Probe() }
+
+    public func updateUIView(_ view: Probe, context: Context) {}
+
+    public final class Probe: UIView {
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isAccessibilityElement = true
+            accessibilityIdentifier = "animations-ours"
+            accessibilityLabel = "Animations of the app's own"
+        }
+
+        required init?(coder: NSCoder) { fatalError("not from a coder") }
+
+        public override var accessibilityValue: String? {
+            get { IdleAnimations.said(IdleAnimations.ours(AnimationReport.animating())) }
+            set {}
+        }
+    }
+}
+#endif
+
 #endif
