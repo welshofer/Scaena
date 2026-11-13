@@ -3921,10 +3921,15 @@ fn item(bullet: &str) -> Item {
         return Item { label: None, detail: lines.to_string(), whole: lines.to_string() };
     }
     let bullet = bullet.trim();
-    // The mark a model may lead an item with, but not a figure's minus: "-13%" keeps it.
-    let whole = match bullet.strip_prefix(['-', '\u{2013}']) {
-        Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit()) => bullet,
-        _ => bullet.trim_start_matches(['\u{2022}', '-', '*', '\u{2013}']),
+    // The mark a model may lead an item with. A bullet (•) is always one; a dash, star, or en dash
+    // is one only before a space ("- Measure", "* Warm up"), so a figure's minus ("-13%") and a
+    // command-line flag ("--warmup", "-S") keep theirs and are never shortened into another word.
+    let whole = match bullet.strip_prefix('\u{2022}').map(str::trim_start).unwrap_or(bullet) {
+        marked if marked != bullet => marked,
+        _ => match bullet.strip_prefix(['-', '*', '\u{2013}']) {
+            Some(rest) if rest.starts_with(char::is_whitespace) => rest.trim_start(),
+            _ => bullet,
+        },
     }
     .trim()
     .to_string();
@@ -8695,6 +8700,11 @@ mod tests {
         let i = item("-13%: Arctic summer ice per decade");
         assert_eq!((i.label.as_deref(), i.figure().as_deref()), (Some("-13%"), Some("-13%")));
         assert_eq!(item("- Measure our travel").whole, "Measure our travel");
+        assert_eq!(item("* Warm up first").whole, "Warm up first");
+        assert_eq!(item("\u{2022} Compare against a reference").whole, "Compare against a reference");
+        // A command-line flag leads an item unshortened (W1 dogfood 18): "--warmup", not "warmup".
+        assert_eq!(item("--warmup 3 before measuring").whole, "--warmup 3 before measuring");
+        assert_eq!(item("-S for pipes and wildcards").whole, "-S for pipes and wildcards");
     }
 
     /// A detail that is code or an identifier keeps its case (DF7-2, deepdive 6): Go stays Go,
