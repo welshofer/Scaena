@@ -2319,3 +2319,174 @@ async fn deck_generates_sources_are_held_to_a_gigabyte_together() {
     assert!(text(&result).contains("sources: 17 given, past the 16"), "{}", text(&result));
     client.cancel().await.unwrap();
 }
+
+/// French slides on a paper's results, the results' CSV beside them: what W1's dogfood 19 gave
+/// `deck_generate`.
+fn toitures() -> (Value, &'static str) {
+    let slides = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+        { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Confluence gagne 2,4 °C, Vaise à peine 0,7 °C", "layoutSuggestion": "Bar Chart",
+          "keyBullets": ["Baisse moyenne de la température de surface, en °C"],
+          "chartData": { "categories": ["Confluence", "Part-Dieu", "Croix-Rousse", "Gerland", "Vaise"],
+                         "series": [{ "name": "Baisse", "values": [2.4, 1.6, 1.1, 1.9, 0.7] }],
+                         "sourceId": "resultats" } },
+        { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"],
+          "sourceRef": "resultats.csv" },
+        { "slideTitle": "La flore compte autant que la surface", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Les sédums résistent à la canicule", "Les graminées se dessèchent"] },
+        { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+    ] });
+    let csv = "quartier,toitures_m2,baisse_c,part_surface_pct\nConfluence,184500,2.4,11.2\nPart-Dieu,97300,1.6,6.8\nCroix-Rousse,61200,1.1,4.3\nGerland,142800,1.9,8.9\nVaise,38400,0.7,3.7\n";
+    (slides, csv)
+}
+
+/// W1's dogfood 19: one CSV given both as `data` and among `sources` was kept twice, as the data
+/// source `resultats` and again as `resultats-2`, and listed twice among the deck's sources. It
+/// is one file: kept once, as the data source it is attached as, and listed once.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_given_as_data_and_as_a_source_is_kept_once() {
+    let dir = scratch("kept-once");
+    let (slides, csv) = toitures();
+    std::fs::write(dir.join("resultats.csv"), csv).unwrap();
+    let client = connect_in(&dir).await;
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": "toitures", "theme": "salon", "language": "French", "slides": slides,
+                "data": [{ "id": "resultats", "file": "resultats.csv" }],
+                "sources": [{ "file": "resultats.csv" }] }),
+    )
+    .await;
+    assert!(made.get("kept").is_none_or(|k| k.as_array().is_some_and(Vec::is_empty)), "{made:#}");
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("toitures/deck.json")).unwrap()).unwrap();
+    // The file is the one data source `resultats`, no copy beside it.
+    let copies: Vec<&String> = (d["data"].as_object().unwrap().iter())
+        .filter(|(_, decl)| decl["source"].as_str().is_some_and(|s| s.starts_with("data/resultats")))
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(copies, ["resultats"], "{:#}", d["data"]);
+    let named: Vec<&str> =
+        (d["meta"]["narrative"]["sources"].as_array().unwrap().iter()).filter_map(|s| s["name"].as_str()).collect();
+    assert_eq!(named, ["resultats.csv"], "{:#}", d["meta"]["narrative"]["sources"]);
+}
+
+/// W1's dogfood 19: an agent made its deck the way the tools read, `deck_create` in Salon, then
+/// `data_attach` of its results, then `deck_generate` from the slides it wrote, into the same
+/// bundle, and was refused: "a new bundle needs a place of its own". `deck_generate` fills a
+/// bundle `deck_create` made that holds only its blank slide, in its theme, with the data it
+/// holds, the change recorded in the history deck_create began. A bundle holding more, or asked
+/// in another theme, is refused, saying why and that deck_generate makes a bundle itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn deck_generate_fills_the_blank_bundle_deck_create_made() {
+    let dir = scratch("generate-fills");
+    let (slides, csv) = toitures();
+    std::fs::write(dir.join("resultats.csv"), csv).unwrap();
+    let client = connect_in(&dir).await;
+    let at = |name: &str| path(&dir.join(name));
+    let (toits, started, blank) = (at("toitures"), at("started"), at("blank"));
+    ok(&client, "deck_create", json!({ "bundle": toits, "theme": "salon", "title": "Toitures" })).await;
+    ok(&client, "data_attach", json!({ "bundle": toits, "id": "resultats", "file": at("resultats.csv") })).await;
+    let made = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": toits, "language": "French", "slides": slides, "sources": [{ "file": at("resultats.csv") }] }),
+    )
+    .await;
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("toitures/deck.json")).unwrap()).unwrap();
+    // The slides written, in the bundle's own theme, its chart drawn from the data it held.
+    assert!(d["states"].as_array().unwrap().len() >= 5, "{made:#}");
+    assert_eq!(d["theme"], json!("themes/salon.theme.json"));
+    assert_eq!(d["data"]["resultats"]["source"], json!("data/resultats.csv"), "{:#}", d["data"]);
+    assert!(made["unbound"].as_array().is_none_or(Vec::is_empty), "{made:#}");
+    // One history: created, attached, then generated.
+    let history = ok(&client, "deck_history", json!({ "bundle": toits })).await;
+    assert_eq!(history["versions"].as_array().map(Vec::len), Some(3), "{history:#}");
+
+    // A bundle that holds more than the blank slide is refused, saying why.
+    ok(&client, "deck_create", json!({ "bundle": started, "theme": "salon", "title": "Toitures" })).await;
+    ok(&client, "state_start", json!({ "bundle": started, "state": "start", "layout": "bullets" })).await;
+    let refused = call(&client, "deck_generate", json!({ "bundle": started, "slides": slides })).await;
+    assert_eq!(refused.is_error, Some(true));
+    let said = text(&refused);
+    assert!(said.contains("deck_generate makes a bundle itself") && said.contains("it holds 2 states"), "{said}");
+    // So is a blank bundle asked in another theme.
+    ok(&client, "deck_create", json!({ "bundle": blank, "theme": "salon", "title": "Toitures" })).await;
+    let other = call(&client, "deck_generate", json!({ "bundle": blank, "slides": slides, "theme": "ember" })).await;
+    assert_eq!(other.is_error, Some(true));
+    assert!(text(&other).contains("fills it in its own theme"), "{}", text(&other));
+    ok(&client, "deck_generate", json!({ "bundle": blank, "slides": slides, "theme": "salon" })).await;
+    client.cancel().await.unwrap();
+}
+
+/// W1's dogfood 19: a paper's results asked for as "Table", two series of figures by quartier,
+/// fell to a one-line list: no layout was called that, and the table was not drawn at all. It
+/// takes the library's Table layout, a table of its figures, a row for each quartier and a
+/// column for each series; given the CSV those figures are, the table reads it, keyed by its
+/// quartiers, so a data edit sets it again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_table_slide_sets_its_figures_as_a_table_bound_to_its_data() {
+    let dir = scratch("made-table");
+    let csv = "quartier,toitures_m2,baisse_c\nConfluence,184500,2.4\nPart-Dieu,97300,1.6\nCroix-Rousse,61200,1.1\nGerland,142800,1.9\nVaise,38400,0.7\n";
+    std::fs::write(dir.join("resultats.csv"), csv).unwrap();
+    let quartiers = ["Confluence", "Part-Dieu", "Croix-Rousse", "Gerland", "Vaise"];
+    let slides = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+        { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+        { "slideTitle": "Pourquoi les toits", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Le bitume absorbe le rayonnement", "La ville reste chaude la nuit"] },
+        { "slideTitle": "Résultats par quartier", "layoutSuggestion": "Table",
+          "keyBullets": ["Toitures végétalisées et baisse de température, été 2025"],
+          "chartData": { "categories": quartiers,
+                         "series": [{ "name": "Toitures", "values": [184500, 97300, 61200, 142800, 38400] },
+                                    { "name": "Baisse", "values": [2.4, 1.6, 1.1, 1.9, 0.7] }],
+                         "sourceId": "resultats" } },
+        { "slideTitle": "La flore compte autant que la surface", "layoutSuggestion": "Bullet List",
+          "keyBullets": ["Les sédums résistent à la canicule", "Les graminées se dessèchent"] },
+        { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+    ] });
+    let client = connect_in(&dir).await;
+    let table = |d: &Value| -> Value {
+        let state = d["states"].as_array().unwrap().iter().find(|s| s["layout"] == "table").cloned();
+        let state = state.unwrap_or_else(|| panic!("no table slide: {:#}", d["states"]));
+        let id = state["props"].as_object().unwrap().keys().find(|id| d["nodes"][id.as_str()]["type"] == "table");
+        d["nodes"][id.expect("a table on it").as_str()].clone()
+    };
+    let read = |name: &str| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join(name).join("deck.json")).unwrap()).unwrap()
+    };
+    // Its own rows: a row a quartier, a column a series, as written.
+    let own = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&dir.join("own")), "slides": slides, "language": "French" }),
+    )
+    .await;
+    assert!(own["fell"].as_array().is_none_or(|f| f.iter().all(|f| f["asked"] != "Table")), "{own:#}");
+    assert_eq!(own["created"]["errors"], 0, "{own:#}");
+    let t = table(&read("own"));
+    assert_eq!(t["key"], "category", "{t:#}");
+    let titles: Vec<&str> = t["columns"].as_array().unwrap().iter().filter_map(|c| c["title"].as_str()).collect();
+    assert_eq!(titles, ["", "Toitures", "Baisse"], "{t:#}");
+    assert_eq!(t["dataTransform"][0]["pivot"], "series", "{t:#}");
+    // Each column printed with its own places: whole square metres, a tenth of a degree.
+    let formats: Vec<&str> = t["columns"].as_array().unwrap().iter().filter_map(|c| c["format"].as_str()).collect();
+    assert_eq!(formats, [",.0f", ",.1f"], "{t:#}");
+    // Given the CSV, the table reads it: its quartiers its key, a column of the file for each series.
+    let bound = ok(
+        &client,
+        "deck_generate",
+        json!({ "bundle": path(&dir.join("bound")), "slides": slides, "language": "French",
+                "data": [{ "id": "resultats", "file": path(&dir.join("resultats.csv")) }] }),
+    )
+    .await;
+    assert!(bound["unbound"].as_array().is_none_or(Vec::is_empty), "{bound:#}");
+    assert_eq!(bound["created"]["errors"], 0, "{bound:#}");
+    let d = read("bound");
+    let t = table(&d);
+    assert_eq!((t["data"].clone(), t["key"].clone()), (json!("@resultats"), json!("quartier")), "{t:#}");
+    let fields: Vec<&str> = t["columns"].as_array().unwrap().iter().filter_map(|c| c["field"].as_str()).collect();
+    assert_eq!(fields, ["quartier", "toitures_m2", "baisse_c"], "{t:#}");
+    assert!(t.get("dataTransform").is_none(), "{t:#}");
+    assert!(d["data"].as_object().unwrap().keys().all(|id| id == "resultats"), "its own rows go: {:#}", d["data"]);
+    client.cancel().await.unwrap();
+}

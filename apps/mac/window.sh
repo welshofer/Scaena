@@ -770,7 +770,8 @@ if [[ -n "$watching" ]]; then
   kill "$watching" 2>/dev/null || true
   wait "$watching" 2>/dev/null || true
   echo "the main thread's hangs over 250 ms:"
-  python3 "$root/scripts/hangs.py" "$out/shots/hangs" | sed 's/^/  /' || true
+  # Each sample, its main thread demangled, kept where the shots are pushed.
+  python3 "$root/scripts/hangs.py" "$out/shots/hangs" --samples "$out/shots/hangs-samples.txt" | sed 's/^/  /' || true
 fi
 # The deck is edited now: no saving it, so no asking.
 pkill -x Scaena || true

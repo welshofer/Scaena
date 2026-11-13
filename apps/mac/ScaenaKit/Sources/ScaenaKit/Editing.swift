@@ -689,6 +689,11 @@ extension ScaenaSession {
     /// A digest of `state`'s display list at rest: what changes when its drawing does.
     public func digest(state: String) throws -> String { try call("digest", ["state": .string(state)]) }
 
+    /// What `state` at rest is drawn from, in the format shown, as a key, with nothing laid out or
+    /// drawn: two states that key alike draw alike, so a drawing of one is kept by it and drawn
+    /// again away from the window only where it changed (#1262's follow-up).
+    public func rest(state: String) throws -> String { try call("rest", ["state": .string(state)]) }
+
     /// `node`'s words as `state` shows them, as written: its `text`, or its runs' end to end. None
     /// for a node that is no text there.
     public func text(state: String, node: String) throws -> String? {

@@ -1,0 +1,1028 @@
+{
+  "scaena": "0.41",
+  "meta": {
+    "title": "Agua para quien sale con calor",
+    "lang": "es",
+    "description": "Sevilla pasó 41 días por encima de 40 °C en 2025 y el 62 % de los vecinos sale sin agua; el piloto de 12 fuentes sirvió 66.400 litros en cinco meses, y 120 fuentes en 2027 cuestan 460.000 €.",
+    "narrative": {
+      "generator": "narrato",
+      "arc": "Problem–Solution",
+      "reasoning": "Heuristic best-fit. Top candidates: Problem–Solution (80%), Data Storytelling (68%), The Reveal (68%), Hero's Journey (68%), PARL (Problem, Action, Result, Learning) (67%).",
+      "brief": {
+        "topic": "Ampliar la red de fuentes de agua potable de Sevilla de 12 a 120",
+        "audience": "Pleno del Ayuntamiento de Sevilla",
+        "goal": "Persuade",
+        "length": "5-10 slides",
+        "modality": "In-person — Presenter and audience are physically co-located. Delivered on stage, in a conference room, classroom, theater, trade-show booth, etc.",
+        "voice": "Llano y directo; las cifras sostienen el caso.",
+        "minutes": 12,
+        "language": "Spanish"
+      },
+      "sources": [
+        {
+          "name": "informe.pdf",
+          "kind": "pdf",
+          "bytes": 2041,
+          "truncated": false,
+          "figures": [
+            "3.8",
+            "11",
+            "12",
+            "18",
+            "40",
+            "41",
+            "62",
+            "410",
+            "462",
+            "900",
+            "2025"
+          ]
+        },
+        {
+          "name": "piloto.csv",
+          "kind": "csv",
+          "bytes": 137,
+          "truncated": false,
+          "figures": [
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "2025",
+            "6200",
+            "11800",
+            "12100",
+            "12400",
+            "17900",
+            "18400",
+            "23600",
+            "24200",
+            "35800",
+            "36800"
+          ]
+        }
+      ],
+      "outline": {
+        "bigIdea": "Con 120 fuentes en 2027, por 460.000 €, Sevilla da agua a quien sale con calor y no la lleva.",
+        "beats": [
+          {
+            "name": "Situación",
+            "claim": "Sevilla pasó 41 días por encima de 40 °C en 2025.",
+            "slides": 2
+          },
+          {
+            "name": "Problema",
+            "claim": "El 62 % de los vecinos sale sin agua en las horas de más calor.",
+            "slides": 1
+          },
+          {
+            "name": "Prueba",
+            "claim": "Las 12 fuentes del piloto sirvieron 66.400 litros en cinco meses.",
+            "slides": 2
+          },
+          {
+            "name": "Coste",
+            "claim": "Cada fuente cuesta 3.800 € instalada y 410 € al año.",
+            "slides": 2
+          },
+          {
+            "name": "Petición",
+            "claim": "Aprueben 460.000 € para llegar a 120 fuentes en 2027.",
+            "slides": 1
+          }
+        ]
+      }
+    }
+  },
+  "canvas": {
+    "width": 1920.0,
+    "height": 1080.0,
+    "unit": "cu"
+  },
+  "theme": "themes/dusk.theme.json",
+  "fonts": [
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Fraunces",
+      "file": "fonts/Fraunces-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          9.0,
+          144.0
+        ],
+        "SOFT": [
+          0.0,
+          100.0
+        ],
+        "WONK": [
+          0.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "Inter",
+      "file": "fonts/Inter-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          900.0
+        ],
+        "opsz": [
+          14.0,
+          32.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-VF.ttf",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "fonts/JetBrainsMono-Italic-VF.ttf",
+      "style": "italic",
+      "axes": {
+        "wght": [
+          100.0,
+          800.0
+        ]
+      }
+    }
+  ],
+  "data": {
+    "piloto": {
+      "source": "data/piloto.csv",
+      "schema": {
+        "mes": "date",
+        "litros_servidos": "number",
+        "botellas_evitadas": "number"
+      }
+    }
+  },
+  "spine": {
+    "sections": [
+      {
+        "id": "situacion",
+        "title": "Situación",
+        "beats": [
+          {
+            "id": "agua-para-quien-sale-con-calor",
+            "claim": "Agua para quien sale con calor",
+            "states": [
+              "agua-para-quien-sale-con"
+            ],
+            "notes": "Buenos días. Vengo a pedir una cosa: que Sevilla pase de 12 fuentes de agua potable a 120 en 2027. Lo que sigue explica por qué.",
+            "duration": 22.0,
+            "media": {
+              "narrato": {
+                "layout": "Title",
+                "beatIndex": 0,
+                "beatName": "Situación",
+                "intensity": 0.3,
+                "valence": 0.2,
+                "subtitle": "Propuesta al Pleno: de 12 a 120 fuentes",
+                "estimated": 22.0
+              }
+            }
+          },
+          {
+            "id": "sevilla-paso-41-dias-por-encima-de-40-c-en-2025",
+            "claim": "Sevilla pasó 41 días por encima de 40 °C en 2025",
+            "evidence": [
+              "source:informe.pdf"
+            ],
+            "states": [
+              "sevilla-paso-41-dias-por"
+            ],
+            "notes": "El informe de calor urbano lo dice claro: 41 días por encima de 40 °C, y una máxima de 46,2 °C el 11 de agosto. El calor ya no es una ola; es la estación.",
+            "duration": 30.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 0,
+                "beatName": "Situación",
+                "intensity": 0.55,
+                "valence": -0.4,
+                "estimated": 30.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "problema",
+        "title": "Problema",
+        "beats": [
+          {
+            "id": "el-62-de-los-vecinos-sale-sin-agua-en-las-horas-de-mas-c",
+            "claim": "El 62 % de los vecinos sale sin agua en las horas de más calor",
+            "evidence": [
+              "source:informe.pdf"
+            ],
+            "states": [
+              "el-62-de-los"
+            ],
+            "notes": "Y la gente sale igual. De 900 vecinos encuestados, el 62 % no lleva agua en las horas de más calor. Son ellos los que acaban en urgencias.",
+            "duration": 29.0,
+            "media": {
+              "narrato": {
+                "layout": "Big Number",
+                "beatIndex": 1,
+                "beatName": "Problema",
+                "intensity": 0.7,
+                "valence": -0.55,
+                "estimated": 29.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "prueba",
+        "title": "Prueba",
+        "beats": [
+          {
+            "id": "en-julio-las-12-fuentes-sirvieron-18-400-litros",
+            "claim": "En julio, las 12 fuentes sirvieron 18.400 litros",
+            "evidence": [
+              "@piloto",
+              "source:piloto.csv"
+            ],
+            "states": [
+              "en-julio-las-12-fuentes"
+            ],
+            "notes": "Cuando pusimos fuentes, la gente las usó. En julio, el mes de más calor, las 12 fuentes sirvieron 18.400 litros, y el uso sube con la temperatura.",
+            "duration": 29.0,
+            "media": {
+              "narrato": {
+                "layout": "Bar Chart",
+                "beatIndex": 2,
+                "beatName": "Prueba",
+                "intensity": 0.6,
+                "valence": 0.4,
+                "chartSource": "piloto",
+                "chartSeries": [
+                  "Litros servidos"
+                ],
+                "estimated": 29.0
+              }
+            }
+          },
+          {
+            "id": "las-12-fuentes-sirvieron-66-400-litros-en-cinco-meses",
+            "claim": "Las 12 fuentes sirvieron 66.400 litros en cinco meses",
+            "evidence": [
+              "source:piloto.csv"
+            ],
+            "states": [
+              "las-12-fuentes-sirvieron-66-400"
+            ],
+            "notes": "Sumado, son 66.400 litros en cinco meses y 132.800 botellas que no se compraron. Y en esos tres barrios, las urgencias por golpe de calor bajaron un 18 %.",
+            "duration": 32.0,
+            "media": {
+              "narrato": {
+                "layout": "Three Numbers",
+                "beatIndex": 2,
+                "beatName": "Prueba",
+                "intensity": 0.65,
+                "valence": 0.55,
+                "estimated": 32.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "coste",
+        "title": "Coste",
+        "beats": [
+          {
+            "id": "cada-fuente-cuesta-3-800-instalada-y-410-al-ano",
+            "claim": "Cada fuente cuesta 3.800 € instalada y 410 € al año",
+            "evidence": [
+              "source:informe.pdf"
+            ],
+            "states": [
+              "cada-fuente-cuesta-3-800"
+            ],
+            "notes": "Es barato. Cada fuente cuesta 3.800 € instalada y 410 € al año de mantenimiento.",
+            "duration": 21.0,
+            "media": {
+              "narrato": {
+                "layout": "Two Numbers",
+                "beatIndex": 3,
+                "beatName": "Coste",
+                "intensity": 0.4,
+                "valence": 0.1,
+                "estimated": 21.0
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "peticion",
+        "title": "Petición",
+        "beats": [
+          {
+            "id": "aprueben-460-000-para-llegar-a-120-fuentes-en-2027",
+            "claim": "Aprueben 460.000 € para llegar a 120 fuentes en 2027",
+            "states": [
+              "aprueben-460-000-para-llegar"
+            ],
+            "notes": "Por eso pido 460.000 € para llegar a 120 fuentes en 2027, con las primeras 40 instaladas antes del próximo verano.",
+            "duration": 26.0,
+            "media": {
+              "narrato": {
+                "layout": "Call to Action",
+                "beatIndex": 4,
+                "beatName": "Petición",
+                "intensity": 0.8,
+                "valence": 0.6,
+                "estimated": 26.0
+              }
+            }
+          },
+          {
+            "id": "gracias",
+            "claim": "Aprueben 460.000 € para llegar a 120 fuentes en 2027.",
+            "states": [
+              "gracias"
+            ],
+            "notes": "Gracias. Quedo a su disposición para cualquier pregunta.",
+            "duration": 15.0,
+            "media": {
+              "narrato": {
+                "layout": "Closing",
+                "beatIndex": 4,
+                "beatName": "Petición",
+                "intensity": 0.4,
+                "valence": 0.5,
+                "estimated": 15.0
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": {
+    "agua-para-quien-sale-con-title": {
+      "type": "text",
+      "role": "display",
+      "text": "Agua para quien sale con calor",
+      "at": {
+        "in": "title"
+      },
+      "semantic": "claim"
+    },
+    "agua-para-quien-sale-con-subtitle": {
+      "type": "text",
+      "role": "lede",
+      "text": "Propuesta al Pleno: de 12 a 120 fuentes",
+      "at": {
+        "in": "subtitle"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "sevilla-paso-41-dias-por-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "41 días",
+      "at": {
+        "in": "number"
+      }
+    },
+    "sevilla-paso-41-dias-por-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "por encima de 40 °C en el verano de 2025",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "el-62-de-los-number": {
+      "type": "text",
+      "role": "hero",
+      "text": "62 %",
+      "at": {
+        "in": "number"
+      }
+    },
+    "el-62-de-los-claim": {
+      "type": "text",
+      "role": "title",
+      "text": "de 900 vecinos encuestados no lleva agua al salir con calor",
+      "at": {
+        "in": "claim"
+      },
+      "semantic": "claim"
+    },
+    "en-julio-las-12-fuentes-header": {
+      "type": "text",
+      "role": "headline",
+      "semantic": "claim",
+      "at": {
+        "in": "header"
+      },
+      "runs": [
+        {
+          "text": "En julio, las 12 fuentes sirvieron "
+        },
+        {
+          "text": "18.400",
+          "quote": {
+            "data": "@piloto",
+            "row": {
+              "mes": "2025-07-01"
+            },
+            "column": "litros_servidos",
+            "format": ",.0f"
+          }
+        },
+        {
+          "text": " litros"
+        }
+      ]
+    },
+    "en-julio-las-12-fuentes-main": {
+      "type": "chart",
+      "kind": "bar",
+      "data": "@piloto",
+      "x": {
+        "field": "mes",
+        "type": "ordinal",
+        "format": "%B"
+      },
+      "y": {
+        "field": "litros_servidos",
+        "type": "quantitative",
+        "format": ",.0f",
+        "title": "Litros servidos",
+        "domain": [
+          0,
+          null
+        ]
+      },
+      "semantic": "evidence",
+      "at": {
+        "in": "main"
+      },
+      "dataTransform": [
+        {
+          "sort": "-litros_servidos"
+        }
+      ],
+      "annotations": [
+        {
+          "kind": "highlight",
+          "at": {
+            "x": "2025-07-01"
+          }
+        }
+      ]
+    },
+    "en-julio-las-12-fuentes-takeaway": {
+      "type": "text",
+      "role": "lede",
+      "text": "Litros servidos al mes por las 12 fuentes del piloto, 2025",
+      "at": {
+        "in": "takeaway"
+      },
+      "semantic": "takeaway"
+    },
+    "en-julio-las-12-fuentes-note": {
+      "type": "text",
+      "role": "caption",
+      "text": "Fuente: piloto.csv",
+      "at": {
+        "in": "note"
+      },
+      "semantic": "source"
+    },
+    "las-12-fuentes-sirvieron-66-400-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Las 12 fuentes sirvieron 66.400 litros en cinco meses",
+      "at": {
+        "in": "header"
+      },
+      "semantic": "claim"
+    },
+    "las-12-fuentes-sirvieron-66-400-first-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "first-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "las-12-fuentes-sirvieron-66-400-first-title": {
+      "type": "text",
+      "role": "figure",
+      "text": "66.400",
+      "at": {
+        "in": "first-title"
+      },
+      "fit": "grow",
+      "maxSize": 100.75,
+      "maxLines": 1
+    },
+    "las-12-fuentes-sirvieron-66-400-first": {
+      "type": "text",
+      "role": "lede",
+      "text": "litros servidos de mayo a septiembre",
+      "at": {
+        "in": "first"
+      },
+      "fit": "grow",
+      "maxSize": 41.0
+    },
+    "las-12-fuentes-sirvieron-66-400-second-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "second-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "las-12-fuentes-sirvieron-66-400-second-title": {
+      "type": "text",
+      "role": "figure",
+      "text": "132.800",
+      "at": {
+        "in": "second-title"
+      },
+      "fit": "grow",
+      "maxSize": 100.75,
+      "maxLines": 1
+    },
+    "las-12-fuentes-sirvieron-66-400-second": {
+      "type": "text",
+      "role": "lede",
+      "text": "botellas de plástico evitadas",
+      "at": {
+        "in": "second"
+      },
+      "fit": "grow",
+      "maxSize": 41.0
+    },
+    "las-12-fuentes-sirvieron-66-400-third-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "third-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "las-12-fuentes-sirvieron-66-400-third-title": {
+      "type": "text",
+      "role": "figure",
+      "text": "18 %",
+      "at": {
+        "in": "third-title"
+      },
+      "fit": "grow",
+      "maxSize": 100.75,
+      "maxLines": 1
+    },
+    "las-12-fuentes-sirvieron-66-400-third": {
+      "type": "text",
+      "role": "lede",
+      "text": "menos urgencias por golpe de calor en los tres barrios",
+      "at": {
+        "in": "third"
+      },
+      "fit": "grow",
+      "maxSize": 41.0
+    },
+    "cada-fuente-cuesta-3-800-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Cada fuente cuesta 3.800 € instalada y 410 € al año",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "cada-fuente-cuesta-3-800-body": {
+      "type": "text",
+      "role": "lede",
+      "text": "3.800 € por fuente instalada\n410 € al año de mantenimiento",
+      "list": [
+        {
+          "kind": "bullet"
+        },
+        {
+          "kind": "bullet"
+        }
+      ],
+      "at": {
+        "in": "body"
+      },
+      "fit": "grow",
+      "maxSize": 48.0,
+      "align": {
+        "y": "center"
+      }
+    },
+    "aprueben-460-000-para-llegar-header": {
+      "type": "text",
+      "role": "headline",
+      "text": "Aprueben 460.000 € para llegar a 120 fuentes en 2027",
+      "at": {
+        "in": "header"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "aprueben-460-000-para-llegar-first-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "first-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "aprueben-460-000-para-llegar-first-number": {
+      "type": "text",
+      "role": "figure",
+      "text": "1",
+      "at": {
+        "in": "first-number"
+      },
+      "semantic": "navigation"
+    },
+    "aprueben-460-000-para-llegar-first": {
+      "type": "text",
+      "role": "lede",
+      "text": "120 fuentes en 2027",
+      "at": {
+        "in": "first"
+      },
+      "fit": "grow",
+      "maxSize": 48.0
+    },
+    "aprueben-460-000-para-llegar-second-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "second-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "aprueben-460-000-para-llegar-second-number": {
+      "type": "text",
+      "role": "figure",
+      "text": "2",
+      "at": {
+        "in": "second-number"
+      },
+      "semantic": "navigation"
+    },
+    "aprueben-460-000-para-llegar-second": {
+      "type": "text",
+      "role": "lede",
+      "text": "460.000 € de inversión",
+      "at": {
+        "in": "second"
+      },
+      "fit": "grow",
+      "maxSize": 48.0
+    },
+    "aprueben-460-000-para-llegar-third-card": {
+      "type": "shape",
+      "kind": "rect",
+      "at": {
+        "in": "third-card"
+      },
+      "z": -1,
+      "semantic": "decoration",
+      "fill": "surface-2"
+    },
+    "aprueben-460-000-para-llegar-third-number": {
+      "type": "text",
+      "role": "figure",
+      "text": "3",
+      "at": {
+        "in": "third-number"
+      },
+      "semantic": "navigation"
+    },
+    "aprueben-460-000-para-llegar-third": {
+      "type": "text",
+      "role": "lede",
+      "text": "Primeras 40 fuentes antes del verano de 2026",
+      "at": {
+        "in": "third"
+      },
+      "fit": "grow",
+      "maxSize": 48.0
+    },
+    "gracias-statement": {
+      "type": "text",
+      "role": "display",
+      "text": "Aprueben 460.000 € para llegar a 120 fuentes en 2027.",
+      "at": {
+        "in": "statement"
+      },
+      "fit": "shrink",
+      "semantic": "claim"
+    },
+    "gracias-support": {
+      "type": "text",
+      "role": "lede",
+      "text": "Gracias · ¿Preguntas?",
+      "at": {
+        "in": "support"
+      },
+      "style": {
+        "color": "onSurface"
+      }
+    },
+    "agua-para-quien-sale-con-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 972,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "recolored": {
+        "agua-para-quien-sale-con-subtitle": "onSurface"
+      }
+    },
+    "gracias-background": {
+      "type": "shader",
+      "kind": "mesh",
+      "preset": "backdrop",
+      "seed": 603,
+      "alt": "",
+      "semantic": "decoration",
+      "at": {
+        "in": "canvas"
+      },
+      "z": -100,
+      "recolored": {
+        "gracias-support": "onSurface"
+      }
+    }
+  },
+  "states": [
+    {
+      "id": "agua-para-quien-sale-con",
+      "mode": "absolute",
+      "layout": "title-center",
+      "props": {
+        "agua-para-quien-sale-con-title": {},
+        "agua-para-quien-sale-con-subtitle": {},
+        "agua-para-quien-sale-con-background": {}
+      }
+    },
+    {
+      "id": "sevilla-paso-41-dias-por",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "sevilla-paso-41-dias-por-number": {},
+        "sevilla-paso-41-dias-por-claim": {}
+      }
+    },
+    {
+      "id": "el-62-de-los",
+      "mode": "absolute",
+      "layout": "big-number",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard"
+      },
+      "props": {
+        "el-62-de-los-number": {},
+        "el-62-de-los-claim": {}
+      }
+    },
+    {
+      "id": "en-julio-las-12-fuentes",
+      "mode": "absolute",
+      "layout": "bar-chart",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "en-julio-las-12-fuentes-header": {},
+        "en-julio-las-12-fuentes-main": {},
+        "en-julio-las-12-fuentes-takeaway": {},
+        "en-julio-las-12-fuentes-note": {}
+      },
+      "choreography": [
+        {
+          "target": "en-julio-las-12-fuentes-main",
+          "enter": "grow"
+        }
+      ]
+    },
+    {
+      "id": "las-12-fuentes-sirvieron-66-400",
+      "mode": "absolute",
+      "layout": "numbers",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "las-12-fuentes-sirvieron-66-400-header": {},
+        "las-12-fuentes-sirvieron-66-400-first-card": {},
+        "las-12-fuentes-sirvieron-66-400-first-title": {},
+        "las-12-fuentes-sirvieron-66-400-first": {},
+        "las-12-fuentes-sirvieron-66-400-second-card": {},
+        "las-12-fuentes-sirvieron-66-400-second-title": {},
+        "las-12-fuentes-sirvieron-66-400-second": {},
+        "las-12-fuentes-sirvieron-66-400-third-card": {},
+        "las-12-fuentes-sirvieron-66-400-third-title": {},
+        "las-12-fuentes-sirvieron-66-400-third": {}
+      },
+      "choreography": [
+        {
+          "target": [
+            "las-12-fuentes-sirvieron-66-400-first-card",
+            "las-12-fuentes-sirvieron-66-400-first-title",
+            "las-12-fuentes-sirvieron-66-400-first"
+          ],
+          "enter": "rise"
+        },
+        {
+          "target": [
+            "las-12-fuentes-sirvieron-66-400-second-card",
+            "las-12-fuentes-sirvieron-66-400-second-title",
+            "las-12-fuentes-sirvieron-66-400-second"
+          ],
+          "enter": "rise",
+          "delay": 252.0
+        },
+        {
+          "target": [
+            "las-12-fuentes-sirvieron-66-400-third-card",
+            "las-12-fuentes-sirvieron-66-400-third-title",
+            "las-12-fuentes-sirvieron-66-400-third"
+          ],
+          "enter": "rise",
+          "delay": 504.0
+        }
+      ]
+    },
+    {
+      "id": "cada-fuente-cuesta-3-800",
+      "mode": "absolute",
+      "layout": "bullets",
+      "transition": {
+        "duration": "standard",
+        "ease": "standard"
+      },
+      "props": {
+        "cada-fuente-cuesta-3-800-header": {},
+        "cada-fuente-cuesta-3-800-body": {}
+      }
+    },
+    {
+      "id": "aprueben-460-000-para-llegar",
+      "mode": "absolute",
+      "layout": "takeaways",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "aprueben-460-000-para-llegar-header": {},
+        "aprueben-460-000-para-llegar-first-card": {},
+        "aprueben-460-000-para-llegar-first-number": {},
+        "aprueben-460-000-para-llegar-first": {},
+        "aprueben-460-000-para-llegar-second-card": {},
+        "aprueben-460-000-para-llegar-second-number": {},
+        "aprueben-460-000-para-llegar-second": {},
+        "aprueben-460-000-para-llegar-third-card": {},
+        "aprueben-460-000-para-llegar-third-number": {},
+        "aprueben-460-000-para-llegar-third": {}
+      },
+      "choreography": [
+        {
+          "target": "aprueben-460-000-para-llegar-header",
+          "enter": "pop"
+        },
+        {
+          "target": [
+            "aprueben-460-000-para-llegar-first-card",
+            "aprueben-460-000-para-llegar-first-number",
+            "aprueben-460-000-para-llegar-first"
+          ],
+          "enter": "rise",
+          "delay": 420.0
+        },
+        {
+          "target": [
+            "aprueben-460-000-para-llegar-second-card",
+            "aprueben-460-000-para-llegar-second-number",
+            "aprueben-460-000-para-llegar-second"
+          ],
+          "enter": "rise",
+          "delay": 672.0
+        },
+        {
+          "target": [
+            "aprueben-460-000-para-llegar-third-card",
+            "aprueben-460-000-para-llegar-third-number",
+            "aprueben-460-000-para-llegar-third"
+          ],
+          "enter": "rise",
+          "delay": 924.0
+        }
+      ]
+    },
+    {
+      "id": "gracias",
+      "mode": "absolute",
+      "layout": "closing",
+      "transition": {
+        "duration": "slow",
+        "ease": "standard",
+        "style": "dissolve"
+      },
+      "props": {
+        "gracias-statement": {},
+        "gracias-support": {},
+        "gracias-background": {}
+      }
+    }
+  ]
+}

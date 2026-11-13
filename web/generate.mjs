@@ -741,11 +741,30 @@ try {
   await page.waitForFunction((was) => window.scaena.source() === was, unmoved, { timeout: 30000 }).catch(() => {});
   check((await page.evaluate(() => window.scaena.source())) === unmoved, "⌘Z takes the move back");
   // The Files tab lists what the deck was grounded in, each with the slides citing it (FUNC-3).
+  // The list it showed before the move was taken back stands until the panel has listed the deck
+  // again, so it is read once it says the deck as made, or the wait runs out and the check fails.
   await tab(page, "files");
-  await page.waitForSelector("#files [data-grounded] li", { timeout: 30000 }).catch(() => {});
+  const asMade = (items) =>
+    items.length === 3 &&
+    items.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) &&
+    items.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g));
+  await page
+    .waitForFunction(
+      () => {
+        const items = [...document.querySelectorAll("#files [data-grounded] li")].map((li) => li.textContent);
+        return (
+          items.length === 3 &&
+          items.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) &&
+          items.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g))
+        );
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => {});
   const grounded = await page.locator("#files [data-grounded] li").allTextContents();
   check(
-    grounded.length === 3 && grounded.some((g) => g.startsWith("notes.md") && /cited by Slide 1, Slide 3/.test(g)) && grounded.some((g) => g.includes("press.html") && /cited by Slide 2\b/.test(g)),
+    asMade(grounded),
     `the Files tab lists what the deck was grounded in, each with its slides: ${grounded.join(" | ")}`,
   );
 

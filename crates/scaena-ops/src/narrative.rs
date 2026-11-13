@@ -714,7 +714,15 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
 /// figures it holds (W1's dogfood 17), read from `read`, the sources as read, and `pdfs`, the words
 /// each PDF draws by its name (`scaena_sources::pdf::each`), so health holds a slide that cites it
 /// to them.
-pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -> Vec<Provenance> {
+/// Each source's figures are read in the marks it writes them in, else in `language`'s, the
+/// deck's (`scaena_narrato::source_figures`, R1's agent dogfood 12).
+pub fn provenance(
+    given: &[Given],
+    read: &[Source],
+    pdfs: &[(String, String)],
+    language: Option<&str>,
+) -> Vec<Provenance> {
+    let decimal = decimal_of(language);
     (given.iter())
         .map(|g| {
             let mut text: String = (read.iter().filter(|s| s.name == g.name)).map(|s| s.text.as_str()).collect();
@@ -728,7 +736,7 @@ pub fn provenance(given: &[Given], read: &[Source], pdfs: &[(String, String)]) -
                 url: g.url.clone(),
                 bytes: g.bytes,
                 truncated: g.truncated,
-                figures: scaena_narrato::source_figures(&text),
+                figures: scaena_narrato::source_figures(&text, Some(decimal)),
             }
         })
         .collect()
@@ -894,9 +902,9 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     let mut doc = write.deck.to_value().context("the deck")?;
     let slides = write.deck.slides();
     let deck = &write.deck;
-    // The sources a chart may be bound to: those no made chart's own rows are.
+    // The sources a chart may be bound to: those no made chart's or table's own rows are.
     let owned: Vec<String> = (doc["nodes"].as_object().into_iter().flat_map(|n| n.values()))
-        .filter(|n| n["type"] == "chart")
+        .filter(|n| matches!(n["type"].as_str(), Some("chart" | "table")))
         .filter_map(|n| n["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string))
         .filter(|id| {
             deck.data
@@ -930,10 +938,12 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
         let Some(first) = states.first() else { continue };
         let state = &deck.states[*first];
         let Some((named, series, cited)) = named_of(&state.id) else { continue };
-        let Some(node_id) = state.props.keys().find(|id| doc["nodes"][id.as_str()]["type"] == "chart").cloned() else {
+        let drawn = |id: &str| matches!(doc["nodes"][id]["type"].as_str(), Some("chart" | "table"));
+        let Some(node_id) = state.props.keys().find(|id| drawn(id)).cloned() else {
             continue;
         };
         let mut node = doc["nodes"][&node_id].clone();
+        let table = node["type"] == "table";
         let Some(own) = node["data"].as_str().and_then(|d| d.strip_prefix('@')).map(str::to_string) else { continue };
         if !owned.contains(&own) {
             continue;
@@ -961,9 +971,12 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
             });
             continue;
         }
+        // A table is bound as a chart of its rows would be, and set from the columns that binds.
+        let mut probe = if table { probe(&node, &chart) } else { node.clone() };
         // The first source named that holds the slide's rows: a workbook's sheets in turn.
-        match binding::bind_first(&mut node, &chart, &typed, &write.files, &ids) {
+        match binding::bind_first(&mut probe, &chart, &typed, &write.files, &ids) {
             Ok((id, dated)) => {
+                node = if table { tabled(&node, &probe) } else { probe };
                 if let Some(column) = dated {
                     doc["data"][&id]["schema"][&column] = json!("date");
                     if let Some(decl) = typed.data.get_mut(&id) {
@@ -991,6 +1004,52 @@ pub fn binding(mut write: Write) -> Result<(Write, Vec<Unbound>), OpsError> {
     quoting::citing(&mut doc, &write.files, &sources);
     write.deck = Deck::from_json(&doc.to_string()).context("the deck with its charts bound")?;
     Ok((write, unbound))
+}
+
+/// The chart a made table's rows would draw, as [`binding::bind`] binds one: its categories along
+/// `x` and its series' values up `y`, several by `series`.
+fn probe(table: &Value, chart: &ChartData) -> Value {
+    let mut probe = json!({
+        "type": "chart",
+        "kind": "bar",
+        "data": table["data"],
+        "x": { "field": "category", "type": "ordinal" },
+        "y": { "field": "value", "type": "quantitative" },
+    });
+    if chart.series.len() > 1 {
+        probe["series"] = json!({ "field": "series", "type": "nominal" });
+    }
+    probe
+}
+
+/// `table` set from the source `probe` was bound to: keyed by the column of its categories, a
+/// column for each series bound, titled and printed as the table's own were, and the rows the
+/// binding reads alone.
+fn tabled(table: &Value, probe: &Value) -> Value {
+    let x = probe["x"]["field"].clone();
+    let steps: Vec<Value> = (probe["dataTransform"].as_array().into_iter().flatten()).cloned().collect();
+    let fields: Vec<Value> = match steps.iter().find_map(|s| s.get("fold")) {
+        Some(Value::Array(names)) => names.clone(),
+        _ => vec![probe["y"]["field"].clone()],
+    };
+    let own: Vec<Value> = (table["columns"].as_array().into_iter().flatten()).skip(1).cloned().collect();
+    let mut columns = vec![json!({ "field": x, "title": "" })];
+    for (field, was) in fields.into_iter().zip(own) {
+        let mut column = was;
+        column["field"] = field;
+        columns.push(column);
+    }
+    let mut node = table.clone();
+    node["data"] = probe["data"].clone();
+    node["key"] = x;
+    node["columns"] = json!(columns);
+    let kept: Vec<Value> = steps.into_iter().filter(|s| s.get("filter").is_some()).collect();
+    if kept.is_empty() {
+        node.as_object_mut().map(|o| o.remove("dataTransform"));
+    } else {
+        node["dataTransform"] = json!(kept);
+    }
+    node
 }
 
 /// Each beat of `doc`'s spine that cites `@own` as its evidence cites `@id` in its place, once.
@@ -1308,6 +1367,54 @@ pub fn generate_drawn(
     Ok((made, Some(write)))
 }
 
+/// A bundle `deck_create` made that `deck_generate` may fill (W1's dogfood 19): one slide, the
+/// blank one it starts with, and no spine. Its theme is the deck's, and each data file it holds
+/// is given again as it was attached. Anything more is refused, saying why and that
+/// `deck_generate` makes a bundle itself.
+pub struct Blank {
+    pub bundle: crate::Bundle,
+    /// The theme file the deck names, in the bundle.
+    pub theme: PathBuf,
+    /// Each data source the bundle holds, as it was attached, and its file's bytes.
+    pub data: Vec<(Attach, Vec<u8>)>,
+}
+
+/// `dir`, where a deck is to be made from slides: nothing there yet (`None`), a [`Blank`] bundle
+/// to fill, or refused.
+pub fn fillable(dir: &Path) -> Result<Option<Blank>, OpsError> {
+    let Err(not) = crate::create::vacant(dir) else { return Ok(None) };
+    let refused = |why: String| {
+        OpsError::new(format!(
+            "{}; deck_generate makes a bundle itself, in its `theme` with its `data`, or fills one deck_create made              that holds only its blank slide{why}",
+            not.message.trim_end_matches(": a new bundle needs a place of its own")
+        ))
+    };
+    if !dir.join("deck.json").is_file() {
+        return Err(refused(String::new()));
+    }
+    let bundle = crate::open(dir)?;
+    let slides = bundle.deck.states.len();
+    let beats: usize = (bundle.deck.spine.iter()).flat_map(|s| s.sections.iter()).map(|s| s.beats.len()).sum();
+    if slides != 1 || beats > 0 {
+        let held = match (slides, beats) {
+            (1, b) => format!("its spine tells {b} beat{}", if b == 1 { "" } else { "s" }),
+            (n, _) => format!("it holds {n} states"),
+        };
+        return Err(refused(format!(": {held}")));
+    }
+    let theme = (bundle.deck.theme.as_ref().and_then(Value::as_str))
+        .map(PathBuf::from)
+        .ok_or_else(|| refused(": its deck names its theme inline".into()))?;
+    let mut data = Vec::new();
+    for (id, source) in &bundle.deck.data {
+        let Some(path) = source.source.as_str() else { continue };
+        let bytes = bundle.files.read(path).with_context(|| format!("reading {path}"))?;
+        let file = PathBuf::from(Path::new(path).file_name().unwrap_or_default());
+        data.push((Attach { id: id.clone(), file, schema: source.schema.clone(), parse: source.parse.clone() }, bytes));
+    }
+    Ok(Some(Blank { bundle, theme, data }))
+}
+
 /// A deck made from slides written elsewhere, with no call (`scaena generate --slides`,
 /// `deck_generate`): `slides` is the JSON Narrato writes the slides in (`executiveSummary` and
 /// `slides`, each with its `slideTitle`, `subtitle`, `layoutSuggestion`, `keyBullets`,
@@ -1331,8 +1438,29 @@ pub fn from_slides(
     outline: Option<&Outline>,
     data: &[(Attach, Vec<u8>)],
     grounds: &[scaena_sources::Source],
+    blank: Option<&Blank>,
 ) -> Result<Generated, OpsError> {
-    crate::create::vacant(dir)?;
+    // A bundle deck_create made, its blank slide alone, is filled, its data files given again
+    // where the call does not give one by that id; else the bundle is new.
+    let mut data = data.to_vec();
+    match blank {
+        Some(blank) => {
+            for (req, bytes) in &blank.data {
+                if !data.iter().any(|(given, _)| given.id == req.id) {
+                    data.push((req.clone(), bytes.clone()));
+                }
+            }
+        }
+        None => crate::create::vacant(dir)?,
+    }
+    let data = data.as_slice();
+    // A source that is a data file given, by its file's name, is that data file: kept once, as
+    // the data source it is attached as, and listed once among the deck's sources (W1's dogfood
+    // 19: `resultats.csv` given both ways was kept as `resultats` and `resultats-2`).
+    let attached_as = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
+    let grounds: Vec<scaena_sources::Source> =
+        (grounds.iter()).filter(|s| !data.iter().any(|(req, _)| attached_as(req) == s.name)).cloned().collect();
+    let grounds = grounds.as_slice();
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
     // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
     // A word for a number is refused, naming the slide and the field.
@@ -1377,6 +1505,7 @@ pub fn from_slides(
     // dogfood 3), as a file `--source` gave is. So is each source given (`sources`), by its name
     // and its address where it has one; none of its text is packed, since no model reads it.
     if !data.is_empty() || !grounds.is_empty() {
+        let decimal = decimal_of(generation.brief().language.as_deref());
         let named = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
         let given = (data.iter())
             .map(|(req, bytes)| Provenance {
@@ -1385,7 +1514,7 @@ pub fn from_slides(
                 url: None,
                 bytes: bytes.len(),
                 truncated: false,
-                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes)),
+                figures: scaena_narrato::source_figures(&String::from_utf8_lossy(bytes), None),
             })
             .chain(grounds.iter().map(|s| Provenance {
                 name: s.name.clone(),
@@ -1393,7 +1522,7 @@ pub fn from_slides(
                 url: scaena_sources::address(&s.name, s.kind),
                 bytes: s.pdf.as_ref().map_or(s.text.len(), Vec::len),
                 truncated: false,
-                figures: scaena_narrato::source_figures(&grounded_words(s)),
+                figures: scaena_narrato::source_figures(&grounded_words(s), Some(decimal)),
             }))
             .collect();
         generation.give_sources(given);
@@ -1455,7 +1584,12 @@ pub fn from_slides(
         }
         made.notes = budgeted(&write.deck).ok();
         made.slides = slides_told(&write.deck);
-        crate::create::make(dir, write)?;
+        match blank {
+            // Written over the blank deck as any edit is, the change recorded in the history
+            // deck_create began.
+            Some(blank) => crate::lint::write(&blank.bundle, write)?,
+            None => crate::create::make(dir, write)?,
+        }
     }
     Ok(made)
 }
@@ -2308,7 +2442,7 @@ pub fn overflowing(deck: &Deck, findings: &[Finding]) -> Result<Vec<Long>, OpsEr
 
 /// Whether `text` says `claim` in its words, its marks, case, and spacing aside: a headline that
 /// states its beat's settled claim, typeset or with its full stop taken off.
-fn says(claim: &str, text: &str) -> bool {
+pub(crate) fn says(claim: &str, text: &str) -> bool {
     let claim = letters(claim);
     !claim.is_empty() && claim == letters(text)
 }
@@ -3222,6 +3356,9 @@ fn assemble(
     let before = deck.previous.take();
     let mut previous: Option<(String, &Slide)> = before.as_ref().map(|(layout, slide)| (layout.clone(), slide));
     let (mut outgrown, mut unset): (Vec<Fell>, Vec<Unset>) = (Vec::new(), Vec::new());
+    // Each outline beat whose settled claim an earlier slide's headline states already: a bare
+    // close in it heads itself otherwise, so two beats never make one claim (R1's agent dogfood 12).
+    let mut stated: Vec<usize> = Vec::new();
     for (i, ((slide, v), Planned { beat, items, icons, mut layout })) in
         narrative.slides.iter().zip(&varied).zip(planned).enumerate()
     {
@@ -3251,6 +3388,7 @@ fn assemble(
             picture,
             idea: (narrative.outline.as_ref()).map(|o| o.big_idea.trim()).filter(|i| !i.is_empty()),
             claim: claim_of(narrative, beat),
+            stated: stated.contains(&beat),
             icons,
             lang: lang.unwrap_or("en"),
             grounded: (slide.source_ref.as_deref())
@@ -3265,8 +3403,10 @@ fn assemble(
         let after = previous.as_ref().map(|(l, s)| (l.as_str(), *s));
         let kept = (deck.nodes.clone(), deck.states.len(), deck.data.clone());
         let mut made = deck.slide(slots.clone(), entrance(&layout, slide, after, last, peak))?;
-        let mut closed =
-            slots.claim.filter(|_| slots.claimed_close()).map(|settled| typeset(settled, lang.unwrap_or("en")));
+        let mut closed = slots.close_heading().map(|heading| typeset(heading, lang.unwrap_or("en")));
+        if claim_of(narrative, beat).is_some_and(|c| says(c, &slide.slide_title)) {
+            stated.push(beat);
+        }
         // A layout asked for by name that has no place for every item, set as a list of them all,
         // is said (agent dogfood 2), as a name no layout is called is.
         let asked = slide.layout_suggestion.trim();
@@ -3750,6 +3890,13 @@ fn media(slide: &Slide) -> Value {
         .map(|c| c.series.iter().map(|s| s.name.clone().unwrap_or_default()).collect::<Vec<_>>());
     put("chartSeries", series.map(|names| json!(names)));
     Value::Object(m)
+}
+
+/// The decimal mark of a deck in `language`, named as a brief names it ("Spanish") or by its tag
+/// ("es"): a comma in Spanish, German, French, Italian, and Portuguese, else a point.
+pub fn decimal_of(language: Option<&str>) -> char {
+    let tag = language.map(|l| language_tag(l).unwrap_or(l));
+    scaena_core::format::Locale::of(tag).decimal.chars().next().unwrap_or('.')
 }
 
 /// The BCP 47 tag of a language the brief names by its English name.
@@ -4533,6 +4680,8 @@ fn layout_for(
         "body" if pictured => "bullets-photo",
         // Three or four points each led by its figure, "64% have no car", are figures a room
         // reads at a glance, each on its card with its words under it (W1's dogfood 8).
+        // Two such points stand as two figures, as three and four do (R1's agent dogfood 12).
+        "body" if n == 2 && figured(items) && theme.layouts.contains_key("two-numbers") => "two-numbers",
         "body" if n == 3 && figured(items) && theme.layouts.contains_key("numbers") => "numbers",
         "body" if n == 4 && figured(items) && theme.layouts.contains_key("four-numbers") => "four-numbers",
         "body" => "bullets",
@@ -4591,6 +4740,15 @@ fn layout_for(
         "quiz" if questions(items) && n == 3 && theme.layouts.contains_key("cards") => "cards",
         "quiz" if questions(items) => "faq",
         "quiz" => "quiz",
+        // The works cited, numbered in small type (W1's dogfood 19), never the years they were
+        // published as figures on cards.
+        "references" if theme.layouts.contains_key("references") => "references",
+        "references" => "numbered",
+        // A table of the slide's figures, its rows its categories and a column for each series
+        // (W1's dogfood 19); with no figures to set, its words as a list.
+        "table" if chart && theme.layouts.contains_key("table") => "table",
+        "table" if chart && theme.layouts.contains_key("bar-chart") => "bar-chart",
+        "table" => "bullets",
         "steps" if n <= 3 => "how-it-works",
         // Four steps, each in a card of its own under its number, as a deck's process is drawn.
         "steps" if n == 4 => "numbered-cards",
@@ -5663,6 +5821,9 @@ struct Slots<'a> {
     /// The claim the person settled for the slide's beat (narrative FUNC-1): what a closing that
     /// only thanks the room says instead, its ask where the claim asks one (W1's dogfood 8).
     claim: Option<&'a str>,
+    /// Whether an earlier slide's headline states that claim already: a bare close then says the
+    /// big idea instead, so it never makes its ask's claim again (R1's agent dogfood 12).
+    stated: bool,
     /// The icon each item is set under, where each has one (G.23).
     icons: Option<Vec<&'a Icon>>,
     /// The deck's language (BCP 47).
@@ -5949,7 +6110,20 @@ impl Slots<'_> {
     /// Whether the slide is a closing that only thanks the room, headed instead by its beat's
     /// claim (W1's dogfood 8): a deck ends on what it asks, not on "Thank you".
     fn claimed_close(&self) -> bool {
-        self.layout == "closing" && bare(&self.slide.slide_title) && self.claim.is_some()
+        self.close_heading().is_some()
+    }
+
+    /// What heads a closing that only thanks the room: its beat's claim, else, where an earlier
+    /// slide's headline states that claim already, the deck's big idea (R1's agent dogfood 12);
+    /// none where it has neither, and it keeps its thanks.
+    fn close_heading(&self) -> Option<&str> {
+        if self.layout != "closing" || !bare(&self.slide.slide_title) {
+            return None;
+        }
+        match self.claim {
+            Some(claim) if !self.stated => Some(claim),
+            _ => self.idea,
+        }
     }
 
     /// Whether the slide is a closing that says its ask and only thanks the room under it.
@@ -6308,14 +6482,16 @@ impl Slots<'_> {
             "kicker" if self.foot(slot) => self.running.map(str::to_string),
             // A bare thanks's takeaways under the deck's big idea, where it has one (lift-up ATTR-3).
             "header" if layout == "takeaways" && self.title().is_some_and(|t| bare(&t)) => {
-                self.idea.map(str::to_string).or_else(|| self.title())
+                self.idea.map(|i| typeset(i, self.lang)).or_else(|| self.title())
             }
             // A call to action's words: a bare closing's ask, not its thanks (lift-up ATTR-3).
             "statement" if layout == "call-to-action" => {
-                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| ask)
+                calling(self.slide, self.items, self.lang, self.claim).map(|(ask, _)| typeset(&ask, self.lang))
             }
-            // A bare thanks says what its beat claims, the thanks under it (W1's dogfood 8).
-            "statement" if self.claimed_close() => self.claim.map(str::to_string),
+            // A bare thanks says what heads it, its beat's claim or the big idea, the thanks under
+            // it (W1's dogfood 8; R1's agent dogfood 12), set as the slide's own words are, so
+            // "460.000 €" keeps its figure and its euro on one line: both come from the outline, as typed.
+            "statement" if self.claimed_close() => self.close_heading().map(|c| typeset(c, self.lang)),
             "support" if self.claimed_close() => Some(self.thanks()),
             // A closing that says its ask: its thanks under it, on one line (agent dogfood 9).
             "support" if self.thanked_close() => {
@@ -7236,15 +7412,19 @@ impl Builder {
                     made.data = Some(data.clone());
                     let takeaway = s.item(0).map(|i| i.whole.as_str());
                     let subtitle = Some(s.slide.subtitle.trim()).filter(|t| !t.is_empty());
-                    chart_node(
-                        chart,
-                        &data,
-                        s.layout,
-                        [&s.slide.slide_title, takeaway.unwrap_or_default()],
-                        subtitle,
-                        s.lang,
-                        at,
-                    )
+                    if s.layout == "table" {
+                        table_node(chart, &data, at)
+                    } else {
+                        chart_node(
+                            chart,
+                            &data,
+                            s.layout,
+                            [&s.slide.slide_title, takeaway.unwrap_or_default()],
+                            subtitle,
+                            s.lang,
+                            at,
+                        )
+                    }
                 }
             };
             // An email or a web address the words name links to it (PLAN 2.70, dogfood 2); a bare
@@ -7610,8 +7790,9 @@ fn source(chart: &ChartData, dated: bool) -> Value {
 }
 
 /// Whether `categories` have an order of their own: a figure in one (a year, a quarter, a range,
-/// an age), a month or a day, or a word of a scale.
-fn ordered(categories: &[String]) -> bool {
+/// an age), a month or a day, in English or in the deck's language (`lang`: "Mayo" to
+/// "Septiembre", R1's agent dogfood 12), or a word of a scale.
+fn ordered(categories: &[String], lang: &str) -> bool {
     const ORDERED: [&str; 63] = [
         "low",
         "medium",
@@ -7677,10 +7858,17 @@ fn ordered(categories: &[String]) -> bool {
         "sat",
         "sun",
     ];
+    let locale = scaena_core::format::Locale::of(Some(lang));
+    let named = |w: &str| {
+        (locale.months.iter().chain(&locale.short_months).chain(&locale.days).chain(&locale.short_days))
+            .any(|name| name.trim_end_matches('.').to_lowercase() == w)
+    };
     categories.iter().any(|c| {
         let lower = c.to_lowercase();
         lower.chars().any(|ch| ch.is_ascii_digit())
-            || lower.split(|ch: char| !ch.is_alphanumeric()).any(|w| ORDERED.contains(&w))
+            || lower
+                .split(|ch: char| !ch.is_alphanumeric())
+                .any(|w| ORDERED.contains(&w) || (!w.is_empty() && named(w)))
     })
 }
 
@@ -8089,11 +8277,12 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     };
     // The bar a sentence names: the latest where its words run on from the category they name
     // ("since 2022"), else that one.
-    let lit =
-        |text: &str, one: usize| match (years || ordered(&chart.categories)) && runs_on(text, &chart.categories[one]) {
-            true => chart.categories.len().checked_sub(1),
-            false => Some(one),
-        };
+    let lit = |text: &str, one: usize| match (years || ordered(&chart.categories, lang))
+        && runs_on(text, &chart.categories[one])
+    {
+        true => chart.categories.len().checked_sub(1),
+        false => Some(one),
+    };
     // The one category the headline names, whole or as its abbreviation ("Jun" in "Ridership
     // dipped in June") (W1's dogfood 8): the claim, ahead of the category a takeaway names for
     // what surrounds it ("Two clients moved their contracts into March", agent dogfood 3).
@@ -8102,7 +8291,8 @@ fn signal(chart: &ChartData, title: Option<&str>, takeaway: Option<&str>, lang: 
     }
     // Two the headline compares, the first its subject ("Une station au nord fait cinq fois moins
     // de trajets qu'au centre" lights Nord, R1's French dogfood 4).
-    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories))) {
+    if let Some(i) = title.and_then(|t| compared(&chart.categories, t, lang, years || ordered(&chart.categories, lang)))
+    {
         return Some(i);
     }
     if let [one] = named.as_slice() {
@@ -8220,6 +8410,39 @@ fn comparing(word: &str, after: &[&str], lang: &str) -> bool {
             && (word.ends_with("mal") || (word.ends_with("er") && word.chars().count() > 4)))
 }
 
+/// The table that sets `chart`'s source, `data`, in a layout's table slot (W1's dogfood 19): a row
+/// for each category, keyed by it, and a column for each series, its figures printed with the
+/// places the most precise of its own is written with ("184 500" beside "2,4"). Several series'
+/// rows, one a value, are pivoted into a row a category.
+fn table_node(chart: &ChartData, data: &str, at: Value) -> Value {
+    let format = |n: usize| {
+        let one = ChartData { series: vec![chart.series[n].clone()], ..chart.clone() };
+        format!(",.{}f", decimals(&one))
+    };
+    let named = |n: usize| chart.series[n].name.clone().unwrap_or_else(|| format!("Series {}", n + 1));
+    let mut columns = vec![json!({ "field": "category", "title": "" })];
+    if chart.series.len() > 1 {
+        let each =
+            (0..chart.series.len()).map(|n| json!({ "field": named(n), "title": named(n), "format": format(n) }));
+        columns.extend(each);
+    } else if !chart.series.is_empty() {
+        let title = chart.series[0].name.clone().unwrap_or_default();
+        columns.push(json!({ "field": "value", "title": title, "format": format(0) }));
+    }
+    let mut node = json!({
+        "type": "table",
+        "data": format!("@{data}"),
+        "key": "category",
+        "columns": columns,
+        "semantic": "evidence",
+        "at": at,
+    });
+    if chart.series.len() > 1 {
+        node["dataTransform"] = json!([{ "pivot": "series", "value": "value", "groupby": ["category"] }]);
+    }
+    node
+}
+
 /// The chart that plots `chart`'s source, `data`, in a layout's chart slot.
 fn chart_node(
     chart: &ChartData,
@@ -8278,7 +8501,7 @@ fn chart_node(
     }
     // Bars of names with no order of their own run longest first, as a designer sorts them;
     // years, quarters, ranges, months, and the words of a scale keep the order they were written in.
-    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories) {
+    if kind == "bar" && !several && chart.categories.len() >= 4 && !ordered(&chart.categories, lang) {
         node["dataTransform"] = json!([{ "sort": "-value" }]);
     }
     // Names too long to stand under their bars run down the side, the bars across.
@@ -9363,6 +9586,15 @@ mod tests {
         // Each figure said once: its words under it run on from it.
         assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
         assert!(!said.iter().any(|w| w.starts_with("64% ")), "{said:?}");
+        // Two points each led by its figure: two figures, each over its words (R1's agent dogfood 12).
+        let (layout, said) = made(&three[..2]);
+        assert_eq!(layout, "two-numbers", "{said:?}");
+        for words in ["64%", "71%"] {
+            assert!(said.iter().any(|w| w == words), "{words} in {said:?}");
+        }
+        assert!(said.iter().any(|w| w.to_lowercase() == "have no car"), "{said:?}");
+        let (layout, said) = made(&["3.800 € por fuente instalada", "410 € al año de mantenimiento"]);
+        assert_eq!(layout, "two-numbers", "{said:?}");
         let four = [three[0], three[1], three[2], "612 riders answered the survey"];
         let (layout, said) = made(&four);
         assert_eq!(layout, "four-numbers", "{said:?}");
@@ -9424,7 +9656,13 @@ mod tests {
         assert_eq!(lit(&revenue, "2024 revenue lower than 2025", "en"), Some(1));
         let quarters = stations(["Q1", "Q2", "Q4"]);
         // Quarters are ordered too: "vs" names neither, and the rules light the largest, Q2, as before.
-        assert!(ordered(&quarters.categories));
+        assert!(ordered(&quarters.categories, "en"));
+        // Months are ordered in the deck's language too, as Seville's "Mayo" to "Septiembre"
+        // are (R1's agent dogfood 12); an English deck reads them as names.
+        let meses = ["Mayo", "Junio", "Julio", "Agosto", "Septiembre"].map(String::from);
+        assert!(ordered(&meses, "es"));
+        assert!(!ordered(&meses, "en"));
+        assert!(ordered(&["Lunes", "Martes", "Miércoles", "Jueves"].map(String::from), "es"));
         assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
         assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
     }
@@ -11950,6 +12188,61 @@ mod tests {
         );
     }
 
+    /// A bare close whose beat's claim an earlier slide's headline states already, as an ask's
+    /// does, says the deck's big idea instead, so no two beats make one claim (W425); with no big
+    /// idea, it keeps its thanks (R1's agent dogfood 12: "Aprueben 460.000 €…" then "Gracias").
+    #[test]
+    fn a_bare_close_after_its_claim_says_the_big_idea() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        let k = n.slides.len() - 1;
+        let beat = n.slides[k].beat_index.unwrap();
+        let claim = n.outline.as_ref().unwrap().beats[beat].claim.clone();
+        let idea = n.outline.as_ref().unwrap().big_idea.clone();
+        assert!(!idea.trim().is_empty());
+        n.slides[k - 1].beat_index = Some(beat);
+        n.slides[k - 1].slide_title = claim.trim_end_matches('.').into();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert_eq!(made.layouts[k], "closing");
+        assert!(said.iter().any(|(s, w)| s == "statement" && *w == typeset(&idea, "en")), "{said:#?}");
+        assert!(said.iter().any(|(s, w)| s == "support" && w == "Thank you \u{b7} Questions?"), "{said:#?}");
+        // Made whole, no two beats make one claim.
+        let (made, _) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
+        let same: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W425").collect();
+        assert!(same.is_empty(), "{same:#?}");
+        // With no big idea, the close keeps its own thanks.
+        n.outline.as_mut().unwrap().big_idea = String::new();
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(!said.iter().any(|(_, w)| w.contains(claim.trim_end_matches('.'))), "{said:#?}");
+    }
+
+    /// The claim that heads a bare close is set as the slide's own words are (R1's agent dogfood 12):
+    /// Seville's close, "Aprueben 460.000 € …" over "Gracias", kept its plain space before the
+    /// euro and broke "460.000 / €" over two lines, where the ask's own headline kept them joined.
+    #[test]
+    fn the_claim_that_heads_a_bare_close_is_typeset() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let mut n = route9();
+        n.brief.language = Some("Spanish".into());
+        n.outline.as_mut().unwrap().beats[5].claim = "Aprueben 460.000 € para llegar a 120 fuentes en 2027.".into();
+        let last = n.slides.last_mut().unwrap();
+        last.slide_title = "Gracias".into();
+        last.key_bullets = vec!["¿Preguntas?".into()];
+        let made = deck(&n, &theme, &Pictures::new()).unwrap();
+        let state = made.deck["states"].as_array().unwrap().last().unwrap()["id"].as_str().unwrap().to_string();
+        let said = shown(&made.deck, &state);
+        assert!(
+            said.iter()
+                .any(|(slot, w)| slot == "statement"
+                    && w == "Aprueben 460.000\u{a0}€ para llegar a 120 fuentes en 2027."),
+            "{said:#?}"
+        );
+    }
+
     /// A bare "Thank you / Questions?" that closes a deck the person settled an outline for says
     /// its beat's claim, the thanks under it, so the deck ends on its ask; where the slide gives
     /// somewhere to act and the claim asks, Call to Action, the claim its words (W1's dogfood 8).
@@ -12298,6 +12591,51 @@ mod tests {
         let (made, _) = making(built, "Learning Journey", Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let left: Vec<&Finding> = made.created.findings.iter().filter(|f| f.code == "W305").collect();
         assert!(left.is_empty(), "{left:#?}");
+    }
+
+    /// W1's dogfood 19: a French paper's talk ends on its works cited, asked for as "References"
+    /// (here written "Références"). No layout was called that, so the slide was set as its items
+    /// read, and the years they were published stood on cards as figures. It takes the library's
+    /// References layout, its works numbered in small type as written, and Bibliography finds it
+    /// too.
+    #[test]
+    fn a_talks_works_cited_take_the_references_layout() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let works = [
+            "Bernard, A. et Lefèvre, M. (2023). Végétaliser la ville. Presses universitaires de Lyon.",
+            "Oke, T. R. (1982). The energetic basis of the urban heat island. Quarterly Journal of the Royal Meteorological Society, 108, 1–24.",
+            "Roussel, M. (2024). Capteurs à bas coût et îlots de chaleur. Revue d’écologie urbaine, 12(3), 45–61.",
+        ];
+        for asked in ["References", "Références", "Bibliography"] {
+            let text = json!({ "executiveSummary": "Verdir les toits rafraîchit la ville.", "slides": [
+                { "slideTitle": "Toitures végétalisées et îlots de fraîcheur", "layoutSuggestion": "Title", "keyBullets": [] },
+                { "slideTitle": "Verdir les toits, quartier par quartier", "layoutSuggestion": "Bullet List",
+                  "keyBullets": ["Prioriser les quartiers les moins couverts", "Choisir des sédums", "Suivre les toits trois étés"] },
+                { "slideTitle": "Références", "layoutSuggestion": asked, "keyBullets": works },
+                { "slideTitle": "Merci", "layoutSuggestion": "Closing", "keyBullets": ["Questions ?"] },
+            ]})
+            .to_string();
+            let written = answer::slides(&text).unwrap();
+            let mut n = narrative(&written.executive_summary, written.slides);
+            n.brief.language = Some("French".into());
+            let built = deck(&n, &theme, &Pictures::new()).unwrap();
+            let states = built.deck["states"].as_array().unwrap();
+            let refs = states.iter().find(|s| s["layout"] == "references").unwrap_or_else(|| {
+                panic!("{asked}: {:?}", states.iter().map(|s| s["layout"].clone()).collect::<Vec<_>>())
+            });
+            assert!(built.fell.iter().all(|f| f.asked != asked), "{asked}: {:?}", built.fell);
+            // Its works, numbered, as written, one text in the layout's place for them.
+            let nodes = &built.deck["nodes"];
+            let body = (refs["props"].as_object().unwrap().keys())
+                .map(|id| &nodes[id.as_str()])
+                .find(|n| n["at"]["in"] == "body")
+                .unwrap_or_else(|| panic!("{asked}: no body in {refs:#}"));
+            let said = body["text"].as_str().map(str::to_string).unwrap_or_else(|| {
+                (body["runs"].as_array().unwrap().iter()).filter_map(|r| r["text"].as_str()).collect::<String>()
+            });
+            assert_eq!(said.replace('\u{a0}', " "), works.join("\n"), "{asked}");
+            assert!(body["list"].as_array().unwrap().iter().all(|i| i["kind"] == "number"), "{asked}: {body:#}");
+        }
     }
 
     #[test]
@@ -13576,8 +13914,8 @@ mod tests {
         assert!(node.get("maxSize").is_none(), "{node:#}");
         assert!(made.created.findings.iter().all(|f| f.code != "E100" || f.node.as_deref() != Some(id)));
         // Longer than its place takes at its role's least size, it is said by its slide, for the
-        // person to shorten, never rewritten (W1 dogfood 13): on slide 2, and on the bare close
-        // the claim heads, slide 3, alike.
+        // person to shorten, never rewritten (W1 dogfood 13), on slide 2. The bare close after it
+        // in its beat says the big idea, not the claim again (R1's agent dogfood 12).
         let lines = (made.created.findings.iter())
             .find(|f| f.code == "W202" && f.node.as_deref() == Some(id))
             .and_then(|f| f.measure.as_ref()?["lines"].as_u64())
@@ -13586,10 +13924,14 @@ mod tests {
             made.overlong.as_deref(),
             Some(
                 format!(
-                    "the settled claims on slides 2 and 3 stand as written, each in {lines} lines where its place takes 3: shorten them in the outline to fit"
+                    "slide 2's settled claim stands as written, in {lines} lines where its place takes 3: shorten it in the outline to fit"
                 )
                 .as_str()
             )
+        );
+        assert!(
+            doc["nodes"].as_object().unwrap().values().any(|n| n["text"] == "Die Biotonne rechnet sich"),
+            "the close says the big idea"
         );
         // Were it still to run past its place, the fit would be asked to rewrite another text,
         // never the claim.
@@ -14410,7 +14752,7 @@ mod tests {
         let sheet = source("canopy.csv", Kind::Csv, "year,canopy_pct\n2016,31.4\n2025,25.8\n");
         let read = [pdf, sheet];
         let g = grounding(&read, Provider::Anthropic).unwrap();
-        let kept = provenance(&g.given, &read, &g.words);
+        let kept = provenance(&g.given, &read, &g.words, None);
         assert_eq!(kept[1].figures, ["25.8", "31.4", "2016", "2025"]);
         if cfg!(feature = "pdf") {
             assert!(kept[0].figures.contains(&"7560".to_string()) && kept[0].figures.contains(&"9".to_string()));
@@ -14487,7 +14829,7 @@ mod tests {
             slide.source_ref = named.map(str::to_string);
         }
         let mut n = narrative(&summary, slides);
-        n.sources = provenance(&g.given, &[], &[]);
+        n.sources = provenance(&g.given, &[], &[], None);
         let (made, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
         let deck = write.unwrap().deck.to_value().unwrap();
         let sources = &deck["meta"]["narrative"]["sources"];
@@ -14539,7 +14881,7 @@ mod tests {
         slides.truncate(8);
         let made = |slides: Vec<Slide>| -> Vec<String> {
             let mut n = narrative(&summary, slides);
-            n.sources = provenance(&g.given, &[], &[]);
+            n.sources = provenance(&g.given, &[], &[], None);
             let (_, write) = generating(&n, Path::new("dusk.theme.json"), dusk(), &font).unwrap();
             let deck = write.unwrap().deck.to_value().unwrap();
             let mut said: Vec<String> = deck["nodes"].as_object().unwrap().values().map(words).collect();
