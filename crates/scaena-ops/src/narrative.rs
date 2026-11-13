@@ -1403,6 +1403,13 @@ pub fn from_slides(
         None => crate::create::vacant(dir)?,
     }
     let data = data.as_slice();
+    // A source that is a data file given, by its file's name, is that data file: kept once, as
+    // the data source it is attached as, and listed once among the deck's sources (W1's dogfood
+    // 19: `resultats.csv` given both ways was kept as `resultats` and `resultats-2`).
+    let attached_as = |req: &Attach| req.file.file_name().map_or(req.id.clone(), |n| n.to_string_lossy().into_owned());
+    let grounds: Vec<scaena_sources::Source> =
+        (grounds.iter()).filter(|s| !data.iter().any(|(req, _)| attached_as(req) == s.name)).cloned().collect();
+    let grounds = grounds.as_slice();
     // Each slide in the names an agent reaches for read as Narrato's (lift-up 10-25b FUNC-5):
     // `intensity`, `tone`, and `valence` where `expectedIntensity` and `expectedValence` are not.
     // A word for a number is refused, naming the slide and the field.
