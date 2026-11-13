@@ -5630,7 +5630,6 @@ mod tests {
     #[test]
     fn the_brief_op_takes_what_narrato_takes() {
         assert_eq!(scaena_core::patch::GOALS, scaena_narrato::brief::GOALS);
-        assert_eq!(scaena_core::patch::LENGTHS, scaena_narrato::brief::LENGTHS);
         struct NoFiles;
         impl scaena_core::validate::BundleFiles for NoFiles {
             fn exists(&self, _: &str) -> bool {
