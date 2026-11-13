@@ -275,3 +275,89 @@ Words cannot tell an unanswered puzzle from an answered one, so it is not built.
 **Promises in the notes ("by the end", "at the end").** These are in keynote's, lecture's and training's notes, and all three are kept, so there is nothing to find.
 
 **The count case.** Training's "three traps" listing two is found already (#1008).
+
+## Dogfood 17: why the Story's fixes barely move the score
+
+W1's dogfood 17 made a deck with From a prompt… and worked its Story down as a person would (`docs/examples/dogfood-17/README.md`). Nine fixes took the score from 84 to 86. This section says why, and measures the one score change the reading suggested against the reader's ranking above. The prototype is not on main.
+
+### How the score is made
+
+In a deck read by its words, as this one is, the score is Vzestup's fallback composite: (0.20 · pacing + 0.25 · balance + 0.25 · fidelity) / 0.70. Coherence, intensity and tone are measured but not weighed, and no coaching finding is.
+
+| | pacing | balance | fidelity | score |
+|---|---|---|---|---|
+| as made | 100 | 84 | 70 | 83.6, shown as 84 |
+| as worked | 100 | 84 | 77 | 86.1, shown as 86 |
+
+### The nine fixes, by measure
+
+| finding (slide) | measure | score | why |
+|---|---|---|---|
+| `label` (3), `label` (4) | none | 0 | a headline's wording is coaching; balance counts points, not headlines |
+| `claim` (3), `claim` (8) | none | 0 | the settled outline is Scaena's; Vzestup's measures never read it |
+| `bigIdea` (8) | none | 0 | as `claim` |
+| `turn` (6) | coherence | 0 | coherence read by words has no score |
+| `link` (8) | none | 0 | a security warning, kept |
+| `arc` (5), Plan it at 0.73 | fidelity | +1 | fidelity 70 → 73 |
+| `arc` (7), Plan it at 0.75 | fidelity | +1 | fidelity 73 → 77 |
+
+Seven of the nine are findings no measure reads, by design. The two that could move the number moved it little. A DTW written beside health's, which reproduces 70 and 77 exactly, says why:
+
+| slide | curve | planned, as worked | gap |
+|---|---|---|---|
+| 1 | 0.25 | 0.50 | +0.25 |
+| 4 | 0.69 | 0.50 | −0.19 |
+| 5 | 0.85 | 0.73 | −0.12 |
+| 6 | 0.70 | 0.50 | −0.20 |
+| 7 | 0.95 | 0.75 | −0.20 |
+| 8, the close | 0.98 | 0.50 | −0.48 |
+
+- **The fixes stop short of the curve.** A plan is held within 0.25 of what the slide's words read (ADR-0032 item 4), and these words read about 0.49.
+- **The close is the largest cost left, and nothing asks for it.** Item 6 finds no bend in a calm close, but the score's DTW still charges one. Planned on its curve, slide 8 alone would take fidelity from 77 to 88, and the score from 86 to 90.
+- **Gaps under a finding's threshold cost too.** Slides 1, 4 and 6 stand 0.19–0.25 from the curve, and no finding names them.
+- **A fix could lower the score.** The warp aligns the slides afresh with each plan.
+  - On B1, taking each fix in turn read 72 → 74 → 73 → 74 → 74 → 74. Slide 12's plan, 0.70, stood under the tent's 0.73 at its place.
+  - On this deck, slide 7's fix taken first and slide 5's after took the score from 87 to 86.
+  - #1252 offers a plan only where it raises fidelity as the deck stands. No figure moves.
+- **Balance, 84, has no finding naming it.** `thin` passes over this deck's chart and one-idea slides.
+
+### A: the score reads a calm close as item 6 does
+
+The candidate makes item 6 one rule for the finding and the score: a slide in the closing run planned cooler than the curve costs nothing in the DTW, and one planned hotter still costs.
+
+| deck, in the reader's order | base | A |
+|---|---|---|
+| keynote | 94 | 94 |
+| appeal | 93 | 93 |
+| pitch | 90 | 90 |
+| deepdive | 93 | 97 |
+| qbr | 95 | 96 |
+| launch | 91 | 92 |
+| lecture | 94 | 95 |
+| board-de | 90 | 93 |
+| climate | 84 | 85 |
+| training | 93 | 98 |
+| grant | 78 | 78 |
+| fleet | 90 | 91 |
+| cargo | 69 | 70 |
+
+| | ρ against the reader | decks at 90–95 | above 95 | spread |
+|---|---|---|---|---|
+| base | +0.65 | 10 | 0 | 26 |
+| A | +0.44 | 7 | 3 | 28 |
+
+The 13 decks are built as the method above builds them. Each base is the one the score-compression section gives, but cargo's, which main has since moved from 68 to 69. Outside the 13, dogfood 17 goes from 84 to 89 as made and from 86 to 90 as worked, and B1, which names no arc, stays at 72.
+
+### What the numbers say
+
+- **A makes the ranking worse.**
+  - It rewards the decks that close calmly. Training, the reader's tenth, becomes the top deck at 98.
+  - Board-de (eighth) and deepdive (fourth) rise past the reader's top three.
+  - Keynote, appeal and pitch, which a reader puts first, do not move.
+- **The band empties the wrong way.** 90–95 holds seven decks instead of ten, but only because three rise past 95.
+- **The charge on a calm close is doing work.** The score's charge on a close planned under the curve is inconsistent with item 6's finding. On this evidence, though, it keeps the score nearer the reader.
+
+### Recommendation
+
+- **Do not take A.** If the inconsistency between item 6's finding and the score matters, close it in words, not in the score: the finding can say that the score still reads the close against the curve. No figure would move.
+- **The Story's number will stay still under coaching.** Seven of every nine fixes here are coaching the score does not weigh, by design. Whether a Story row should say so waits on this decision. A row that calls a story fix "not counted" would teach people to skip the findings that make the talk better.
