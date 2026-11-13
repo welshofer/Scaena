@@ -445,3 +445,43 @@ With the second set, health finds 12 of the 16 topic headlines the reader counts
   - The 13 decks a reader ranked for other reasons can't test either option, because neither moves them.
   - Read +0.99 and +1.00 as "orders these six as the reader does", not as a measured fit.
 - **Each option is a new ADR-0032 item.** Option 2 is a new measure in Vzestup's composite. Option 3 is a cost outside every measure. Neither is recommended here; the question stays Jay's.
+
+### The same read, with no lint error left
+
+#1258 fixed the two errors the builder left: lanes' statement overflowing its place, and vans' close faint on its backdrop. These are the two that capped lanes and vans. The six decks are rebuilt on main at 031605545, which also holds #1257 and #1259. All six build with no lint error, so no score is capped, and every number here is health's score as scored.
+
+| deck | reader | base | 2: an outline measure | 3: −1 a warning | 3: −2 a warning | 3: −3 a warning | 3: −1 a finding | 3: −2 a finding | 3: −3 a finding |
+|---|---|---|---|---|---|---|---|---|---|
+| lanes | 1 | 95 | 96 | 95 | 95 | 95 | 95 | 95 | 95 |
+| sourdough | 2 | 93 | 95 | 93 | 93 | 93 | 93 | 93 | 93 |
+| vans | 3 | 93 | 89 | 89 | 85 | 81 | 88 | 83 | 78 |
+| support | 4 | 89 | 89 | 87 | 85 | 83 | 87 | 85 | 83 |
+| larder | 5 | 87 | 77 | 83 | 79 | 75 | 83 | 79 | 75 |
+| warehouse | 6 | 88 | 75 | 85 | 82 | 79 | 80 | 72 | 64 |
+| **ρ** | | **+0.93** | **+0.99** | **+0.94** | **+0.93** | **+0.89** | **+1.00** | **+0.94** | **+0.94** |
+
+"A warning" counts `label`, `claim` and `bigIdea` warnings. "A finding" counts `label` findings of either severity, since most of health's topic headlines are infos. The outline measure is as defined above. The findings each option counts:
+
+| deck | `label` warnings | `label` findings | `claim` | `bigIdea` |
+|---|---|---|---|---|
+| lanes, sourdough | 0 | 0 | 0 | 0 |
+| vans | 4 | 5 | 0 | 0 |
+| support | 0 | 0 | 2 | 0 |
+| larder | 0 | 0 | 3 | 1 |
+| warehouse | 2 | 7 | 0 | 1 |
+
+### What the clean numbers say
+
+- **The base already follows the reader at +0.93.** With the cap gone, the one pair it gets wrong is warehouse (88) over larder (87), the reader's sixth and fifth, by a point.
+- **Every option puts that pair right, and most leave the rest as they were.**
+  - A point a finding (+1.00) orders all six as the reader does.
+  - The outline measure (+0.99) does too, but for vans and support, which it ties at 89.
+  - A point a warning (+0.94) puts warehouse under support, but leaves larder two points under warehouse.
+- **Heavier costs start to cost the reader's third.**
+  - At −2 a warning, vans (3rd) ties support (4th) at 85.
+  - From −2 a finding it falls under support, 83 to 85.
+  - At −3 a warning it falls under support too, 81 to 83, and ρ drops to +0.89.
+  - Vans' headlines are topics, but its story is the strongest of the six. Its claims and its close are carried, and only `label` costs it.
+- **Each option moves ρ between −0.04 and +0.07 on six decks.** One swap of neighbours is about 0.1. The table can show which options hold the reader's order, but not that any option is better than the base by a measured margin.
+- **The 13 calibration decks still can't test them.** None keeps an outline or has a warning of these kinds, so ρ there stays +0.65 under every option.
+- **No recommendation.** The cap's noise is gone; the question stays Jay's.
