@@ -146,6 +146,15 @@ final class OpeningTests: XCTestCase {
             XCTAssertFalse(
                 draft.images.firstMatch.exists, "the sparkles of Draft Presenter Notes are read: \(draft.debugDescription)")
         }
+        // At rest nothing of the app's own animates (lift-up 20261113): its debug-only count of
+        // the animations in its windows, which leaves out UIKit's Liquid Glass (`match-*` on a
+        // glass group's SDF layers, `_UILiquidLensView.punchout.*` on a segmented control's lens:
+        // `IdleAnimations.systems`), the system's while its glass is shown, comes to none. Waited
+        // on, as a window just opened may still be sliding its last things in.
+        let animating = app.descendants(matching: .any).matching(identifier: "animations-ours").firstMatch
+        XCTAssertTrue(animating.waitForExistence(timeout: 10), "the canvas shows no count of its animations")
+        let none = wait(10) { (animating.value as? String) == "0" }
+        XCTAssertTrue(none, "at rest the app animates: \(animating.value as? String ?? "nothing said")")
     }
 
     /// A text inserted from the toolbar is typed in, its words selected, as a presentation app's

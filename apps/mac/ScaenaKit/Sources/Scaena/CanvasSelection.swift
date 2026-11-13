@@ -469,6 +469,10 @@ struct CanvasSelection: View {
                         .accessibilityLabel("Last press")
                         .accessibilityIdentifier("canvas-last-press")
                         .accessibilityValue(lastPress)
+                    // How many animations of the app's own run in its windows, read as asked
+                    // (lift-up 20261113): what a UI test holds to none at rest.
+                    IdleAnimationsProbe()
+                        .frame(width: 1, height: 1)
                     #endif
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
