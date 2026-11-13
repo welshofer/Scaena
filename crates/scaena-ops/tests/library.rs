@@ -285,3 +285,30 @@ fn the_shipped_code_look_comes_into_a_copy_that_shows_no_code() {
     assert_eq!(theme.pointer("/code/card/shadow"), Some(&json!("soft")));
     assert_eq!(theme.pointer("/type/roles/code/features"), None, "the copy's code role as it was");
 }
+
+/// A bundle's older copy of Dusk, written before theme format 0.30, takes `kept` from the library
+/// where its slot says the library's prompt (W1 dogfood 18): its agenda's "Agenda" and its
+/// closing's "Thank you" are kept as the library keeps them, so lint's W305 finds neither left to
+/// type over. A slot whose prompt the copy wrote otherwise is not kept, nor is one the library
+/// leaves unkept.
+#[test]
+fn an_older_copy_keeps_the_headings_the_library_keeps() {
+    let older = read("../../docs/examples/dogfood-17/bundle/themes/dusk.theme.json");
+    let shipped = read("../../docs/examples/themes/dusk.theme.json");
+    assert_eq!(older["scaena-theme"], "0.29", "a copy from before `kept`");
+    assert!(older["layouts"]["agenda"]["slots"]["header"].get("kept").is_none());
+    let (theme, _) = library(&older, &shipped, false).expect("the older copy takes the library");
+    let kept = |t: &Value, layout: &str, slot: &str| t["layouts"][layout]["slots"][slot]["kept"] == json!(true);
+    for (layout, slot) in [("agenda", "header"), ("closing", "statement"), ("qa", "question"), ("swot", "first-title")]
+    {
+        assert!(kept(&shipped, layout, slot), "the library keeps {layout}.{slot}");
+        assert!(kept(&theme, layout, slot), "and so does the copy: {layout}.{slot}");
+    }
+    assert!(!kept(&theme, "comparison", "first-title"), "a comparison's \"Before\" is typed over");
+    // A copy whose agenda heads itself otherwise keeps its own words, unkept.
+    let mut own = older.clone();
+    own["layouts"]["agenda"]["slots"]["header"]["prompt"] = json!("Our plan");
+    let (theme, _) = library(&own, &shipped, false).expect("the copy takes the library");
+    assert!(!kept(&theme, "agenda", "header"), "{}", theme["layouts"]["agenda"]["slots"]["header"]);
+    assert!(kept(&theme, "closing", "statement"));
+}

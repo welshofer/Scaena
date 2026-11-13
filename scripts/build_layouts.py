@@ -2233,6 +2233,55 @@ def holding(theme, name, slots, geometry):
             assert room >= line, f"{theme}'s {name}: `{key}` stands {room:g} high, less than a line of its {s['role']} ({line:g})"
 
 
+# The slots whose prompts read as finished copy, by layout (theme format 0.30, W1 dogfood 18):
+# headings a slide keeps as they are ("Agenda", "Questions?", "Thank you"), and labels the layout
+# is made of (a SWOT's quarters, a business model canvas's nine, a year's months), each marked
+# `kept`, so lint's W305 never finds them left to type over. A placeholder a person types over,
+# a comparison's "Before" and "After" or a risk's "Hiring", is left unmarked and found.
+KEPT = {
+    "acknowledgments": ["header"],
+    "agenda": ["header"],
+    "agenda-photo": ["header"],
+    "before-after": ["first", "second"],
+    "business-model-canvas": [
+        "partners", "activities", "resources", "value", "relationships", "channels", "segments", "costs", "revenue",
+    ],
+    "certificate": ["kind"],
+    "closing": ["statement"],
+    "contact": ["thanks"],
+    "fine-print": ["header"],
+    "glossary": ["header"],
+    "join-or-scan": ["ask"],
+    "memo": ["header", "to-label", "from-label", "about-label", "date-label"],
+    "myth-fact": ["first-title", "second-title"],
+    "next-steps": ["header", "action-label", "owner-label"],
+    "options-compared": ["total-label"],
+    "pros-cons": ["first-title", "second-title"],
+    "qa": ["question"],
+    "receipt": ["title", "total-label"],
+    "references": ["header"],
+    "risk-matrix": ["likely-title", "impact-title"] + [f"likely-{n}" for n in range(1, 6)] + [f"impact-{n}" for n in range(1, 6)],
+    "status-report": ["stream-label", "status-label", "next-label"],
+    "swot": ["first-title", "second-title", "third-title", "fourth-title"],
+    "two-code": ["header", "first-title", "second-title"],
+    "two-code-stacked": ["header", "first-title", "second-title"],
+    "year": [f"month-{n}" for n in range(1, 13)],
+}
+
+
+def kept(theme, name, slots):
+    """Each of the layout's slots `KEPT` names marked `kept`: each one a slot of the layout, set in
+    a role, its prompt words."""
+    for key in KEPT.get(name, []):
+        assert key in slots, f"{theme}'s {name} has no slot `{key}` to keep"
+        s = slots[key]
+        prompt = s.get("prompt")
+        assert s.get("role") and (isinstance(prompt, str) or (isinstance(prompt, dict) and "text" in prompt)), (
+            f"{theme}'s {name}.{key}: only a slot of words keeps its prompt"
+        )
+        s["kept"] = True
+
+
 def library(theme, old, geometry):
     """The theme's layouts, in the library's order: those it had, put in their sections and given
     their examples, and those added here, Ember's made from Dusk's, each as its geometry family
@@ -2264,7 +2313,9 @@ def library(theme, old, geometry):
             kept_lines(theme, name, layout["slots"], given, geometry)
             in_line(theme, name, layout["slots"])
             checked(theme, name, layout["slots"], name in NEW)
+            kept(theme, name, layout["slots"])
             out[name] = layout
+    assert set(KEPT) <= set(out), f"{theme} lacks layouts KEPT names: {sorted(set(KEPT) - set(out))}"
     missing = set(old) - set(out)
     assert not missing, f"{theme}'s layouts the library leaves out: {sorted(missing)}"
     names = [layout["name"] for layout in out.values()]
