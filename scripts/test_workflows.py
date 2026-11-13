@@ -2,7 +2,8 @@
 GitHub's artifact service never turns a job red whose tests passed (it answered every upload with
 HTML from 20:30 to 20:43 on 2026-11-11). The one upload that is a job's product, the Mac app the
 `mac-app` workflow builds for someone to download, fails its job as it should. The remote's tests run
-under ThreadSanitizer where what builds the apps runs, and a race they find fails the job."""
+under ThreadSanitizer where what builds the apps runs, and a race they find fails the job. On macOS,
+what paints and what builds the apps are two jobs, so neither waits out the other's time."""
 
 import re
 import unittest
@@ -79,6 +80,65 @@ class Sanitizer(unittest.TestCase):
         # The filter names a suite the tests are in.
         tests = WORKFLOWS.parent.parent / "apps" / "mac" / "ScaenaKit" / "Tests" / "ScaenaKitTests" / "RemoteTests.swift"
         self.assertIn("@Suite struct RemoteTests {", tests.read_text(encoding="utf-8"))
+
+
+
+def jobs(text):
+    """Each job of a workflow as its text, by its id: from `  ID:` under `jobs:` to the next."""
+    found, current = {}, None
+    inside = False
+    for line in text.split("\n"):
+        if line.startswith("jobs:"):
+            inside = True
+            continue
+        if not inside:
+            continue
+        head = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if head:
+            current = head.group(1)
+            found[current] = []
+        elif re.match(r"^  #", line):
+            # A comment at a job's own indent heads the job after it.
+            current = None
+            continue
+        elif line and not line.startswith(" ") and not line.startswith("#"):
+            break
+        if current is not None:
+            found[current].append(line)
+    return {name: "\n".join(lines) for name, lines in found.items()}
+
+
+class MacJobs(unittest.TestCase):
+    def test_what_paints_and_what_builds_the_apps_are_two_jobs_on_macos(self):
+        ci = jobs((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+        rust, apps = ci["rust"], ci["apps"]
+        # The apps job: on macOS, where what builds the apps runs, under a name of its own.
+        self.assertIn("name: apps (macos-latest)", apps)
+        self.assertIn("runs-on: macos-latest", apps)
+        self.assertIn("needs.changes.outputs.app == 'true'", apps.split("steps:")[0])
+        for step in (
+            "cargo test -p scaena-ffi --locked",
+            "name: The C ABI from C",
+            "name: ScaenaKit, the C ABI from Swift",
+            "name: The remote under ThreadSanitizer",
+            "name: The Mac app's window",
+        ):
+            self.assertIn(step, apps, f"the apps job runs {step}")
+        # The rust job keeps its name on macOS and runs what paints there, and none of the apps' steps.
+        self.assertIn("matrix.os", rust)
+        for step in ("cargo test --workspace --locked", "cargo clippy --workspace", "--features gpu"):
+            self.assertIn(step, rust)
+        for step in ("ScaenaKit", "ThreadSanitizer", "The Mac app's window", "scripts/shots.sh"):
+            self.assertNotIn(step, rust, f"{step} runs in the apps job alone")
+        # macOS joins the rust job's matrix for what paints alone.
+        self.assertIn(
+            """if [ "$paint" = true ]; then os='["ubuntu-latest","macos-latest"]'; else os='["ubuntu-latest"]'; fi""",
+            ci["changes"],
+        )
+
+    def test_a_job_is_read_from_its_id_to_the_next(self):
+        text = "on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: ls\n  # b's\n  b:\n    runs-on: y\n"
+        self.assertEqual(jobs(text), {"a": "  a:\n    runs-on: x\n    steps:\n      - run: ls", "b": "  b:\n    runs-on: y\n"})
 
 
 if __name__ == "__main__":
