@@ -1,0 +1,524 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+[1m[33mwarning[0m[1m: unused workspace dependency `jsonschema`[0m
+  [1m[94m--> [0mCargo.toml:79:1
+   [1m[94m|[0m
+[1m[94m79[0m [1m[94m|[0m jsonschema = "0.58"
+   [1m[94m|[0m [1m[33m^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `cargo::unused_workspace_dependencies` is set to `warn` by default
+[1m[96mhelp[0m: consider removing the workspace dependency `jsonschema`
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 20 files
+  subset fonts/Fraunces-VF.ttf: 277 KB → 277 KB
+  subset fonts/Inter-VF.ttf: 464 KB → 353 KB
+  subset fonts/JetBrainsMono-VF.ttf: 149 KB → 130 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 321 KB → 321 KB
+  subset fonts/Inter-Italic-VF.ttf: 481 KB → 366 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 153 KB → 133 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-778e8ee27bcbd425.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-744bb5b7a199b885.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-0ceaef921fccd6b1.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-d78901d009daf77a.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-7d7c222450f58b2a.ttf
+the app's icon: AppIcon, 1024 px
+hang 1 at 1.5 s: 4205 ms hang-1.txt
+hang 2 at 10.9 s: 1170 ms -
+the canvas as VoiceOver hears it: AXStaticText "Annual meeting · October 2026" 301 304 231 26;AXHeading "High Country Trails" 301 335 261 82;AXHeading "What a summer of Saturdays built." 301 430 231 27;
+screen: 1024 768 0 31 1024 677
+window as opened: 20 46 984 648
+the View menu: Show Tab Bar, Show All Tabs, missing value, missing value, Show Toolbar, Customize Toolbar…, missing value, Light Table, missing value, Show Timeline, Show Other Sizes, Show Grid, Show Safe Area, Show Issues, Show Source, missing value, Show Assistant, Show Inspector, Format, Animate, Document, missing value, missing value, Zoom In, Zoom Out, Fit Slide, missing value, Show Sidebar, Enter Full Screen
+hang 3 at 20.8 s: 465 ms -
+hang 4 at 24.7 s: 589 ms -
+narrowest, as it opens: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 889 676
+hang 5 at 28.6 s: 279 ms -
+hang 6 at 32.4 s: 953 ms -
+narrowest, the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 600 676
+hang 7 at 37.7 s: 447 ms -
+View › Show Sidebar
+hang 8 at 43.0 s: 548 ms -
+narrowest, the slides and the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 0 31 600 676
+hang 9 at 46.9 s: 288 ms -
+hang 10 at 50.2 s: 617 ms -
+narrowest, the slides hidden: 661
+    AXSplitGroup 0 31 661 676:
+      AXGroup 0 31 661 676
+hang 11 at 55.0 s: 320 ms hang-11.txt
+View › Show Sidebar
+hang 12 at 59.4 s: 624 ms hang-12.txt
+View › Show Toolbar
+narrowest, the toolbar hidden: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 63 220 636
+      AXSplitter 228 63 0 644
+      AXGroup 0 31 889 676
+View › Show Toolbar
+hang 13 at 74.8 s: 1699 ms hang-13.txt
+View › Show Source
+narrowest, the source shown: 1398
+    AXSplitGroup 0 31 1398 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 1398 676
+    AXSplitGroup 0 31 1097 676:
+      AXGroup 0 31 662 676
+      AXSplitter 662 83 1 624
+      AXGroup 663 31 434 676
+View › Show Source
+hang 14 at 87.7 s: 519 ms hang-14.txt
+window fitted to the screen: 0 31 1024 676
+what it holds, three deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton "View" 236 39 53 36
+    AXGroup "group" 293 31 52 52
+      AXMenuButton #zoom "Zoom" 297 39 44 36
+    AXButton #add-slide "Add Slide" 505 31 49 52
+    AXGroup "group" 554 31 81 52
+      AXPopUpButton "pop up button" 558 39 73 36
+    AXGroup "group" 635 31 49 52
+      AXPopUpButton #insert-Text "Text" 639 39 41 36
+    AXGroup "group" 684 31 43 52
+      AXMenuButton #insert-Shape "Shape" 690 39 38 36
+    AXGroup "group" 727 31 41 52
+      AXMenuButton #insert-Image "Image" 728 39 40 36
+    AXGroup "group" 768 31 43 52
+      AXMenuButton #insert-Chart "Chart" 769 39 42 36
+    AXGroup "group" 811 31 40 52
+      AXCheckBox #tab-format "Format" 816 43 31 28
+    AXGroup "group" 851 31 37 52
+      AXCheckBox #tab-animate "Animate" 856 43 28 28
+    AXGroup "group" 888 31 41 52
+      AXCheckBox #tab-document "Document" 891 43 28 28
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+      AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 345 31 160 52
+the slide: 256 272 439 246
+click at 475, 395
+hang 15 at 119.1 s: 1142 ms hang-15.txt
+the inspector's rotation: 0; size: 144
+drag at 475, 395, 565, 435
+hang 16 at 144.2 s: 3053 ms hang-16.txt
+the drop landed: within 3 s
+hang 17 at 148.5 s: 1108 ms -
+right at 475, 395
+hang 18 at 155.1 s: 802 ms hang-18.txt
+Tab: the canvas says "“What a summer of Saturdays built.” selected, 4 of 4 · Return goes into it or its handles" at /Users/runner/work/Scaena/Scaena/apps/mac/frames.js: execution error: Error: Error: nothing is identified as hint (-2700); the slide at 256 272 439 246
+frontmost: true
+the toolbar's Text: 639 39 41 36
+click at 659, 57
+hang 19 at 181.1 s: 2717 ms hang-19.txt
+the text inserted, typed in: within 0 s
+hang 20 at 188.9 s: 2623 ms hang-20.txt
+hang 21 at 192.6 s: 1108 ms hang-21.txt
+the words typed, shown: within 5 s
+hang 22 at 196.3 s: 2835 ms -
+the code pasted, its chip: Rust
+hang 23 at 204.4 s: 306 ms hang-23.txt
+the slide holds, before:
+hang 24 at 205.1 s: 2301 ms -
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 90
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+Insert › Text: Display, Headline, Title, Body, Caption, Label, Value, Lede, Kicker, Figure, Quote, Verse, Numeral, Hero, Code, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true
+insert: menu item Display of menu Text of menu item Text of menu Insert of menu bar item Insert of menu bar 1 of application process Scaena
+the slide holds, after:
+hang 25 at 211.8 s: 3681 ms hang-25.txt
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 90
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+AXHeading "Display" 381 450 189 47
+hang 26 at 215.9 s: 1035 ms -
+hang 27 at 219.0 s: 727 ms hang-27.txt
+Insert › Map…: Where at 297 316 430 24, the key's field at 297 255 430 24
+hang 28 at 226.7 s: 304 ms hang-28.txt
+View › Show Safe Area
+View › Show Safe Area
+fitted, the canvas: 256 272 439 246
+zoomed twice, the canvas: 228 148 495 494; the zoom reads 46%, against the slide's own size
+hang 29 at 249.0 s: 1080 ms hang-29.txt
+zoomed in, nothing selected, → pans: within 0 s; the canvas reads Slide 1
+Shift+→ pans: within 0 s
+hang 30 at 253.4 s: 645 ms hang-30.txt
+PageDown, the canvas shows: Slide 2, within 0 s, and says "Slide 2 shown" (Slide 2 shown); the canvas at 228 148 495 494 (as zoomed: 228 148 495 494), the zoom reading 46%
+hang 31 at 265.9 s: 1049 ms hang-31.txt
+PageUp, the canvas shows: Slide 1, within 0 s, and says "Slide 1 shown" (Slide 1 shown)
+fitted again, the canvas: 256 272 439 246
+click at 529, 57
+hang 32 at 280.8 s: 1189 ms hang-32.txt
+hang 33 at 282.0 s: 1615 ms -
+hang 34 at 283.7 s: 291 ms -
+hang 35 at 284.0 s: 275 ms -
+hang 36 at 284.3 s: 331 ms -
+hang 37 at 285.9 s: 564 ms hang-37.txt
+hang 38 at 286.5 s: 260 ms -
+hang 39 at 286.9 s: 311 ms -
+hang 40 at 287.2 s: 455 ms -
+hang 41 at 287.7 s: 507 ms -
+hang 42 at 288.3 s: 341 ms -
+hang 43 at 288.6 s: 351 ms -
+hang 44 at 289.0 s: 387 ms -
+hang 45 at 289.4 s: 295 ms -
+hang 46 at 295.8 s: 356 ms -
+hang 47 at 296.9 s: 618 ms -
+hang 48 at 297.9 s: 256 ms -
+hang 49 at 299.2 s: 392 ms -
+the gallery drawn: not within 30 s
+one search of the app for the picker's first slide: 32 s
+what the app shows: AXWindow/AXStandardWindow "trails.scaena" 0 31 1024 676, holding 6
+the window, four deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+        AXScrollArea "scroll area" 8 83 220 616
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+        AXGroup #canvas "group" 256 272 439 246
+        AXScrollArea "scroll area" 724 83 300 624
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton #rectangle.on.rectangle "View" 236 39 53 36
+    AXGroup "group" 293 31 52 52
+      AXMenuButton #zoom "Zoom" 297 39 44 36
+    AXButton #add-slide "Add Slide" 505 31 49 52
+    AXGroup "group" 554 31 81 52
+      AXPopUpButton "pop up button" 558 39 73 36
+        AXButton "play" 558 39 36 36
+        AXMenuButton "menu button" 595 39 36 36
+    AXGroup "group" 635 31 49 52
+      AXPopUpButton #insert-Text "Text" 639 39 41 36
+        AXButton "insert textbox" 639 39 41 36
+    AXGroup "group" 684 31 43 52
+      AXMenuButton #insert-Shape "Shape" 690 39 38 36
+    AXGroup "group" 727 31 41 52
+      AXMenuButton #insert-Image "Image" 728 39 40 36
+    AXGroup "group" 768 31 43 52
+      AXMenuButton #insert-Chart "Chart" 769 39 42 36
+    AXGroup "group" 811 31 40 52
+      AXCheckBox #tab-format "Format" 816 43 31 28
+    AXGroup "group" 851 31 37 52
+      AXCheckBox #tab-animate "Animate" 856 43 28 28
+    AXGroup "group" 888 31 41 52
+      AXCheckBox #tab-document "Document" 891 43 28 28
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+      AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 345 31 160 52
+no sections in the picker: /Users/runner/work/Scaena/Scaena/apps/mac/frames.js: execution error: Error: Error: nothing is identified as section-frameworks (-2700)
+hang 50 at 335.6 s: 294 ms -
+the Slide menu: New Slide, New Step, missing value, Duplicate Slide, Delete Slide, missing value, Write This Slide Again…, Add a Slide About…, true, true, false, true, true, false, true, true
+hang 51 at 341.6 s: 1836 ms -
+New Slide, the canvas shows: Slide 2, within 0 s
+hang 52 at 345.3 s: 1337 ms -
+⌘Z, the canvas shows: Slide 1, within 0 s
+⌘Z, the canvas says: 
+hang 53 at 370.9 s: 480 ms -
+View › Show Timeline
+the slide, the timeline hidden: 439 × 246; shown: 439 × 246
+click at 116, 132
+hang 54 at 386.7 s: 3225 ms -
+hang 55 at 390.0 s: 523 ms -
+hang 56 at 390.8 s: 440 ms -
+hang 57 at 391.4 s: 2391 ms -
+ten slides down, the canvas shows: Slide 11
+the chart's lane: 438 673 273 12
+click at 705, 679
+hang 58 at 399.7 s: 607 ms -
+the chart's data: Trails Funding; small multiples by: AXRadioButton "None" 754 372 69 24;AXRadioButton "Source" 824 372 68 24;AXRadioButton "Amount" 893 372 68 24;
+click at 475, 342
+hang 59 at 411.1 s: 284 ms -
+View › Show Timeline
+hang 60 at 420.6 s: 809 ms -
+the toolbar's Format: 816 43 31 28; Animate: 856 43 28 28; Document: 891 43 28 28
+the theme's paper: "Paper" at 810 510 36 16, set in "Background, Text on Accent" at 810 527 72 26, its field at 898 520 96 24
+the theme's paper-2: "Paper 2" at 810 574 47 16, set in "Background 2" at 810 591 67 13, its field at 898 578 96 24
+the theme's paper: 898 520 96 24, #101014
+click at 946, 532
+hang 61 at 512.5 s: 424 ms -
+the paper's color typed and Return: the app answers
+typed and Return: #2B1B3D; the Edit menu: Undo, Redo, true, false
+hang 62 at 523.6 s: 580 ms -
+⌘Z: #101014; the Edit menu: Undo, Redo, true, true
+hang 63 at 537.5 s: 889 ms -
+⌘⇧Z: #2B1B3D
+⌘Z again: #101014
+click at 651, 481
+hang 64 at 564.2 s: 2169 ms -
+a picture too large, pasted: the app answers
+a picture too large, pasted: no alert: 0; the copy went in: within 1 s
+hang 65 at 572.5 s: 526 ms -
+click at 299, 481
+hang 66 at 577.8 s: 2287 ms -
+a picture copied in the Finder, pasted: objects on the slide 4, then 5
+click at 0, 768
+drag at 365, 456, 475, 468
+hang 67 at 626.9 s: 771 ms -
+a stroke of the pen: the canvas says "A drawing drawn on this slide" (A drawing drawn on this slide), and holds 1 drawing (1)
+the pen after a stroke and Escape: the Insert menu offers Drawing (Drawing: the pen is down)
+hang 68 at 634.6 s: 595 ms -
+hang 69 at 637.0 s: 513 ms -
+the light table: cover 24 107 319 198, agenda 363 107 319 198, promise 24 325 319 199, the slider 498 687 180 14
+click at 676, 694
+the slider at its end: cover 24 107 658 389, agenda 24 516 658 389
+hang 70 at 679.3 s: 494 ms -
+the light table put away, the slides down the side: 0 768 0 0
+hang 71 at 712.9 s: 1105 ms -
+New from a Prompt: the windows New from a Prompt, trails.scaena ; the topic 325 93 477 32, Generate 736 668 80 24
+the outline: the big idea 208 423 608 24, the beats 208 455 608 169, Write the Slides 696 632 120 24
+the length it asks for: 5–10 slides
+Escape: the windows trails.scaena 
+hang 72 at 733.6 s: 352 ms -
+Settings: the windows Assistant, trails.scaena ; Anthropic's field 262 309 472 16
+click at 498, 317
+a key of Gemini's form in Anthropic's field: the hint 264 346 182 15
+the main thread's hangs over 250 ms:
+  72 hang(s), 70964 ms in all, the longest first:
+  hang 1, at 1.5 s: 4205 ms
+      683 static ScaenaApp.$main()
+      683 Scaena_main
+  hang 25, at 211.8 s: 3681 ms
+        5 _RNvXsd_NtNtCsjSAAZcmtVt9_4core5slice3cmphNtB5_8SliceOrd7compareCs8B4qJAZVzwa_11scaena_core
+        9 _RNvXsg_NtCsjSAAZcmtVt9_4core5arrayAhj3_NtNtB7_3cmp3Ord3cmpCsbfBDnDBjFi3_13scaena_engine
+       10 _RINvMs0_NtNtNtCs6eGy9mWPo3p_5alloc11collections5btree6searchINtNtB8_4node7NodeRefNtNtBZ_6marker3MutAhj3_yNtB1j_14LeafOrInternalE14find_key_indexB1z_ECsbfBDnDBjFi3_13scaena_engine
+       22 _RINvMs_NtNtNtCs6eGy9mWPo3p_5alloc11collections5btree6searchINtNtB7_4node7NodeRefNtNtBY_6marker3MutAhj3_yNtB1i_14LeafOrInternalE11search_treeB1y_ECsbfBDnDBjFi3_13scaena_engine
+       25 _RNvMsi_NtNtNtCs6eGy9mWPo3p_5alloc11collections5btree3mapINtB5_8BTreeMapAhj3_yE5entryCsbfBDnDBjFi3_13scaena_engine
+       25 _RNvNtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrast5under
+       47 _RNvMs0_NtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrastNtB5_4Pass5state
+       93 _RNvMs_NtCsbfBDnDBjFi3_13scaena_engine4lintNtB4_7Linting7advance
+  hang 54, at 386.7 s: 3225 ms
+    (not sampled)
+  hang 16, at 144.2 s: 3053 ms
+       41 _RNvMs_NtNtCsi4LIHK2nfKK_3std6thread6threadNtB4_6Thread4park
+       41 _RINvNtNtCsi4LIHK2nfKK_3std6thread6scoped5scopeNCNvMNtCs6ePwASBLEL8_13scaena_pixels6shaderNtBN_3Job9render_on0uEBP_
+       41 _RNvMNtCs6ePwASBLEL8_13scaena_pixels6shaderNtB2_3Job9render_on
+       41 _RNvXNtNtCs6eGy9mWPo3p_5alloc3vec21spec_from_iter_nestedINtB4_3VecIBS_hEEINtB2_18SpecFromIterNestedB11_INtNtNtNtCsjSAAZcmtVt9_4core4iter8adapters3map3MapINtNtB1H_7flatten7FlattenINtNtNtB1L_5slice4iter4IterINtNtB1L_6option6OptionNtNtCs6ePwASBLEL8_13scaena_pixels6shader3JobEEENCNvXs0_NtCs2bgM4g1DgtD_12scaena_paint3cpuNtB4w_10CpuPainterNtB4y_7Painter5paint0EE9from_iterB4y_
+       41 _RNvXs0_NtCs2bgM4g1DgtD_12scaena_paint3cpuNtB5_10CpuPainterNtB7_7Painter5paint
+       57 _RNvXs3_Cs2bgM4g1DgtD_12scaena_paintINtB5_8BackdropNtNtB5_3cpu10CpuPainterENtNtCs8B4qJAZVzwa_11scaena_core4lint8Backdrop5paintCs1lf7OzDdvcF_10scaena_ops
+       57 _RNCNvNtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrast6behind0B7_
+       57 _RNvNtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrast6behind
+  hang 22, at 196.3 s: 2835 ms
+    (not sampled)
+  hang 19, at 181.1 s: 2717 ms
+        2 outlined copy of JSONValue
+        2 initializeWithCopy for JSONValue
+        2 static JSONValue.__derived_enum_equals(_:_:)
+        3 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       10 static JSONValue.__derived_enum_equals(_:_:)
+       20 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       38 static JSONValue.__derived_enum_equals(_:_:)
+       38 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+  hang 20, at 188.9 s: 2623 ms
+        1 _RINvXs2J_NtNtCsjSAAZcmtVt9_4core5slice4iterINtB7_4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENtNtNtNtBb_4iter6traits8iterator8Iterator8find_mapReQNCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB2v_7Checker10node_typess_00EB2z_
+        1 _RNvXs0_NtNtNtCsjSAAZcmtVt9_4core4iter8adapters10filter_mapINtB5_9FilterMapINtNtNtBb_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB2o_7Checker10node_typess_00ENtNtNtB9_6traits8iterator8Iterator4nextB2s_
+        1 _RNvXs1_NtNtNtCsjSAAZcmtVt9_4core4iter8adapters3zipINtB5_3ZipINtNtB7_10filter_map9FilterMapINtNtNtBb_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB2E_7Checker10node_typess_00EINtNtNtCs6eGy9mWPo3p_5alloc3vec9into_iter8IntoIterNtNtB3X_6string6StringEEINtB5_7ZipImplBW_B3Q_E4nextB2I_
+        2 _RNvXs_NtNtNtCsjSAAZcmtVt9_4core4iter8adapters3zipINtB4_3ZipINtNtB6_10filter_map9FilterMapINtNtNtBa_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB2D_7Checker10node_typess_00EINtNtNtCs6eGy9mWPo3p_5alloc3vec9into_iter8IntoIterNtNtB3W_6string6StringEENtNtNtB8_6traits8iterator8Iterator4nextB2H_
+        2 _RNvXs0_NtNtNtCsjSAAZcmtVt9_4core4iter8adapters3mapINtB5_3MapINtNtB7_3zip3ZipINtNtB7_10filter_map9FilterMapINtNtNtBb_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB2U_7Checker10node_typess_00EINtNtNtCs6eGy9mWPo3p_5alloc3vec9into_iter8IntoIterNtNtB4d_6string6StringEENCB2P_s_0ENtNtNtB9_6traits8iterator8Iterator4nextB2Y_
+        4 _RINvMsk_NtCs6eGy9mWPo3p_5alloc3vecINtB6_3VecTNtNtB8_6string6StringBH_EE16extend_desugaredINtNtNtNtCsjSAAZcmtVt9_4core4iter8adapters3map3MapINtNtB1u_3zip3ZipINtNtB1u_10filter_map9FilterMapINtNtNtB1y_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB4e_7Checker10node_typess_00EINtNtB6_9into_iter8IntoIterBH_EENCB49_s_0EEB4i_
+        4 _RNvXNtNtCs6eGy9mWPo3p_5alloc3vec11spec_extendINtB4_3VecTNtNtB6_6string6StringBS_EEINtB2_10SpecExtendBR_INtNtNtNtCsjSAAZcmtVt9_4core4iter8adapters3map3MapINtNtB1I_3zip3ZipINtNtB1I_10filter_map9FilterMapINtNtNtB1M_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB4s_7Checker10node_typess_00EINtNtB4_9into_iter8IntoIterBS_EENCB4n_s_0EE11spec_extendB4w_
+        4 _RNvXNtNtCs6eGy9mWPo3p_5alloc3vec21spec_from_iter_nestedINtB4_3VecTNtNtB6_6string6StringB12_EEINtB2_18SpecFromIterNestedB11_INtNtNtNtCsjSAAZcmtVt9_4core4iter8adapters3map3MapINtNtB22_3zip3ZipINtNtB22_10filter_map9FilterMapINtNtNtB26_5slice4iter4IterNtNtCs9xlPjHt5CCm_10serde_json5value5ValueENCNCNvMNtNtCs8B4qJAZVzwa_11scaena_core5model5checkNtB4M_7Checker10node_typess_00EINtNtB4_9into_iter8IntoIterB12_EENCB4H_s_0EE9from_iterB4Q_
+  hang 57, at 391.4 s: 2391 ms
+    (not sampled)
+  hang 24, at 205.1 s: 2301 ms
+    (not sampled)
+  hang 66, at 577.8 s: 2287 ms
+    (not sampled)
+  hang 64, at 564.2 s: 2169 ms
+    (not sampled)
+  hang 51, at 341.6 s: 1836 ms
+    (not sampled)
+  hang 13, at 74.8 s: 1699 ms
+      468 static ScaenaApp.$main()
+      468 Scaena_main
+  hang 33, at 282.0 s: 1615 ms
+    (not sampled)
+  hang 52, at 345.3 s: 1337 ms
+    (not sampled)
+  hang 32, at 280.8 s: 1189 ms
+       22 JSONValue.init(from:)
+       31 protocol witness for Decodable.init(from:) in conformance JSONValue
+       43 JSONValue.init(from:)
+      146 protocol witness for Decodable.init(from:) in conformance JSONValue
+      168 JSONValue.init(from:)
+      192 protocol witness for Decodable.init(from:) in conformance JSONValue
+      196 JSONValue.init(from:)
+      199 protocol witness for Decodable.init(from:) in conformance JSONValue
+  hang 2, at 10.9 s: 1170 ms
+    (not sampled)
+  hang 15, at 119.1 s: 1142 ms
+      980 static ScaenaApp.$main()
+      980 Scaena_main
+  hang 17, at 148.5 s: 1108 ms
+    (not sampled)
+  hang 21, at 192.6 s: 1108 ms
+    no frame of the app's on its heaviest path (0 of 0 samples busy)
+  hang 71, at 712.9 s: 1105 ms
+    (not sampled)
+  hang 29, at 249.0 s: 1080 ms
+      232 static ScaenaApp.$main()
+      232 Scaena_main
+  hang 31, at 265.9 s: 1049 ms
+      462 static ScaenaApp.$main()
+      462 Scaena_main
+  hang 26, at 215.9 s: 1035 ms
+    (not sampled)
+  hang 6, at 32.4 s: 953 ms
+    (not sampled)
+  hang 63, at 537.5 s: 889 ms
+    (not sampled)
+  hang 60, at 420.6 s: 809 ms
+    (not sampled)
+  hang 18, at 155.1 s: 802 ms
+      839 static ScaenaApp.$main()
+      839 Scaena_main
+  hang 67, at 626.9 s: 771 ms
+    (not sampled)
+  hang 27, at 219.0 s: 727 ms
+      771 static ScaenaApp.$main()
+      771 Scaena_main
+  hang 30, at 253.4 s: 645 ms
+      646 static ScaenaApp.$main()
+      646 Scaena_main
+  hang 12, at 59.4 s: 624 ms
+      732 static ScaenaApp.$main()
+      732 Scaena_main
+  hang 47, at 296.9 s: 618 ms
+    (not sampled)
+  hang 10, at 50.2 s: 617 ms
+    (not sampled)
+  hang 58, at 399.7 s: 607 ms
+    (not sampled)
+  hang 68, at 634.6 s: 595 ms
+    (not sampled)
+  hang 4, at 24.7 s: 589 ms
+    (not sampled)
+  hang 62, at 523.6 s: 580 ms
+    (not sampled)
+  hang 37, at 285.9 s: 564 ms
+        1 _RNvMNtNtCsjSAAZcmtVt9_4core3ptr9const_ptrPu13is_aligned_toCs6ePwASBLEL8_13scaena_pixels
+        2 _RNvNvNtNtCsjSAAZcmtVt9_4core5slice3raw14from_raw_parts18precondition_checkCs6ePwASBLEL8_13scaena_pixels
+        2 _RNvMNtCsjSAAZcmtVt9_4core5sliceSh18split_at_uncheckedCs6ePwASBLEL8_13scaena_pixels
+        4 _RNvMNtCsjSAAZcmtVt9_4core5sliceSh8split_atCs6ePwASBLEL8_13scaena_pixels
+        5 _RINvNtCs9xlPjHt5CCm_10serde_json3ser27format_escaped_str_contentsQINtNtCs6eGy9mWPo3p_5alloc3vec3VechENtB2_16CompactFormatterECs8B4qJAZVzwa_11scaena_core
+        6 _RINvNtCs9xlPjHt5CCm_10serde_json3ser18format_escaped_strQINtNtCs6eGy9mWPo3p_5alloc3vec3VechENtB2_16CompactFormatterECs8B4qJAZVzwa_11scaena_core
+        6 _RNvXs1_NtCs9xlPjHt5CCm_10serde_json3serQINtB5_10SerializerQINtNtCs6eGy9mWPo3p_5alloc3vec3VechEENtNtCs5fM0pA6aTOH_10serde_core3ser10Serializer13serialize_strCs8B4qJAZVzwa_11scaena_core
+        6 _RINvXs_NtNtCs5fM0pA6aTOH_10serde_core3ser5implsNtNtCs6eGy9mWPo3p_5alloc6string6StringNtB7_9Serialize9serializeQINtNtCs9xlPjHt5CCm_10serde_json3ser10SerializerQINtNtBN_3vec3VechEEECs8B4qJAZVzwa_11scaena_core
+  hang 8, at 43.0 s: 548 ms
+    (not sampled)
+  hang 65, at 572.5 s: 526 ms
+    (not sampled)
+  hang 55, at 390.0 s: 523 ms
+    (not sampled)
+  hang 14, at 87.7 s: 519 ms
+      749 static ScaenaApp.$main()
+      749 Scaena_main
+  hang 69, at 637.0 s: 513 ms
+    (not sampled)
+  hang 41, at 287.7 s: 507 ms
+    (not sampled)
+  hang 70, at 679.3 s: 494 ms
+    (not sampled)
+  hang 53, at 370.9 s: 480 ms
+    (not sampled)
+  hang 3, at 20.8 s: 465 ms
+    (not sampled)
+  hang 40, at 287.2 s: 455 ms
+    (not sampled)
+  hang 7, at 37.7 s: 447 ms
+    (not sampled)
+  hang 56, at 390.8 s: 440 ms
+    (not sampled)
+  hang 61, at 512.5 s: 424 ms
+    (not sampled)
+  hang 49, at 299.2 s: 392 ms
+    (not sampled)
+  hang 44, at 289.0 s: 387 ms
+    (not sampled)
+  hang 46, at 295.8 s: 356 ms
+    (not sampled)
+  hang 72, at 733.6 s: 352 ms
+    (not sampled)
+  hang 43, at 288.6 s: 351 ms
+    (not sampled)
+  hang 42, at 288.3 s: 341 ms
+    (not sampled)
+  hang 36, at 284.3 s: 331 ms
+    (not sampled)
+  hang 11, at 55.0 s: 320 ms
+      681 static ScaenaApp.$main()
+      681 Scaena_main
+  hang 39, at 286.9 s: 311 ms
+    (not sampled)
+  hang 23, at 204.4 s: 306 ms
+        1 outlined copy of JSONValue
+        1 static JSONValue.__derived_enum_equals(_:_:)
+        2 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       10 static JSONValue.__derived_enum_equals(_:_:)
+       20 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       44 static JSONValue.__derived_enum_equals(_:_:)
+       46 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       58 static JSONValue.__derived_enum_equals(_:_:)
+  hang 28, at 226.7 s: 304 ms
+      775 static ScaenaApp.$main()
+      775 Scaena_main
+  hang 45, at 289.4 s: 295 ms
+    (not sampled)
+  hang 50, at 335.6 s: 294 ms
+    (not sampled)
+  hang 34, at 283.7 s: 291 ms
+    (not sampled)
+  hang 9, at 46.9 s: 288 ms
+    (not sampled)
+  hang 59, at 411.1 s: 284 ms
+    (not sampled)
+  hang 5, at 28.6 s: 279 ms
+    (not sampled)
+  hang 35, at 284.0 s: 275 ms
+    (not sampled)
+  hang 38, at 286.5 s: 260 ms
+    (not sampled)
+  hang 48, at 297.9 s: 256 ms
+    (not sampled)
+  the app's frames by the hang time they were on the heaviest path for:
+      13116 ms  Scaena_main
+      13116 ms  static ScaenaApp.$main()
+       9375 ms  static JSONValue.__derived_enum_equals(_:_:)
+       9069 ms  protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       4756 ms  JSONValue.init(from:)
+       4756 ms  protocol witness for Decodable.init(from:) in conformance JSONValue
+       3681 ms  _RINvMs0_NtNtNtCs6eGy9mWPo3p_5alloc11collections5btree6searchINtNtB8_4node7NodeRefNtNtBZ_6marker3MutAhj3_yNtB1j_14LeafOrInternalE14find_key_indexB1z_ECsbfBDnDBjFi3_13scaena_engine
+       3681 ms  _RINvMs_NtNtNtCs6eGy9mWPo3p_5alloc11collections5btree6searchINtNtB7_4node7NodeRefNtNtBY_6marker3MutAhj3_yNtB1i_14LeafOrInternalE11search_treeB1y_ECsbfBDnDBjFi3_13scaena_engine
+       3681 ms  _RNvMs0_NtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrastNtB5_4Pass5state
+       3681 ms  _RNvMs_NtCsbfBDnDBjFi3_13scaena_engine4lintNtB4_7Linting7advance
+       3681 ms  _RNvMsi_NtNtNtCs6eGy9mWPo3p_5alloc11collections5btree3mapINtB5_8BTreeMapAhj3_yE5entryCsbfBDnDBjFi3_13scaena_engine
+       3681 ms  _RNvNtNtCsbfBDnDBjFi3_13scaena_engine4lint8contrast5under
+       3681 ms  _RNvXsd_NtNtCsjSAAZcmtVt9_4core5slice3cmphNtB5_8SliceOrd7compareCs8B4qJAZVzwa_11scaena_core
+       3681 ms  _RNvXsg_NtCsjSAAZcmtVt9_4core5arrayAhj3_NtNtB7_3cmp3Ord3cmpCsbfBDnDBjFi3_13scaena_engine
+       3053 ms  _RINvNtNtCsi4LIHK2nfKK_3std6thread6scoped5scopeNCNvMNtCs6ePwASBLEL8_13scaena_pixels6shaderNtBN_3Job9render_on0uEBP_
