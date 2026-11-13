@@ -3837,6 +3837,13 @@ fn iconic(theme: &Theme, layout: &str) -> bool {
 }
 
 fn item(bullet: &str) -> Item {
+    // An item written on lines of its own is written as it stands, as code is: a YAML list's
+    // "- uses:" keeps its dash and its lines their indentation, and no label is cut from its
+    // first ": " (R1's agent dogfood 11).
+    let lines = bullet.trim_matches(['\n', '\r']).trim_end();
+    if lines.contains('\n') && !lines.trim().is_empty() {
+        return Item { label: None, detail: lines.to_string(), whole: lines.to_string() };
+    }
     let bullet = bullet.trim();
     // The mark a model may lead an item with, but not a figure's minus: "-13%" keeps it.
     let whole = match bullet.strip_prefix(['-', '\u{2013}']) {
@@ -8703,6 +8710,36 @@ mod tests {
                 ("rust".to_string(), "code".to_string(), "let total: f64 = prices.iter().sum();".to_string()),
             ]
         );
+    }
+
+    /// Code written on lines of its own is set as written: a YAML list's first item keeps its
+    /// "- ", and its lines their indentation, where a one-line item still sheds a model's bullet
+    /// mark (R1's agent dogfood 11).
+    #[test]
+    fn code_on_lines_of_its_own_keeps_its_list_marks() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let yaml = "- uses: actions/cache@v4\n  with:\n    path: ~/.cache/pnpm\n    key: deps-${{ hashFiles('pnpm-lock.yaml') }}";
+        let slide = |title: &str, layout: &str, items: &[&str]| Slide {
+            slide_title: title.into(),
+            subtitle: ".github/workflows/ci.yml".into(),
+            layout_suggestion: layout.into(),
+            key_bullets: items.iter().map(|i| i.to_string()).collect(),
+            ..Slide::default()
+        };
+        let slides = vec![
+            slide("Halving CI", "Title", &[]),
+            slide("One shared cache key", "Code", &[&format!("\n{yaml}\n")]),
+            slide("Two changes did it", "Bullet List", &["- The shared cache key", "- The test split"]),
+            slide("Add both this sprint", "Closing", &[]),
+        ];
+        let made = deck(&narrative("Halving CI.", slides), &theme, &Pictures::new()).unwrap();
+        assert_eq!(made.layouts[1], "title-code");
+        let nodes = made.deck["nodes"].as_object().unwrap();
+        let code: Vec<&str> =
+            nodes.values().filter(|n| n["code"].is_object()).filter_map(|n| n["text"].as_str()).collect();
+        assert_eq!(code, [yaml]);
+        let words: String = nodes.values().filter_map(|n| n["text"].as_str()).collect::<Vec<_>>().join("\n");
+        assert!(words.contains("The shared cache key") && !words.contains("- The"), "{words}");
     }
 
     /// An item written in code is set as code in its language, on its card, in the theme's code
