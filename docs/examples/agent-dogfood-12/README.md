@@ -139,3 +139,15 @@ My first run's deck failed validation with E106, its format 0.41 refused as past
 binary had embedded another worktree's schemas from the build folder they share, and a clean
 rebuild of the crates cleared it. #1269 makes the script read its folder at run time, but a
 target shared across worktrees can still hand one worktree's schemas to another. No change.
+
+## Slide 6, set as two figures (the re-measure's C)
+
+Slide 6 says two costs, "3.800 € por fuente instalada" and "410 € al año de mantenimiento", under
+the claim "Cada fuente cuesta 3.800 € instalada y 410 € al año". It took Two Numbers, which has no
+place for a headline, so the claim was dropped from the slide. Two points each led by its figure
+now take Two Figures, the claim over them and both figures in the accent, as Two Numbers drew
+them. Only two bars' figures set the one the slide is not about back.
+
+| Before (Two Numbers) | After (Two Figures) |
+| --- | --- |
+| ![Slide 6 before](slide-6-before.png) | ![Slide 6 after](slide-6-after.png) |
