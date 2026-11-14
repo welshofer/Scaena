@@ -29,6 +29,18 @@ pub(crate) struct Edit {
     findings: Vec<Finding>,
     /// Whether the deck it says validated: the one shown.
     shown: bool,
+    /// The edition of the files and the theme it was compiled with: a compile of the same
+    /// source with them keeps what the last lint found (W1's dogfood 20).
+    files: u64,
+    theme: u64,
+}
+
+/// What tells a theme's text apart from another's, as cheaply as a compile's own reading of it.
+fn theme_key(theme_json: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    theme_json.hash(&mut h);
+    h.finish()
 }
 
 /// What the layout rules found in every state the last time they ran on all of them, and the
@@ -470,8 +482,17 @@ impl Session {
         }
         let every = self.every();
         let findings = (compiled.findings.iter()).map(|f| every.locate(source, &compiled, f, false)).collect();
-        let found = compiled.findings.clone();
-        self.edit = Some(Edit { source: source.to_string(), compiled, findings: found, shown: valid });
+        let theme = theme_key(&self.theme_json);
+        // The deck compiled again as it stands, from the same files in the same theme, as a page
+        // does once an assistant's turn ends: what the last lint found in it still holds, so the
+        // Story reads beside it as before, a slide lint finds broken still first (W1's dogfood
+        // 20: an answer that changed nothing dropped slide 13's E101 from the Story, which said
+        // the answer had answered it).
+        let same = (self.edit.as_ref())
+            .filter(|edit| edit.source == source && edit.files == self.files_edition && edit.theme == theme);
+        let found = same.map_or_else(|| compiled.findings.clone(), |edit| edit.findings.clone());
+        let files = self.files_edition;
+        self.edit = Some(Edit { source: source.to_string(), compiled, findings: found, shown: valid, files, theme });
         Compiling { error: None, findings, states, valid }
     }
 
@@ -1092,6 +1113,38 @@ mod tests {
             }
         }
         s
+    }
+
+    /// W1's dogfood 20: an assistant's answer that changed nothing ended with the page compiling
+    /// the deck's source again, as it stood, and the session's findings came back validation's
+    /// alone: the Story, which reads beside them, dropped a slide's E101 and said the answer had
+    /// answered it. A compile of the same source from the same files in the same theme keeps what
+    /// the last lint found; one of another source, or after a file changed, keeps none of it.
+    #[test]
+    fn a_source_compiled_again_as_it_stands_keeps_what_lint_found() {
+        let mut s = revenue();
+        let long = "Revenue doubled year over year, and Pro drove it, three times as fast as Core grew, in every region we sell in";
+        let source = s.source().replacen("\"Revenue doubled\"", &format!("{long:?}"), 1);
+        assert_ne!(source, s.source(), "the title's words are in the source");
+        assert!(s.compile(&source).valid);
+        s.lint(None, None).unwrap();
+        let laid = |s: &Session| s.findings().iter().filter(|f| f.code.starts_with("E10")).count();
+        let found = laid(&s);
+        assert!(found > 0, "the long title runs past its place: {:?}", s.findings());
+        // The same source again: what the last lint found still holds.
+        assert!(s.compile(&source).valid);
+        assert_eq!(laid(&s), found, "{:?}", s.findings());
+        // Another source: nothing of the last lint is said of it before it is linted.
+        let other = source.replacen(&format!("{long:?}"), "\"Revenue grew\"", 1);
+        assert!(s.compile(&other).valid);
+        assert_eq!(laid(&s), 0, "{:?}", s.findings());
+        // And after a file of the bundle changed, the same source keeps none of it either.
+        assert!(s.compile(&source).valid);
+        s.lint(None, None).unwrap();
+        assert_eq!(laid(&s), found);
+        s.add_file("notes/new.txt", b"new".to_vec());
+        assert!(s.compile(&source).valid);
+        assert_eq!(laid(&s), 0, "{:?}", s.findings());
     }
 
     /// A slide's backgrounds (PLAN 2.148): None, then each of the theme's presets, each drawn as
