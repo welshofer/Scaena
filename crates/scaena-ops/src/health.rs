@@ -604,8 +604,8 @@ fn computed(anchors: &[f64], values: &[f64], shown: &str, figure: f64) -> Option
 
 /// Whether `line` says a figure in it is the talk's own, a target or a plan, by an English word: a
 /// "target", a "goal", an "aim", a "plan", an "ask", a "budget", a "forecast", what "will" be, what
-/// a slide asks to "approve" or "fund", or "by" a year or a quarter, "under" or "above" a mark, or
-/// "back to" one.
+/// a slide asks to "approve" or "fund", or "by" a year, a quarter, or a month, "under" or "above" a
+/// mark, or "back to" one.
 fn forward(line: &str) -> bool {
     const WORDS: &[&str] = &[
         "target",
@@ -629,7 +629,23 @@ fn forward(line: &str) -> bool {
         "fund",
     ];
     let words: Vec<String> = line.split(|c: char| !c.is_alphanumeric()).map(str::to_lowercase).collect();
-    let mark = |w: &str| (w.len() == 4 && w.starts_with("20")) || (w.len() == 2 && w.starts_with('q'));
+    const ENGLISH_MONTHS: &[&str] = &[
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+    ];
+    let mark = |w: &str| {
+        (w.len() == 4 && w.starts_with("20")) || (w.len() == 2 && w.starts_with('q')) || ENGLISH_MONTHS.contains(&w)
+    };
     words.iter().any(|w| WORDS.contains(&w.as_str()))
         || words.windows(2).any(|w| (w[0] == "by" && mark(&w[1])) || (w[0] == "back" && w[1] == "to"))
         || words.iter().any(|w| w == "under" || w == "above")
@@ -3440,9 +3456,13 @@ pub fn health_in(deck: &Deck, lint: &[scaena_core::lint::Finding]) -> Result<Hea
                 None => {
                     let line = shown.lines().find(|l| l.contains(&f.shown)).unwrap_or_default();
                     let value = scaena_narrato::figures(&f.shown).first().copied()?;
+                    // A slide its headline plans is the plan's, each figure on it a part of the ask
+                    // ("Approve a $4M retention plan": its $0.5M and its $2.5M).
+                    let headline = shown.lines().next().unwrap_or_default();
                     let own = !english
                         || forward(line)
                         || planned.contains(&(f.value.clone(), f.unit.clone()))
+                        || forward(headline)
                         || known.iter().any(|(value, _)| *value == f.value)
                         || code.contains(&f.shown)
                         || computed(&anchors, &values, &f.shown, value).is_some();
@@ -5061,6 +5081,19 @@ mod tests {
         assert_eq!(said(&asked, priced), [], "the close asks for it");
         asked["nodes"]["thank-you-statement"]["text"] = json!("We ask the council to fund 2.4 miles of new beds.");
         assert_eq!(said(&asked, priced).len(), 1, "a plan of 2.4 in another unit plans none of it");
+        assert_eq!(said(&deck, "Eastside gets 87 new street trees by June."), [], "a plan, by a month");
+        // A slide its headline plans is the plan's: each figure on it a part of the ask.
+        let mut planned = deck.clone();
+        let ask = "Approve a $3M replanting plan";
+        planned["nodes"]["riverton-has-lost-a-fifth-statement"]["text"] = json!(ask);
+        for section in planned["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                if beat["states"].as_array().unwrap().iter().any(|s| s == "riverton-has-lost-a-fifth") {
+                    beat["claim"] = json!(ask);
+                }
+            }
+        }
+        assert_eq!(said(&planned, "Eastside lost 87 street trees last spring."), [], "the ask's slide");
         // A deck in another language is not read for its targets, so is found for none.
         let mut german = deck.clone();
         german["meta"]["lang"] = json!("de");
