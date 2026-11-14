@@ -836,3 +836,6 @@ jobs:
       - run: node --experimental-strip-types web/most.mjs
       # Every call the model makes is answered, an error included (the 20261025b plan's STAB-3).
       - run: node --experimental-strip-types web/answered.mjs
+      # A deck's bundle is named by its title's words, a Japanese title's voiced kana kept (W1's
+      # dogfood 20).
+      - run: node --experimental-strip-types web/named.mjs
