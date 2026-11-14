@@ -5932,12 +5932,21 @@ fn in_marks(text: &str) -> bool {
 }
 
 /// `"words" — who`: the words its writer marked, and who said them, where the words stand in
-/// their own marks before the dash; a dash inside words not marked stays theirs.
+/// their own marks before the dash; a dash inside words not marked stays theirs. The corner
+/// brackets of Japanese and Chinese mark words too, and a dash right after them signs them,
+/// as Japanese sets one unspaced (W1's dogfood 20: 「近い配達ほど、車がいちばん遅い」 — 横浜の
+/// 配達員 was set as one quote, its bracket closing after the name).
 fn signed(whole: &str) -> Option<(String, String)> {
-    const OPEN: [char; 4] = ['"', '\u{201c}', '\u{201e}', '\u{ab}'];
-    const CLOSE: [char; 4] = ['"', '\u{201d}', '\u{201c}', '\u{bb}'];
+    const OPEN: [char; 6] = ['"', '\u{201c}', '\u{201e}', '\u{ab}', '\u{300c}', '\u{300e}'];
+    const CLOSE: [char; 6] = ['"', '\u{201d}', '\u{201c}', '\u{bb}', '\u{300d}', '\u{300f}'];
     let whole = whole.trim();
-    let (words, who) = whole.rsplit_once(" \u{2014} ").or_else(|| whole.rsplit_once(" \u{2013} "))?;
+    let cornered = |dash: char| {
+        let (words, who) = whole.rsplit_once(dash)?;
+        words.trim_end().ends_with(['\u{300d}', '\u{300f}']).then_some((words, who))
+    };
+    let (words, who) = (whole.rsplit_once(" \u{2014} ").or_else(|| whole.rsplit_once(" \u{2013} ")))
+        .or_else(|| cornered('\u{2014}'))
+        .or_else(|| cornered('\u{2013}'))?;
     let words = words.trim();
     let marked = words.starts_with(OPEN) && words.trim_end_matches(['.', ',']).ends_with(CLOSE);
     let who = who.trim();
@@ -10976,6 +10985,44 @@ mod tests {
         let testimonials = made("Testimonials");
         has(&testimonials, "first", "\u{201c}We cut our freight emissions below zero in one quarter\u{201d}");
         has(&testimonials, "first-note", "\u{2014} VP Supply Chain, national grocer");
+    }
+
+    /// W1's dogfood 20: a Japanese quote and who said it, written as one point,
+    /// 「近い配達ほど、車がいちばん遅い」 — 横浜の配達員, was set as one quote, its corner bracket
+    /// closing after the name. Corner brackets mark the words as English marks do, and a dash
+    /// after them, spaced or not, signs them.
+    #[test]
+    fn a_quote_in_corner_brackets_is_signed_by_the_name_after_its_dash() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let (summary, slides) = catalog();
+        let made = |point: &str| {
+            let mut slide = slides.iter().find(|s| s.layout_suggestion == "Quote").unwrap().clone();
+            slide.slide_title = "販売店に届く声".into();
+            slide.subtitle = String::new();
+            slide.key_bullets = vec![point.to_string()];
+            let made = deck(
+                &narrative(&summary, vec![slides[0].clone(), slide, slides[55].clone()]),
+                &theme,
+                &Pictures::new(),
+            )
+            .unwrap();
+            let state = made.deck["states"][1]["id"].as_str().unwrap().to_string();
+            shown(&made.deck, &state)
+        };
+        let has = |said: &[(String, String)], slot: &str, words: &str| {
+            assert!(said.iter().any(|(s, w)| s == slot && w == words), "{slot} = {words:?} in {said:#?}");
+        };
+        for point in [
+            "\u{300c}近い配達ほど、車がいちばん遅い\u{300d} \u{2014} 横浜の配達員",
+            "\u{300c}近い配達ほど、車がいちばん遅い\u{300d}\u{2014}横浜の配達員",
+            "\u{300e}近い配達ほど、車がいちばん遅い\u{300f} \u{2013} 横浜の配達員",
+        ] {
+            let quote = made(point);
+            has(&quote, "quote", "\u{201c}近い配達ほど、車がいちばん遅い\u{201d}");
+            has(&quote, "who", "\u{2014} 横浜の配達員");
+        }
+        // A dash inside words no bracket closes before it stays the words'.
+        assert_eq!(signed("近い配達ほど—車が遅い"), None);
     }
 
     /// A quote its writer set as the slide's title, in its marks, over who said it as its one
