@@ -5,7 +5,9 @@
 // by the assistant; a headline typed over on the canvas through an input method's composition;
 // a rehearsal against the brief's 20-minute slot; and Export… a PDF with notes.
 // Run from the repository's root, after `just web` (brief.pptx is written by brief.py):
-//   node docs/examples/dogfood-20/walk.mjs [OUTDIR] [STAGES]   STAGES: make,story,ime,rehearse,export
+//   node docs/examples/dogfood-20/walk.mjs [OUTDIR] [STAGES]   STAGES: make,bundle,probe,story,ime,rehearse,export
+// (`probe` reads what the Story finds against the editor before and after an assistant turn that
+// changes nothing, #1338; `bundle` downloads the bundle as made and as worked)
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:http";
