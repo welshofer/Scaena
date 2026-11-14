@@ -70,10 +70,30 @@ const EN_SHORT_MONTHS: [&str; 12] =
 const EN_DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const EN_SHORT_DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const PT_MONTHS: [&str; 12] = [
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+];
+const PT_SHORT_MONTHS: [&str; 12] =
+    ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const PT_DAYS: [&str; 7] =
+    ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"];
+const PT_SHORT_DAYS: [&str; 7] = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
 /// The locales formats know; any other tag formats as its language's first entry here,
 /// else as `en-US`. d3's locale files for separators and currency, CLDR for the compact
 /// suffixes.
-pub const LOCALES: [Locale; 6] = [
+pub const LOCALES: [Locale; 9] = [
     Locale {
         tag: "en-US",
         decimal: ".",
@@ -206,6 +226,58 @@ pub const LOCALES: [Locale; 6] = [
         days: ["zondag", "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag"],
         short_days: ["zo", "ma", "di", "wo", "do", "vr", "za"],
         periods: ["a.m.", "p.m."],
+    },
+    Locale {
+        tag: "it-IT",
+        decimal: ",",
+        group: ".",
+        currency: ("", "\u{a0}€"),
+        percent: "%",
+        compact: ["\u{a0}mila", "\u{a0}Mln", "\u{a0}Mrd", "\u{a0}Bln"],
+        months: [
+            "gennaio",
+            "febbraio",
+            "marzo",
+            "aprile",
+            "maggio",
+            "giugno",
+            "luglio",
+            "agosto",
+            "settembre",
+            "ottobre",
+            "novembre",
+            "dicembre",
+        ],
+        short_months: ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"],
+        days: ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"],
+        short_days: ["dom", "lun", "mar", "mer", "gio", "ven", "sab"],
+        periods: ["AM", "PM"],
+    },
+    Locale {
+        tag: "pt-BR",
+        decimal: ",",
+        group: ".",
+        currency: ("R$\u{a0}", ""),
+        percent: "%",
+        compact: ["\u{a0}mil", "\u{a0}mi", "\u{a0}bi", "\u{a0}tri"],
+        months: PT_MONTHS,
+        short_months: PT_SHORT_MONTHS,
+        days: PT_DAYS,
+        short_days: PT_SHORT_DAYS,
+        periods: ["AM", "PM"],
+    },
+    Locale {
+        tag: "pt-PT",
+        decimal: ",",
+        group: NBSP,
+        currency: ("", "\u{a0}€"),
+        percent: "%",
+        compact: ["\u{a0}mil", "\u{a0}M", "\u{a0}mM", "\u{a0}Bi"],
+        months: PT_MONTHS,
+        short_months: PT_SHORT_MONTHS,
+        days: PT_DAYS,
+        short_days: PT_SHORT_DAYS,
+        periods: ["AM", "PM"],
     },
 ];
 
@@ -1151,6 +1223,18 @@ mod tests {
         assert_eq!(NumberFormat::parse(",.1%").unwrap().format(0.1234, fr), "12,3\u{a0}%");
         assert_eq!(Locale::of(Some("ja-JP")).tag, "en-US", "unknown languages format as en-US");
         assert_eq!(Locale::of(Some("en_gb")).tag, "en-GB");
+        let it = Locale::of(Some("it"));
+        assert_eq!(it.tag, "it-IT");
+        assert_eq!(f.format(18_400_000.0, it), "18.400.000,00\u{a0}€");
+        assert_eq!(NumberFormat::parse(",.1%").unwrap().format(0.241, it), "24,1%");
+        assert_eq!(NumberFormat::parse(".3~k").unwrap().format(18_400_000.0, it), "18,4\u{a0}Mln");
+        assert_eq!(it.short_months[4], "mag");
+        let br = Locale::of(Some("pt"));
+        assert_eq!(br.tag, "pt-BR", "Portuguese is Brazil's first");
+        assert_eq!(f.format(1234.5, br), "R$\u{a0}1.234,50");
+        let pt = Locale::of(Some("pt-PT"));
+        assert_eq!(f.format(1234.5, pt), "1\u{a0}234,50\u{a0}€");
+        assert_eq!(pt.short_months[9], "out");
     }
 
     #[test]
