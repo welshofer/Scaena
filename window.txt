@@ -1,0 +1,527 @@
+/Users/runner/work/Scaena/Scaena/target/mac/window/Scaena.app: replacing existing signature
+[1m[33mwarning[0m[1m: unused workspace dependency `jsonschema`[0m
+  [1m[94m--> [0mCargo.toml:79:1
+   [1m[94m|[0m
+[1m[94m79[0m [1m[94m|[0m jsonschema = "0.58"
+   [1m[94m|[0m [1m[33m^^^^^^^^^^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mnote[0m: `cargo::unused_workspace_dependencies` is set to `warn` by default
+[1m[96mhelp[0m: consider removing the workspace dependency `jsonschema`
+saved /Users/runner/work/Scaena/Scaena/target/mac/window/trails.scaena: 20 files
+  subset fonts/Fraunces-VF.ttf: 277 KB → 277 KB
+  subset fonts/Inter-VF.ttf: 464 KB → 353 KB
+  subset fonts/JetBrainsMono-VF.ttf: 149 KB → 130 KB
+  subset fonts/Fraunces-Italic-VF.ttf: 321 KB → 321 KB
+  subset fonts/Inter-Italic-VF.ttf: 481 KB → 366 KB
+  subset fonts/JetBrainsMono-Italic-VF.ttf: 153 KB → 133 KB
+  assets/trails-ridge.png → assets/a81b573617499dc538413626bd010673b5dde5f3318cf8a78aaecb0120baed87.png
+  fonts/Fraunces-Italic-VF.ttf → fonts/Fraunces-Italic-778e8ee27bcbd425.ttf
+  fonts/Fraunces-VF.ttf → fonts/Fraunces-744bb5b7a199b885.ttf
+  fonts/Inter-Italic-VF.ttf → fonts/Inter-Italic-0ceaef921fccd6b1.ttf
+  fonts/Inter-VF.ttf → fonts/Inter-d78901d009daf77a.ttf
+  fonts/JetBrainsMono-Italic-VF.ttf → fonts/JetBrainsMono-Italic-0cbc5e7fc9aaf6ee.ttf
+  fonts/JetBrainsMono-VF.ttf → fonts/JetBrainsMono-7d7c222450f58b2a.ttf
+the app's icon: AppIcon, 1024 px
+hang 1 at 0.1 s: 706 ms hang-1.txt
+hang 2 at 2.0 s: 5517 ms hang-2.txt
+hang 3 at 15.3 s: 2058 ms -
+the canvas as VoiceOver hears it: AXStaticText "Annual meeting · October 2026" 301 304 231 26;AXHeading "High Country Trails" 301 335 261 82;AXHeading "What a summer of Saturdays built." 301 430 231 27;
+screen: 1024 768 0 31 1024 677
+window as opened: 20 46 984 648
+the View menu: Show Tab Bar, Show All Tabs, missing value, missing value, Show Toolbar, Customize Toolbar…, missing value, Light Table, missing value, Show Timeline, Show Other Sizes, Show Grid, Show Safe Area, Show Issues, Show Source, missing value, Show Assistant, Show Inspector, Format, Animate, Document, missing value, missing value, Zoom In, Zoom Out, Fit Slide, missing value, Show Sidebar, Enter Full Screen
+hang 4 at 23.0 s: 373 ms -
+hang 5 at 27.1 s: 849 ms -
+narrowest, as it opens: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 889 676
+hang 6 at 32.4 s: 458 ms -
+hang 7 at 37.1 s: 1040 ms -
+narrowest, the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 600 676
+hang 8 at 43.1 s: 799 ms -
+View › Show Sidebar
+hang 9 at 45.4 s: 904 ms -
+hang 10 at 50.0 s: 1252 ms -
+narrowest, the slides and the inspector hidden: 600
+    AXSplitGroup 0 31 600 676:
+      AXGroup 0 31 600 676
+hang 11 at 52.5 s: 428 ms -
+hang 12 at 58.7 s: 1700 ms -
+narrowest, the slides hidden: 661
+    AXSplitGroup 0 31 661 676:
+      AXGroup 0 31 661 676
+View › Show Sidebar
+hang 13 at 69.5 s: 442 ms -
+View › Show Toolbar
+narrowest, the toolbar hidden: 889
+    AXSplitGroup 0 31 889 676:
+      AXGroup 8 63 220 636
+      AXSplitter 228 63 0 644
+      AXGroup 0 31 889 676
+hang 14 at 80.2 s: 580 ms -
+View › Show Toolbar
+hang 15 at 85.1 s: 274 ms hang-15.txt
+hang 16 at 85.5 s: 1415 ms hang-16.txt
+View › Show Source
+narrowest, the source shown: 1398
+    AXSplitGroup 0 31 1398 676:
+      AXGroup 8 39 220 660
+      AXSplitter 228 83 0 624
+      AXGroup 0 31 1398 676
+    AXSplitGroup 0 31 1097 676:
+      AXGroup 0 31 662 676
+      AXSplitter 662 83 1 624
+      AXGroup 663 31 434 676
+View › Show Source
+hang 17 at 98.9 s: 467 ms hang-17.txt
+window fitted to the screen: 0 31 1024 676
+what it holds, three deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton "View" 236 39 53 36
+    AXGroup "group" 293 31 52 52
+      AXMenuButton #zoom "Zoom" 297 39 44 36
+    AXButton #add-slide "Add Slide" 505 31 49 52
+    AXGroup "group" 554 31 81 52
+      AXPopUpButton "pop up button" 558 39 73 36
+    AXGroup "group" 635 31 49 52
+      AXPopUpButton #insert-Text "Text" 639 39 41 36
+    AXGroup "group" 684 31 43 52
+      AXMenuButton #insert-Shape "Shape" 690 39 38 36
+    AXGroup "group" 727 31 41 52
+      AXMenuButton #insert-Image "Image" 728 39 40 36
+    AXGroup "group" 768 31 43 52
+      AXMenuButton #insert-Chart "Chart" 769 39 42 36
+    AXGroup "group" 811 31 40 52
+      AXCheckBox #tab-format "Format" 816 43 31 28
+    AXGroup "group" 851 31 37 52
+      AXCheckBox #tab-animate "Animate" 856 43 28 28
+    AXGroup "group" 888 31 41 52
+      AXCheckBox #tab-document "Document" 891 43 28 28
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+      AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 345 31 160 52
+the slide: 256 272 439 246
+click at 475, 395
+hang 18 at 136.4 s: 1427 ms hang-18.txt
+the inspector's rotation: 0; size: 144
+drag at 475, 395, 565, 435
+hang 19 at 161.7 s: 3127 ms hang-19.txt
+the drop landed: within 3 s
+hang 20 at 165.9 s: 1274 ms hang-20.txt
+right at 475, 395
+hang 21 at 173.1 s: 610 ms hang-21.txt
+Tab: the canvas says "“What a summer of Saturdays built.” selected, 4 of 4 · Return goes into it or its handles" at /Users/runner/work/Scaena/Scaena/apps/mac/frames.js: execution error: Error: Error: nothing is identified as hint (-2700); the slide at 256 272 439 246
+frontmost: true
+the toolbar's Text: 639 39 41 36
+click at 659, 57
+hang 22 at 205.5 s: 2744 ms hang-22.txt
+the text inserted, typed in: within 0 s
+hang 23 at 213.4 s: 2957 ms hang-23.txt
+hang 24 at 217.4 s: 1166 ms hang-24.txt
+the words typed, shown: within 6 s
+hang 25 at 221.6 s: 2783 ms hang-25.txt
+the code pasted, its chip: Rust
+the slide holds, before:
+hang 26 at 229.6 s: 1805 ms hang-26.txt
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 90
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+Insert › Text: Display, Headline, Title, Body, Caption, Label, Value, Lede, Kicker, Figure, Quote, Verse, Numeral, Hero, Code, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true
+insert: menu item Display of menu Text of menu item Text of menu Insert of menu bar item Insert of menu bar 1 of application process Scaena
+the slide holds, after:
+hang 27 at 236.1 s: 2560 ms hang-27.txt
+AXStaticText "Annual meeting · October 2026" 283 293 255 30
+AXHeading "High Country Trails" 283 328 287 90
+AXHeading "What a summer of Saturdays built." 283 432 255 30
+AXStaticText "Seen on a Mac" 381 380 222 12
+AXHeading "Display" 381 450 189 47
+hang 28 at 239.4 s: 702 ms hang-28.txt
+hang 29 at 242.2 s: 745 ms hang-29.txt
+Insert › Map…: Where at 297 316 430 24, the key's field at 297 255 430 24
+hang 30 at 250.1 s: 318 ms hang-30.txt
+View › Show Safe Area
+View › Show Safe Area
+fitted, the canvas: 256 272 439 246
+hang 31 at 265.3 s: 943 ms hang-31.txt
+zoomed twice, the canvas: 228 148 495 494; the zoom reads 46%, against the slide's own size
+hang 32 at 274.7 s: 1175 ms hang-32.txt
+zoomed in, nothing selected, → pans: within 1 s; the canvas reads Slide 1
+Shift+→ pans: within 0 s
+hang 33 at 278.3 s: 582 ms hang-33.txt
+PageDown, the canvas shows: Slide 2, within 0 s, and says "" (Slide 2 shown); the canvas at 228 148 495 494 (as zoomed: 228 148 495 494), the zoom reading 46%
+hang 34 at 298.1 s: 759 ms hang-34.txt
+PageUp, the canvas shows: Slide 1, within 0 s, and says "Slide 1 shown" (Slide 1 shown)
+fitted again, the canvas: 256 272 439 246
+click at 529, 57
+hang 35 at 312.6 s: 1225 ms hang-35.txt
+hang 36 at 313.9 s: 1066 ms hang-36.txt
+hang 37 at 317.6 s: 432 ms hang-37.txt
+hang 38 at 319.1 s: 274 ms hang-38.txt
+hang 39 at 319.4 s: 315 ms -
+hang 40 at 320.4 s: 411 ms hang-40.txt
+hang 41 at 320.9 s: 565 ms -
+hang 42 at 321.4 s: 358 ms -
+the gallery drawn: not within 30 s
+one search of the app for the picker's first slide: 34 s
+what the app shows: AXWindow/AXStandardWindow "trails.scaena" 0 31 1024 676, holding 6
+the window, four deep:
+AXWindow "trails.scaena" 0 31 1024 676
+  AXGroup "group" 0 31 1024 676
+    AXSplitGroup "split group" 0 31 1024 676
+      AXGroup "group" 8 39 220 660
+        AXScrollArea "scroll area" 8 83 220 616
+      AXSplitter "splitter" 228 83 0 624
+      AXGroup "group" 0 31 1024 676
+        AXGroup #canvas "group" 256 272 439 246
+        AXScrollArea "scroll area" 724 83 300 624
+  AXToolbar "toolbar" 0 31 1024 52
+    AXButton "Hide Sidebar" 181 31 47 52
+    AXGroup "group" 232 31 61 52
+      AXMenuButton #rectangle.on.rectangle "View" 236 39 53 36
+    AXGroup "group" 293 31 52 52
+      AXMenuButton #zoom "Zoom" 297 39 44 36
+    AXButton #add-slide "Add Slide" 505 31 49 52
+    AXGroup "group" 554 31 81 52
+      AXPopUpButton "pop up button" 558 39 73 36
+        AXButton "play" 558 39 36 36
+        AXMenuButton "menu button" 595 39 36 36
+    AXGroup "group" 635 31 49 52
+      AXPopUpButton #insert-Text "Text" 639 39 41 36
+        AXButton "insert textbox" 639 39 41 36
+    AXGroup "group" 684 31 43 52
+      AXMenuButton #insert-Shape "Shape" 690 39 38 36
+    AXGroup "group" 727 31 41 52
+      AXMenuButton #insert-Image "Image" 728 39 40 36
+    AXGroup "group" 768 31 43 52
+      AXMenuButton #insert-Chart "Chart" 769 39 42 36
+    AXGroup "group" 811 31 40 52
+      AXCheckBox #tab-format "Format" 816 43 31 28
+    AXGroup "group" 851 31 37 52
+      AXCheckBox #tab-animate "Animate" 856 43 28 28
+    AXGroup "group" 888 31 41 52
+      AXCheckBox #tab-document "Document" 891 43 28 28
+    AXPopUpButton "more toolbar items" 979 38 38 38
+  AXButton "close button" 18 49 16 16
+  AXButton "full screen button" 64 49 16 16
+    AXGroup "group" 65 50 14 14
+      AXGroup "group" 65 50 14 14
+  AXButton "minimize button" 41 49 16 16
+  AXStaticText "text" 345 31 160 52
+no sections in the picker: /Users/runner/work/Scaena/Scaena/apps/mac/frames.js: execution error: Error: Error: nothing is identified as section-frameworks (-2700)
+hang 43 at 375.2 s: 295 ms -
+the Slide menu: New Slide, New Step, missing value, Duplicate Slide, Delete Slide, missing value, Write This Slide Again…, Add a Slide About…, true, true, false, true, true, false, true, true
+hang 44 at 381.1 s: 1683 ms -
+New Slide, the canvas shows: Slide 2, within 0 s
+hang 45 at 384.6 s: 1234 ms -
+⌘Z, the canvas shows: Slide 1, within 0 s
+⌘Z, the canvas says: 
+hang 46 at 405.2 s: 457 ms -
+View › Show Timeline
+the slide, the timeline hidden: 439 × 246; shown: 439 × 246
+click at 116, 132
+hang 47 at 427.9 s: 8293 ms -
+ten slides down, the canvas shows: Slide 11
+the chart's lane: 438 673 273 12
+click at 705, 679
+hang 48 at 443.3 s: 609 ms -
+the chart's data: Trails Funding; small multiples by: AXRadioButton "None" 754 372 69 24;AXRadioButton "Source" 824 372 68 24;AXRadioButton "Amount" 893 372 68 24;
+click at 475, 342
+hang 49 at 456.0 s: 292 ms -
+View › Show Timeline
+hang 50 at 465.8 s: 955 ms -
+the toolbar's Format: 816 43 31 28; Animate: 856 43 28 28; Document: 891 43 28 28
+the theme's paper: "Paper" at 810 510 36 16, set in "Background, Text on Accent" at 810 527 72 26, its field at 898 520 96 24
+the theme's paper-2: "Paper 2" at 810 574 47 16, set in "Background 2" at 810 591 67 13, its field at 898 578 96 24
+the theme's paper: 898 520 96 24, #101014
+click at 946, 532
+the paper's color typed and Return: the app answers
+hang 51 at 575.3 s: 490 ms -
+typed and Return: #2B1B3D; the Edit menu: Undo, Redo, true, false
+hang 52 at 588.9 s: 694 ms -
+⌘Z: #101014; the Edit menu: Undo, Redo, true, true
+hang 53 at 605.0 s: 814 ms -
+⌘⇧Z: #2B1B3D
+⌘Z again: #101014
+click at 651, 481
+hang 54 at 635.5 s: 1926 ms -
+a picture too large, pasted: the app answers
+a picture too large, pasted: no alert: 0; the copy went in: within 0 s
+hang 55 at 644.1 s: 465 ms -
+click at 299, 481
+hang 56 at 648.5 s: 2287 ms -
+a picture copied in the Finder, pasted: objects on the slide 4, then 5
+click at 0, 768
+drag at 365, 456, 475, 468
+hang 57 at 696.5 s: 839 ms -
+a stroke of the pen: the canvas says "A drawing drawn on this slide" (A drawing drawn on this slide), and holds 1 drawing (1)
+the pen after a stroke and Escape: the Insert menu offers Drawing (Drawing: the pen is down)
+hang 58 at 705.0 s: 603 ms -
+hang 59 at 707.6 s: 740 ms -
+the light table: cover 24 107 319 198, agenda 363 107 319 198, promise 24 325 319 199, the slider 498 687 180 14
+click at 676, 694
+the slider at its end: cover 24 107 658 389, agenda 24 516 658 389
+hang 60 at 755.8 s: 537 ms -
+the light table put away, the slides down the side: 0 768 0 0
+hang 61 at 792.4 s: 1201 ms -
+New from a Prompt: the windows New from a Prompt, trails.scaena ; the topic 325 93 477 32, Generate 736 668 80 24
+the outline: the big idea 208 423 608 24, the beats 208 455 608 169, Write the Slides 696 632 120 24
+the length it asks for: 5–10 slides
+hang 62 at 816.3 s: 430 ms -
+Escape: the windows trails.scaena 
+hang 63 at 818.4 s: 496 ms -
+Settings: the windows Assistant, trails.scaena ; Anthropic's field 262 309 472 16
+click at 498, 317
+a key of Gemini's form in Anthropic's field: the hint 264 346 182 15
+the main thread's hangs over 250 ms:
+  63 hang(s), 74925 ms in all, the longest first:
+  hang 47, at 427.9 s: 8293 ms
+    (not sampled)
+  hang 2, at 2.0 s: 5517 ms [Swift 100%]
+    no frame of the app's on its heaviest path (159 of 612 samples busy)
+  hang 19, at 161.7 s: 3127 ms [Rust 54%]
+        7 <fearless_simd::generated::neon::Neon as fearless_simd::generated::simd_trait::Simd>::vectorize::vectorize_neon
+        7 <vello_cpu::fine::Fine>::indexed_fill
+        7 <vello_cpu::coarse::depth::DepthBuffer>::for_each_unset_run_and_write
+        7 vello_cpu::fine::rasterize_region
+       13 <vello_cpu::dispatch::single_threaded::SingleThreadedDispatcher>::bucket_and_rasterize
+       13 <vello_cpu::dispatch::single_threaded::SingleThreadedDispatcher>::rasterize_with
+       13 <vello_cpu::dispatch::single_threaded::SingleThreadedDispatcher as vello_cpu::dispatch::Dispatcher>::rasterize
+       13 <vello_cpu::render::RenderContext>::render_with
+       13 <scaena_paint::cpu::CpuPainter>::draw
+       17 <scaena_paint::cpu::CpuPainter as scaena_paint::Painter>::paint
+       32 <scaena_paint::Backdrop as scaena_core::lint::Backdrop>::paint
+       32 scaena_engine::lint::contrast::behind::{closure}
+  hang 23, at 213.4 s: 2957 ms [Rust 71%]
+        1 hashbrown::alloc::inner::do_alloc
+        1 <hashbrown::raw::RawTable as core::clone::Clone>::clone_from
+        2 <indexmap::inner::Core as core::clone::Clone>::clone_from
+        2 <alloc::vec::Vec as core::clone::Clone>::clone
+        2 <core::option::Option>::cloned
+        2 <scaena_core::model::check::Checker>::node_types
+        6 <scaena_core::model::check::Checker>::unknown
+       13 <scaena_core::model::check::Checker>::union::{closure}
+       13 core::iter::adapters::map::map_fold::{closure}
+       13 <core::slice::iter::Iter as core::iter::traits::iterator::Iterator>::fold
+       13 <core::iter::adapters::map::Map as core::iter::traits::iterator::Iterator>::fold
+       13 <core::iter::adapters::map::Map as core::iter::traits::iterator::Iterator>::for_each
+  hang 25, at 221.6 s: 2783 ms [Swift 53%]
+        9 static JSONValue.__derived_enum_equals(_:_:)
+        9 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+  hang 22, at 205.5 s: 2744 ms [Swift 87%]
+       42 static JSONValue.__derived_enum_equals(_:_:)
+       42 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+  hang 27, at 236.1 s: 2560 ms [Swift 54%]
+        6 <u8 as core::slice::cmp::SliceOrd>::compare
+       12 <[u8; _] as core::cmp::Ord>::cmp
+       13 <alloc::collections::btree::node::NodeRef>::find_key_index
+       27 <alloc::collections::btree::node::NodeRef>::search_tree
+       27 <alloc::collections::btree::map::BTreeMap>::entry
+       28 scaena_engine::lint::contrast::under
+       42 <scaena_engine::lint::contrast::Pass>::state
+       92 <scaena_engine::lint::Linting>::advance
+       95 <scaena_engine::lint::Linting>::stepping
+      123 <scaena_engine::lint::Linting>::step
+      123 scaena_engine::lint::lint_in
+      123 scaena_engine::lint::lint_state
+  hang 56, at 648.5 s: 2287 ms
+    (not sampled)
+  hang 3, at 15.3 s: 2058 ms
+    (not sampled)
+  hang 54, at 635.5 s: 1926 ms
+    (not sampled)
+  hang 26, at 229.6 s: 1805 ms [Swift 99%]
+       45 static JSONValue.__derived_enum_equals(_:_:)
+       45 protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+  hang 12, at 58.7 s: 1700 ms
+    (not sampled)
+  hang 44, at 381.1 s: 1683 ms
+    (not sampled)
+  hang 18, at 136.4 s: 1427 ms [Swift 100%]
+    no frame of the app's on its heaviest path (299 of 590 samples busy)
+  hang 16, at 85.5 s: 1415 ms [Swift 100%]
+    no frame of the app's on its heaviest path (1 of 616 samples busy)
+  hang 20, at 165.9 s: 1274 ms [Swift 100%]
+    no frame of the app's on its heaviest path (3 of 225 samples busy)
+  hang 10, at 50.0 s: 1252 ms
+    (not sampled)
+  hang 45, at 384.6 s: 1234 ms
+    (not sampled)
+  hang 35, at 312.6 s: 1225 ms [Swift 60%]
+      295 JSONValue.init(from:)
+      295 protocol witness for Decodable.init(from:) in conformance JSONValue
+      296 ThemeText.init(from:)
+      302 protocol witness for Decodable.init(from:) in conformance ThemeText
+      302 Envelope.init(from:)
+      302 protocol witness for Decodable.init(from:) in conformance Envelope<A>
+      302 static ScaenaSession.decode<A>(_:as:)
+      303 ScaenaSession.call<A>(_:_:as:)
+      309 ScaenaSession.themeText()
+      309 DeckEditor.startersKey(height:)
+      319 DeckEditor.starters(_:after:height:)
+      546 LayoutPicker.draw()
+  hang 61, at 792.4 s: 1201 ms
+    (not sampled)
+  hang 32, at 274.7 s: 1175 ms
+    no frame of the app's on its heaviest path (0 of 0 samples busy)
+  hang 24, at 217.4 s: 1166 ms
+    no frame of the app's on its heaviest path (0 of 0 samples busy)
+  hang 36, at 313.9 s: 1066 ms [Swift 56%]
+      235 JSONValue.init(from:)
+      235 protocol witness for Decodable.init(from:) in conformance JSONValue
+      241 ThemeText.init(from:)
+      253 protocol witness for Decodable.init(from:) in conformance ThemeText
+      253 Envelope.init(from:)
+      253 protocol witness for Decodable.init(from:) in conformance Envelope<A>
+      254 static ScaenaSession.decode<A>(_:as:)
+      256 ScaenaSession.call<A>(_:_:as:)
+      267 ScaenaSession.themeText()
+      267 DeckEditor.startersKey(height:)
+      277 DeckEditor.starters(_:after:height:)
+      511 LayoutPicker.draw()
+  hang 7, at 37.1 s: 1040 ms
+    (not sampled)
+  hang 50, at 465.8 s: 955 ms
+    (not sampled)
+  hang 31, at 265.3 s: 943 ms [Swift 100%]
+    no frame of the app's on its heaviest path (28 of 695 samples busy)
+  hang 9, at 45.4 s: 904 ms
+    (not sampled)
+  hang 5, at 27.1 s: 849 ms
+    (not sampled)
+  hang 57, at 696.5 s: 839 ms
+    (not sampled)
+  hang 53, at 605.0 s: 814 ms
+    (not sampled)
+  hang 8, at 43.1 s: 799 ms
+    (not sampled)
+  hang 34, at 298.1 s: 759 ms [Swift 89%]
+    no frame of the app's on its heaviest path (167 of 435 samples busy)
+  hang 29, at 242.2 s: 745 ms [Swift 100%]
+    no frame of the app's on its heaviest path (3 of 741 samples busy)
+  hang 59, at 707.6 s: 740 ms
+    (not sampled)
+  hang 1, at 0.1 s: 706 ms [Swift 100%]
+    no frame of the app's on its heaviest path (125 of 577 samples busy)
+  hang 28, at 239.4 s: 702 ms
+    no frame of the app's on its heaviest path (0 of 0 samples busy)
+  hang 52, at 588.9 s: 694 ms
+    (not sampled)
+  hang 21, at 173.1 s: 610 ms [Swift 100%]
+    no frame of the app's on its heaviest path (1 of 846 samples busy)
+  hang 48, at 443.3 s: 609 ms
+    (not sampled)
+  hang 58, at 705.0 s: 603 ms
+    (not sampled)
+  hang 33, at 278.3 s: 582 ms [Swift 83%]
+    no frame of the app's on its heaviest path (253 of 416 samples busy)
+  hang 14, at 80.2 s: 580 ms
+    (not sampled)
+  hang 41, at 320.9 s: 565 ms
+    (not sampled)
+  hang 60, at 755.8 s: 537 ms
+    (not sampled)
+  hang 63, at 818.4 s: 496 ms
+    (not sampled)
+  hang 51, at 575.3 s: 490 ms
+    (not sampled)
+  hang 17, at 98.9 s: 467 ms [Swift 100%]
+    no frame of the app's on its heaviest path (1 of 692 samples busy)
+  hang 55, at 644.1 s: 465 ms
+    (not sampled)
+  hang 6, at 32.4 s: 458 ms
+    (not sampled)
+  hang 46, at 405.2 s: 457 ms
+    (not sampled)
+  hang 13, at 69.5 s: 442 ms
+    (not sampled)
+  hang 37, at 317.6 s: 432 ms [Rust 54%]
+        2 <[u8]>::split_at_unchecked
+        4 <[u8]>::split_at
+        5 serde_json::ser::format_escaped_str_contents
+        5 serde_json::ser::format_escaped_str
+        5 <&mut serde_json::ser::Serializer as serde_core::ser::Serializer>::serialize_str
+        5 <alloc::string::String as serde_core::ser::Serialize>::serialize
+        5 <scaena_core::model::theme::PromptShape as serde_core::ser::Serialize>::serialize
+       10 <scaena_core::model::theme::Prompt as serde_core::ser::Serialize>::serialize
+       19 <&mut serde_json::ser::Serializer as serde_core::ser::Serializer>::serialize_some
+       19 <core::option::Option as serde_core::ser::Serialize>::serialize
+       24 <scaena_core::model::theme::Slot as serde_core::ser::Serialize>::serialize
+       54 <&scaena_core::model::theme::Slot as serde_core::ser::Serialize>::serialize
+  hang 62, at 816.3 s: 430 ms
+    (not sampled)
+  hang 11, at 52.5 s: 428 ms
+    (not sampled)
+  hang 40, at 320.4 s: 411 ms [Swift 62%]
+      110 JSONValue.init(from:)
+      110 protocol witness for Decodable.init(from:) in conformance JSONValue
+      112 ThemeText.init(from:)
+      114 protocol witness for Decodable.init(from:) in conformance ThemeText
+      114 Envelope.init(from:)
+      114 protocol witness for Decodable.init(from:) in conformance Envelope<A>
+      115 static ScaenaSession.decode<A>(_:as:)
+      115 ScaenaSession.call<A>(_:_:as:)
+      122 ScaenaSession.themeText()
+      122 DeckEditor.startersKey(height:)
+      123 DeckEditor.starters(_:after:height:)
+      207 LayoutPicker.draw()
+  hang 4, at 23.0 s: 373 ms
+    (not sampled)
+  hang 42, at 321.4 s: 358 ms
+    (not sampled)
+  hang 30, at 250.1 s: 318 ms
+    no frame of the app's on its heaviest path (0 of 0 samples busy)
+  hang 39, at 319.4 s: 315 ms
+    (not sampled)
+  hang 43, at 375.2 s: 295 ms
+    (not sampled)
+  hang 49, at 456.0 s: 292 ms
+    (not sampled)
+  hang 15, at 85.1 s: 274 ms [Swift 100%]
+    no frame of the app's on its heaviest path (2 of 623 samples busy)
+  hang 38, at 319.1 s: 274 ms [Rust 69%]
+      417 <[u8]>::split_first
+      417 serde_json::ser::format_escaped_str_contents
+      425 serde_json::ser::format_escaped_str
+      427 <&mut serde_json::ser::Serializer as serde_core::ser::Serializer>::serialize_str
+      427 <alloc::string::String as serde_core::ser::Serialize>::serialize
+      427 <scaena_core::model::theme::Prompt as serde_core::ser::Serialize>::serialize
+      468 <&mut serde_json::ser::Serializer as serde_core::ser::Serializer>::serialize_some
+      468 <core::option::Option as serde_core::ser::Serialize>::serialize
+      926 <scaena_core::model::theme::Slot as serde_core::ser::Serialize>::serialize
+     1060 <&scaena_core::model::theme::Slot as serde_core::ser::Serialize>::serialize
+     1093 <scaena_core::model::theme::Layout as serde_core::ser::Serialize>::serialize
+     1110 <&scaena_core::model::theme::Layout as serde_core::ser::Serialize>::serialize
+  the app's frames by the hang time they were on the heaviest path for:
+       7332 ms  protocol witness for static Equatable.== infix(_:_:) in conformance JSONValue
+       7332 ms  static JSONValue.__derived_enum_equals(_:_:)
+       3127 ms  <fearless_simd::generated::neon::Neon as fearless_simd::generated::simd_trait::Simd>::vectorize::vectorize_neon
+       3127 ms  <scaena_paint::Backdrop as scaena_core::lint::Backdrop>::paint
+       3127 ms  <scaena_paint::cpu::CpuPainter as scaena_paint::Painter>::paint
+       3127 ms  <scaena_paint::cpu::CpuPainter>::draw
+       3127 ms  <vello_cpu::coarse::depth::DepthBuffer>::for_each_unset_run_and_write
+       3127 ms  <vello_cpu::dispatch::single_threaded::SingleThreadedDispatcher as vello_cpu::dispatch::Dispatcher>::rasterize
+       3127 ms  <vello_cpu::dispatch::single_threaded::SingleThreadedDispatcher>::bucket_and_rasterize
+       3127 ms  <vello_cpu::dispatch::single_threaded::SingleThreadedDispatcher>::rasterize_with
+       3127 ms  <vello_cpu::fine::Fine>::indexed_fill
+       3127 ms  <vello_cpu::render::RenderContext>::render_with
+       3127 ms  scaena_engine::lint::contrast::behind::{closure}
+       3127 ms  vello_cpu::fine::rasterize_region
+       2957 ms  <alloc::vec::Vec as core::clone::Clone>::clone
