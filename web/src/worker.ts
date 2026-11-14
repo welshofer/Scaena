@@ -28,6 +28,7 @@ import init, {
 import { deleteKept, keptBundle, newBundle, readAll, remove, renameKept, write } from "./folders";
 import type { Decision, Outlined } from "./generate";
 import { sha256 } from "./recovery";
+import { nameFor } from "./named";
 import { within } from "./within";
 import { finding } from "./words";
 import type {
@@ -1464,11 +1465,6 @@ async function retheme(
   return { themed, source: next, edited: await edit(next, index, at) };
 }
 
-/** A bundle's name for a deck titled `title`: lowercase, its words joined by `-`. */
-function nameFor(title: string): string {
-  const words = title.normalize("NFKD").toLowerCase().replace(/['’]/g, "").match(/[\p{L}\p{N}]+/gu) ?? [];
-  return words.join("-").slice(0, 64) || "untitled";
-}
 
 /** A bundle's files, by their paths inside it, opened. */
 function bundleOf(files: Map<string, Uint8Array>): Player {
