@@ -25,8 +25,8 @@
 //! the language's TeX patterns (`hyphen`). A line that ends at one draws `-` in its look,
 //! and breaking counts it.
 //!
-//! Lines break at the box width, or at `measure` characters (`ch`, the advance of `0`)
-//! if that is narrower, and align across the box (SPEC §3.4): `start`, `center`, or
+//! Lines break at the box width, or at `measure` characters (`ch`, the advance of `0`; in
+//! Japanese, Chinese, or Korean `ic`, an em) if that is narrower, and align across the box (SPEC §3.4): `start`, `center`, or
 //! `end`, in the paragraph's direction. The engine places each line itself, from parley's
 //! left-aligned lines, so lines broken at widths of their own (`pretty`, hanging quotes)
 //! align like any other, in either direction.
@@ -1030,15 +1030,25 @@ impl TextEngine {
         Ok((run, read.width))
     }
 
-    /// `ch` in the node's look: the advance of `0` (CSS `ch`), which `measure` counts in.
+    /// What `measure` counts in, in the node's look: `ch`, the advance of `0` (CSS `ch`), and
+    /// in a text in Japanese, Chinese, or Korean `ic`, an em: the advance of a letter of those
+    /// scripts, which CSS's `ic` measures by 水 and takes as an em where a font lacks it, as a
+    /// subset may. A `0` is about half one, so a display role's 18 characters are 18 letters of
+    /// a Japanese headline, not the 9 or so that 18 zeros hold (W1's dogfood 20: a close's claim
+    /// stood five kana and kanji a line, shrinking kept it five lines at any size, and it ran
+    /// over the thanks under it).
     fn ch(&mut self, fonts: &mut BundleFonts, theme: &Theme, spec: &TextSpec) -> Result<f32, EngineError> {
-        let mut builder = self.lcx.ranged_builder(&mut fonts.cx, "0", 1.0, false);
+        if cjk(spec.lang.as_deref()) {
+            return Ok(spec.role.size);
+        }
+        let unit = "0";
+        let mut builder = self.lcx.ranged_builder(&mut fonts.cx, unit, 1.0, false);
         for prop in style_props(theme, &spec.role, spec, None)? {
             builder.push_default(prop);
         }
         let features = font_features(theme, &spec.role, spec, None, true)?;
         builder.push_default(StyleProperty::FontFeatures(FontFeatures::List(Cow::Owned(features))));
-        let mut layout = builder.build("0");
+        let mut layout = builder.build(unit);
         layout.break_all_lines(None);
         Ok(layout.width())
     }
