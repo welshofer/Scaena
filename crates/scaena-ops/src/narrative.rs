@@ -4589,7 +4589,12 @@ fn led(item: &Item) -> Option<(String, String)> {
     }
     let figure = figure(whole).filter(|f| whole.starts_with(f.as_str()))?;
     let rest = whole[figure.len()..].trim();
-    let words = rest.split_whitespace().count();
+    // Words a script sets without spaces run on as words do: "税込、標準バッテリー込み" after
+    // "298,000円" is its meaning, though no space parts its words (W1's dogfood 20).
+    let words = match rest.chars().filter(|c| unspaced(*c)).count() {
+        0 => rest.split_whitespace().count(),
+        letters => letters,
+    };
     (words >= 2 && rest.starts_with(|c: char| c.is_alphabetic())).then(|| (figure, rest.to_string()))
 }
 
@@ -10170,6 +10175,8 @@ mod tests {
         let said = texts(&made(yen));
         assert!(said.iter().any(|t| t == "298,000円"), "{said:?}");
         assert!(said.iter().all(|t| !t.starts_with('円')), "{said:?}");
+        // And the words after it are its meaning, never dropped for the title.
+        assert!(said.iter().any(|t| t == "税込、標準バッテリー込み"), "{said:?}");
         let mut quote = slides.iter().find(|s| s.layout_suggestion == "Quote").unwrap().clone();
         quote.key_bullets =
             vec!["\"We patch the Ridge Loop every spring now. It used to be every five years.\" \u{2014} Dana Ruiz, lead ranger".into()];
