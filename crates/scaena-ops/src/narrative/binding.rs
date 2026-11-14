@@ -624,6 +624,13 @@ mod tests {
         assert_eq!(named(&month(2026, 3), "Mär"), Named::Month { short: true, long: false });
         assert_eq!(named(&month(2026, 9), "Sept"), Named::Month { short: true, long: false });
         assert_eq!(named(&month(2026, 6), "Juni"), Named::Month { short: false, long: true });
+        // Italian's and Portuguese's, the locales' own (R1's agent dogfood 14: "Gen", "Mag", "Giu").
+        assert_eq!(named(&month(2026, 1), "Gen"), Named::Month { short: true, long: false });
+        assert_eq!(named(&month(2026, 5), "Mag"), Named::Month { short: true, long: false });
+        assert_eq!(named(&month(2026, 10), "Ott"), Named::Month { short: true, long: false });
+        assert_eq!(named(&month(2026, 10), "Out"), Named::Month { short: true, long: false });
+        assert_eq!(named(&month(2026, 12), "dicembre"), Named::Month { short: false, long: true });
+        assert_eq!(named(&month(2026, 2), "fevereiro"), Named::Month { short: false, long: true });
         assert_eq!(named(&month(2026, 3), "Mä"), Named::No, "two letters name no month");
         assert_eq!(named(&month(2026, 1), "Ju"), Named::No);
         // A day within the month is not the month.

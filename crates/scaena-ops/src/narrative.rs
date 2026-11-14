@@ -7614,22 +7614,22 @@ fn label(lang: &str, word: &str) -> Option<&'static str> {
     if let Some(m) = MONTHS.iter().position(|w| *w == word) {
         return Some(match lang {
             // The locales numbers and dates are written in, where Scaena has one.
-            "es" | "fr" | "de" | "nl" => scaena_core::format::Locale::of(Some(lang)).short_months[m],
+            "es" | "fr" | "de" | "pt" | "it" | "nl" => scaena_core::format::Locale::of(Some(lang)).short_months[m],
             _ => SHORT_MONTHS[at][m],
         });
     }
     LABELS.iter().find(|(w, _)| *w == word).map(|(_, said)| said[at])
 }
 
-/// The months, short, in Narrato's languages by [`label`]'s order; Spanish, French, German, and
-/// Dutch are the locales', so theirs are empty here.
+/// The months, short, in Narrato's languages by [`label`]'s order; Spanish, French, German,
+/// Portuguese, Italian, and Dutch are the locales', so theirs are empty here.
 #[rustfmt::skip]
 const SHORT_MONTHS: [[&str; 12]; 14] = [
     ["", "", "", "", "", "", "", "", "", "", "", ""],
     ["", "", "", "", "", "", "", "", "", "", "", ""],
     ["", "", "", "", "", "", "", "", "", "", "", ""],
-    ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"],
-    ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
+    ["", "", "", "", "", "", "", "", "", "", "", ""],
     ["", "", "", "", "", "", "", "", "", "", "", ""],
     ["led", "úno", "bře", "dub", "kvě", "čvn", "čvc", "srp", "zář", "říj", "lis", "pro"],
     ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"],
