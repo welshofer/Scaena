@@ -4616,6 +4616,190 @@ fn led(item: &Item) -> Option<(String, String)> {
     (words >= 2 && rest.starts_with(|c: char| c.is_alphabetic())).then(|| (figure, rest.to_string()))
 }
 
+/// The figure an item ends on and the words before it, the small words that led into the
+/// figure taken off with it, where no label sets them apart: "Varese perde il 31,5 %" →
+/// ("31,5 %", "Varese perde"), "Revenue rose to $4.1M" → ("$4.1M", "Revenue rose"). None for an
+/// item that is its figure alone, leads with one, or ends otherwise.
+fn ended(item: &Item, lang: &str) -> Option<(String, String)> {
+    let whole = item.whole.trim().trim_end_matches(['.', '!']);
+    if item.label.is_some() || numeric(whole) || led(item).is_some() {
+        return None;
+    }
+    let figure = figures_in(whole).pop().filter(|f| whole.ends_with(f.as_str()))?;
+    let mut words: Vec<&str> = whole[..whole.len() - figure.len()].split_whitespace().collect();
+    while let Some(last) = words.last() {
+        let w = last.trim_end_matches([',', ':', ';', '\u{2013}', '\u{2014}', '-']).to_lowercase();
+        if w.is_empty() || LEADING_IN.iter().chain(leading_in(lang)).any(|l| *l == w) {
+            words.pop();
+        } else {
+            break;
+        }
+    }
+    let rest = words.join(" ");
+    (words.len() >= 2 && rest.starts_with(|c: char| c.is_alphabetic()) && figures_in(&rest).is_empty())
+        .then_some((figure, rest))
+}
+
+/// The small words that lead a sentence into its figure in English, "rose to 12%", "fell by a
+/// third", "at 40", which go with the figure where it is set apart.
+const LEADING_IN: &[&str] = &["to", "by", "at", "of", "is", "was", "are", "were", "the", "a", "an", "about", "around"];
+
+/// [`LEADING_IN`] in the deck's language (BCP 47).
+fn leading_in(lang: &str) -> &'static [&'static str] {
+    match lang.split('-').next().unwrap_or(lang) {
+        "it" => &[
+            "il",
+            "lo",
+            "la",
+            "l'",
+            "l\u{2019}",
+            "i",
+            "gli",
+            "le",
+            "a",
+            "al",
+            "allo",
+            "alla",
+            "ai",
+            "agli",
+            "alle",
+            "di",
+            "del",
+            "della",
+            "dei",
+            "da",
+            "dal",
+            "è",
+            "sono",
+            "circa",
+            "per",
+        ],
+        "es" => &[
+            "el", "la", "los", "las", "a", "al", "de", "del", "en", "es", "son", "un", "una", "unos", "unas", "un",
+            "cerca", "casi",
+        ],
+        "fr" => &[
+            "le",
+            "la",
+            "les",
+            "l'",
+            "l\u{2019}",
+            "à",
+            "au",
+            "aux",
+            "de",
+            "du",
+            "des",
+            "est",
+            "sont",
+            "un",
+            "une",
+            "environ",
+        ],
+        "de" => {
+            &["auf", "um", "von", "bei", "mit", "ist", "sind", "der", "die", "das", "den", "dem", "rund", "etwa", "ca."]
+        }
+        "pt" => &[
+            "o", "a", "os", "as", "ao", "aos", "à", "às", "de", "do", "da", "dos", "das", "em", "no", "na", "é", "são",
+            "para", "cerca",
+        ],
+        "nl" => &["de", "het", "een", "tot", "op", "van", "naar", "is", "zijn", "rond", "ongeveer"],
+        _ => &[],
+    }
+}
+
+/// The words that bound a figure, "under 20", "sotto il 22 %", "up to 40": a mark the figure is
+/// held to, not a value, in English and in Narrato's languages that write figures with letters
+/// between (R1's agent dogfood 14).
+fn bounds(lang: &str) -> &'static [&'static str] {
+    match lang.split('-').next().unwrap_or(lang) {
+        "it" => &[
+            "sotto",
+            "sopra",
+            "oltre",
+            "fino a",
+            "almeno",
+            "meno di",
+            "più di",
+            "al di sotto di",
+            "al di sopra di",
+            "non oltre",
+        ],
+        "es" => &[
+            "bajo",
+            "por debajo de",
+            "por encima de",
+            "hasta",
+            "menos de",
+            "más de",
+            "al menos",
+            "como mínimo",
+            "como máximo",
+        ],
+        "fr" => &[
+            "sous",
+            "en dessous de",
+            "au-dessus de",
+            "jusqu'à",
+            "jusqu\u{2019}à",
+            "moins de",
+            "plus de",
+            "au moins",
+            "au plus",
+        ],
+        "de" => &[
+            "unter",
+            "über",
+            "bis zu",
+            "mindestens",
+            "höchstens",
+            "weniger als",
+            "mehr als",
+            "unterhalb von",
+            "oberhalb von",
+        ],
+        "pt" => &["abaixo de", "acima de", "até", "menos de", "mais de", "pelo menos", "no máximo", "no mínimo"],
+        "nl" => &["onder", "boven", "tot", "minder dan", "meer dan", "minstens", "hoogstens", "maximaal", "minimaal"],
+        _ => &[],
+    }
+}
+
+/// [`bounds`] in English, read in any deck.
+const BOUNDS: &[&str] = &[
+    "under",
+    "below",
+    "over",
+    "above",
+    "beyond",
+    "up to",
+    "at least",
+    "at most",
+    "less than",
+    "more than",
+    "fewer than",
+    "no more than",
+    "no less than",
+];
+
+/// Whether the figure `item` is about is one its words bound ([`bounds`]): "Como e Lecco restano
+/// sotto il 22 %", the small words between the bound and the figure aside ("sotto il").
+fn bounded(item: &Item, lang: &str) -> bool {
+    let whole = item.whole.as_str();
+    let Some(figure) = item.figure() else { return false };
+    let Some(at) = whole.find(figure.as_str()) else { return false };
+    let mut before: Vec<String> = whole[..at].split_whitespace().map(str::to_lowercase).collect();
+    while before.last().is_some_and(|w| LEADING_IN.contains(&w.as_str()) || leading_in(lang).contains(&w.as_str())) {
+        // "up to", "fino a", "bis zu": a bound ends on a word that also leads into a figure.
+        let joined = before.join(" ");
+        if BOUNDS.iter().chain(bounds(lang)).any(|b| joined == *b || joined.ends_with(&format!(" {b}"))) {
+            return true;
+        }
+        before.pop();
+    }
+    let joined = before.join(" ");
+    BOUNDS.iter().chain(bounds(lang)).any(|b| joined == *b || joined.ends_with(&format!(" {b}")))
+}
+
 /// The theme layout a slide is drawn in: what its identity comes to in Scaena's library, sized
 /// to its items, else a list of its bullets, else the first the theme has. A slide with a
 /// picture made for it takes the layout that shows its picture beside its words, where the
@@ -4665,6 +4849,9 @@ fn layout_for(
         "closing" | "thanks" => "closing",
         // Three or more items each a name and its figure alone ("Fonds vert : 34 M€"), written as a
         // list, are figures a room reads at a glance, not a muted list (dogfood pass 11).
+        // A figure an item bounds ("Como e Lecco restano sotto il 22 %", "up to 40 trucks") is no
+        // value a card draws: the slide is set as its list (R1's agent dogfood 14).
+        "scorecard" | "kpi-grid" if items.iter().any(|i| bounded(i, lang)) => "bullets",
         "scorecard" | "kpi-grid" | "body" if identity != "body" || (!pictured && tallied(items)) => match n {
             0..=2 => "two-numbers",
             // Three prices, each with its tier: a pricing slide.
@@ -6750,6 +6937,11 @@ impl Slots<'_> {
                 // "64% have no car" with its figure apart: "Have no car", said once (W1's dogfood 8).
                 (None, true, _) if led(item).is_some() && !figure_role(role) => {
                     led(item).map(|(_, rest)| self.continued(&rest, LED)).unwrap_or_default()
+                }
+                // "Varese perde il 31,5 %" with its figure apart: "Varese perde", said once, as a
+                // figure that leads is (R1's agent dogfood 14).
+                (None, true, _) if ended(item, self.lang).is_some() && !figure_role(role) => {
+                    ended(item, self.lang).map(|(_, rest)| self.sentence(&rest)).unwrap_or_default()
                 }
                 _ if figure_role(role) => item.figure().unwrap_or_else(|| item.whole.clone()),
                 _ if matches!(role, "title" | "headline" | "display") => self.short(item),
@@ -9673,6 +9865,47 @@ mod tests {
         assert!(ordered(&["Lunes", "Martes", "Miércoles", "Jueves"].map(String::from), "es"));
         assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
         assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
+    }
+
+    /// A figure that ends an item is said once: its card's words keep what comes before it, the
+    /// small words that led into it taken with it; and a figure an item bounds ("sotto il 22 %")
+    /// is no value a card draws, so the slide is its list (R1's agent dogfood 14).
+    #[test]
+    fn a_figure_is_said_once_and_a_bound_is_no_value() {
+        let it = |w: &str| item(w);
+        assert_eq!(ended(&it("Varese perde il 31,5 %"), "it"), Some(("31,5 %".into(), "Varese perde".into())));
+        assert_eq!(ended(&it("Revenue rose to $4.1M"), "en"), Some(("$4.1M".into(), "Revenue rose".into())));
+        assert_eq!(ended(&it("64% have no car"), "en"), None, "a figure that leads is led's");
+        assert_eq!(ended(&it("Churn: 4.2%"), "en"), None, "a label sets it apart");
+        assert_eq!(ended(&it("At 40%"), "en"), None, "no words of its own");
+        assert!(bounded(&it("Como e Lecco restano sotto il 22 %"), "it"));
+        assert!(bounded(&it("Keep the fleet under 20 trucks"), "en"));
+        assert!(bounded(&it("Up to 40 trucks a day"), "en"));
+        assert!(bounded(&it("Hasta 12 rutas"), "es"));
+        assert!(!bounded(&it("Varese perde il 31,5 %"), "it"));
+        assert!(!bounded(&it("Revenue rose to $4.1M"), "en"));
+
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let made = |bullets: [&str; 3]| {
+            let slide = Slide {
+                slide_title: "Sommate, le perdite dei quattro impianti arrivano al 98 %".into(),
+                layout_suggestion: "Scorecard".into(),
+                key_bullets: bullets.map(String::from).to_vec(),
+                ..Slide::default()
+            };
+            let mut n = narrative("", vec![slide]);
+            n.brief.language = Some("Italian".into());
+            deck(&n, &theme, &Pictures::new()).unwrap().deck
+        };
+        let bounded = made(["Varese perde il 31,5 %", "Sondrio perde il 26,9 %", "Como e Lecco restano sotto il 22 %"]);
+        assert_eq!(bounded["states"][0]["layout"], "bullets", "a bound is no card's figure");
+        let cards = made(["Varese perde il 31,5 %", "Sondrio perde il 26,9 %", "Como perde il 21,4 %"]);
+        assert_eq!(cards["states"][0]["layout"], "numbers");
+        let texts: Vec<String> = (cards["nodes"].as_object().unwrap().values())
+            .filter_map(|n| n["text"].as_str().map(String::from))
+            .collect();
+        assert!(texts.iter().any(|t| t == "Varese perde"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("perde il")), "said once: {texts:?}");
     }
 
     /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
