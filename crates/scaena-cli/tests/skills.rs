@@ -511,3 +511,50 @@ fn the_skill_writes_each_op_as_the_compiler_says_it() {
         .collect();
     assert!(missing.is_empty(), "author-deck writes no line for {missing:?}");
 }
+
+/// A health fix's `patch` goes to `deck_patch` as its `ops` (R1's agent dogfood 13: an agent sent
+/// it as `patch`, which `deck_patch` refused): author-deck's example names only `deck_patch`'s
+/// arguments, each op written as a fix writes one, and a fix health gives applies so.
+#[test]
+fn a_health_fix_goes_to_deck_patch_as_its_ops() {
+    let (_, skill) = skills().into_iter().find(|(name, _)| name == "author-deck").unwrap();
+    let example =
+        skill.split("so a fix that plans slide 11's intensity goes as `").nth(1).and_then(|t| t.split('`').next());
+    let example: Value = serde_json::from_str(example.expect("author-deck's example of a fix")).unwrap();
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/schema/mcp/deck_patch.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let input = &schema["inputSchema"];
+    let given: BTreeSet<&str> = example.as_object().unwrap().keys().map(String::as_str).collect();
+    let takes: BTreeSet<&str> = input["properties"].as_object().unwrap().keys().map(String::as_str).collect();
+    let needs: BTreeSet<&str> = input["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(given.is_subset(&takes) && needs.is_subset(&given), "{given:?} against {takes:?}, {needs:?} needed");
+    assert!(!takes.contains("patch"), "deck_patch takes a `patch` now: say so in author-deck");
+
+    // A fix health gives on B1, as the skill hands it over: each op shaped as the example's.
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("skills-fix");
+    let _ = std::fs::remove_dir_all(&dir);
+    let b1 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/bench/b1.scaena");
+    let copied = Command::new("cp").args(["-r", b1.to_str().unwrap(), dir.to_str().unwrap()]).status().unwrap();
+    assert!(copied.success());
+    let health: Value = serde_json::from_slice(&scaena(&dir, &["--json", "health", "."]).stdout).unwrap();
+    let finding = (health["findings"].as_array().unwrap().iter())
+        .find(|f| f["fix"]["patch"].is_array())
+        .unwrap_or_else(|| panic!("a finding with a fix on B1: {health:#}"))
+        .clone();
+    let shape = |op: &Value| op.as_object().map(|o| o.keys().cloned().collect::<BTreeSet<_>>());
+    for op in finding["fix"]["patch"].as_array().unwrap() {
+        assert_eq!(shape(op), shape(&example["ops"][0]), "{op:#}");
+    }
+    let file = dir.join("fix.json");
+    std::fs::write(&file, finding["fix"]["patch"].to_string()).unwrap();
+    let out = scaena(&dir, &["--json", "patch", ".", "--ops", file.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let again: Value = serde_json::from_slice(&scaena(&dir, &["--json", "health", "."]).stdout).unwrap();
+    assert!(
+        !again["findings"].as_array().unwrap().iter().any(|f| f["says"] == finding["says"]),
+        "the fix answers its finding: {again:#}"
+    );
+}
