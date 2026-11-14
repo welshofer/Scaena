@@ -68,11 +68,75 @@ pub const RESTS: usize = 2;
 
 /// The figures `text` writes, as numbers: "$1,140" is 1140, "4.9%" is 4.9, "2024" is 2024.
 pub fn figures(text: &str) -> Vec<f64> {
-    text.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
+    grouped(text)
+        .split(|c: char| !(c.is_ascii_digit() || c == '.' || c == ','))
         .map(|w| w.trim_matches(['.', ',']).replace(',', ""))
         .filter(|w| !w.is_empty())
         .filter_map(|w| w.parse().ok())
         .collect()
+}
+
+/// `text` with the spaces that group a number's thousands taken out, as [`figure_end`] reads a
+/// number ("1 240 000", "184\u{202f}500"), so each is one figure, never 1, 240, and 0 (W1's
+/// dogfood 19); a year and a count ("2025 120") stay apart.
+fn grouped(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let starts =
+            chars[i].is_ascii_digit() && (i == 0 || !(chars[i - 1].is_ascii_digit() || ".,".contains(chars[i - 1])));
+        if !starts {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let end = figure_end(&chars, i).max(i + 1);
+        out.extend(chars[i..end].iter().filter(|c| !GROUPING.contains(c)));
+        i = end;
+    }
+    out
+}
+
+/// The spaces a number's thousands are grouped by: a plain space as French is typed, and the
+/// no-break, narrow no-break, and thin spaces typesetters set.
+pub const GROUPING: [char; 4] = [' ', '\u{a0}', '\u{202f}', '\u{2009}'];
+
+/// Where the number whose first digit is at `start` ends: its digits, the marks between them,
+/// and the narrow spaces a language groups thousands by ("1\u{202f}200"), none at its end. A
+/// plain space groups them too, as French is typed ("1 240 000"), where every group before it is
+/// of digits alone, the first of one to three and the rest of three: never a year and a count
+/// ("2025 120"), nor a decimal and what follows it ("2,4 000"), nor a group a letter or a hyphen
+/// runs on from ("5 100-metre") (agent dogfood 4). The builder sets a figure by it, and health and
+/// a source read one by it, so all three read "1 240 000" as one figure (W1's dogfood 19).
+pub fn figure_end(chars: &[char], start: usize) -> usize {
+    let mut end = start;
+    while end < chars.len() {
+        let c = chars[end];
+        let three = (1..=3).all(|k| chars.get(end + k).is_some_and(char::is_ascii_digit))
+            && !chars.get(end + 4).is_some_and(char::is_ascii_digit);
+        let grouped = matches!(c, '\u{a0}' | '\u{202f}' | '\u{2009}') && end > start && three;
+        // A group of three a letter or a hyphen runs on from is a figure of its own: "5 100-metre
+        // sprints" and "10 100m heats" are two, in English and French alike (agent dogfood 4).
+        let ends = chars.get(end + 4).is_none_or(|n| !(n.is_alphabetic() || *n == '-'));
+        let typed = c == ' ' && end > start && three && ends && !(start > 0 && chars[start - 1].is_alphanumeric()) && {
+            // The groups before this space: digits alone, split by plain spaces, the first of one
+            // to three and each after it of three.
+            let before: String = chars[start..end].iter().collect();
+            let groups: Vec<&str> = before.split(' ').collect();
+            (groups.iter().all(|g| !g.is_empty() && g.chars().all(|c| c.is_ascii_digit())))
+                && groups[0].len() <= 3
+                && groups[1..].iter().all(|g| g.len() == 3)
+        };
+        if !(c.is_ascii_digit() || matches!(c, ',' | '.') || grouped || typed) {
+            break;
+        }
+        end += 1;
+    }
+    while end > start && matches!(chars[end - 1], ',' | '.') {
+        end -= 1;
+    }
+    end
 }
 
 /// Whether `now` writes the figures `was` does, each as often: none dropped, none added, none
@@ -273,10 +337,21 @@ pub fn source_figures(text: &str, deck: Option<char>) -> Vec<String> {
         let cut = split_cells(line, cells);
         match cut.len() > 1 && cut.iter().all(|c| c.split_whitespace().count() <= 4) {
             true => {
+                // A sheet's header names its columns: its digits are no figure ("toitures_m2",
+                // W1's dogfood 19).
+                let header = columns.is_empty() && cut.iter().all(|c| c.chars().any(char::is_alphabetic));
+                if header {
+                    continue;
+                }
                 if columns.len() < cut.len() {
                     columns.resize(cut.len(), (0.0, 0, 0, true));
                 }
                 for (k, cell) in cut.iter().enumerate() {
+                    // A date's parts are no figures: a month's 2025-05 keeps no 5 (R1's agent
+                    // dogfood 12).
+                    if date(cell.trim()) {
+                        continue;
+                    }
                     let read = figures_in_marks(cell, cells);
                     if let [one] = read.as_slice() {
                         let places = format!("{one}").split_once('.').map_or(0, |(_, d)| d.len());
@@ -300,6 +375,26 @@ pub fn source_figures(text: &str, deck: Option<char>) -> Vec<String> {
     match values.len() > MOST_FIGURES {
         true => Vec::new(),
         false => values.iter().map(|v| format!("{v}")).collect(),
+    }
+}
+
+/// Whether a sheet's cell is a date: a year then its month and day, set apart by hyphens or
+/// slashes ("2025-05", "2025-05-14", "2025/05"), or a day and month then a year ("14.05.2025",
+/// "14/05/25"); never a decimal ("1530.2", "2025.5").
+fn date(cell: &str) -> bool {
+    let parts: Vec<&str> = cell.split(['-', '/', '.']).collect();
+    let digits = |p: &str, lens: std::ops::RangeInclusive<usize>| {
+        lens.contains(&p.len()) && p.bytes().all(|b| b.is_ascii_digit())
+    };
+    let same =
+        cell.chars().filter(|c| matches!(c, '-' | '/' | '.')).collect::<std::collections::BTreeSet<_>>().len() == 1;
+    // A year first is set apart by a hyphen or a slash: "1530.2" is a decimal, never a month.
+    let dotted = cell.contains('.');
+    same && match parts.as_slice() {
+        [y, m] => !dotted && digits(y, 4..=4) && digits(m, 1..=2),
+        [y, m, d] if y.len() == 4 => !dotted && digits(y, 4..=4) && digits(m, 1..=2) && digits(d, 1..=2),
+        [d, m, y] => digits(d, 1..=2) && digits(m, 1..=2) && (digits(y, 2..=2) || digits(y, 4..=4)),
+        _ => false,
     }
 }
 
@@ -1247,6 +1342,34 @@ mod tests {
         assert!(source_figures(&many, None).is_empty(), "past the most, none");
     }
 
+    /// W1's dogfood 19 and R1's agent dogfood 12: a number its thousands are grouped in by a space
+    /// is one figure, in a slide's words and a source's alike, however the space is set; a year
+    /// and a count stay two, and so does a group a letter or a hyphen runs on from. A sheet's
+    /// header gives no figure, nor does a date's cell.
+    #[test]
+    fn a_number_grouped_by_spaces_is_one_figure_and_a_header_or_a_date_none() {
+        for spaced in ["1 240 000", "1\u{a0}240\u{a0}000", "1\u{202f}240\u{202f}000"] {
+            assert_eq!(figures(&format!("{spaced} relevés")), [1_240_000.0], "{spaced:?}");
+            assert_eq!(source_figures(&format!("Nous avons {spaced} relevés."), Some(',')), ["1240000"]);
+        }
+        assert_eq!(figures("184 500 m² de toits verts"), [184_500.0]);
+        assert_eq!(figures("En 2025 120 toits"), [2025.0, 120.0], "a year and a count");
+        assert_eq!(figures("5 100-metre sprints"), [5.0, 100.0], "a group a hyphen runs on from");
+        // A decimal and what follows it stay apart (read plainly, "2,4" is 24): never 24000.
+        assert_eq!(figures("2,4 000"), [24.0, 0.0]);
+        let sheet = "quartier,toitures_m2,baisse_c\nConfluence,184500,2.4\nGerland,97300,1.9\n";
+        let kept = source_figures(sheet, Some(','));
+        assert!(!kept.contains(&"2".to_string()), "the header's m2 is no figure: {kept:?}");
+        assert_eq!(kept, ["1.9", "2.4", "4.3", "97300", "184500", "281800"]);
+        let pilot = "mes,litros\n2025-05,6200\n2025-06,11800\n";
+        assert_eq!(source_figures(pilot, Some(',')), ["6200", "11800", "18000"], "a month keeps no 5 or 6");
+        assert!(date("2025-05") && date("2025-05-14") && date("14.05.2025") && date("14/05/25"));
+        assert!(!date("2025") && !date("6200") && !date("2,4") && !date("2025-05/14"));
+        assert!(!date("1530.2") && !date("2025.5") && !date("1234.56"), "a decimal is no date");
+        let losses = "anio,perdidas_pct,litros_millones\n2025,19.6,1279.4\n2026,18.9,1234.5\n";
+        assert!(source_figures(losses, Some(',')).contains(&"1234.5".to_string()), "Valdemar's litres stay");
+    }
+
     /// A sheet keeps each column's total (R1's agent dogfood 12): the pilot's five months of
     /// litres and of bottles sum to the 66.400 and the 132.800 a slide writes, a column of years
     /// sums to none, and a table that prose ends is summed apart from the one after it.
@@ -1280,7 +1403,7 @@ mod tests {
         // A sheet's cells say nothing of marks: read plainly, whatever the deck's language.
         let csv = "mes,litros\n2025-05,6200\n2025-07,18400\n";
         assert_eq!(decimal_mark(csv), None);
-        assert_eq!(source_figures(csv, Some(',')), ["5", "7", "2025", "6200", "18400", "24600"]);
+        assert_eq!(source_figures(csv, Some(',')), ["6200", "18400", "24600"]);
         // Small figures in a row's cells are its cells, never a decimal: "1,2" tells nothing.
         assert_eq!(decimal_mark("a,1,2\nb,3,4\n"), None);
         // A sheet that writes its decimals with a comma, its cells between semicolons.

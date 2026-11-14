@@ -635,9 +635,53 @@ fn forward(line: &str) -> bool {
         || words.iter().any(|w| w == "under" || w == "above")
 }
 
+/// The private marks a space that groups a number's thousands is held by while a text is split
+/// into words, one for each kind of space ([`scaena_narrato::GROUPING`]), so "184 500" is one
+/// word and is said as it was written.
+const HELD: [char; 4] = ['\u{e000}', '\u{e001}', '\u{e002}', '\u{e003}'];
+
+/// `text` with each space that groups a number's thousands held ([`HELD`]).
+fn hold_groups(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let starts =
+            chars[i].is_ascii_digit() && (i == 0 || !(chars[i - 1].is_ascii_digit() || ".,".contains(chars[i - 1])));
+        if !starts {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let end = scaena_narrato::figure_end(&chars, i).max(i + 1);
+        for &c in &chars[i..end] {
+            match scaena_narrato::GROUPING.iter().position(|g| *g == c) {
+                Some(k) => out.push(HELD[k]),
+                None => out.push(c),
+            }
+        }
+        i = end;
+    }
+    out
+}
+
+/// `held` with each space [`hold_groups`] held given back.
+fn unheld(held: &str) -> String {
+    held.chars().map(|c| HELD.iter().position(|h| *h == c).map_or(c, |k| scaena_narrato::GROUPING[k])).collect()
+}
+
+/// `held` with each space [`hold_groups`] held taken out: the number's digits alone.
+fn ungrouped(held: &str) -> String {
+    held.chars().filter(|c| !HELD.contains(c)).collect()
+}
+
 fn figures(text: &str) -> Vec<Figure> {
-    let trimmed =
-        text.split_whitespace().map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || "$€£¥%+−-".contains(c))));
+    // A number grouped by spaces ("1 240 000", "184 500") is one figure, as the builder reads it
+    // (W1's dogfood 19): its spaces are held while the text is split into words.
+    let held = hold_groups(text);
+    let trimmed = held
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !(c.is_alphanumeric() || HELD.contains(&c) || "$€£¥%+−-".contains(c))));
     // A word of a script set without spaces is a phrase, its figures inside it ("建設費：3億円"),
     // so its words are the figures the builder reads in it, a magnitude and a counter with each
     // ("3億円", "4,500万円"), a percent set right after one kept with it ("18%増"), and none a
@@ -674,9 +718,10 @@ fn figures(text: &str) -> Vec<Figure> {
         if !starts || !w.chars().any(|c| c.is_ascii_digit()) {
             continue;
         }
-        let year = w.len() == 4 && w.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
-        let count = w.parse::<u32>().is_ok_and(|n| n < 10);
-        if year || count || clock(w) || dated(&words, k) {
+        let plain = ungrouped(w);
+        let year = plain.len() == 4 && plain.parse::<u32>().is_ok_and(|y| (1900..=2100).contains(&y));
+        let count = plain.parse::<u32>().is_ok_and(|n| n < 10);
+        if year || count || clock(&plain) || dated(&words, k) {
             continue;
         }
         let (number, joined) = match w.split_once('-') {
@@ -685,19 +730,22 @@ fn figures(text: &str) -> Vec<Figure> {
             }
             _ => (*w, None),
         };
+        let (written, number) = (unheld(number), ungrouped(number));
+        let number = number.as_str();
         let sign: String = number.chars().take_while(|c| "$€£¥".contains(*c)).collect();
         let digits: String =
             number.chars().skip(sign.chars().count()).take_while(|c| c.is_ascii_digit() || ".,".contains(*c)).collect();
         let tail: String = number.chars().skip(sign.chars().count() + digits.chars().count()).collect();
         let value = digits.replace(',', "").trim_end_matches('.').to_string();
         let after = words.get(k + 1).filter(|n| n.chars().all(char::is_alphabetic) && !n.is_empty());
-        let spaced = (spelled.iter())
-            .find(|s| s.strip_prefix(number).is_some_and(|rest| rest.starts_with([' ', '\u{a0}', '\u{202f}'])));
+        let spaced = (spelled.iter()).find(|s| {
+            s.strip_prefix(written.as_str()).is_some_and(|rest| rest.starts_with([' ', '\u{a0}', '\u{202f}']))
+        });
         // What the builder reads set apart after the figure: a percent, or a magnitude and its
         // currency as one word, thousands of euros one unit however written ("240 TEUR",
         // "240 k\u{20ac}"), as the builder and binding read them.
         let suffix = spaced
-            .and_then(|s| s.strip_prefix(number))
+            .and_then(|s| s.strip_prefix(written.as_str()))
             .map(|rest| rest.trim_start_matches([' ', '\u{a0}', '\u{202f}']));
         let percent = spaced.is_some_and(|s| s.ends_with(['%', '\u{2030}']));
         let compound = suffix.map(unit_of).filter(|u| ["k\u{20ac}", "m\u{20ac}", "md\u{20ac}"].contains(&u.as_str()));
@@ -716,9 +764,9 @@ fn figures(text: &str) -> Vec<Figure> {
         };
         let shown = match joined {
             Some(word) => {
-                format!("{number} {}", if word.ends_with('s') { word.to_string() } else { format!("{word}s") })
+                format!("{written} {}", if word.ends_with('s') { word.to_string() } else { format!("{word}s") })
             }
-            None => spaced.cloned().unwrap_or_else(|| w.to_string()),
+            None => spaced.cloned().unwrap_or_else(|| unheld(w)),
         };
         out.push(Figure { shown, value, unit });
     }
@@ -4901,6 +4949,51 @@ mod tests {
     /// finding, where it works out from a figure the slide writes that its sources hold (a change,
     /// a share, a difference), where its words make it a target or a plan, in an English deck, or
     /// where a slide before it wrote it.
+    /// A number its thousands are grouped in by a space is one figure on a slide, as in its
+    /// source (W1's dogfood 19): "184 500 m²" cited to the sheet that holds 184500 raises
+    /// nothing, never "cites the sheet, which does not hold 184; the report does".
+    #[test]
+    fn a_number_grouped_by_spaces_is_held_to_its_source_whole() {
+        let path = root().join("docs/examples/dogfood-17/bundle/deck.worked.json");
+        let mut deck: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for s in deck["meta"]["narrative"]["sources"].as_array_mut().unwrap() {
+            // The report as a reader once kept it, its thousands apart; the sheet as written.
+            s["figures"] = if s["name"] == "report.pdf" { json!(["184", "500"]) } else { json!(["184500"]) };
+        }
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                if beat["states"].as_array().unwrap().iter().any(|s| s == "riverton-has-lost-a-fifth") {
+                    beat["evidence"] = json!(["source:canopy.csv"]);
+                }
+            }
+        }
+        let node = deck["nodes"]["riverton-has-lost-a-fifth-support"].as_object_mut().unwrap();
+        node.remove("runs");
+        for spaced in ["184 500", "184\u{a0}500", "184\u{202f}500"] {
+            deck["nodes"]["riverton-has-lost-a-fifth-support"]["text"] =
+                json!(format!("Green roofs cover {spaced} m²."));
+            let found: Vec<String> = (of(&deck).findings.into_iter())
+                .filter(|f| f.kind == Kind::Source && f.slide == 2)
+                .map(|f| f.says)
+                .collect();
+            assert_eq!(found, Vec::<String>::new(), "{spaced:?}");
+        }
+        // Said as written where it is found: cited to the report, which keeps no 184500.
+        for section in deck["spine"]["sections"].as_array_mut().unwrap() {
+            for beat in section["beats"].as_array_mut().unwrap() {
+                if beat["states"].as_array().unwrap().iter().any(|s| s == "riverton-has-lost-a-fifth") {
+                    beat["evidence"] = json!(["source:report.pdf"]);
+                }
+            }
+        }
+        deck["nodes"]["riverton-has-lost-a-fifth-support"]["text"] = json!("Green roofs cover 184 500 m².");
+        let said = (of(&deck).findings.into_iter()).find(|f| f.kind == Kind::Source && f.slide == 2).map(|f| f.says);
+        assert_eq!(
+            said.as_deref(),
+            Some("Slide 2 writes 184 500 and cites report.pdf, which does not hold it; canopy.csv does.")
+        );
+    }
+
     #[test]
     fn a_figure_no_kept_source_holds_is_found_unless_the_talk_works_it_out_or_plans_it() {
         let path = root().join("docs/examples/dogfood-17/bundle/deck.worked.json");
