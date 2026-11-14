@@ -6006,6 +6006,30 @@ fn row(item: &Item, lang: &str) -> (Option<String>, Option<String>, Option<Strin
 
 /// The latest figure a chart plots, in its unit and the deck's language (`lang`): its first
 /// series' last value, with the decimals the chart's labels give it; none where it has none there.
+/// The figure of the point of a line of one series that `headline` names by its category, as a
+/// bar's highlight is named ([`headlined`]): "I ricavi seguono l'estate, con un picco di 4.380 keur
+/// a luglio" names Lug's 4.380 (R1's agent dogfood 14). None where it names none, or names the
+/// category the story runs on from ("since 1980"), which a line's band marks, its latest point
+/// the callout's.
+fn pointed(chart: &ChartData, headline: &str, lang: &str) -> Option<String> {
+    let [series] = chart.series.as_slice() else { return None };
+    let at = headlined(&chart.categories, headline)?;
+    let words: Vec<String> =
+        (headline.split(|c: char| !c.is_alphanumeric())).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    let category = chart.categories[at].to_lowercase();
+    let since = words.windows(2).any(|w| {
+        w[1].starts_with(&category)
+            && matches!(
+                w[0].as_str(),
+                "since" | "after" | "from" | "seit" | "depuis" | "desde" | "dal" | "dalla" | "dai" | "sinds"
+            )
+    });
+    if since || at + 1 == chart.categories.len() {
+        return None;
+    }
+    Some(at_places((*series.values.get(at)?)?, decimals(chart), chart.unit.as_deref(), lang))
+}
+
 fn latest(chart: &ChartData, lang: &str) -> Option<String> {
     let value = (*chart.series.first()?.values.last()?)?;
     Some(at_places(value, decimals(chart), chart.unit.as_deref(), lang))
@@ -6780,12 +6804,15 @@ impl Slots<'_> {
                     .and(self.item(1))
                     .map(|i| i.whole.clone())
             })),
-            // A line's latest figure, or the one its takeaway leads with; under it, the takeaway
-            // and the source.
-            ("line-chart", "callout", _) => text(
-                (self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone()))
-                    .or_else(|| self.slide.chart_data.as_ref().and_then(|c| latest(c, self.lang))),
-            ),
+            // The figure a line's takeaway leads with, else the point its headline names ("a picco
+            // a luglio", R1's agent dogfood 14), else its latest; under it, the takeaway and the
+            // source.
+            ("line-chart", "callout", _) => {
+                text((self.item(0).filter(|i| i.figure_first()).and_then(|i| i.label.clone())).or_else(|| {
+                    let chart = self.slide.chart_data.as_ref()?;
+                    (self.title().and_then(|t| pointed(chart, &t, self.lang))).or_else(|| latest(chart, self.lang))
+                }))
+            }
             // The takeaway; then, where the layout has no place for it, the chart's source a line
             // of its own. A takeaway that names the headline's first and last figures again says
             // nothing the room has not just read, and gives way to what the latest figure counts
@@ -6796,8 +6823,15 @@ impl Slots<'_> {
                     item.map(|i| if i.figure_first() { self.continued(&i.detail, LED) } else { i.whole.clone() });
                 let takeaway = match said {
                     Some(t) if self.title().is_some_and(|h| restates(&h, &t)) => {
-                        // The latest figure is the callout's only where no takeaway leads with its own.
-                        let latest = !item.is_some_and(Item::figure_first);
+                        // The latest figure is the callout's only where no takeaway leads with its own
+                        // and the headline names no point of its own.
+                        let named = self
+                            .slide
+                            .chart_data
+                            .as_ref()
+                            .zip(self.title())
+                            .is_some_and(|(c, t)| pointed(c, &t, self.lang).is_some());
+                        let latest = !item.is_some_and(Item::figure_first) && !named;
                         self.slide.chart_data.as_ref().filter(|_| latest).and_then(|c| counted(c, self.subtitle()))
                     }
                     said => said,
@@ -9675,6 +9709,39 @@ mod tests {
         assert!(ordered(&["Lunes", "Martes", "Miércoles", "Jueves"].map(String::from), "es"));
         assert_eq!(lit(&quarters, "Q1 vs Q4", "en"), Some(1), "left to the rules, not the first named");
         assert_eq!(lit(&quarters, "Q4 sold more than Q1", "en"), Some(2));
+    }
+
+    /// A line's callout is the point its headline names, as a bar's highlight is ("a picco a
+    /// luglio" names Lug's, R1's agent dogfood 14), else its latest; a headline that runs on from
+    /// the point it names ("since March") keeps the latest.
+    #[test]
+    fn a_lines_callout_is_the_point_its_headline_names() {
+        let theme: Theme = serde_json::from_str(&dusk()).unwrap();
+        let callout = |title: &str| {
+            let slide = Slide {
+                slide_title: title.into(),
+                layout_suggestion: "Line Chart".into(),
+                key_bullets: vec!["Monthly revenue, 2025, in $K".into()],
+                chart_data: Some(ChartData {
+                    categories: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"].map(String::from).to_vec(),
+                    series: vec![scaena_narrato::Series {
+                        name: Some("Revenue".into()),
+                        values: [3120., 2990., 3210., 3300., 3560., 3990., 4380., 4340.].map(Some).to_vec(),
+                    }],
+                    ..ChartData::default()
+                }),
+                ..Slide::default()
+            };
+            let made = deck(&narrative("", vec![slide]), &theme, &Pictures::new()).unwrap();
+            let (_, node) = (made.deck["nodes"].as_object().unwrap().iter())
+                .find(|(id, _)| id.ends_with("-callout"))
+                .expect("a callout");
+            node["text"].as_str().unwrap_or_default().to_string()
+        };
+        assert_eq!(callout("Revenue follows the summer, peaking in July"), "4,380");
+        assert_eq!(callout("Revenue by month"), "4,340", "named by none, the latest");
+        assert_eq!(callout("Revenue has climbed since March"), "4,340", "the story runs on from March");
+        assert_eq!(callout("Revenue reached its high in August"), "4,340", "the latest named");
     }
 
     /// The bar a headline names is the one lit, whole or abbreviated: "Ridership dipped in June"
