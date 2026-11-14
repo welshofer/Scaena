@@ -354,7 +354,29 @@ pub fn bind(
             let one = found.next();
             one.filter(|_| found.next().is_none())
         };
-        let column = match by_name.or_else(by_measure).or_else(by_words) {
+        // Else, for a series named in a script with no Latin letters, which no column's words can
+        // share, by its figures: the one number column whose cell in each category's row is the
+        // series' value there, exactly ("予約台数" for `preorders`, W1's dogfood 20). A series
+        // named in Latin letters that names no column is still asked to name one.
+        let foreign = series.name.as_deref().is_some_and(|n| !n.chars().any(|c| c.is_ascii_alphabetic()));
+        let by_values = || {
+            if !foreign {
+                return None;
+            }
+            let rows: Vec<&Vec<Datum>> = (chart.categories.iter())
+                .map(|cat| table.rows.iter().find(|r| is(&r[x], cat)))
+                .collect::<Option<_>>()?;
+            let holds = |c: usize| {
+                rows.iter().zip(&series.values).all(|(r, v)| match (&r[c], v) {
+                    (Datum::Number(n), Some(v)) => (n - v).abs() < 1e-9,
+                    _ => false,
+                })
+            };
+            let mut found = numbers.iter().copied().filter(|c| !columns.contains(c)).filter(|&c| holds(c));
+            let one = found.next();
+            one.filter(|_| found.next().is_none())
+        };
+        let column = match by_name.or_else(by_measure).or_else(by_words).or_else(by_values) {
             Some(c) => c,
             None if !several && numbers.len() == 1 => numbers[0],
             None => {
@@ -971,6 +993,30 @@ mod tests {
         }
         assert_eq!(measured("On-time %"), "ontime");
         assert_eq!(measured("fare_revenue_kusd"), "farerevenue");
+    }
+
+    /// W1's dogfood 20: a Japanese deck's chart of preorders, its series "予約台数", kept its own
+    /// rows once its months bound, since no column of the CSV, `preorders` and `dealers`, is named
+    /// in its words. A series binds to the one number column whose cell in each category's row is
+    /// its value there, exactly; where two columns hold its figures, or none does, it binds to
+    /// neither.
+    #[test]
+    fn a_series_named_in_another_language_binds_to_the_one_column_of_its_figures() {
+        let (deck, files) = deck_with(SUNDAYS);
+        let (mut node, mut chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2475.0]);
+        chart.series[0].name = Some("日曜の来館者数".into());
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "sunday-visits"), Ok(None));
+        assert_eq!(node["y"]["field"], json!("sunday_visits"));
+        // A figure no column holds binds nothing.
+        let (mut node, mut chart) = line(&[1840.0, 1920.0, 2105.0, 2260.0, 2390.0, 2476.0]);
+        chart.series[0].name = Some("日曜の来館者数".into());
+        assert!(bind(&mut node, &chart, &deck, &files, "sunday-visits").is_err());
+        // Nor do figures two columns hold alike.
+        let twice = "month,sunday_visits,weekday_average\n2026-01,5,5\n2026-02,6,6\n2026-03,7,7\n2026-04,8,8\n2026-05,9,9\n2026-06,10,10\n";
+        let (deck, files) = deck_with(twice);
+        let (mut node, mut chart) = line(&[5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
+        chart.series[0].name = Some("日曜の来館者数".into());
+        assert!(bind(&mut node, &chart, &deck, &files, "sunday-visits").is_err());
     }
 
     /// A series no number column is named for says the number columns the file has, so an agent
