@@ -173,6 +173,44 @@ enum Named {
     /// A year alone ("2021"), naming a date on its first day, as a column of years typed `date`
     /// holds it (agent dogfood 2).
     Year,
+    /// A month named without its year by its number and the counter Japanese and Chinese
+    /// write after it, 月, or Korean's, 월 ("11月", "11월"; W1's dogfood 20).
+    Counted(char),
+}
+
+impl Named {
+    /// Whether it names a month without its year, by its name or its counter.
+    fn month(self) -> bool {
+        matches!(self, Named::Month { .. } | Named::Counted(_))
+    }
+}
+
+/// A month as Japanese, Chinese, and Korean write it: its number, in ASCII or full-width digits,
+/// and its counter, 月 or 월, after the year and its own counter (年, 년) where one is written
+/// ("2025年11月", "2025년 11월", "11月"): the year, if any, the month, and the counter.
+fn counted(category: &str) -> Option<(Option<i64>, u32, char)> {
+    let digits: String = (category.chars())
+        .filter(|c| !c.is_whitespace())
+        .map(|c| match c {
+            '\u{ff10}'..='\u{ff19}' => char::from(b'0' + (c as u32 - 0xff10) as u8),
+            c => c,
+        })
+        .collect();
+    let counter = digits.chars().last().filter(|c| matches!(c, '月' | '월'))?;
+    let body = &digits[..digits.len() - counter.len_utf8()];
+    let (year, month) = match body.find(['年', '년']) {
+        Some(at) => (Some(&body[..at]), &body[at + body[at..].chars().next()?.len_utf8()..]),
+        None => (None, body),
+    };
+    let number =
+        |s: &str| (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())).then(|| s.parse::<i64>().ok()).flatten();
+    let month = number(month).filter(|m| (1..=12).contains(m))? as u32;
+    let year = match year {
+        Some(y) if y.len() == 4 => Some(number(y)?),
+        Some(_) => return None,
+        None => None,
+    };
+    Some((year, month, counter))
 }
 
 /// Whether `cell` is `category` as a slide writes it: its words, or its number, or its date.
@@ -209,6 +247,13 @@ fn named(cell: &Datum, category: &str) -> Named {
                 && (1..=2).contains(&m.len())
             {
                 return whole(number(y) == Some(c.year) && number(m) == Some(i64::from(c.month)));
+            }
+            if let Some((year, month, counter)) = counted(category) {
+                return match (month == c.month, year) {
+                    (false, _) => Named::No,
+                    (true, None) => Named::Counted(counter),
+                    (true, Some(y)) => whole(y == c.year),
+                };
             }
             let mut words = category.split_whitespace();
             let (Some(name), year, None) = (words.next(), words.next(), words.next()) else { return Named::No };
@@ -274,9 +319,7 @@ pub fn bind(
     let some = !only(x);
     // A month named without its year names one row, else the chart would read another year's.
     let months: Vec<Named> = (chart.categories.iter())
-        .map(|cat| {
-            table.rows.iter().map(|r| named(&r[x], cat)).find(|n| matches!(n, Named::Month { .. })).unwrap_or(Named::No)
-        })
+        .map(|cat| table.rows.iter().map(|r| named(&r[x], cat)).find(|n| n.month()).unwrap_or(Named::No))
         .collect();
     for (cat, month) in chart.categories.iter().zip(&months) {
         let rows = table.rows.iter().filter(|r| is(&r[x], cat)).count();
@@ -366,7 +409,14 @@ pub fn bind(
             node["x"]["format"] = json!("%Y");
         }
     }
-    // Its months print as the slide wrote them, each by its name alone.
+    // Its months print as the slide wrote them, each by its name alone, or by its number and
+    // its counter ("11月", W1's dogfood 20).
+    if node["x"].get("format").is_none()
+        && let Some(Named::Counted(counter)) = months.first()
+        && months.iter().all(|m| *m == Named::Counted(*counter))
+    {
+        node["x"]["format"] = json!(format!("%-m{counter}"));
+    }
     if node["x"].get("format").is_none()
         && !months.is_empty()
         && months.iter().all(|m| matches!(m, Named::Month { .. }))
@@ -699,6 +749,46 @@ mod tests {
         assert_eq!(bind(&mut node, &chart, &deck, &files, "sunday-visits"), Ok(None));
         assert_eq!(node["x"]["field"], json!("month"));
         assert!(node.get("dataTransform").is_none(), "{:#}", node["dataTransform"]);
+    }
+
+    /// W1's dogfood 20: a Japanese deck's bar chart of preorders by month, 11月 to 3月, kept
+    /// its own rows: no locale Scaena formats names a month 11月, so no column of the CSV's
+    /// `2025-11` to `2026-03` held its categories. A month written by its number and its
+    /// counter, 月 in Japanese and Chinese, 월 in Korean, names it, with its year before it or
+    /// none, in ASCII or full-width digits, and the chart binds and prints its months so.
+    #[test]
+    fn a_month_written_by_its_number_and_counter_binds_and_prints_so() {
+        let nov = month(2025, 11);
+        for (written, how) in [
+            ("11月", Named::Counted('月')),
+            ("１１月", Named::Counted('月')),
+            ("11월", Named::Counted('월')),
+            ("2025年11月", Named::Whole),
+            ("2025년 11월", Named::Whole),
+            ("2024年11月", Named::No),
+            ("12月", Named::No),
+            ("13月", Named::No),
+            ("月", Named::No),
+            ("25年11月", Named::No),
+        ] {
+            assert_eq!(named(&nov, written), how, "{written}");
+        }
+        let preorders = "month,preorders,dealers\n2025-11,240,18\n2025-12,410,26\n2026-01,620,35\n2026-02,880,44\n2026-03,1050,52\n";
+        let (deck, files) = deck_with(&preorders.replace("preorders,dealers", "sunday_visits,weekday_average"));
+        let (mut node, mut chart) = line(&[240.0, 410.0, 620.0, 880.0, 1050.0]);
+        node["chart"] = json!("bar");
+        chart.categories = ["11月", "12月", "1月", "2月", "3月"].map(String::from).to_vec();
+        chart.series[0].name = Some("Sunday visits".into());
+        assert_eq!(bind(&mut node, &chart, &deck, &files, "sunday-visits"), Ok(None));
+        assert_eq!(
+            (node["data"].clone(), node["x"]["field"].clone(), node["x"]["format"].clone()),
+            (json!("@sunday-visits"), json!("month"), json!("%-m月"))
+        );
+        // Printed as the slide wrote them.
+        let format = scaena_core::format::DateFormat::parse("%-m月").unwrap();
+        let ja = scaena_core::format::Locale::of(Some("ja"));
+        let label = |y: i64, m: u32| format.format(DateTime::ymd(y, m, 1).unwrap(), ja);
+        assert_eq!((label(2025, 11), label(2026, 3)), ("11月".to_string(), "3月".to_string()));
     }
 
     /// A month named without its year that a file holds in two years names neither: the chart
