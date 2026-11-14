@@ -1,0 +1,317 @@
+Attributes: Application, 0x10af9b980, pid: 89065, label: 'Scaena'
+Element subtree:
+ →Application, 0x10af9b980, pid: 89065, label: 'Scaena'
+    Window (Main), 0x10af9a440, {{0.0, 0.0}, {1376.0, 1032.0}}
+      Other, 0x10af98140, {{0.0, 0.0}, {1376.0, 1032.0}}
+        Other, 0x10af99b80, {{0.0, 0.0}, {1376.0, 1032.0}}
+          Other, 0x10af99540, {{0.0, 0.0}, {1376.0, 1032.0}}
+            Other, 0x10af99f40, {{0.0, 0.0}, {1376.0, 1032.0}}
+              Other, 0x10af99180, {{0.0, 0.0}, {1376.0, 1032.0}}
+                Other, 0x10af99680, {{0.0, 0.0}, {1376.0, 1032.0}}
+                  Other, 0x10af983c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                    Other, 0x10af9a080, {{0.0, 0.0}, {1376.0, 1032.0}}
+                      Button, 0x10af9ad00, {{649.0, 506.0}, {78.0, 20.5}}, label: 'New Deck'
+                      Button, 0x10af9a940, {{607.5, 506.0}, {161.0, 20.5}}, label: 'New from a Prompt…'
+                      Other, 0x10af98b40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                        Other, 0x10af99a40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                          Other, 0x10af98640, {{0.0, 0.0}, {1376.0, 1032.0}}
+                            Other, 0x10af9be80, {{0.0, 0.0}, {1376.0, 1032.0}}
+                              Other, 0x10af9b0c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                Other, 0x10af9a580, {{10.0, 32.0}, {220.0, 990.0}}
+                                  Other, 0x10af9b5c0, {{10.0, 32.0}, {220.0, 990.0}}
+                                    Other, 0x10af997c0, {{10.0, 32.0}, {220.0, 990.0}}
+                                      NavigationBar, 0x10af9b700, {{10.0, 32.0}, {220.0, 54.0}}, identifier: '_TtGC7SwiftUI32NavigationStackHosting'
+                                        Button, 0x10af9a6c0, {{171.5, 36.0}, {54.5, 36.0}}, label: 'Hide Sidebar'
+                                      Other, 0x10af99040, {{10.0, 32.0}, {220.0, 990.0}}
+                                        Other, 0x10af98780, {{10.0, 32.0}, {220.0, 990.0}}
+                                          Other, 0x10af9b200, {{10.0, 32.0}, {220.0, 990.0}}
+                                            Other, 0x10af9b840, {{10.0, 32.0}, {220.0, 990.0}}
+                                              CollectionView, 0x10af9bc00, {{10.0, 32.0}, {220.0, 990.0}}, label: 'Sidebar'
+                                                Other, 0x10af992c0, {{-6.0, -1894.0}, {252.0, 6679.0}}
+                                                Other, 0x10af98a00, {{10.0, 32.0}, {220.0, 990.0}}
+                                                  Other, 0x10af9a800, {{10.0, 32.0}, {220.0, 108.8}}
+                                                Other, 0x10af98000, {{10.0, 32.0}, {220.0, 990.0}}
+                                                Cell, 0x10af99cc0, {{26.0, 86.0}, {188.0, 103.5}}, Selected
+                                                  Other, 0x10af9af80, {{26.0, 86.0}, {188.0, 103.5}}
+                                                    Other, 0x10af98500, {{26.0, 86.0}, {188.0, 103.5}}
+                                                      Other, 0x10af9aa80, {{26.0, 86.0}, {188.0, 103.5}}
+                                                  Other, 0x10af98f00, {{26.0, 86.0}, {188.0, 103.5}}
+                                                    Other, 0x10af98c80, {{26.0, 86.0}, {188.0, 103.5}}
+                                                      Other, 0x10af99e00, {{26.0, 86.0}, {188.0, 103.5}}
+                                                        Other, 0x10af99900, {{26.0, 86.0}, {188.0, 103.5}}, identifier: 'state-cover', label: 'Slide 1: Scaena', Selected
+                                                          StaticText, 0x10af9bd40, {{54.0, 103.2}, {8.0, 14.5}}, label: '1'
+                                                          Image, 0x10af988c0, {{68.0, 101.0}, {130.0, 73.5}}
+                                                Cell, 0x10af9abc0, {{26.0, 189.5}, {188.0, 103.5}}
+                                                  Other, 0x10accf980, {{26.0, 189.5}, {188.0, 103.5}}
+                                                  Other, 0x10accfe80, {{26.0, 189.5}, {188.0, 103.5}}
+                                                    Other, 0x10accf0c0, {{26.0, 189.5}, {188.0, 103.5}}
+                                                      Other, 0x10acce080, {{26.0, 189.5}, {188.0, 103.5}}
+                                                        Other, 0x10accf5c0, {{26.0, 189.5}, {188.0, 103.5}}, identifier: 'state-goal', label: 'Slide 2: Build the tool we would design today if the slide had never been invented.'
+                                                          StaticText, 0x10acce440, {{54.0, 206.7}, {8.0, 14.5}}, label: '2'
+                                                          Image, 0x10accda40, {{68.0, 204.5}, {130.0, 73.5}}
+                                                Cell, 0x10accf840, {{26.0, 293.0}, {188.0, 84.0}}
+                                                  Other, 0x10accea80, {{26.0, 293.0}, {188.0, 84.0}}
+                                                  Other, 0x10accf480, {{26.0, 293.0}, {188.0, 84.0}}
+                                                    Other, 0x10accf200, {{26.0, 293.0}, {188.0, 84.0}}
+                                                      Other, 0x10accfac0, {{26.0, 293.0}, {188.0, 84.0}}
+                                                        Other, 0x10accd180, {{26.0, 293.0}, {188.0, 84.0}}, identifier: 'state-goal-why', label: 'Slide 2, step 2: Build the tool we would design today if the slide had never been invented.'
+                                                          StaticText, 0x10acccc80, {{62.0, 307.1}, {0.0, 14.0}}
+                                                          Image, 0x10accfc00, {{92.0, 305.0}, {106.0, 60.0}}
+                                                Cell, 0x10accd2c0, {{26.0, 377.0}, {188.0, 84.0}}
+                                                  Other, 0x10accfd40, {{26.0, 377.0}, {188.0, 84.0}}
+                                                  Other, 0x10acccf00, {{26.0, 377.0}, {188.0, 84.0}}
+                                                    Other, 0x10accf700, {{26.0, 377.0}, {188.0, 84.0}}
+                                                      Other, 0x10acce580, {{26.0, 377.0}, {188.0, 84.0}}
+                                                        Other, 0x10accd540, {{26.0, 377.0}, {188.0, 84.0}}, identifier: 'state-goal-bar', label: 'Slide 2, step 3: Build the tool we would design today if the slide had never been invented.'
+                                                          StaticText, 0x10acced00, {{62.0, 391.1}, {0.0, 14.0}}
+                                                          Image, 0x10accd680, {{92.0, 389.0}, {106.0, 60.0}}
+                                                Cell, 0x10accd7c0, {{26.0, 461.0}, {188.0, 103.5}}
+                                                  Other, 0x10accebc0, {{26.0, 461.0}, {188.0, 103.5}}
+                                                  Other, 0x10accd040, {{26.0, 461.0}, {188.0, 103.5}}
+                                                    Other, 0x10acce1c0, {{26.0, 461.0}, {188.0, 103.5}}
+                                                      Other, 0x10accd900, {{26.0, 461.0}, {188.0, 103.5}}
+                                                        Other, 0x10acce800, {{26.0, 461.0}, {188.0, 103.5}}, identifier: 'state-belief-1', label: 'Slide 3: The slide was a mistake we inherited, not a law of nature.'
+                                                          StaticText, 0x10acce940, {{54.0, 478.2}, {8.0, 14.5}}, label: '3'
+                                                          Image, 0x10acce300, {{68.0, 476.0}, {130.0, 73.5}}
+                                                Cell, 0x10accd400, {{26.0, 564.5}, {188.0, 84.0}}
+                                                  Other, 0x10accdf40, {{26.0, 564.5}, {188.0, 84.0}}
+                                                  Other, 0x10accef80, {{26.0, 564.5}, {188.0, 84.0}}
+                                                    Other, 0x10accf340, {{26.0, 564.5}, {188.0, 84.0}}
+                                                      Other, 0x10accdb80, {{26.0, 564.5}, {188.0, 84.0}}
+                                                        Other, 0x10acccdc0, {{26.0, 564.5}, {188.0, 84.0}}, identifier: 'state-belief-1-why', label: 'Slide 3, step 2: The slide was a mistake we inherited, not a law of nature.'
+                                                          StaticText, 0x10accee40, {{62.0, 578.6}, {0.0, 14.0}}
+                                                          Image, 0x10acce6c0, {{92.0, 576.5}, {106.0, 60.0}}
+                                                Cell, 0x10afb8500, {{26.0, 648.5}, {188.0, 84.0}}
+                                                  Other, 0x10afba1c0, {{26.0, 648.5}, {188.0, 84.0}}
+                                                  Other, 0x10afb92c0, {{26.0, 648.5}, {188.0, 84.0}}
+                                                    Other, 0x10afb9f40, {{26.0, 648.5}, {188.0, 84.0}}
+                                                      Other, 0x10afb8dc0, {{26.0, 648.5}, {188.0, 84.0}}
+                                                        Other, 0x10afb9cc0, {{26.0, 648.5}, {188.0, 84.0}}, identifier: 'state-belief-1-line', label: 'Slide 3, step 3: The slide was a mistake we inherited, not a law of nature.'
+                                                          StaticText, 0x10afbae40, {{62.0, 662.6}, {0.0, 14.0}}
+                                                          Image, 0x10afbbe80, {{92.0, 660.5}, {106.0, 60.0}}
+                                                Cell, 0x10afb88c0, {{26.0, 732.5}, {188.0, 103.5}}
+                                                  Other, 0x10afbb5c0, {{26.0, 732.5}, {188.0, 103.5}}
+                                                  Other, 0x10afb8f00, {{26.0, 732.5}, {188.0, 103.5}}
+                                                    Other, 0x10afbb200, {{26.0, 732.5}, {188.0, 103.5}}
+                                                      Other, 0x10afba6c0, {{26.0, 732.5}, {188.0, 103.5}}
+                                                        Other, 0x10afbb980, {{26.0, 732.5}, {188.0, 103.5}}, identifier: 'state-belief-2', label: 'Slide 4: Identity is the primitive.'
+                                                          StaticText, 0x10afb8000, {{54.0, 749.7}, {8.0, 14.5}}, label: '4'
+                                                          Image, 0x10afbb700, {{68.0, 747.5}, {130.0, 73.5}}
+                                                Cell, 0x10afb9a40, {{26.0, 836.0}, {188.0, 84.0}}
+                                                  Other, 0x10afbbac0, {{26.0, 836.0}, {188.0, 84.0}}
+                                                  Other, 0x10afbaa80, {{26.0, 836.0}, {188.0, 84.0}}
+                                                    Other, 0x10afb8780, {{26.0, 836.0}, {188.0, 84.0}}
+                                                      Other, 0x10afbabc0, {{26.0, 836.0}, {188.0, 84.0}}
+                                                        Other, 0x10afb8280, {{26.0, 836.0}, {188.0, 84.0}}, identifier: 'state-belief-2-why', label: 'Slide 4, step 2: Identity is the primitive.'
+                                                          StaticText, 0x10afba440, {{62.0, 850.1}, {0.0, 14.0}}
+                                                          Image, 0x10afbb0c0, {{92.0, 848.0}, {106.0, 60.0}}
+                                                Cell, 0x10afbaf80, {{26.0, 920.0}, {188.0, 84.0}}
+                                                  Other, 0x10afb8c80, {{26.0, 920.0}, {188.0, 84.0}}
+                                                  Other, 0x10afbb840, {{26.0, 920.0}, {188.0, 84.0}}
+                                                    Other, 0x10afba940, {{26.0, 920.0}, {188.0, 84.0}}
+                                                      Other, 0x10afba800, {{26.0, 920.0}, {188.0, 84.0}}
+                                                        Other, 0x10afb9040, {{26.0, 920.0}, {188.0, 84.0}}, identifier: 'state-belief-2-line', label: 'Slide 4, step 3: Identity is the primitive.'
+                                                          StaticText, 0x10afba080, {{62.0, 934.1}, {0.0, 14.0}}
+                                                          Image, 0x10afb97c0, {{92.0, 932.0}, {106.0, 60.0}}
+                                                Cell, 0x10afb9540, {{26.0, 1004.0}, {188.0, 103.5}}
+                                                  Other, 0x10afb9680, {{26.0, 1004.0}, {188.0, 103.5}}
+                                                  Other, 0x10afbb340, {{26.0, 1004.0}, {188.0, 103.5}}
+                                                    Other, 0x10afb9400, {{26.0, 1004.0}, {188.0, 103.5}}
+                                                      Other, 0x10afb9900, {{26.0, 1004.0}, {188.0, 103.5}}
+                                                        Other, 0x10afb8140, {{26.0, 1004.0}, {188.0, 103.5}}, identifier: 'state-belief-3', label: 'Slide 5: Typography is the product.'
+                                                          StaticText, 0x10afb83c0, {{54.0, 1021.2}, {8.0, 14.5}}, label: '5'
+                                                          Image, 0x10afb9180, {{68.0, 1019.0}, {130.0, 73.5}}
+                                                Other, 0x10afbbd40, {{197.0, 86.0}, {30.0, 914.0}}, label: 'Vertical scroll bar, 3 pages', value: 0%
+                                                  Other, 0x10afb8a00, {{224.0, 89.0}, {3.0, 352.0}}
+                                                Other, 0x10afbad00, {{197.0, 86.0}, {30.0, 914.0}}, label: 'Vertical scroll bar, 3 pages', value: 0%
+                                                  Other, 0x10afb8640, {{224.0, 89.0}, {3.0, 352.0}}
+                                      Other, 0x10afba300, {{10.0, 32.0}, {220.0, 990.0}}
+                                        Other, 0x10afb8b40, {{10.0, 32.0}, {220.0, 990.0}}
+                                  Other, 0x10afb4b40, {{10.0, 32.0}, {220.0, 990.0}}
+                                    Other, 0x10afb48c0, {{10.0, 32.0}, {220.0, 990.0}}
+                                      Other, 0x10afb4500, {{10.0, 32.0}, {220.0, 990.0}}
+                                        Other, 0x10afb4000, {{10.0, 32.0}, {220.0, 990.0}}
+                                          Other, 0x10afb4c80, {{10.0, 32.0}, {220.0, 990.0}}
+                                            Other, 0x10afb57c0, {{10.0, 32.0}, {220.0, 990.0}}
+                                        Other, 0x10afb4dc0, {{10.0, 32.0}, {220.0, 990.0}}
+                                          Other, 0x10afb5540, {{10.0, 32.0}, {220.0, 990.0}}
+                                Other, 0x10afb5900, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                  Other, 0x10afb4780, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                    NavigationBar, 0x10afb4640, {{0.0, 32.0}, {1376.0, 54.0}}, identifier: 'b1'
+                                      Button, 0x10afb4a00, {{240.0, 32.0}, {44.0, 44.0}}, identifier: 'BackButton', label: 'Back'
+                                      Button, 0x10afb7d40, {{300.0, 36.0}, {46.0, 36.0}}, label: 'View'
+                                      Other, 0x10afb43c0, {{362.0, 36.0}, {54.0, 36.0}}, identifier: 'zoom', label: 'Zoom', value: Fit
+                                        Other, 0x10afb6080, {{362.0, 36.0}, {54.0, 36.0}}
+                                          Button, 0x10afb5e00, {{362.0, 36.0}, {54.0, 36.0}}, identifier: 'zoom', label: 'Zoom', value: Fit
+                                            Button, 0x10afb6440, {{362.0, 36.0}, {54.0, 36.0}}
+                                              StaticText, 0x10afb4280, {{379.5, 43.8}, {19.0, 20.5}}, label: 'Fit'
+                                      Button, 0x10afb52c0, {{432.0, 36.0}, {39.5, 36.0}}, identifier: 'undo', label: 'Undo', Disabled
+                                      Button, 0x10afb7700, {{487.5, 36.0}, {40.0, 36.0}}, identifier: 'select-several', label: 'Select Several', value: 0
+                                      Button, 0x10afb7200, {{543.5, 43.5}, {18.0, 21.0}}, label: 'b1'
+                                      Button, 0x10afb6f80, {{677.5, 36.0}, {46.0, 36.0}}, identifier: 'add-slide', label: 'Add Slide'
+                                      Button, 0x10afb7980, {{739.5, 36.0}, {36.0, 36.0}}, label: 'Play'
+                                      Button, 0x10afb66c0, {{791.5, 36.0}, {45.5, 36.0}}, identifier: 'insert-Text', label: 'Text'
+                                      Button, 0x10afb7c00, {{853.0, 36.0}, {43.0, 36.0}}, identifier: 'insert-Shape', label: 'Shape'
+                                      Button, 0x10afb7840, {{912.0, 36.0}, {44.5, 36.0}}, identifier: 'insert-Image', label: 'Image'
+                                      Button, 0x10afb7480, {{972.5, 36.0}, {47.0, 36.0}}, identifier: 'insert-Chart', label: 'Chart'
+                                      Button, 0x10afb7340, {{1035.5, 36.0}, {44.5, 36.0}}, identifier: 'insert-Table', label: 'Table'
+                                      Button, 0x10afb70c0, {{1096.0, 36.0}, {38.5, 36.0}}, label: 'Share'
+                                      Button, 0x10afb7ac0, {{1150.5, 36.0}, {38.0, 36.0}}, label: 'Assistant', value: 0
+                                      Button, 0x10afb75c0, {{1204.5, 36.0}, {42.0, 36.0}}, identifier: 'tab-format', label: 'Format', value: 1, Selected
+                                      Button, 0x10afb6d00, {{1262.5, 36.0}, {36.0, 36.0}}, identifier: 'tab-animate', label: 'Animate', value: 0
+                                      Button, 0x10afb6bc0, {{1314.5, 36.0}, {37.5, 36.0}}, identifier: 'tab-document', label: 'Document', value: 0
+                                    Other, 0x10afb6a80, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                      Other, 0x10afb6800, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                        Other, 0x10afb6e40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                          Other, 0x10afb5400, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                            Other, 0x10afb5680, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                              Other, 0x10afb5040, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                Other, 0x10afb6300, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                  Other, 0x10afb4f00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                    Other, 0x10afb61c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                      Other, 0x10afb5f40, {{258.0, 327.0}, {790.0, 444.0}}
+                                                      TextView, 0x10afb5b80, {{0.0, 0.0}, {0.0, 0.0}}
+                                                      Other, 0x10afb6580, {{258.0, 327.0}, {790.0, 444.0}}
+                                                      Other, 0x10afb5a40, {{258.0, 327.0}, {790.0, 444.0}}
+                                                      Other, 0x10afb5cc0, {{258.0, 327.0}, {790.0, 444.0}}, identifier: 'canvas', label: 'Slide 1'
+                                                        StaticText, 0x10afb5180, {{307.5, 429.0}, {574.5, 177.5}}, label: 'Scaena'
+                                                        StaticText, 0x10afb4140, {{307.5, 616.5}, {457.5, 52.5}}, label: 'Why this exists, what we believe, and what we refuse to build.'
+                                                        Other, 0x10aea0000, {{258.0, 326.8}, {1.0, 1.0}}, identifier: 'canvas-menu-asks', label: 'Long presses', value: 0
+                                                        Other, 0x10aea0140, {{258.0, 326.8}, {1.0, 1.0}}, identifier: 'canvas-last-press', label: 'Last press', value: none
+                                                Other, 0x10aea0280, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                  Other, 0x10aea03c0, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                    Other, 0x10aea0500, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                      Other, 0x10aea0640, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                        SegmentedControl, 0x10aea0780, {{1084.0, 94.0}, {284.0, 31.0}}
+                                                          Button, 0x10aea08c0, {{1084.0, 94.0}, {94.0, 32.0}}, label: 'Format', Selected
+                                                          Button, 0x10aea0a00, {{1178.0, 94.0}, {95.0, 32.0}}, label: 'Animate'
+                                                          Button, 0x10aea0b40, {{1273.0, 94.0}, {95.0, 32.0}}, label: 'Document'
+                                                        CollectionView, 0x10aea0c80, {{1076.0, 133.5}, {300.0, 898.5}}
+                                                          Other, 0x10aea0dc0, {{1060.0, -1663.5}, {332.0, 1945.0}}
+                                                          Cell, 0x10aea0f00, {{1092.0, 133.5}, {268.0, 40.5}}
+                                                            Other, 0x10aea1040, {{1092.0, 133.5}, {268.0, 40.5}}
+                                                            Other, 0x10aea1180, {{1092.0, 133.5}, {268.0, 40.5}}
+                                                              Other, 0x10aea12c0, {{1092.0, 133.5}, {268.0, 40.5}}
+                                                                Other, 0x10aea1400, {{1092.0, 133.5}, {268.0, 40.5}}
+                                                                  StaticText, 0x10aea1540, {{1092.0, 133.5}, {268.0, 40.5}}, label: 'Background'
+                                                          Cell, 0x10aea1680, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                            Other, 0x10aea17c0, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                              Other, 0x10aea1900, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                                Other, 0x10aea1a40, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                            Other, 0x10aea1b80, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                              Other, 0x10aea1cc0, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                                Other, 0x10aea1e00, {{1092.0, 174.0}, {268.0, 90.0}}
+                                                                  Other, 0x10aea1f40, {{1108.0, 189.0}, {236.0, 60.0}}
+                                                                    Button, 0x10aea2080, {{1108.0, 189.0}, {73.5, 60.0}}, identifier: 'background-none', label: 'No background', value: A plain slide. The..., Selected
+                                                                      Image, 0x10aea21c0, {{1108.0, 189.0}, {73.5, 41.5}}
+                                                                      StaticText, 0x10aea2300, {{1108.0, 189.0}, {73.5, 60.0}}, label: 'None'
+                                                                    Button, 0x10aea2440, {{1189.5, 189.0}, {73.0, 60.0}}, identifier: 'background-mesh-soft', label: 'Mesh Soft background', value: Mesh Gradient. Cli...
+                                                                      Image, 0x10aea2580, {{1189.5, 189.0}, {73.0, 41.5}}
+                                                                      StaticText, 0x10aea26c0, {{1189.5, 189.0}, {73.0, 60.0}}, label: 'Mesh Soft'
+                                                                    Button, 0x10aea2800, {{1270.5, 189.0}, {73.5, 60.0}}, identifier: 'background-noise-fine', label: 'Noise Fine background', value: Noise. Click to us...
+                                                                      Image, 0x10aea2940, {{1270.5, 189.0}, {73.5, 41.5}}
+                                                                      StaticText, 0x10aea2a80, {{1270.5, 189.0}, {73.5, 60.0}}, label: 'Noise Fine'
+                                                          Other, 0x10aea2bc0, {{1060.0, 281.5}, {332.0, 110.0}}
+                                                          Cell, 0x10aea2d00, {{1092.0, 281.5}, {268.0, 40.5}}
+                                                            Other, 0x10aea2e40, {{1092.0, 281.5}, {268.0, 40.5}}
+                                                            Other, 0x10aea2f80, {{1092.0, 281.5}, {268.0, 40.5}}
+                                                              Other, 0x10aea30c0, {{1092.0, 281.5}, {268.0, 40.5}}
+                                                                Other, 0x10aea3200, {{1092.0, 281.5}, {268.0, 40.5}}
+                                                                  StaticText, 0x10aea3340, {{1092.0, 281.5}, {268.0, 40.5}}, label: 'Slide'
+                                                          Cell, 0x10aea3480, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                            Other, 0x10aea35c0, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                              Other, 0x10aea3700, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                                Other, 0x10aea3840, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                            Other, 0x10aea3980, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                              Other, 0x10aea3ac0, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                                Other, 0x10aea3c00, {{1092.0, 322.0}, {268.0, 52.0}}
+                                                                  StaticText, 0x10aea3d40, {{1108.0, 337.8}, {51.5, 20.5}}, label: 'Layout'
+                                                                  Button, 0x10aea3e80, {{1092.0, 322.0}, {268.0, 52.0}}, identifier: 'layout-choose', label: 'Layout, Title'
+                                                          Other, 0x10af18000, {{1060.0, 391.5}, {332.0, 160.5}}
+                                                          Cell, 0x10af18140, {{1092.0, 391.5}, {268.0, 40.5}}
+                                                            Other, 0x10af18280, {{1092.0, 391.5}, {268.0, 40.5}}
+                                                            Other, 0x10af183c0, {{1092.0, 391.5}, {268.0, 40.5}}
+                                                              Other, 0x10af18500, {{1092.0, 391.5}, {268.0, 40.5}}
+                                                                Other, 0x10af18640, {{1092.0, 391.5}, {268.0, 40.5}}
+                                                                  StaticText, 0x10af18780, {{1092.0, 391.5}, {268.0, 40.5}}, label: 'Presenter Notes'
+                                                          Cell, 0x10af188c0, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                            Other, 0x10af18a00, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                              Other, 0x10af18b40, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                                Other, 0x10af18c80, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                            Other, 0x10af18dc0, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                              Other, 0x10af18f00, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                                Other, 0x10af19040, {{1092.0, 432.0}, {268.0, 102.5}}
+                                                                  TextField, 0x10af19180, {{1114.0, 451.0}, {224.0, 64.5}}, placeholderValue: 'Notes you see as you present'
+                                                                    Other, 0x10af192c0, {{1118.0, 482.5}, {216.0, 30.0}}, label: 'Horizontal scroll bar, 1 page', value: 0%
+                                                                      Other, 0x10af19400, {{1121.0, 509.5}, {210.0, 3.0}}
+                                                          Other, 0x10af19540, {{1060.0, 552.0}, {332.0, 87.0}}
+                                                          Cell, 0x10af19680, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                            Other, 0x10af197c0, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                              Other, 0x10af19900, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                                Other, 0x10af19a40, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                            Other, 0x10af19b80, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                              Other, 0x10af19cc0, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                                Other, 0x10af19e00, {{1092.0, 569.5}, {268.0, 52.0}}
+                                                                  Button, 0x10af19f40, {{1092.0, 569.5}, {268.0, 52.0}}, label: 'Objects on This Slide'
+                                                                    StaticText, 0x10af1a080, {{1108.0, 585.2}, {161.0, 20.5}}, label: 'Objects on This Slide'
+                                                                    Button, 0x10af1a1c0, {{1333.5, 588.5}, {10.5, 14.0}}
+                                                                      Image, 0x10af1a300, {{1333.5, 588.5}, {10.5, 14.0}}, identifier: 'collapsed'
+                                                          Other, 0x10af1a440, {{1060.0, 639.0}, {332.0, 1970.0}}
+                                                          Cell, 0x10af1a580, {{1092.0, 639.0}, {268.0, 40.5}}
+                                                            Other, 0x10af1a6c0, {{1092.0, 639.0}, {268.0, 40.5}}
+                                                            Other, 0x10af1a800, {{1092.0, 639.0}, {268.0, 40.5}}
+                                                              Other, 0x10af1a940, {{1092.0, 639.0}, {268.0, 40.5}}
+                                                                Other, 0x10af1aa80, {{1092.0, 639.0}, {268.0, 40.5}}
+                                                                  StaticText, 0x10af1abc0, {{1092.0, 639.0}, {268.0, 40.5}}, label: 'Writing'
+                                                          Cell, 0x10af1ad00, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                            Other, 0x10af1ae40, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                              Other, 0x10af1af80, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                                Other, 0x10af1b0c0, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                            Other, 0x10af1b200, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                              Other, 0x10af1b340, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                                Other, 0x10af1b480, {{1092.0, 679.5}, {268.0, 52.0}}
+                                                                  Button, 0x10af1b5c0, {{1092.0, 679.5}, {268.0, 52.0}}, label: 'Draft Presenter Notes'
+                                                          Cell, 0x10af1b700, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                            Other, 0x10af1b840, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                              Other, 0x10af1b980, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                                Other, 0x10af1bac0, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                            Other, 0x10af1bc00, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                              Other, 0x10af1bd40, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                                Other, 0x10af1be80, {{1092.0, 731.5}, {268.0, 52.0}}
+                                                                  Button, 0x10af14000, {{1092.0, 731.5}, {268.0, 52.0}}, label: 'Check the Claim'
+                                                          Other, 0x10af14140, {{1148.0, 730.5}, {196.0, 1.0}}
+                                                            Other, 0x10af14280, {{1148.0, 730.5}, {196.0, 1.0}}
+                                                          Cell, 0x10af143c0, {{1092.0, 783.5}, {268.0, 28.5}}
+                                                            Other, 0x10af14500, {{1092.0, 783.5}, {268.0, 28.5}}
+                                                            Other, 0x10af14640, {{1092.0, 783.5}, {268.0, 28.5}}
+                                                              Other, 0x10af14780, {{1092.0, 783.5}, {268.0, 28.5}}
+                                                                Other, 0x10af148c0, {{1092.0, 783.5}, {268.0, 28.5}}
+                                                                  StaticText, 0x10af14a00, {{1092.0, 783.5}, {268.0, 28.5}}, label: 'Runs on this iPad'
+                                                          Other, 0x10af14b40, {{1343.0, 144.5}, {30.0, 857.5}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                                            Other, 0x10af14c80, {{1370.0, 1002.0}, {3.0, 7.0}}
+                                                          Other, 0x10af14dc0, {{1343.0, 144.5}, {30.0, 857.5}}, label: 'Vertical scroll bar, 1 page', value: 0%
+                                                            Other, 0x10af14f00, {{1370.0, 1002.0}, {3.0, 7.0}}
+                                                  Other, 0x10af15040, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                    Other, 0x10af15180, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                      Other, 0x10af152c0, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                        Other, 0x10af15400, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                          Other, 0x10af15540, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                            Other, 0x10af15680, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                        Other, 0x10af157c0, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                                          Other, 0x10af15900, {{1076.0, 0.0}, {300.0, 1032.0}}
+                                              Other, 0x10af15a40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                                Other, 0x10af15b80, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                    Other, 0x10af15cc0, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                      Other, 0x10af15e00, {{0.0, 0.0}, {1376.0, 1032.0}}
+                              Other, 0x10af15f40, {{0.0, 0.0}, {1376.0, 1032.0}}
+                                Other, 0x10af16080, {{0.0, 0.0}, {1376.0, 1032.0}}
+                        Other, 0x10af161c0, {{0.0, 0.0}, {1376.0, 1032.0}}
+              Other, 0x10af16300, {{0.0, 0.0}, {1376.0, 1032.0}}
+                Other, 0x10af16440, {{0.0, 0.0}, {1376.0, 1032.0}}
+Path to element:
+ →Application, 0x10af9b980, pid: 89065, label: 'Scaena'
+Query chain:
+ →Find: Target Application 'com.welshofer.Scaena'
+  Output: {
+    Application, 0x10af16580, pid: 89065, label: 'Scaena'
+  }
