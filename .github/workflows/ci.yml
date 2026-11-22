@@ -22,8 +22,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
-  schedule:
-    - cron: "23 7 * * 1"
+  # No schedule: Jay halted every scheduled run of this repository. Run it by hand (workflow_dispatch).
 env:
   # Debug builds keep line tables only: a panic or backtrace still names its file and line, and
   # the test builds take about 40% less disk. With full debug info they outgrew the Linux runner's
