@@ -360,22 +360,27 @@ impl<'a> File<'a> {
                     let read = flate2::read::ZlibDecoder::new(&data[..])
                         .take(self.bounds.inflated as u64 + 1)
                         .read_to_end(&mut out);
-                    if out.len() > self.bounds.inflated {
-                        return Err(format!("a stream inflates past {}", size(self.bounds.inflated)));
-                    }
-                    self.total += out.len();
-                    if self.total > self.bounds.total {
-                        return Err(format!("its streams run past {} together", size(self.bounds.total)));
-                    }
                     if read.is_err() && out.is_empty() {
                         return Ok(None);
                     }
                     out
                 }
-                b"ASCII85Decode" | b"A85" => ascii85(&data),
-                b"ASCIIHexDecode" | b"AHx" => ascii_hex(&data),
+                // Decoded no further than a stream's bound, ASCII85's `z` making four bytes of one.
+                b"ASCII85Decode" | b"A85" => ascii85(&data, self.bounds.inflated).ok_or_else(|| past(self.bounds))?,
+                b"ASCIIHexDecode" | b"AHx" => {
+                    ascii_hex(&data, self.bounds.inflated).ok_or_else(|| past(self.bounds))?
+                }
                 _ => return Ok(None),
             };
+            // What each filter makes, Flate's and the others' alike, is held to a stream's bound
+            // and counted toward what the streams come to together (lift-up 20261124 SEC-1).
+            if data.len() > self.bounds.inflated {
+                return Err(past(self.bounds));
+            }
+            self.total += data.len();
+            if self.total > self.bounds.total {
+                return Err(format!("its streams run past {} together", size(self.bounds.total)));
+            }
         }
         Ok(Some(data))
     }
@@ -581,14 +586,20 @@ impl<'a> File<'a> {
                 }
                 b"ET" | b"Td" | b"TD" | b"T*" | b"Tm" => self.out.push(' '),
                 b"Do" if depth < FORMS => {
+                    // A form's words alone are read: its dictionary is read on the object as held,
+                    // and an image passed over before its data is decoded or anything of it copied,
+                    // so a picture a report shows on every page costs nothing toward the bounds
+                    // (the review of lift-up 20261124 SEC-1).
                     if let Some(Value::Name(key)) = operands.first()
                         && let Some(objects) = get(resources, b"XObject").cloned()
                         && let Some(Value::Dict(objects)) = self.resolve(&objects)?
-                        && let Some(form) = get(&objects, key).cloned()
-                        && let Some((dict, data)) = self.stream(&form)?
-                        && name(get(&dict, b"Subtype")) == Some(b"Form")
+                        && let Some(Value::Ref(id)) = get(&objects, key)
+                        && let Some(form) = self.object(*id)?
+                        && let Value::Dict(dict) = &form.value
+                        && name(get(dict, b"Subtype")) == Some(b"Form")
+                        && let Some(data) = self.data(&form)?
                     {
-                        let own = match get(&dict, b"Resources").cloned() {
+                        let own = match get(dict, b"Resources").cloned() {
                             Some(r) => match self.resolve(&r)? {
                                 Some(Value::Dict(own)) => own,
                                 _ => resources.clone(),
@@ -1142,7 +1153,7 @@ impl<'a> Parser<'a> {
                     while self.at < d.len() && d[self.at] != b'>' {
                         self.at += 1;
                     }
-                    let hex = ascii_hex(&d[start..self.at]);
+                    let hex = ascii_hex(&d[start..self.at], usize::MAX).unwrap_or_default();
                     self.at += 1;
                     return Some(Token::Value(Value::String(hex)));
                 }
@@ -1352,21 +1363,22 @@ fn utf16(bytes: &[u8]) -> String {
     String::from_utf16_lossy(&units)
 }
 
-/// ASCII85 `data` decoded, up to its `~>`.
-fn ascii85(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(data.len() * 4 / 5);
+/// ASCII85 `data` decoded, up to its `~>`; none where it would come to more than `most` bytes,
+/// its room never grown past them: its `z` makes four bytes of one.
+fn ascii85(data: &[u8], most: usize) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
     let mut group = [0u8; 5];
     let mut n = 0;
     let value = |g: &[u8; 5]| g.iter().fold(0u32, |v, &d| v.wrapping_mul(85).wrapping_add(u32::from(d)));
     for &b in data {
         match b {
             b'~' => break,
-            b'z' if n == 0 => out.extend_from_slice(&[0; 4]),
+            b'z' if n == 0 => within(&mut out, &[0; 4], most)?,
             b'!'..=b'u' => {
                 group[n] = b - b'!';
                 n += 1;
                 if n == 5 {
-                    out.extend_from_slice(&value(&group).to_be_bytes());
+                    within(&mut out, &value(&group).to_be_bytes(), most)?;
                     n = 0;
                 }
             }
@@ -1377,16 +1389,43 @@ fn ascii85(data: &[u8]) -> Vec<u8> {
         for slot in group.iter_mut().skip(n) {
             *slot = 84;
         }
-        out.extend_from_slice(&value(&group).to_be_bytes()[..n - 1]);
+        within(&mut out, &value(&group).to_be_bytes()[..n - 1], most)?;
     }
-    out
+    Some(out)
 }
 
-/// ASCIIHex `data` decoded, up to its `>`.
-fn ascii_hex(data: &[u8]) -> Vec<u8> {
-    let nibbles: Vec<u8> =
-        data.iter().take_while(|b| **b != b'>').filter_map(|b| (*b as char).to_digit(16).map(|n| n as u8)).collect();
-    nibbles.chunks(2).map(|p| (p[0] << 4) | p.get(1).copied().unwrap_or(0)).collect()
+/// ASCIIHex `data` decoded, up to its `>`, a pair of digits at a time; none where it would come
+/// to more than `most` bytes.
+fn ascii_hex(data: &[u8], most: usize) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut high = None;
+    for digit in data.iter().take_while(|b| **b != b'>').filter_map(|b| (*b as char).to_digit(16)) {
+        match high.take() {
+            None => high = Some(digit as u8),
+            Some(h) => within(&mut out, &[(h << 4) | digit as u8], most)?,
+        }
+    }
+    if let Some(h) = high {
+        within(&mut out, &[h << 4], most)?;
+    }
+    Some(out)
+}
+
+/// `bytes` put after `out` where that comes to `most` bytes at most, its room grown no further
+/// than them; none, and `out` as it was, where it would come to more.
+fn within(out: &mut Vec<u8>, bytes: &[u8], most: usize) -> Option<()> {
+    let wanted = out.len().checked_add(bytes.len()).filter(|n| *n <= most)?;
+    if wanted > out.capacity() {
+        let room = out.capacity().saturating_mul(2).max(wanted).max(64).min(most);
+        out.reserve_exact(room - out.len());
+    }
+    out.extend_from_slice(bytes);
+    Some(())
+}
+
+/// Why a stream is refused that decodes past its bound.
+fn past(bounds: &Bounds) -> String {
+    format!("a stream inflates past {}", size(bounds.inflated))
 }
 
 /// Whether `b` is a regular character of a PDF token: neither white space nor a delimiter.
@@ -1577,6 +1616,37 @@ mod tests {
                 .chain((0..3).map(|_| ("/Filter /Fl", Some(deflated(&vec![b' '; 900 << 10])))))
                 .collect();
         assert!(refused(&pdf(&parts, "")).ends_with("its streams run past 2 MB together"));
+        // ASCII85's `z` makes four bytes of one: what it makes, deflated first or not, is held to
+        // a stream's bound and counted toward the streams' together (lift-up 20261124 SEC-1).
+        let zs = |n: usize| [vec![b'z'; n], b"~>".to_vec()].concat();
+        let a85 = pdf(&[("<< /Type /Page /Contents 2 0 R >>", None), ("/Filter /A85", Some(zs(300 << 10)))], "");
+        assert!(refused(&a85).ends_with("a stream inflates past 1 MB"));
+        let chained = pdf(
+            &[("<< /Type /Page /Contents 2 0 R >>", None), ("/Filter [/Fl /A85]", Some(deflated(&zs(900 << 10))))],
+            "",
+        );
+        assert!(refused(&chained).ends_with("a stream inflates past 1 MB"));
+        let parts: Vec<(&str, Option<Vec<u8>>)> =
+            std::iter::once(("<< /Type /Page /Contents [2 0 R 3 0 R 4 0 R] >>", None))
+                .chain((0..3).map(|_| ("/Filter /A85", Some(zs(200 << 10)))))
+                .collect();
+        assert!(refused(&pdf(&parts, "")).ends_with("its streams run past 2 MB together"));
+        // ASCIIHex's too, a pair of digits at a time, where the streams may come to more together.
+        let hex =
+            pdf(&[("<< /Type /Page /Contents 2 0 R >>", None), ("/Filter /AHx", Some(vec![b'a'; 2200 << 10]))], "");
+        let roomy = Bounds { total: 8 << 20, ..SMALL };
+        let why = words_within("hostile.pdf", &hex, &roomy).unwrap_err().to_string();
+        assert!(why.ends_with("a stream inflates past 1 MB"), "{why}");
+        // An image a page shows is passed over before its data is decoded: only a form has words.
+        let shown = pdf(
+            &[
+                ("<< /Type /Page /Resources << /XObject << /Im1 3 0 R >> >> /Contents 2 0 R >>", None),
+                ("", Some(b"q /Im1 Do Q q /Im1 Do Q".to_vec())),
+                ("/Type /XObject /Subtype /Image /Filter /Fl", Some(deflated(&vec![b' '; 2 << 20]))),
+            ],
+            "",
+        );
+        assert!(words_within("shown.pdf", &shown, &SMALL).is_ok());
         // More streams than are read.
         let refs: String = (2..=61).map(|i| format!("{i} 0 R ")).collect();
         let head = format!("<< /Type /Page /Contents [{refs}] >>");
@@ -1622,6 +1692,24 @@ mod tests {
         // Encrypted, by its trailer: no words.
         let locked = pdf(&[("<< /Type /Page >>", None)], "/Encrypt << /Filter /Standard >>");
         assert!(refused(&locked).ends_with("it is encrypted"));
+    }
+
+    /// A decoder's room is never grown past its bound, nor its output let run past it (the review
+    /// of lift-up 20261124 SEC-1).
+    #[test]
+    fn a_decoder_stops_at_its_bound() {
+        let mut out = Vec::new();
+        while within(&mut out, &[0; 4], 1000).is_some() {}
+        assert_eq!(out.len(), 1000);
+        assert!(out.capacity() <= 1000, "{}", out.capacity());
+        assert_eq!(ascii85(&[b'z'; 251], 1000), None);
+        assert_eq!(ascii85(&[b'z'; 250], 1000).map(|o| o.len()), Some(1000));
+        assert_eq!(ascii_hex(&[b'a'; 2002], 1000), None);
+        assert_eq!(ascii_hex(&[b'a'; 2000], 1000).map(|o| o.len()), Some(1000));
+        assert_eq!(ascii_hex(b"41 42 4>", 1000), Some(b"AB@".to_vec()));
+        // A decode of nothing holds no room, however long its white space.
+        assert_eq!(ascii_hex(&[b' '; 4096], usize::MAX).map(|o| o.capacity()), Some(0));
+        assert_eq!(ascii85(&[b' '; 4096], 1000).map(|o| o.capacity()), Some(0));
     }
 
     /// Streams whose `/Length` lies, as many as a few MB holds, all a page's contents: each is found
