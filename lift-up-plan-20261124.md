@@ -106,3 +106,20 @@ None selected.
 | FUNC-1 | planned | 0 | Not started. It is M, with native Swift work, and did not fit the time left. | A run of its own. |
 
 Shipped: nothing. No PR, no merge, no deployment. This plan and its manifest are local commits on `welshofer-lift-up-audit-20261124`. The ledger, receipts, reviews, and WIP patches are in the session folder (`run.json`, `checkpoint-*.json`, `REL-1-*`, `SEC-1-*`).
+
+## Burn-down manifest, run 2 (3b40433f), 2026-11-24 20:50 UTC
+
+> Grant: the user's choice in the app's form after run 1 stopped, "New run: finish REL-1 and SEC-1, then PERF-1 (45 min, 2 reworks each), and open a PR". A new contract (r2) carries run 1's review findings into REL-1's and SEC-1's acceptance; run 1's ledger keeps its own counters. No merge or deploy.
+> Mode: bounded and owner-driven. Executor: Claude Opus 5.5 (`claude-opus-5.5`). Reviewers: read-only `code-review` agents asked for `gpt-6.2-astra`, which the host's status reports.
+> `origin/main` was still `e987ee1` when the run began, eleven hours after run 1 stopped.
+
+| Item | State | Reworks in run 2 | Commit | Acceptance evidence | Review |
+|---|---|---|---|---|---|
+| REL-1 | pr-open | 0 | `ef3dc32` | Before the fix, the at-once test failed: `deck_generate` errored writing `history/deck.loro`. Against run 1's lock placement, the two-thread test fails at 60 s; it now passes. Acceptance ran three times, plus the MCP suite, clippy, and fmt. | approved |
+| SEC-1 | pr-open | 0 | `8a00d65` | Before the fix, an `/A85` page of `z` read as valid. Now ASCII85 alone and over Flate, three ASCII85 streams together, and an ASCIIHex stream are refused at their bounds. A page showing a 2 MiB image twice reads. The decoders stop at their bound and hold no room for white space. The ReportLab report reads as before. The crate's suite, clippy, and fmt pass. | approved on its third review |
+| PERF-1 | pr-open | 1 | `a7561c3` | On the baseline the callers' grep finds six calls; it finds none now, and one `pdf::read` in each caller. Two real PDFs, a source that is no PDF, and an encrypted PDF, given out of name order, read once with the same words, joined text, and reason. The sources, generator, and FFI `generate` tests pass, with clippy (native and wasm32) and fmt. | approved on its second review; the first asked that SPEC §7.1.6's `pdf::each` stay true, so it is kept, as `read(..).0` |
+| FUNC-1 | not in this grant | – | – | – | – |
+
+Combined tree (wrapped receipt at 21:17 UTC): 118 tests pass and none fail across `scaena-mcp`, `scaena-sources` (pdf), `scaena-generator`, and the FFI's `generate`, with clippy `-D warnings` on seven crates and fmt. `just check` was not run; CI runs it.
+
+Shipped: PR #1360, not merged; merging waits on your review and CI. Deployment: none. FUNC-1 waits for a run of its own. The ledgers, receipts, and reviews are in the session folder (`run-2.json`, `checkpoint-*.json`, `*-review-*.md`).
