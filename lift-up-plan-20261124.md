@@ -90,3 +90,19 @@ None selected.
 ## First move
 
 **REL-1.** It is the one finding where an agent's work is lost while the server says it was made: the regression arrived with #1323, the fix is a lock every other writer already takes, and the at-once test it extends already exists.
+
+## Burn-down manifest, 2026-11-24 (run 220558ee, stopped)
+
+> Grant: `/burn-down` with no other text, right after `/lift-up`. Read as approval to implement this plan's ready items locally and to open a PR; no merge or deploy. Default limits: 60 minutes in all, 30 per item, three items per batch, two reworks per item, 800 changed lines per item, and a checkpoint every 10 minutes.
+> Mode: bounded and owner-driven. This host has no way to cancel an agent, so there were no autonomous workers.
+> Executor: Claude Opus 5.5 (`claude-opus-5.5`). Reviewers: read-only `code-review` agents asked for `gpt-6.2-astra`, which the host's status reports; the agents could not name themselves.
+> Checkpoints: 09:21 (start), 09:29, 09:39, 09:47, 09:54 UTC (stopped, ~33 minutes used).
+
+| Item | State | Reworks | What happened | What finishes it |
+|---|---|---|---|---|
+| REL-1 | blocked | 2 of 2 | Before the fix, the new at-once test failed: `deck_generate` errored writing `history/deck.loro` while attaches wrote. The first fix passed acceptance five times, the MCP suite, clippy, and fmt. Review rejected it: holding the lock across the wait for a blocking thread can deadlock Tokio's blocking pool, and a two-thread pool did hang on it for over five minutes. The rework takes the lock inside one blocking closure, as `open_by` does. Its new two-thread test then failed on its own bug: the timeout was made outside the runtime ("no reactor running"). | WIP is at `refs/wip/lift-up-20261124-REL-1` (`e8d82cb`). Build the timeout inside the runtime (`block_on(async { timeout(…).await })`), run it again, and get it reviewed; the reworked lock has not been reviewed. |
+| SEC-1 | blocked | 2 of 2 | Before the fix, a page of `/A85` with 300 KB of `z` read as valid. Review 1 asked for three changes: decode ASCIIHex in one bounded pass, cap ASCII85's capacity, and skip images before decoding them. Review 2 found two regressions in that rework: `ascii_hex` reserves half its input even for string tokens, and the Form check deep-clones the XObject on every `Do`. | WIP is at `refs/wip/lift-up-20261124-SEC-1` (`f163c27`). Start `ascii_hex` empty, read `/Subtype` from the cached object by reference before `data`, then get it reviewed. |
+| PERF-1 | planned | 0 | Not claimed: it depends on SEC-1. | SEC-1 integrated. |
+| FUNC-1 | planned | 0 | Not started. It is M, with native Swift work, and did not fit the time left. | A run of its own. |
+
+Shipped: nothing. No PR, no merge, no deployment. This plan and its manifest are local commits on `welshofer-lift-up-audit-20261124`. The ledger, receipts, reviews, and WIP patches are in the session folder (`run.json`, `checkpoint-*.json`, `REL-1-*`, `SEC-1-*`).
