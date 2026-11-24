@@ -68,29 +68,32 @@ pub fn words(name: &str, bytes: &[u8]) -> Result<String, SourceError> {
     words_within(name, bytes, &BOUNDS)
 }
 
-/// The words of each PDF among `sources`, together, and why each it could not read was not: what a
-/// deck's notes may say the figures of (W1's dogfood 17).
-pub fn held(sources: &[crate::Source]) -> (String, Vec<String>) {
-    let (mut all, mut unread) = (String::new(), Vec::new());
+/// The words of each PDF among `sources`, each read once: by its name, those it could not read
+/// left out, and why each it could not read was not. Source by source, what a deck keeps the
+/// figures of (`Provenance::figures`); [`joined`], what its notes may say the figures of (W1's
+/// dogfood 17). One read serves both, where one each read every PDF twice (lift-up 20261124 PERF-1).
+pub fn read(sources: &[crate::Source]) -> (Vec<(String, String)>, Vec<String>) {
+    let (mut each, mut unread) = (Vec::new(), Vec::new());
     for source in sources {
         let Some(pdf) = &source.pdf else { continue };
         match words(&source.name, pdf) {
-            Ok(w) => {
-                all.push_str(&w);
-                all.push('\n');
-            }
+            Ok(w) => each.push((source.name.clone(), w)),
             Err(why) => unread.push(why.to_string()),
         }
     }
-    (all, unread)
+    (each, unread)
+}
+
+/// The words of each PDF [`read`] read, together, each ending its line.
+pub fn joined(each: &[(String, String)]) -> String {
+    each.iter().map(|(_, words)| format!("{words}\n")).collect()
 }
 
 /// The words of each PDF among `sources`, by its name, those it could not read left out: what a
-/// deck keeps the figures of, source by source (`Provenance::figures`, W1's dogfood 17).
+/// deck keeps the figures of, source by source (`Provenance::figures`, W1's dogfood 17). A caller
+/// that wants the notes' words or the reasons too takes all three from one [`read`].
 pub fn each(sources: &[crate::Source]) -> Vec<(String, String)> {
-    (sources.iter())
-        .filter_map(|source| Some((source.name.clone(), words(&source.name, source.pdf.as_deref()?).ok()?)))
-        .collect()
+    read(sources).0
 }
 
 /// [`words`] within `bounds`.
@@ -1555,6 +1558,38 @@ mod tests {
             let missed: Vec<&str> = figures.iter().copied().filter(|f| !words.contains(f)).collect();
             assert!(missed.is_empty(), "{file} misses {missed:?}: {words:?}");
         }
+    }
+
+    /// Each PDF among the sources is read once for what a deck keeps of it and what its notes may
+    /// say alike: by its name, in order, a source with no PDF passed over and one that cannot be
+    /// read said, its words joined a line each (lift-up 20261124 PERF-1).
+    #[test]
+    fn each_pdf_is_read_once_for_its_figures_and_the_notes() {
+        let file = |name: &str| std::fs::read(format!("{}/tests/pdfs/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let source = |name: &str, pdf: Option<Vec<u8>>| crate::Source {
+            name: name.into(),
+            kind: if pdf.is_some() { crate::Kind::Pdf } else { crate::Kind::Markdown },
+            text: String::new(),
+            sheets: Vec::new(),
+            pdf,
+        };
+        let locked = pdf(&[("<< /Type /Page >>", None)], "/Encrypt << /Filter /Standard >>");
+        // Out of their names' order, so a read that sorted them would show.
+        let sources = [
+            source("latex.pdf", Some(file("latex.pdf"))),
+            source("notes.md", None),
+            source("locked.pdf", Some(locked)),
+            source("chrome.pdf", Some(file("chrome.pdf"))),
+        ];
+        let (read_each, unread) = read(&sources);
+        let named: Vec<&str> = read_each.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(named, ["latex.pdf", "chrome.pdf"]);
+        assert_eq!(unread, ["locked.pdf: its words were not read: it is encrypted"]);
+        let latex = words("latex.pdf", &file("latex.pdf")).unwrap();
+        let chrome = words("chrome.pdf", &file("chrome.pdf")).unwrap();
+        assert_eq!((read_each[0].1.as_str(), read_each[1].1.as_str()), (latex.as_str(), chrome.as_str()));
+        assert_eq!(joined(&read_each), format!("{latex}\n{chrome}\n"));
+        assert_eq!(each(&sources), read_each);
     }
 
     /// A code its font says nothing of is read as U+FFFD in its word, never dropped, so no word is

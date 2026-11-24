@@ -703,7 +703,11 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
         })
         .collect();
     #[cfg(feature = "pdf")]
-    let ((held, unread), words) = (scaena_sources::pdf::held(sources), scaena_sources::pdf::each(sources));
+    let ((held, unread), words) = {
+        // Each PDF read once, for its figures and the notes alike (lift-up 20261124 PERF-1).
+        let (words, unread) = scaena_sources::pdf::read(sources);
+        ((scaena_sources::pdf::joined(&words), unread), words)
+    };
     #[cfg(not(feature = "pdf"))]
     let ((held, unread), words) = ((String::new(), Vec::new()), Vec::new());
     Ok(Grounding { content: ground.content, documents, given: ground.given, held, unread, words })
@@ -712,7 +716,7 @@ pub fn grounding(sources: &[Source], provider: Provider) -> Result<Grounding, Op
 /// What each source given made of the prompt, as the deck keeps it beside its brief (narrative
 /// FUNC-3): its name, kind, address where it has one, bytes, and whether it was cut short; and the
 /// figures it holds (W1's dogfood 17), read from `read`, the sources as read, and `pdfs`, the words
-/// each PDF draws by its name (`scaena_sources::pdf::each`), so health holds a slide that cites it
+/// each PDF draws by its name (`scaena_sources::pdf::read`), so health holds a slide that cites it
 /// to them.
 /// Each source's figures are read in the marks it writes them in, else in `language`'s, the
 /// deck's (`scaena_narrato::source_figures`, R1's agent dogfood 12).
