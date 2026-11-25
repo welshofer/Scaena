@@ -149,6 +149,21 @@ extension ScaenaSession {
         try call("tidying", ["state": .string(state), "node": .string(node)])
     }
 
+    /// Focus on These Lines, Lines in Focus, and Clear Focus (PLAN 2.140): the patch that sets code
+    /// text `node`'s lines in focus in `state` to those `said` names in its gutter's numbers,
+    /// "2–4, 7", nothing said showing every line; the states after it as they were. None where it
+    /// shows them so already.
+    public func focusing(state: String, node: String, said: String) throws -> [JSONValue] {
+        try call("focusing", ["state": .string(state), "node": .string(node), "said": .string(said)])
+    }
+
+    /// Walk Through Lines… (PLAN 2.140): the patch that shows the lines each of `steps` names in
+    /// code text `node`'s gutter's numbers, `state` the first and a step after it for each of the
+    /// rest; the states after them as they were.
+    public func walking(state: String, node: String, steps: [String]) throws -> [JSONValue] {
+        try call("walking", ["state": .string(state), "node": .string(node), "steps": .array(steps.map { .string($0) })])
+    }
+
     /// A key a code editor answers (PLAN 2.139), in `text` with `from`...`to` selected, UTF-16
     /// offsets: Tab, Shift+Tab, or Return, with stops every `tab` columns, in `language` as the
     /// deck names it: a stop the keys add is a tab where the text indents with tabs, and always in a

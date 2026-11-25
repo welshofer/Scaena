@@ -43,6 +43,10 @@ struct DeckView: View {
     @State private var pointed: CGPoint?
     /// What the canvas says of an edit its keys or the Node menu made.
     @State private var said: String?
+    /// The lines each step of a walk through code shows, asked (PLAN 2.140).
+    @State private var walkAsked: WalkAsk?
+    /// The paragraphs the caret last touched in the last text typed in, code or not (PLAN 2.140).
+    @State private var lastTyped: TypedLines?
     /// Whether the window's close waits on the person, the assistant at work on the deck, and
     /// whether it closes once the assistant has stopped (lift-up 20261110 REL-3).
     @State private var confirmingClose = false
@@ -235,6 +239,24 @@ struct DeckView: View {
             IconPicker(session: editor.session, replacing: iconSelected != nil) { icon in
                 if let shown { insertIcon(icon, in: shown) }
             }
+        }
+        // The lines each step of a walk through code shows, apart by semicolons (PLAN 2.140).
+        .alert(
+            "Walk Through Lines",
+            isPresented: Binding(get: { walkAsked != nil }, set: { if !$0 { walkAsked = nil } })
+        ) {
+            TextField("Lines", text: Binding(get: { walkAsked?.words ?? "" }, set: { walkAsked?.words = $0 }))
+            Button("Walk Through") {
+                if let asked = walkAsked { walk(asked) }
+                walkAsked = nil
+            }
+            Button("Cancel", role: .cancel) { walkAsked = nil }
+        } message: {
+            let all = walkAsked?.all ?? "1–9"
+            Text("Each step's lines, apart by semicolons: \(all); 2–4; 7; \(all)")
+        }
+        .onChange(of: typedLines) { _, now in
+            if let now { lastTyped = now }
         }
     }
 
@@ -1580,6 +1602,15 @@ struct DeckView: View {
             if codes.contains(node) {
                 made.notCode = { notCode(node) }
                 made.tidyCode = { tidyCode(node, in: shown) }
+                // Its lines in focus, and a walk through them a step at a time (PLAN 2.140): the
+                // lines the caret touched where it is the last text typed in on this slide, as the
+                // browser's command takes them, since the Node menu is the text's keys while it is
+                // typed in.
+                made.clearFocus = { focusLines(node, in: shown, said: "") }
+                made.walkLines = { askWalk(node, in: shown) }
+                if let last = lastTyped, last.node == node, last.state == shown {
+                    made.focusLines = { focusTouched(node, in: shown) }
+                }
             } else {
                 made.makeCode = { makeCode(node) }
             }
@@ -1713,6 +1744,114 @@ struct DeckView: View {
             }
             try document.make(patch, undo: undo, named: "Tidy Code")
             said = "The code tidied"
+        }
+    }
+
+    /// Lines in Focus and Clear Focus (PLAN 2.140): code text `node`'s lines in focus in `state`,
+    /// those `words` names in its gutter's numbers, "2–4, 7"; nothing shows every line. One step
+    /// of undo, the slides after it as they were.
+    private func focusLines(_ node: String, in state: String, said words: String) {
+        if let refused = lockedSaid(node, in: state) {
+            said = refused
+            return
+        }
+        perform {
+            let patch = try editor.session.focusing(state: state, node: node, said: words)
+            guard !patch.isEmpty else {
+                said = words.isEmpty ? "Every line shows already" : "Lines \(words) are in focus already"
+                return
+            }
+            try document.make(patch, undo: undo, named: words.isEmpty ? "Clear Focus" : "Focus on These Lines")
+            said = words.isEmpty ? "Every line shown" : "Lines \(words) in focus"
+        }
+    }
+
+    /// Focus on These Lines (PLAN 2.140): the lines of code text `node` that the caret or the
+    /// selection touched where it is the last text typed in on the slide shown, numbered as its
+    /// gutter numbers them as the command runs, put in focus as Lines in Focus puts them.
+    private func focusTouched(_ node: String, in state: String) {
+        guard let last = lastTyped, last.node == node, last.state == state else {
+            said = "Type in the code first: the lines the caret is on go in focus"
+            return
+        }
+        perform {
+            guard let code = try editor.session.carets(state: state, node: node)?.code else {
+                said = "Only code has lines in focus"
+                return
+            }
+            let (first, end) = (last.first + code.from, last.last + code.from)
+            focusLines(node, in: state, said: first == end ? "\(first)" : "\(first)–\(end)")
+        }
+    }
+
+    /// The paragraphs of the text typed in that the caret or the selection touches as typing
+    /// stands, first to last, counted as the browser counts them: any text, so typing in another
+    /// after code leaves the code's lines no longer the last touched.
+    private var typedLines: TypedLines? {
+        guard let typing, let node = typing.node, let state = typing.state, let carets = typing.carets else {
+            return nil
+        }
+        let (first, last) = carets.touched(from: typing.from, to: typing.to)
+        return TypedLines(node: node, state: state, first: first, last: last)
+    }
+
+    /// Why `node` in `state` takes no edit from a command where it, or what holds it, is locked,
+    /// as Delete says it; none where it takes one.
+    private func lockedSaid(_ node: String, in state: String) -> String? {
+        let boxes = (try? editor.session.boxes(state: state)) ?? []
+        guard let held = boxes.first(where: { $0.node == node && $0.locked != nil }), let holder = held.locked else {
+            return nil
+        }
+        return holder == held.node ? "It is locked: ⌘L unlocks it" : "What holds it is locked: unlock that first"
+    }
+
+    /// Walk Through Lines… on code text `node` (PLAN 2.140): the lines each step shows, asked as the
+    /// browser asks them, apart by semicolons and from the whole block to the whole block.
+    private func askWalk(_ node: String, in state: String) {
+        if let refused = lockedSaid(node, in: state) {
+            said = refused
+            return
+        }
+        perform {
+            guard let carets = try editor.session.carets(state: state, node: node), let code = carets.code else {
+                said = "Only code is walked through"
+                return
+            }
+            let all = "\(code.from)–\(code.from + carets.paragraphs.count - 1)"
+            walkAsked = WalkAsk(node: node, state: state, all: all, edits: editor.edits, words: "\(all); \(all)")
+        }
+    }
+
+    /// The walk asked for, made: one patch, its state the first step and a step after it for each
+    /// set of lines after the first; one step of undo.
+    private func walk(_ asked: WalkAsk) {
+        // Asked of the deck as it stood: changed since, by the assistant or an edit elsewhere, its
+        // code may be other code under the same name, so it is asked again.
+        guard asked.edits == editor.edits else {
+            said = "The deck changed while the lines were asked: walk through them again"
+            return
+        }
+        if let refused = lockedSaid(asked.node, in: asked.state) {
+            said = refused
+            return
+        }
+        // Each step's lines apart by semicolons, a step of none the whole block, as the browser
+        // reads them; an answer of none at all walks through nothing.
+        let steps = asked.words.split(separator: ";", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard steps.contains(where: { !$0.isEmpty }) else {
+            said = "Not walked through"
+            return
+        }
+        perform {
+            let patch = try editor.session.walking(state: asked.state, node: asked.node, steps: steps)
+            guard !patch.isEmpty else {
+                said = "Walked through already: no step added"
+                return
+            }
+            let added = patch.filter { $0["op"] == "add_state" }.count
+            try document.make(patch, undo: undo, named: "Walk Through Lines")
+            said = "Walked through: \(added) \(added == 1 ? "step" : "steps") added"
         }
     }
 
@@ -2482,6 +2621,27 @@ struct RestateBar: View {
 
 /// An export being made away from the window (lift-up PERF-3): which one, and what the window says
 /// of it while it is made.
+/// Walk Through Lines… asked for code text `node` in `state` (PLAN 2.140): `all`, its whole block
+/// in its gutter's numbers, and the words typed, each step's lines apart by semicolons.
+struct WalkAsk {
+    let node: String
+    let state: String
+    let all: String
+    /// The deck's edits when it was asked: a walk is made only on the deck as it was then.
+    let edits: Int
+    var words: String
+}
+
+/// The paragraphs of text `node` the caret or the selection touched as it was last typed in on
+/// `state`, first to last, counted from 0 (PLAN 2.140): where it is code, what Focus on These Lines
+/// numbers by the block's first line number as it runs and puts in focus.
+struct TypedLines: Equatable {
+    let node: String
+    let state: String
+    let first: Int
+    let last: Int
+}
+
 struct MakingExport: Identifiable {
     let id: UUID
     let said: String

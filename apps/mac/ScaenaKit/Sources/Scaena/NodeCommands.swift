@@ -59,6 +59,11 @@ struct DeckActions {
     var makeCode: (() -> Void)? = nil
     var notCode: (() -> Void)? = nil
     var tidyCode: (() -> Void)? = nil
+    /// Put the lines of the code selected that the caret is on in focus, show every line again, or
+    /// walk through its lines a step at a time (PLAN 2.140).
+    var focusLines: (() -> Void)? = nil
+    var clearFocus: (() -> Void)? = nil
+    var walkLines: (() -> Void)? = nil
     /// Hold Only on This Slide, or let it go (lift-up FUNC-4): each gesture kept to the slide shown,
     /// as Option keeps one; and whether it is held. A long press offers it where there is no key.
     var keepToSlide: (() -> Void)? = nil
@@ -195,6 +200,12 @@ struct NodeCommands: Commands {
                 .disabled(deck?.notCode == nil)
             Button("Tidy Code") { deck?.tidyCode?() }
                 .disabled(deck?.tidyCode == nil)
+            Button("Focus on These Lines") { deck?.focusLines?() }
+                .disabled(deck?.focusLines == nil)
+            Button("Clear Focus") { deck?.clearFocus?() }
+                .disabled(deck?.clearFocus == nil)
+            Button("Walk Through Lines…") { deck?.walkLines?() }
+                .disabled(deck?.walkLines == nil)
             Divider()
             Button("Duplicate") { deck?.duplicate?() }
                 .keyboardShortcut(MenuKey.duplicate.key, modifiers: MenuKey.duplicate.modifiers)

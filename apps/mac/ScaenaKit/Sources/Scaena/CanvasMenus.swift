@@ -47,6 +47,12 @@ enum CanvasOffer {
             code.append(.action("Copy Code", symbol: "chevron.left.forwardslash.chevron.right", run: copyCode))
         }
         if let tidyCode = deck.tidyCode { code.append(.action("Tidy Code", symbol: "text.alignleft", run: tidyCode)) }
+        // Its lines in focus, and a walk through them a step at a time (PLAN 2.140).
+        if let focusLines = deck.focusLines {
+            code.append(.action("Focus on These Lines", symbol: "text.line.first.and.arrowtriangle.forward", run: focusLines))
+        }
+        if let clearFocus = deck.clearFocus { code.append(.action("Clear Focus", symbol: "text.justify", run: clearFocus)) }
+        if let walkLines = deck.walkLines { code.append(.action("Walk Through Lines…", symbol: "list.number", run: walkLines)) }
         if let notCode = deck.notCode { code.append(.action("Not Code", symbol: "textformat", run: notCode)) }
         if !code.isEmpty { offers.append(.menu("Code", symbol: "curlybraces", code)) }
         offers.append(.divider)

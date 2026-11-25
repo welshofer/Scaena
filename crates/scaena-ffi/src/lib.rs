@@ -2033,6 +2033,10 @@ fn call(s: &mut Session, method: &str, args: &Value) -> Result<Value, Failure> {
         "coding" => json!(s.coding(arg("node")?, optional("language")).map_err(said)?),
         "uncoding" => json!(s.uncoding(arg("node")?).map_err(said)?),
         "tidying" => json!(s.tidying(arg("state")?, arg("node")?).map_err(said)?),
+        // A walkthrough of code (PLAN 2.140): its lines in focus, by the gutter's numbers, none
+        // said showing every line; and a step for each set of lines after the first.
+        "focusing" => json!(s.focusing(arg("state")?, arg("node")?, optional("said").unwrap_or("")).map_err(said)?),
+        "walking" => json!(s.walking(arg("state")?, arg("node")?, &strings("steps")?).map_err(said)?),
         // A key in a code text, as a code editor answers it (PLAN 2.139): `{ text, from, to }`,
         // offsets in UTF-16 code units, or null for a key code does not answer; `language`, if
         // given, the text's, so a Makefile's stop is a tab.
