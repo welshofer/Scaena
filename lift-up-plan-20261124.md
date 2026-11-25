@@ -136,3 +136,16 @@ Shipped: PR #1360, not merged; merging waits on your review and CI. Deployment: 
 | FUNC-1 | blocked | 2 | WIP at `refs/wip/lift-up-20261124-FUNC-1`, not committed | Before the change, the C ABI answered "`walking` is not a call this library answers" (its fallback arm). Now FFI's `code_is_walked_through_as_the_browser_walks_it` and ScaenaKit's `aWalkThroughAddsAStepForEachRange` pass: a walk adds a step for each set of lines after the first, lines are set in focus, Clear Focus works, a step past the last line is refused, and undo restores the deck. `scaena-ffi`'s 65 tests and all 281 ScaenaKit tests pass. Clippy, fmt, and the changed Swift files recompiled with no warning. | rejected twice. The first review found Focus on These Lines unreachable while typing, a walk that could apply after the deck changed, locks bypassed, CR/CRLF line counting, empty steps dropped, and an empty patch still made. The second found two left: a line kept in gutter numbers focuses the wrong one once the block is renumbered, and typing prose after code leaves the code's old lines offered. To finish: keep the touched lines as paragraph indices, add `code.from` when the command runs, and remember the last text typed whatever it is |
 
 Shipped by run 3: STAB-1, in PR #1360, not merged. FUNC-1's acceptance tests pass at its WIP, but it was not accepted. No CI has run on the PR: the repo's last Actions run was on 2026-11-22. Deployment: none. PLAN 2.140 stays unchecked, since its `window.sh` code-walk shot was not made here.
+
+## Burn-down manifest, run 4 (4f0ed207), 2026-11-25 00:32 UTC
+
+> Grant: after run 3 blocked FUNC-1, the user chose "New run: make the two fixes, re-review, and add FUNC-1 to the PR". Contract r4 holds FUNC-1 alone, with run 3's review findings in its acceptance. Default limits. The same PR; no merge or deploy.
+> Executor: Claude Opus 5.5. Reviewer: the same read-only `code-review` agent as run 3, asked for `gpt-6.2-astra`, which the host's status reports. Native gate: Xcode 27.2's toolchain, as in run 3.
+
+| Item | State | Reworks | Commit | Acceptance evidence | Review |
+|---|---|---|---|---|---|
+| FUNC-1 | pr-open | 0 | `36e720e` | Run 3's WIP, plus Focus on These Lines' touched lines kept as paragraph indices and numbered by the block's first line number when the command runs, and the last text typed remembered whatever it is. The FFI and ScaenaKit walk tests pass, as do `scaena-ffi`'s 65 tests and all 281 ScaenaKit tests. Clippy, fmt, and the changed Swift files recompiled with no warning. | approved |
+
+Combined tree (wrapped receipt at 00:40 UTC): 173 Rust tests pass and none fail across `scaena-ffi`, `scaena-mcp`, `scaena-sources` (pdf), and `scaena-generator`, with clippy `-D warnings` on seven crates, wasm32 clippy of the generator, and fmt. All 281 ScaenaKit tests pass at FUNC-1's digest, STAB-1 included.
+
+Shipped: all five items (REL-1, SEC-1, PERF-1, STAB-1, FUNC-1) are in PR #1360, not merged; merging waits on your review. CI cannot run on it: `ci.yml` is disabled in the repository ("Cannot trigger a 'workflow_dispatch' on a disabled workflow"), so no Linux, wasm, or iPad job has checked it; this run did not re-enable it. Deployment: none. PLAN 2.140 stays unchecked: its `window.sh` code-walk shot was not made.
