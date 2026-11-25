@@ -34,8 +34,7 @@ on:
       - ".github/workflows/bench.yml"
   # On main, a manual run records like the weekly one: a few of them fill a new runner's history.
   workflow_dispatch:
-  schedule:
-    - cron: "41 7 * * 1"
+  # No schedule: Jay halted every scheduled run of this repository. Run it by hand (workflow_dispatch).
 concurrency:
   # Main's runs one at a time, each recording into the history the one before it left.
   # Another label is a run of its own that does nothing, so it must not cancel one that times.
