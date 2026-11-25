@@ -2419,6 +2419,71 @@ async fn deck_generate_fills_the_blank_bundle_deck_create_made() {
     client.cancel().await.unwrap();
 }
 
+/// Filling the bundle deck_create made writes over a bundle that holds something, so it holds the
+/// bundle from its read to its write, as every tool that writes one does (the 20261024 plan's
+/// REL-2; lift-up 20261124 REL-1). Sources attached at the same time each land: before the fill,
+/// which keeps them, or after it, on the deck it made. None is written over.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fill_and_attaches_made_at_once_each_land() {
+    fill_and_attaches_at_once("fill-at-once").await;
+}
+
+/// The same on a runtime of two blocking threads, as a busy server's pool may come to: the fill
+/// takes the bundle on the thread it writes on, so attaches waiting for the bundle never hold every
+/// thread the fill needs to let it go (the review of lift-up 20261124 REL-1).
+#[test]
+fn a_fill_holds_the_bundle_on_the_thread_it_writes_on() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .max_blocking_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    // The timeout is made inside the runtime, whose clock it reads.
+    let done = runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(60), fill_and_attaches_at_once("fill-two-threads")).await
+    });
+    // Shut down, not dropped: a drop would wait for good on a thread still waiting for the bundle.
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    assert!(done.is_ok(), "a fill and attaches made at once waited on each other for good");
+}
+
+async fn fill_and_attaches_at_once(test: &str) {
+    let dir = scratch(test);
+    let (slides, csv) = toitures();
+    let client = connect_in(&dir).await;
+    let toits = path(&dir.join("toitures"));
+    ok(&client, "deck_create", json!({ "bundle": toits, "theme": "salon", "title": "Toitures" })).await;
+    let ids: Vec<String> = (0..6).map(|i| format!("extra{i}")).collect();
+    for id in &ids {
+        std::fs::write(dir.join(format!("{id}.csv")), csv).unwrap();
+    }
+    let spawn = |tool: &str, args: Value| {
+        let (peer, tool, args) = (client.peer().clone(), tool.to_string(), args.as_object().unwrap().clone());
+        tokio::spawn(
+            async move { peer.call_tool(CallToolRequestParams::new(tool).with_arguments(args)).await.unwrap() },
+        )
+    };
+    let fill = spawn("deck_generate", json!({ "bundle": toits, "language": "French", "slides": slides }));
+    let attaches: Vec<_> = (ids.iter())
+        .map(|id| {
+            let file = path(&dir.join(format!("{id}.csv")));
+            spawn("data_attach", json!({ "bundle": toits, "id": id, "file": file }))
+        })
+        .collect();
+    let filled = fill.await.unwrap();
+    assert_ne!(filled.is_error, Some(true), "{}", text(&filled));
+    for attach in attaches {
+        let done = attach.await.unwrap();
+        assert_ne!(done.is_error, Some(true), "{}", text(&done));
+    }
+    let d: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("toitures/deck.json")).unwrap()).unwrap();
+    assert!(d["states"].as_array().unwrap().len() >= 5, "the slides written: {:#}", d["states"]);
+    let lost: Vec<&String> = ids.iter().filter(|id| d["data"].get(id.as_str()).is_none()).collect();
+    assert!(lost.is_empty(), "attaches said they were made, and the deck lacks {lost:?}: {:#}", d["data"]);
+    client.cancel().await.unwrap();
+}
+
 /// W1's dogfood 19: a paper's results asked for as "Table", two series of figures by quartier,
 /// fell to a one-line list: no layout was called that, and the table was not drawn at all. It
 /// takes the library's Table layout, a table of its figures, a row for each quartier and a

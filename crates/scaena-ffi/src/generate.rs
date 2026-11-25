@@ -380,14 +380,16 @@ impl Generating {
                 // (`meta.narrative.sources`): what a slide cites, and what the Story offers a
                 // figure no source backs (W1's dogfood 5).
                 let language = generation.brief().language.clone();
+                // The words each PDF draws, read once: each source's figures, and what the notes
+                // may say the figures of (W1's dogfood 17; lift-up 20261124 PERF-1).
+                let (pdfs, _) = scaena_sources::pdf::read(&self.sources);
                 generation.give_sources(scaena_ops::narrative::provenance(
                     &ground.given,
                     &self.sources,
-                    &scaena_sources::pdf::each(&self.sources),
+                    &pdfs,
                     language.as_deref(),
                 ));
-                // The words each PDF draws, whose figures the notes may say (W1's dogfood 17).
-                generation.hold(&scaena_sources::pdf::held(&self.sources).0);
+                generation.hold(&scaena_sources::pdf::joined(&pdfs));
                 if let Some(arc) = args.get("arc").and_then(Value::as_str).filter(|a| !a.is_empty()) {
                     generation.choose_arc(Some(arc));
                 }

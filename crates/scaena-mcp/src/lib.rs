@@ -2061,40 +2061,47 @@ impl Scaena {
         // A new bundle has no folder yet: the theme is read under this server's own, as
         // deck_create reads one.
         let bundle = self.new_bundle(&a.bundle).map_err(failure)?;
-        // A bundle deck_create made, its blank slide alone, is filled in its own theme (W1's
-        // dogfood 19), and given in another, refused.
-        let mut blank = scaena_ops::narrative::fillable(&bundle).map_err(failure)?;
-        let (theme, within) = match &blank {
-            Some(b) => {
-                let file = b.bundle.root.join(&b.theme);
-                let named = |t: &str| t.trim_end_matches(".json").trim_end_matches(".theme").to_lowercase();
-                let own = named(&b.theme.file_name().unwrap_or_default().to_string_lossy());
-                if let Some(asked) = a.theme.as_deref()
-                    && named(Path::new(asked).file_name().map_or(asked.into(), |n| n.to_string_lossy()).as_ref()) != own
-                {
-                    return Err(failure(OpsError::new(format!(
-                        "`{}` was made in {own}: deck_generate fills it in its own theme, so leave `theme` out or give `{own}`",
-                        a.bundle
-                    ))));
-                }
-                (file, Some(b.bundle.root.clone()))
-            }
-            None => self.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle).map_err(failure)?,
-        };
-        if let Some(b) = &mut blank {
-            b.bundle.author = author.clone();
-        }
-        // Each data file is held as `deck_create` holds one (lift-up 20261025b SEC-1).
-        let mut data = a.data;
-        for d in &mut data {
-            d.file = self.readable(&d.file, &a.bundle).map_err(failure)?;
-        }
-        // Each source held before anything is read or asked of the web (agent dogfood 3).
-        let held = self.sources_held(&a.sources, &a.bundle).map_err(|message| failure(OpsError::new(message)))?;
-        let reader = self.sourcing.0.clone();
+        let this = self.clone();
         blocking(move || {
+            // Held from the read of a bundle deck_create made to the write over it, as every tool
+            // that writes a bundle holds it, and taken on the thread that writes, as `open_by`
+            // takes it, so the holder never waits for a blocking thread that waiters fill: a call
+            // made on the bundle at the same time lands before the fill or after it, never under
+            // it (lift-up 20261124 REL-1).
+            let _hold = writing(&bundle).blocking_lock_owned();
+            // A bundle deck_create made, its blank slide alone, is filled in its own theme (W1's
+            // dogfood 19), and given in another, refused.
+            let mut blank = scaena_ops::narrative::fillable(&bundle)?;
+            let (theme, within) = match &blank {
+                Some(b) => {
+                    let file = b.bundle.root.join(&b.theme);
+                    let named = |t: &str| t.trim_end_matches(".json").trim_end_matches(".theme").to_lowercase();
+                    let own = named(&b.theme.file_name().unwrap_or_default().to_string_lossy());
+                    if let Some(asked) = a.theme.as_deref()
+                        && named(Path::new(asked).file_name().map_or(asked.into(), |n| n.to_string_lossy()).as_ref())
+                            != own
+                    {
+                        return Err(OpsError::new(format!(
+                            "`{}` was made in {own}: deck_generate fills it in its own theme, so leave `theme` out or give `{own}`",
+                            a.bundle
+                        )));
+                    }
+                    (file, Some(b.bundle.root.clone()))
+                }
+                None => this.theme_readable(a.theme.as_deref().unwrap_or("dusk"), &a.bundle)?,
+            };
+            if let Some(b) = &mut blank {
+                b.bundle.author = author.clone();
+            }
+            // Each data file is held as `deck_create` holds one (lift-up 20261025b SEC-1).
+            let mut data = a.data;
+            for d in &mut data {
+                d.file = this.readable(&d.file, &a.bundle)?;
+            }
+            // Each source held before anything is read or asked of the web (agent dogfood 3).
+            let held = this.sources_held(&a.sources, &a.bundle).map_err(OpsError::new)?;
             let theme = scaena_ops::create::ThemeSource::of(&theme)?.within(within);
-            let grounds = read_sources(held, reader.as_ref())?;
+            let grounds = read_sources(held, this.sourcing.0.as_ref())?;
             let data = (data.into_iter())
                 .map(|d| {
                     let bytes = std::fs::read(&d.file)

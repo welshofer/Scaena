@@ -112,6 +112,8 @@ public struct ThemeText: Decodable, Sendable, Equatable {
         text = try fields.decode(String.self, forKey: .text)
         json = ParsedTheme.shared.json(of: text).json
     }
+
+    public static func == (a: ThemeText, b: ThemeText) -> Bool { a.theme == b.theme && a.text == b.text }
 }
 
 /// The theme last parsed, by its text: the inspector reads the theme on every edit and the layout
@@ -129,8 +131,6 @@ final class ParsedTheme: Sendable {
         last.withLock { $0 = (text, json) }
         return (json, true)
     }
-
-    public static func == (a: ThemeText, b: ThemeText) -> Bool { a.theme == b.theme && a.text == b.text }
 }
 
 /// What a re-theme did, as `scaena theme --apply` says it (PLAN 2.39).

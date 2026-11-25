@@ -1262,6 +1262,36 @@ fn code_keys_and_commands_make_the_browsers_edit() {
     unsafe { scaena_session_free(s) };
 }
 
+/// A walkthrough of code from the Mac and the iPad (PLAN 2.140, lift-up 20261124 FUNC-1), as the
+/// browser's editor makes it: a step for each set of lines after the first, one patch; the lines
+/// in focus set by the gutter's numbers, none already so where they are; and a step past the
+/// code's last line refused, naming the step.
+#[test]
+fn code_is_walked_through_as_the_browser_walks_it() {
+    let s = open(B1);
+    let made = call(s, "coding", json!({ "node": "title", "language": "rust" }));
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": made }))["edited"], true, "{made}");
+    let chars =
+        call(s, "carets", json!({ "state": "cover", "node": "title" }))["text"].as_str().unwrap().chars().count();
+    let op = json!({ "op": "replace_text", "node": "title", "state": "cover", "from": chars, "to": chars, "text": "\nfn a() {}\nfn b() {}" });
+    assert_eq!(call(s, "typed", json!({ "ops": [op] })), true);
+    let walk = call(s, "walking", json!({ "state": "cover", "node": "title", "steps": ["1–3", "2", "3"] }));
+    let added = walk.as_array().unwrap().iter().filter(|op| op["op"] == "add_state").count();
+    assert_eq!(added, 2, "{walk}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": walk }))["edited"], true, "{walk}");
+    let focus = call(s, "focusing", json!({ "state": "cover", "node": "title", "said": "2–3" }));
+    assert!(focus.as_array().is_some_and(|ops| !ops.is_empty()), "{focus}");
+    assert_eq!(tool(s, "deck_patch", json!({ "ops": focus }))["edited"], true, "{focus}");
+    assert_eq!(call(s, "focusing", json!({ "state": "cover", "node": "title", "said": "2–3" })), json!([]));
+    let cleared = call(s, "focusing", json!({ "state": "cover", "node": "title" }));
+    assert!(cleared.as_array().is_some_and(|ops| !ops.is_empty()), "{cleared}");
+    let past = json!({ "state": "cover", "node": "title", "steps": ["1–3", "9"] });
+    let refused = answered(s, "walking", &past);
+    let why = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(why.starts_with("Step 2"), "a step past the last line names it: {refused}");
+    unsafe { scaena_session_free(s) };
+}
+
 /// A text's characters (PLAN 3.10), as the browser's editor gives them (PLAN 2.38, 2.69, 2.70):
 /// what the inspector offers for them, a link given them and found where it is drawn, and their
 /// paragraphs made a list's items.
